@@ -1,0 +1,3 @@
+app_name=SetupCraft
+ok=OK
+search_btn=🔍 Recherche
