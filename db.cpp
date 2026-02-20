@@ -1,0 +1,172 @@
+#include "db.h"
+#include <windows.h>
+#include <string>
+#include <vector>
+#include <sstream>
+#include <ctime>
+
+// sqlite3 function pointers
+typedef int (*sqlite3_open_v2_t)(const char*, void**, int, const char*);
+typedef int (*sqlite3_close_t)(void*);
+typedef int (*sqlite3_exec_t)(void*, const char*, int (*)(void*,int,char**,char**), void*, char**);
+typedef int (*sqlite3_prepare_v2_t)(void*, const char*, int, void**, const char**);
+typedef int (*sqlite3_step_t)(void*);
+typedef int (*sqlite3_finalize_t)(void*);
+typedef int (*sqlite3_bind_text_t)(void*, int, const char*, int, void(*)(void*));
+typedef long long (*sqlite3_last_insert_rowid_t)(void*);
+typedef const char* (*sqlite3_errmsg_t)(void*);
+typedef const unsigned char* (*sqlite3_column_text_t)(void*, int);
+typedef long long (*sqlite3_column_int64_t)(void*, int);
+
+static HMODULE g_sqlite = NULL;
+static sqlite3_open_v2_t p_open = NULL;
+static sqlite3_close_t p_close = NULL;
+static sqlite3_exec_t p_exec = NULL;
+static sqlite3_prepare_v2_t p_prepare = NULL;
+static sqlite3_step_t p_step = NULL;
+static sqlite3_finalize_t p_finalize = NULL;
+static sqlite3_bind_text_t p_bind_text = NULL;
+static sqlite3_last_insert_rowid_t p_last_insert = NULL;
+static sqlite3_errmsg_t p_errmsg = NULL;
+static sqlite3_column_text_t p_col_text = NULL;
+static sqlite3_column_int64_t p_col_int64 = NULL;
+
+static std::string WToUtf8(const std::wstring &w) {
+    if (w.empty()) return {};
+    int sz = WideCharToMultiByte(CP_UTF8, 0, w.c_str(), -1, NULL, 0, NULL, NULL);
+    if (sz <= 0) return {};
+    std::string out(sz-1, '\0');
+    WideCharToMultiByte(CP_UTF8, 0, w.c_str(), -1, &out[0], sz, NULL, NULL);
+    return out;
+}
+
+static std::wstring Utf8ToW(const std::string &s) {
+    if (s.empty()) return {};
+    int required = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), NULL, 0);
+    if (required == 0) return {};
+    std::wstring out(required, 0);
+    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), &out[0], required);
+    return out;
+}
+
+static bool LoadSqlite(const std::wstring &dllPath) {
+    if (g_sqlite) return true;
+    g_sqlite = LoadLibraryW(dllPath.c_str());
+    if (!g_sqlite) return false;
+    p_open = (sqlite3_open_v2_t)GetProcAddress(g_sqlite, "sqlite3_open_v2");
+    p_close = (sqlite3_close_t)GetProcAddress(g_sqlite, "sqlite3_close");
+    p_exec = (sqlite3_exec_t)GetProcAddress(g_sqlite, "sqlite3_exec");
+    p_prepare = (sqlite3_prepare_v2_t)GetProcAddress(g_sqlite, "sqlite3_prepare_v2");
+    p_step = (sqlite3_step_t)GetProcAddress(g_sqlite, "sqlite3_step");
+    p_finalize = (sqlite3_finalize_t)GetProcAddress(g_sqlite, "sqlite3_finalize");
+    p_bind_text = (sqlite3_bind_text_t)GetProcAddress(g_sqlite, "sqlite3_bind_text");
+    p_last_insert = (sqlite3_last_insert_rowid_t)GetProcAddress(g_sqlite, "sqlite3_last_insert_rowid");
+    p_errmsg = (sqlite3_errmsg_t)GetProcAddress(g_sqlite, "sqlite3_errmsg");
+    p_col_text = (sqlite3_column_text_t)GetProcAddress(g_sqlite, "sqlite3_column_text");
+    p_col_int64 = (sqlite3_column_int64_t)GetProcAddress(g_sqlite, "sqlite3_column_int64");
+    return p_open && p_close && p_exec && p_prepare && p_step && p_finalize && p_last_insert && p_errmsg && p_col_text && p_col_int64;
+}
+
+static std::wstring GetAppDataDbPath() {
+    wchar_t buf[MAX_PATH];
+    DWORD len = GetEnvironmentVariableW(L"APPDATA", buf, _countof(buf));
+    if (len == 0 || len > _countof(buf)) return L"";
+    std::wstring dir(buf);
+    dir += L"\\SetupCraft";
+    DWORD attrs = GetFileAttributesW(dir.c_str());
+    if (attrs == INVALID_FILE_ATTRIBUTES) {
+        CreateDirectoryW(dir.c_str(), NULL);
+    }
+    std::wstring db = dir + L"\\SetupCraft.db";
+    return db;
+}
+
+bool DB::InitDb() {
+    // Try to load sqlite3.dll from exe-directory sqlite3 subfolder
+    wchar_t exePath[MAX_PATH];
+    if (!GetModuleFileNameW(NULL, exePath, _countof(exePath))) return false;
+    wchar_t *p = wcsrchr(exePath, L'\\'); if (!p) return false; *p = 0;
+    std::wstring dllPath = std::wstring(exePath) + L"\\sqlite3\\sqlite3.dll";
+    if (!LoadSqlite(dllPath)) {
+        // try mingw_dlls
+        dllPath = std::wstring(exePath) + L"\\mingw_dlls\\sqlite3.dll";
+        if (!LoadSqlite(dllPath)) return false;
+    }
+
+    std::wstring dbPath = GetAppDataDbPath();
+    std::string dbPathUtf8 = WToUtf8(dbPath);
+
+    void *db = NULL;
+    int flags = 0x00000002 /*SQLITE_OPEN_READWRITE*/ | 0x00000004 /*SQLITE_OPEN_CREATE*/ | 0x00000008 /*SQLITE_OPEN_URI*/;
+    if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) {
+        return false;
+    }
+
+    // create table if not exists
+    const char *create = "CREATE TABLE IF NOT EXISTS projects (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, directory TEXT NOT NULL, last_updated INTEGER);";
+    char *errmsg = NULL;
+    if (p_exec(db, create, NULL, NULL, &errmsg) != 0) {
+        // ignore
+    }
+    p_close(db);
+    return true;
+}
+
+bool DB::InsertProject(const std::wstring &name, const std::wstring &directory, int &outId) {
+    outId = -1;
+    std::wstring dbPath = GetAppDataDbPath();
+    std::string dbPathUtf8 = WToUtf8(dbPath);
+    void *db = NULL;
+    int flags = 0x00000002 /*SQLITE_OPEN_READWRITE*/ | 0x00000004 /*SQLITE_OPEN_CREATE*/;
+    if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return false;
+
+    const char *sql = "INSERT INTO projects (name, directory, last_updated) VALUES (?, ?, ?);";
+    void *stmt = NULL;
+    if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return false; }
+    std::string n = WToUtf8(name);
+    std::string d = WToUtf8(directory);
+    time_t now = time(NULL);
+    if (p_bind_text) p_bind_text(stmt, 1, n.c_str(), -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 2, d.c_str(), -1, NULL);
+    // bind third as text of epoch
+    std::ostringstream os; os << (long long)now;
+    std::string sEpoch = os.str();
+    if (p_bind_text) p_bind_text(stmt, 3, sEpoch.c_str(), -1, NULL);
+
+    int rc = p_step(stmt);
+    (void)rc;
+    if (p_finalize) p_finalize(stmt);
+    if (p_last_insert) {
+        long long id = p_last_insert(db);
+        outId = (int)id;
+    }
+    p_close(db);
+    return true;
+}
+
+std::vector<ProjectRow> DB::ListProjects() {
+    std::vector<ProjectRow> out;
+    std::wstring dbPath = GetAppDataDbPath();
+    std::string dbPathUtf8 = WToUtf8(dbPath);
+    void *db = NULL;
+    int flags = 0x00000002 /*SQLITE_OPEN_READWRITE*/ | 0x00000004 /*SQLITE_OPEN_CREATE*/;
+    if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return out;
+
+    const char *sql = "SELECT id, name, directory, last_updated FROM projects ORDER BY last_updated DESC;";
+    void *stmt = NULL;
+    if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return out; }
+    while (p_step(stmt) == 100 /*SQLITE_ROW*/) {
+        ProjectRow r;
+        r.id = (int)p_col_int64(stmt, 0);
+        const unsigned char *t0 = p_col_text(stmt, 1);
+        const unsigned char *t1 = p_col_text(stmt, 2);
+        const unsigned char *t2 = p_col_text(stmt, 3);
+        r.name = Utf8ToW(t0 ? (const char*)t0 : "");
+        r.directory = Utf8ToW(t1 ? (const char*)t1 : "");
+        r.last_updated = t2 ? atoll((const char*)t2) : 0;
+        out.push_back(r);
+    }
+    if (p_finalize) p_finalize(stmt);
+    p_close(db);
+    return out;
+}
