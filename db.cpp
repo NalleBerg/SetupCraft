@@ -4,6 +4,7 @@
 #include <vector>
 #include <sstream>
 #include <ctime>
+#include <cstdio>
 
 // sqlite3 function pointers
 typedef int (*sqlite3_open_v2_t)(const char*, void**, int, const char*);
@@ -102,17 +103,80 @@ bool DB::InitDb() {
         return false;
     }
 
-    // create table if not exists
-    const char *create = "CREATE TABLE IF NOT EXISTS projects (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, directory TEXT NOT NULL, last_updated INTEGER);";
+    // create tables if not exists
+    const char *createProjects = "CREATE TABLE IF NOT EXISTS projects (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, directory TEXT NOT NULL, description TEXT, lang TEXT, version TEXT, created INTEGER, last_updated INTEGER);";
+    const char *createSettings = "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);";
     char *errmsg = NULL;
-    if (p_exec(db, create, NULL, NULL, &errmsg) != 0) {
+    if (p_exec(db, createProjects, NULL, NULL, &errmsg) != 0) {
         // ignore
     }
+    if (p_exec(db, createSettings, NULL, NULL, &errmsg) != 0) {
+        // ignore
+    }
+    
+    // Check if projects table is empty, if so add SetupCraft project
+    const char *countSql = "SELECT COUNT(*) FROM projects;";
+    void *stmt = NULL;
+    if (p_prepare(db, countSql, -1, &stmt, NULL) == 0) {
+        if (p_step(stmt) == 100 /*SQLITE_ROW*/) {
+            long long count = p_col_int64(stmt, 0);
+            if (count == 0) {
+                // Insert SetupCraft project
+                if (p_finalize) p_finalize(stmt);
+                
+                // Get current exe directory
+                wchar_t exePath[MAX_PATH];
+                if (GetModuleFileNameW(NULL, exePath, _countof(exePath))) {
+                    wchar_t *p2 = wcsrchr(exePath, L'\\');
+                    if (p2) {
+                        *p2 = 0;
+                        std::wstring projectDir(exePath);
+                        
+                        const char *insertSql = "INSERT INTO projects (name, directory, description, lang, version, created, last_updated) VALUES (?, ?, ?, ?, ?, ?, ?);";
+                        void *insertStmt = NULL;
+                        if (p_prepare(db, insertSql, -1, &insertStmt, NULL) == 0) {
+                            time_t now = time(NULL);
+                            std::string sNow;
+                            { std::ostringstream os; os << (long long)now; sNow = os.str(); }
+                            
+                            // Generate version string YYYY.MM.DD.HH
+                            struct tm *timeinfo = localtime(&now);
+                            char versionBuf[32];
+                            sprintf(versionBuf, "%04d.%02d.%02d.%02d", 
+                                timeinfo->tm_year + 1900, timeinfo->tm_mon + 1, 
+                                timeinfo->tm_mday, timeinfo->tm_hour);
+                            
+                            const char *name = "SetupCraft";
+                            std::string dir = WToUtf8(projectDir);
+                            const char *desc = "Setup project installer creator";
+                            const char *lang = "no_NB";
+                            
+                            p_bind_text(insertStmt, 1, name, -1, NULL);
+                            p_bind_text(insertStmt, 2, dir.c_str(), -1, NULL);
+                            p_bind_text(insertStmt, 3, desc, -1, NULL);
+                            p_bind_text(insertStmt, 4, lang, -1, NULL);
+                            p_bind_text(insertStmt, 5, versionBuf, -1, NULL);
+                            p_bind_text(insertStmt, 6, sNow.c_str(), -1, NULL);
+                            p_bind_text(insertStmt, 7, sNow.c_str(), -1, NULL);
+                            
+                            p_step(insertStmt);
+                            if (p_finalize) p_finalize(insertStmt);
+                        }
+                    }
+                }
+            } else {
+                if (p_finalize) p_finalize(stmt);
+            }
+        } else {
+            if (p_finalize) p_finalize(stmt);
+        }
+    }
+    
     p_close(db);
     return true;
 }
 
-bool DB::InsertProject(const std::wstring &name, const std::wstring &directory, int &outId) {
+bool DB::InsertProject(const std::wstring &name, const std::wstring &directory, const std::wstring &description, const std::wstring &lang, const std::wstring &version, int &outId) {
     outId = -1;
     std::wstring dbPath = GetAppDataDbPath();
     std::string dbPathUtf8 = WToUtf8(dbPath);
@@ -120,18 +184,25 @@ bool DB::InsertProject(const std::wstring &name, const std::wstring &directory, 
     int flags = 0x00000002 /*SQLITE_OPEN_READWRITE*/ | 0x00000004 /*SQLITE_OPEN_CREATE*/;
     if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return false;
 
-    const char *sql = "INSERT INTO projects (name, directory, last_updated) VALUES (?, ?, ?);";
+    const char *sql = "INSERT INTO projects (name, directory, description, lang, version, created, last_updated) VALUES (?, ?, ?, ?, ?, ?, ?);";
     void *stmt = NULL;
     if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return false; }
     std::string n = WToUtf8(name);
     std::string d = WToUtf8(directory);
+    std::string desc = WToUtf8(description);
+    std::string l = WToUtf8(lang);
+    std::string v = WToUtf8(version);
     time_t now = time(NULL);
     if (p_bind_text) p_bind_text(stmt, 1, n.c_str(), -1, NULL);
     if (p_bind_text) p_bind_text(stmt, 2, d.c_str(), -1, NULL);
-    // bind third as text of epoch
+    if (p_bind_text) p_bind_text(stmt, 3, desc.c_str(), -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 4, l.c_str(), -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 5, v.c_str(), -1, NULL);
+    // bind created and last_updated as text of epoch
     std::ostringstream os; os << (long long)now;
     std::string sEpoch = os.str();
-    if (p_bind_text) p_bind_text(stmt, 3, sEpoch.c_str(), -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 6, sEpoch.c_str(), -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 7, sEpoch.c_str(), -1, NULL);
 
     int rc = p_step(stmt);
     (void)rc;
@@ -152,7 +223,7 @@ std::vector<ProjectRow> DB::ListProjects() {
     int flags = 0x00000002 /*SQLITE_OPEN_READWRITE*/ | 0x00000004 /*SQLITE_OPEN_CREATE*/;
     if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return out;
 
-    const char *sql = "SELECT id, name, directory, last_updated FROM projects ORDER BY last_updated DESC;";
+    const char *sql = "SELECT id, name, directory, description, lang, version, created, last_updated FROM projects ORDER BY last_updated DESC;";
     void *stmt = NULL;
     if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return out; }
     while (p_step(stmt) == 100 /*SQLITE_ROW*/) {
@@ -161,12 +232,67 @@ std::vector<ProjectRow> DB::ListProjects() {
         const unsigned char *t0 = p_col_text(stmt, 1);
         const unsigned char *t1 = p_col_text(stmt, 2);
         const unsigned char *t2 = p_col_text(stmt, 3);
+        const unsigned char *t3 = p_col_text(stmt, 4);
+        const unsigned char *t4 = p_col_text(stmt, 5);
+        const unsigned char *t5 = p_col_text(stmt, 6);
+        const unsigned char *t6 = p_col_text(stmt, 7);
         r.name = Utf8ToW(t0 ? (const char*)t0 : "");
         r.directory = Utf8ToW(t1 ? (const char*)t1 : "");
-        r.last_updated = t2 ? atoll((const char*)t2) : 0;
+        r.description = Utf8ToW(t2 ? (const char*)t2 : "");
+        r.lang = Utf8ToW(t3 ? (const char*)t3 : "");
+        r.version = Utf8ToW(t4 ? (const char*)t4 : "");
+        r.created = t5 ? atoll((const char*)t5) : 0;
+        r.last_updated = t6 ? atoll((const char*)t6) : 0;
         out.push_back(r);
     }
     if (p_finalize) p_finalize(stmt);
     p_close(db);
     return out;
+}
+
+bool DB::GetSetting(const std::wstring &key, std::wstring &outValue) {
+    outValue.clear();
+    std::wstring dbPath = GetAppDataDbPath();
+    std::string dbPathUtf8 = WToUtf8(dbPath);
+    void *db = NULL;
+    int flags = 0x00000002 /*SQLITE_OPEN_READWRITE*/ | 0x00000004 /*SQLITE_OPEN_CREATE*/;
+    if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return false;
+
+    const char *sql = "SELECT value FROM settings WHERE key = ?;";
+    void *stmt = NULL;
+    if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return false; }
+    std::string k = WToUtf8(key);
+    if (p_bind_text) p_bind_text(stmt, 1, k.c_str(), -1, NULL);
+
+    bool found = false;
+    if (p_step(stmt) == 100 /*SQLITE_ROW*/) {
+        const unsigned char *val = p_col_text(stmt, 0);
+        outValue = Utf8ToW(val ? (const char*)val : "");
+        found = true;
+    }
+    if (p_finalize) p_finalize(stmt);
+    p_close(db);
+    return found;
+}
+
+bool DB::SetSetting(const std::wstring &key, const std::wstring &value) {
+    std::wstring dbPath = GetAppDataDbPath();
+    std::string dbPathUtf8 = WToUtf8(dbPath);
+    void *db = NULL;
+    int flags = 0x00000002 /*SQLITE_OPEN_READWRITE*/ | 0x00000004 /*SQLITE_OPEN_CREATE*/;
+    if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return false;
+
+    const char *sql = "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?);";
+    void *stmt = NULL;
+    if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return false; }
+    std::string k = WToUtf8(key);
+    std::string v = WToUtf8(value);
+    if (p_bind_text) p_bind_text(stmt, 1, k.c_str(), -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 2, v.c_str(), -1, NULL);
+
+    int rc = p_step(stmt);
+    (void)rc;
+    if (p_finalize) p_finalize(stmt);
+    p_close(db);
+    return true;
 }

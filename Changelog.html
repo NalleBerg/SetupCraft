@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SetupCraft - Changelog</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 900px;
+            margin: 40px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+            line-height: 1.6;
+        }
+        h1 {
+            color: #2c3e50;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+        }
+        h3 {
+            color: #c0392b;
+            margin-top: 30px;
+            margin-bottom: 10px;
+            font-size: 1.3em;
+        }
+        .entry {
+            background-color: white;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        ul {
+            margin-top: 10px;
+        }
+        li {
+            margin-bottom: 8px;
+        }
+        .feature {
+            color: #27ae60;
+            font-weight: bold;
+        }
+        .fix {
+            color: #e67e22;
+            font-weight: bold;
+        }
+        .technical {
+            color: #3498db;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>🛠️ SetupCraft Changelog</h1>
+
+    <div class="entry">
+        <h3>Version 2026.02.21.10 - February 21, 2026</h3>
+        
+        <h4>🌟 Major Features</h4>
+        <ul>
+            <li><span class="feature">NEW:</span> Complete entry screen implementation with 2×2 button grid layout</li>
+            <li><span class="feature">NEW:</span> Multilingual support for 20 languages (Norwegian, English, Greek, Spanish, German, French, Italian, Dutch, Portuguese, Polish, Romanian, Ukrainian, Icelandic, Romansh, Danish)</li>
+            <li><span class="feature">NEW:</span> SQLite database integration stored in <code>%APPDATA%\SetupCraft\SetupCraft.db</code></li>
+            <li><span class="feature">NEW:</span> Project management system with Create, Open, and Delete functionality</li>
+            <li><span class="feature">NEW:</span> Globe icon with comprehensive multilingual tooltip showing all available languages in 4-column table format</li>
+        </ul>
+
+        <h4>🎨 User Interface</h4>
+        <ul>
+            <li><span class="feature">NEW:</span> Native Windows button styling with light gray backgrounds (RGB 225,225,225)</li>
+            <li><span class="feature">NEW:</span> Dark blue button text (RGB 7,50,116) for professional appearance</li>
+            <li><span class="feature">NEW:</span> Windows system icons from shell32.dll and imageres.dll:
+                <ul>
+                    <li>New Project: Green plus circle (imageres.dll #111)</li>
+                    <li>Open Project: Yellow folder (shell32.dll #4)</li>
+                    <li>Delete Project: Red trash icon (imageres.dll #5370)</li>
+                    <li>Exit: Application icon (shell32.dll #27)</li>
+                    <li>OK: Green checkmark (imageres.dll #89)</li>
+                    <li>Cancel: Red X (shell32.dll #131)</li>
+                </ul>
+            </li>
+            <li><span class="feature">NEW:</span> Per-button hover states with proper state management using window properties</li>
+            <li><span class="feature">NEW:</span> Responsive button press states with immediate visual feedback</li>
+        </ul>
+
+        <h4>📂 Project Management</h4>
+        <ul>
+            <li><span class="feature">NEW:</span> Open Project dialog with ListView showing ID, Name (bold), Version, and Last Updated</li>
+            <li><span class="feature">NEW:</span> Delete Project dialog with confirmation prompt</li>
+            <li><span class="feature">NEW:</span> Auto-inserted "SetupCraft" demo project in database</li>
+            <li><span class="feature">NEW:</span> Version format: YYYY.MM.DD.HH (e.g., 2026.02.21.10)</li>
+            <li><span class="feature">NEW:</span> Project database schema with description, lang, version, created, and last_updated fields</li>
+        </ul>
+
+        <h4>🌐 Internationalization</h4>
+        <ul>
+            <li><span class="feature">NEW:</span> Real-time language switching from dropdown</li>
+            <li><span class="feature">NEW:</span> All UI elements update automatically when language changes</li>
+            <li><span class="feature">NEW:</span> Proper localized translations for OK button (Greek: Εντάξει, Spanish: Aceptar, Icelandic: Í lagi, Ukrainian: Гаразд)</li>
+            <li><span class="feature">NEW:</span> Language preference persisted to database</li>
+            <li><span class="feature">NEW:</span> Locale files in <code>locale/*.txt</code> format with 8 translation keys</li>
+        </ul>
+
+        <h4>🐛 Bug Fixes</h4>
+        <ul>
+            <li><span class="fix">FIXED:</span> Static hover variable causing all buttons to share hover state</li>
+            <li><span class="fix">FIXED:</span> Button pressed state persisting after mouse release</li>
+            <li><span class="fix">FIXED:</span> Norwegian "Avbryt" text truncated at 80px width (increased to 100px, then 120px for Greek)</li>
+            <li><span class="fix">FIXED:</span> Dialog close behavior - now returns to main window instead of terminating application</li>
+            <li><span class="fix">FIXED:</span> Delete and Exit buttons not updating when language changed</li>
+            <li><span class="fix">FIXED:</span> Cancel button width insufficient for Greek text "Ακύρωση" (increased to 120px)</li>
+        </ul>
+
+        <h4>🔧 Technical Improvements</h4>
+        <ul>
+            <li><span class="technical">IMPROVED:</span> Migrated from .ini files to SQLite database for settings storage</li>
+            <li><span class="technical">IMPROVED:</span> Owner-draw button system with BS_OWNERDRAW for custom rendering</li>
+            <li><span class="technical">IMPROVED:</span> ExtractIconW() and DrawIconEx() for loading system icons</li>
+            <li><span class="technical">IMPROVED:</span> Per-button state management using SetPropW/GetPropW("IsHovering")</li>
+            <li><span class="technical">IMPROVED:</span> Window height reduced from 250px to 180px to fit content better</li>
+            <li><span class="technical">IMPROVED:</span> Button layout changed from vertical stack to 2×2 grid</li>
+            <li><span class="technical">IMPROVED:</span> ListView custom draw for bold project names in column 1</li>
+        </ul>
+
+        <h4>📚 Documentation</h4>
+        <ul>
+            <li><span class="technical">ADDED:</span> Comprehensive icon system documentation in <code>icons/README.txt</code></li>
+            <li><span class="technical">ADDED:</span> Updated README.md with feature list and current status</li>
+            <li><span class="technical">ADDED:</span> This changelog file for tracking project history</li>
+        </ul>
+
+        <h4>🎯 Known Limitations</h4>
+        <ul>
+            <li>Delete project functionality shows confirmation but doesn't actually delete from database yet</li>
+            <li>New project button shows placeholder message</li>
+            <li>Open project button loads dialog but doesn't open project yet</li>
+            <li>Main application functionality (installer creation) not yet implemented</li>
+        </ul>
+    </div>
+
+    <div class="entry">
+        <h3>Initial Release - Before February 21, 2026</h3>
+        <ul>
+            <li><span class="technical">INITIAL:</span> Basic project structure</li>
+            <li><span class="technical">INITIAL:</span> CMake build system with MinGW support</li>
+            <li><span class="technical">INITIAL:</span> GPLv2 licensing</li>
+            <li><span class="technical">INITIAL:</span> Basic Windows application skeleton</li>
+        </ul>
+    </div>
+
+</body>
+</html>

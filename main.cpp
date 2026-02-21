@@ -1,4 +1,6 @@
 #include <windows.h>
+#include <windowsx.h>
+#include <commctrl.h>
 #include <string>
 #include <map>
 #include <vector>
@@ -6,21 +8,50 @@
 #include <cwctype>
 #include <fstream>
 #include <sstream>
+#include <ctime>
 #include "languages.h"
+#include "db.h"
+#include "button.h"
 
 // IDs
 #ifndef IDC_LANG_COMBO
 #define IDC_LANG_COMBO 101
 #endif
+#ifndef IDC_GLOBE_ICON
+#define IDC_GLOBE_ICON 102
+#endif
+#ifndef IDC_NEW_PROJECT_BTN
+#define IDC_NEW_PROJECT_BTN 103
+#endif
+#ifndef IDC_OPEN_PROJECT_BTN
+#define IDC_OPEN_PROJECT_BTN 104
+#endif
+#ifndef IDC_EXIT_BTN
+#define IDC_EXIT_BTN 106
+#endif
+#ifndef IDC_DELETE_PROJECT_BTN
+#define IDC_DELETE_PROJECT_BTN 107
+#endif
+#define IDC_PROJECT_LIST 105
+#define IDD_OPEN_PROJECT 200
+#define IDD_DELETE_PROJECT 201
 
 // Simple Win32 app with one OK button. This is intended as the skeleton
 // main window for new applications.
 
 const wchar_t CLASS_NAME[] = L"SkeletonAppWindowClass";
+const wchar_t TOOLTIP_CLASS_NAME[] = L"CustomTooltipClass";
 
 static std::map<std::wstring, std::wstring> g_locale;
 static std::vector<std::wstring> g_availableLocales;
 static HFONT g_guiFont = NULL;
+static HFONT g_globeFont = NULL;
+static HFONT g_tooltipFont = NULL;
+static std::wstring g_tooltipText;
+static std::vector<std::pair<std::wstring, std::wstring>> g_tooltipEntries; // country code, text
+static HWND g_tooltipWindow = NULL;
+static HWND g_globeIcon = NULL;
+static bool g_mouseTracking = false;
 
 static std::wstring Utf8ToW(const std::string &s) {
     if (s.empty()) return {};
@@ -47,6 +78,116 @@ static void TrimW(std::wstring &s) {
     s = s.substr(a, b - a + 1);
 }
 
+// Forward declaration
+static bool LoadLocaleFile(const std::wstring &code, std::map<std::wstring, std::wstring> &out);
+
+static std::wstring GetCountryCode(const std::wstring &code) {
+    // Extract country code (last 2 chars of locale code like en_GB -> GB)
+    if (code.size() < 2) return L"";
+    size_t pos = code.find(L'_');
+    if (pos == std::wstring::npos) return L"";
+    std::wstring country = code.substr(pos + 1);
+    if (country.size() == 2) {
+        return L"[" + country + L"] ";
+    }
+    return L"";
+}
+
+static std::wstring BuildMultilingualTooltip() {
+    // Load select_language from all available locale files with country codes
+    g_tooltipEntries.clear();
+    for (const auto &code : g_availableLocales) {
+        std::map<std::wstring, std::wstring> tempLocale;
+        if (LoadLocaleFile(code, tempLocale)) {
+            auto it = tempLocale.find(L"select_language");
+            if (it != tempLocale.end() && !it->second.empty()) {
+                std::wstring cc = GetCountryCode(code);
+                g_tooltipEntries.push_back({cc, it->second});
+            }
+        }
+    }
+    
+    // Sort by country code ascending
+    std::sort(g_tooltipEntries.begin(), g_tooltipEntries.end(),
+        [](const std::pair<std::wstring, std::wstring> &a, const std::pair<std::wstring, std::wstring> &b) {
+            return a.first < b.first;
+        });
+    
+    return L""; // Not used anymore, we draw directly
+}
+
+// Custom tooltip window procedure
+LRESULT CALLBACK TooltipWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+    case WM_PAINT: {
+        PAINTSTRUCT ps;
+        HDC hdc = BeginPaint(hwnd, &ps);
+        
+        // Get client area
+        RECT rc;
+        GetClientRect(hwnd, &rc);
+        
+        // Fill background with light yellow
+        HBRUSH hBrush = CreateSolidBrush(RGB(255, 255, 225));
+        FillRect(hdc, &rc, hBrush);
+        DeleteObject(hBrush);
+        
+        // Draw border
+        HPEN hPen = CreatePen(PS_SOLID, 1, RGB(0, 0, 0));
+        HPEN hOldPen = (HPEN)SelectObject(hdc, hPen);
+        MoveToEx(hdc, rc.left, rc.top, NULL);
+        LineTo(hdc, rc.right - 1, rc.top);
+        LineTo(hdc, rc.right - 1, rc.bottom - 1);
+        LineTo(hdc, rc.left, rc.bottom - 1);
+        LineTo(hdc, rc.left, rc.top);
+        SelectObject(hdc, hOldPen);
+        DeleteObject(hPen);
+        
+        // Draw table with translations in 4 columns: Code | Text | Code | Text
+        SetBkMode(hdc, TRANSPARENT);
+        if (g_tooltipFont) SelectObject(hdc, g_tooltipFont);
+        
+        const int startX = 10;
+        const int startY = 10;
+        const int rowHeight = 22;
+        const int textCol1X = 65;      // First text column (codes right-aligned before this)
+        const int textCol2X = 410;     // Second text column (codes right-aligned before this)
+        
+        // Process 2 entries per row
+        for (size_t i = 0; i < g_tooltipEntries.size(); i += 2) {
+            int row = (int)(i / 2);
+            int y = startY + row * rowHeight;
+            
+            // Draw first entry (left side)
+            // Country code in royal blue, right-aligned
+            SetTextColor(hdc, RGB(65, 105, 225));
+            SIZE sz1;
+            GetTextExtentPoint32W(hdc, g_tooltipEntries[i].first.c_str(), (int)g_tooltipEntries[i].first.length(), &sz1);
+            TextOutW(hdc, textCol1X - sz1.cx - 5, y, g_tooltipEntries[i].first.c_str(), (int)g_tooltipEntries[i].first.length());
+            // Translation text in black
+            SetTextColor(hdc, RGB(0, 0, 0));
+            TextOutW(hdc, textCol1X, y, g_tooltipEntries[i].second.c_str(), (int)g_tooltipEntries[i].second.length());
+            
+            // Draw second entry (right side) if it exists
+            if (i + 1 < g_tooltipEntries.size()) {
+                // Country code in royal blue, right-aligned
+                SetTextColor(hdc, RGB(65, 105, 225));
+                SIZE sz2;
+                GetTextExtentPoint32W(hdc, g_tooltipEntries[i + 1].first.c_str(), (int)g_tooltipEntries[i + 1].first.length(), &sz2);
+                TextOutW(hdc, textCol2X - sz2.cx - 5, y, g_tooltipEntries[i + 1].first.c_str(), (int)g_tooltipEntries[i + 1].first.length());
+                // Translation text in black
+                SetTextColor(hdc, RGB(0, 0, 0));
+                TextOutW(hdc, textCol2X, y, g_tooltipEntries[i + 1].second.c_str(), (int)g_tooltipEntries[i + 1].second.length());
+            }
+        }
+        
+        EndPaint(hwnd, &ps);
+        return 0;
+    }
+    }
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
 static void NormalizeDisplayName(std::wstring &s) {
     // remove parenthetical part like " (Country)"
     size_t pos = s.find(L'(');
@@ -61,62 +202,12 @@ static void NormalizeDisplayName(std::wstring &s) {
     }
 }
 
-static std::wstring GetAppDataDir() {
-    wchar_t buf[MAX_PATH];
-    DWORD len = GetEnvironmentVariableW(L"APPDATA", buf, _countof(buf));
-    if (len == 0 || len > _countof(buf)) return L"";
-    std::wstring path(buf);
-    path += L"\\SetupCraft";
-    DWORD attrs = GetFileAttributesW(path.c_str());
-    if (attrs == INVALID_FILE_ATTRIBUTES) {
-        // try to create (ignore failures)
-        CreateDirectoryW(path.c_str(), NULL);
-    }
-    return path;
-}
-
 static bool ReadSavedLocale(std::wstring &outCode) {
-    outCode.clear();
-    std::wstring appdir = GetAppDataDir();
-    if (appdir.empty()) return false;
-    std::wstring ini = appdir + L"\\SetupCraft.ini";
-    int size_needed = WideCharToMultiByte(CP_UTF8, 0, ini.c_str(), -1, NULL, 0, NULL, NULL);
-    if (size_needed <= 0) return false;
-    std::string narrow(size_needed - 1, '\0');
-    WideCharToMultiByte(CP_UTF8, 0, ini.c_str(), -1, &narrow[0], size_needed, NULL, NULL);
-    std::ifstream f(narrow);
-    if (!f.is_open()) return false;
-    std::string line;
-    while (std::getline(f, line)) {
-        if (line.empty() || line[0] == '#') continue;
-        auto pos = line.find('=');
-        if (pos == std::string::npos) continue;
-        std::string key = line.substr(0, pos);
-        std::string val = line.substr(pos + 1);
-        auto trim = [](std::string &s){ size_t a = s.find_first_not_of(" \t\r\n"); if (a==std::string::npos) { s.clear(); return; } size_t b = s.find_last_not_of(" \t\r\n"); s = s.substr(a, b - a + 1); };
-        trim(key); trim(val);
-        if (key == "language" || key == "lang") { outCode = Utf8ToW(val); return true; }
-    }
-    return false;
+    return DB::GetSetting(L"language", outCode);
 }
 
 static void WriteSavedLocale(const std::wstring &code) {
-    std::wstring appdir = GetAppDataDir();
-    if (appdir.empty()) return;
-    std::wstring ini = appdir + L"\\SetupCraft.ini";
-    int size_needed = WideCharToMultiByte(CP_UTF8, 0, ini.c_str(), -1, NULL, 0, NULL, NULL);
-    if (size_needed <= 0) return;
-    std::string narrow(size_needed - 1, '\0');
-    WideCharToMultiByte(CP_UTF8, 0, ini.c_str(), -1, &narrow[0], size_needed, NULL, NULL);
-    std::ofstream f(narrow, std::ios::trunc);
-    if (!f.is_open()) return;
-    int sz = WideCharToMultiByte(CP_UTF8, 0, code.c_str(), -1, NULL, 0, NULL, NULL);
-    std::string codeUtf8;
-    if (sz > 0) {
-        codeUtf8.resize(sz - 1);
-        WideCharToMultiByte(CP_UTF8, 0, code.c_str(), -1, &codeUtf8[0], sz, NULL, NULL);
-    }
-    f << "language=" << codeUtf8 << "\n";
+    DB::SetSetting(L"language", code);
 }
 
 static bool LoadLocaleFile(const std::wstring &code, std::map<std::wstring, std::wstring> &out) {
@@ -177,6 +268,324 @@ static void LoadAvailableLocales(std::vector<std::wstring> &out) {
     FindClose(h);
 }
 
+// Dialog procedure for Delete Project dialog
+LRESULT CALLBACK DeleteProjectDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+    case WM_CREATE: {
+        HINSTANCE hInst = (HINSTANCE)GetWindowLongPtr(hDlg, GWLP_HINSTANCE);
+        
+        // Create a ListView to show projects as a table
+        HWND hList = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEW, NULL,
+            WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_SINGLESEL | WS_BORDER,
+            10, 10, 560, 300,
+            hDlg, (HMENU)IDC_PROJECT_LIST, hInst, NULL);
+        
+        ListView_SetExtendedListViewStyle(hList, LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
+        if (g_guiFont) SendMessageW(hList, WM_SETFONT, (WPARAM)g_guiFont, TRUE);
+        
+        // Add columns
+        LVCOLUMNW col = {};
+        col.mask = LVCF_TEXT | LVCF_WIDTH;
+        col.cx = 50;
+        col.pszText = (LPWSTR)L"ID";
+        ListView_InsertColumn(hList, 0, &col);
+        
+        col.cx = 200;
+        col.pszText = (LPWSTR)L"Name";
+        ListView_InsertColumn(hList, 1, &col);
+        
+        col.cx = 120;
+        col.pszText = (LPWSTR)L"Version";
+        ListView_InsertColumn(hList, 2, &col);
+        
+        col.cx = 140;
+        col.pszText = (LPWSTR)L"Last Updated";
+        ListView_InsertColumn(hList, 3, &col);
+        
+        // Load projects from database
+        auto projects = DB::ListProjects();
+        for (const auto &proj : projects) {
+            wchar_t idBuf[32];
+            swprintf(idBuf, 32, L"%d", proj.id);
+            
+            // Convert timestamp to readable format
+            time_t t = (time_t)proj.last_updated;
+            struct tm *timeinfo = localtime(&t);
+            wchar_t timeBuf[64];
+            wcsftime(timeBuf, 64, L"%Y-%m-%d %H:%M", timeinfo);
+            
+            // Insert item
+            LVITEMW item = {};
+            item.mask = LVIF_TEXT | LVIF_PARAM;
+            item.iItem = ListView_GetItemCount(hList);
+            item.iSubItem = 0;
+            item.pszText = idBuf;
+            item.lParam = (LPARAM)proj.id;
+            int idx = ListView_InsertItem(hList, &item);
+            
+            // Set subitems
+            ListView_SetItemText(hList, idx, 1, (LPWSTR)proj.name.c_str());
+            ListView_SetItemText(hList, idx, 2, (LPWSTR)proj.version.c_str());
+            ListView_SetItemText(hList, idx, 3, timeBuf);
+        }
+        
+        // Create OK and Cancel buttons
+        auto itOk = g_locale.find(L"ok");
+        std::wstring okText = (itOk != g_locale.end()) ? itOk->second : L"OK";
+        CreateCustomButtonWithIcon(hDlg, IDOK, okText, ButtonColor::Blue,
+            L"imageres.dll", 89, 480, 320, 100, 30, hInst);
+        
+        auto itCancel = g_locale.find(L"cancel");
+        std::wstring cancelText = (itCancel != g_locale.end()) ? itCancel->second : L"Cancel";
+        CreateCustomButtonWithIcon(hDlg, IDCANCEL, cancelText, ButtonColor::Red,
+            L"shell32.dll", 131, 350, 320, 120, 30, hInst);
+        
+        return 0;
+    }
+    case WM_COMMAND:
+        if (LOWORD(wParam) == IDOK) {
+            HWND hList = GetDlgItem(hDlg, IDC_PROJECT_LIST);
+            int sel = ListView_GetNextItem(hList, -1, LVNI_SELECTED);
+            if (sel >= 0) {
+                LVITEMW item = {};
+                item.mask = LVIF_PARAM;
+                item.iItem = sel;
+                ListView_GetItem(hList, &item);
+                int projId = (int)item.lParam;
+                
+                // Show confirmation dialog
+                int result = MessageBoxW(hDlg, L"Are you sure you want to delete this project?", 
+                    L"Confirm Delete", MB_YESNO | MB_ICONWARNING);
+                
+                if (result == IDYES) {
+                    // TODO: Actually delete the project from database
+                    MessageBoxW(hDlg, L"Project deletion not yet implemented", L"Info", MB_OK);
+                }
+                
+                // Return to main window
+                HWND hParent = GetParent(hDlg);
+                if (hParent) EnableWindow(hParent, TRUE);
+                DestroyWindow(hDlg);
+            } else {
+                MessageBoxW(hDlg, L"Please select a project", L"Info", MB_OK | MB_ICONINFORMATION);
+            }
+            return 0;
+        }
+        if (LOWORD(wParam) == IDCANCEL) {
+            HWND hParent = GetParent(hDlg);
+            if (hParent) EnableWindow(hParent, TRUE);
+            DestroyWindow(hDlg);
+            return 0;
+        }
+        break;
+    case WM_NOTIFY: {
+        NMHDR *nmhdr = (NMHDR*)lParam;
+        if (nmhdr->idFrom == IDC_PROJECT_LIST) {
+            if (nmhdr->code == NM_DBLCLK) {
+                // Double-click on list item = same as OK
+                SendMessageW(hDlg, WM_COMMAND, IDOK, 0);
+                return 0;
+            }
+            else if (nmhdr->code == NM_CUSTOMDRAW) {
+                NMLVCUSTOMDRAW *cd = (NMLVCUSTOMDRAW*)lParam;
+                if (cd->nmcd.dwDrawStage == CDDS_PREPAINT) {
+                    return CDRF_NOTIFYITEMDRAW;
+                }
+                else if (cd->nmcd.dwDrawStage == CDDS_ITEMPREPAINT) {
+                    return CDRF_NOTIFYSUBITEMDRAW;
+                }
+                else if (cd->nmcd.dwDrawStage == (CDDS_ITEMPREPAINT | CDDS_SUBITEM)) {
+                    // Make column 1 (Name) bold
+                    if (cd->iSubItem == 1) {
+                        if (g_guiFont) {
+                            LOGFONTW lf = {};
+                            GetObjectW(g_guiFont, sizeof(LOGFONTW), &lf);
+                            lf.lfWeight = FW_BOLD;
+                            HFONT hBoldFont = CreateFontIndirectW(&lf);
+                            SelectObject(cd->nmcd.hdc, hBoldFont);
+                            // Note: Font will leak, but for simplicity we'll allow it
+                            // In production, should cache and manage fonts properly
+                        }
+                    }
+                    return CDRF_NEWFONT;
+                }
+            }
+        }
+        break;
+    }
+    case WM_DRAWITEM: {
+        LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
+        if (dis->CtlID == IDOK || dis->CtlID == IDCANCEL) {
+            // Get stored color from GWLP_USERDATA
+            ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
+            return DrawCustomButton(dis, color, g_guiFont);
+        }
+        break;
+    }
+    case WM_CLOSE:
+        {
+            HWND hParent = GetParent(hDlg);
+            if (hParent) EnableWindow(hParent, TRUE);
+            DestroyWindow(hDlg);
+        }
+        return 0;
+    case WM_DESTROY:
+        // Don't call PostQuitMessage - just let the dialog close and return to main window
+        return 0;
+    }
+    return DefWindowProcW(hDlg, msg, wParam, lParam);
+}
+
+// Dialog procedure for Open Project dialog
+LRESULT CALLBACK OpenProjectDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+    case WM_CREATE: {
+        HINSTANCE hInst = (HINSTANCE)GetWindowLongPtr(hDlg, GWLP_HINSTANCE);
+        
+        // Create a ListView to show projects as a table
+        HWND hList = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEW, NULL,
+            WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_SINGLESEL | WS_BORDER,
+            10, 10, 560, 300,
+            hDlg, (HMENU)IDC_PROJECT_LIST, hInst, NULL);
+        
+        ListView_SetExtendedListViewStyle(hList, LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
+        if (g_guiFont) SendMessageW(hList, WM_SETFONT, (WPARAM)g_guiFont, TRUE);
+        
+        // Add columns
+        LVCOLUMNW col = {};
+        col.mask = LVCF_TEXT | LVCF_WIDTH;
+        col.cx = 50;
+        col.pszText = (LPWSTR)L"ID";
+        ListView_InsertColumn(hList, 0, &col);
+        
+        col.cx = 200;
+        col.pszText = (LPWSTR)L"Name";
+        ListView_InsertColumn(hList, 1, &col);
+        
+        col.cx = 120;
+        col.pszText = (LPWSTR)L"Version";
+        ListView_InsertColumn(hList, 2, &col);
+        
+        col.cx = 140;
+        col.pszText = (LPWSTR)L"Last Updated";
+        ListView_InsertColumn(hList, 3, &col);
+        
+        // Load projects from database
+        auto projects = DB::ListProjects();
+        for (const auto &proj : projects) {
+            wchar_t idBuf[32];
+            swprintf(idBuf, 32, L"%d", proj.id);
+            
+            // Convert timestamp to readable format
+            time_t t = (time_t)proj.last_updated;
+            struct tm *timeinfo = localtime(&t);
+            wchar_t timeBuf[64];
+            wcsftime(timeBuf, 64, L"%Y-%m-%d %H:%M", timeinfo);
+            
+            // Insert item
+            LVITEMW item = {};
+            item.mask = LVIF_TEXT | LVIF_PARAM;
+            item.iItem = ListView_GetItemCount(hList);
+            item.iSubItem = 0;
+            item.pszText = idBuf;
+            item.lParam = (LPARAM)proj.id;
+            int idx = ListView_InsertItem(hList, &item);
+            
+            // Set subitems
+            ListView_SetItemText(hList, idx, 1, (LPWSTR)proj.name.c_str());
+            ListView_SetItemText(hList, idx, 2, (LPWSTR)proj.version.c_str());
+            ListView_SetItemText(hList, idx, 3, timeBuf);
+        }
+        
+        // Create OK and Cancel buttons
+        auto itOk = g_locale.find(L"ok");
+        std::wstring okText = (itOk != g_locale.end()) ? itOk->second : L"OK";
+        CreateCustomButtonWithIcon(hDlg, IDOK, okText, ButtonColor::Blue,
+            L"imageres.dll", 89, 480, 320, 100, 30, hInst);
+        
+        auto itCancel = g_locale.find(L"cancel");
+        std::wstring cancelText = (itCancel != g_locale.end()) ? itCancel->second : L"Cancel";
+        CreateCustomButtonWithIcon(hDlg, IDCANCEL, cancelText, ButtonColor::Red,
+            L"shell32.dll", 131, 350, 320, 120, 30, hInst);
+        
+        return 0;
+    }
+    case WM_COMMAND:
+        if (LOWORD(wParam) == IDOK) {
+            HWND hList = GetDlgItem(hDlg, IDC_PROJECT_LIST);
+            int sel = ListView_GetNextItem(hList, -1, LVNI_SELECTED);
+            if (sel >= 0) {
+                LVITEMW item = {};
+                item.mask = LVIF_PARAM;
+                item.iItem = sel;
+                ListView_GetItem(hList, &item);
+                int projId = (int)item.lParam;
+                // TODO: Open the selected project
+                DestroyWindow(hDlg);
+            } else {
+                MessageBoxW(hDlg, L"Please select a project", L"Info", MB_OK | MB_ICONINFORMATION);
+            }
+            return 0;
+        }
+        if (LOWORD(wParam) == IDCANCEL) {
+            DestroyWindow(hDlg);
+            return 0;
+        }
+        break;
+    case WM_NOTIFY: {
+        NMHDR *nmhdr = (NMHDR*)lParam;
+        if (nmhdr->idFrom == IDC_PROJECT_LIST) {
+            if (nmhdr->code == NM_DBLCLK) {
+                // Double-click on list item = same as OK
+                SendMessageW(hDlg, WM_COMMAND, IDOK, 0);
+                return 0;
+            }
+            else if (nmhdr->code == NM_CUSTOMDRAW) {
+                NMLVCUSTOMDRAW *cd = (NMLVCUSTOMDRAW*)lParam;
+                if (cd->nmcd.dwDrawStage == CDDS_PREPAINT) {
+                    return CDRF_NOTIFYITEMDRAW;
+                }
+                else if (cd->nmcd.dwDrawStage == CDDS_ITEMPREPAINT) {
+                    return CDRF_NOTIFYSUBITEMDRAW;
+                }
+                else if (cd->nmcd.dwDrawStage == (CDDS_ITEMPREPAINT | CDDS_SUBITEM)) {
+                    // Make column 1 (Name) bold
+                    if (cd->iSubItem == 1) {
+                        if (g_guiFont) {
+                            LOGFONTW lf = {};
+                            GetObjectW(g_guiFont, sizeof(LOGFONTW), &lf);
+                            lf.lfWeight = FW_BOLD;
+                            HFONT hBoldFont = CreateFontIndirectW(&lf);
+                            SelectObject(cd->nmcd.hdc, hBoldFont);
+                            // Note: Font will leak, but for simplicity we'll allow it
+                            // In production, should cache and manage fonts properly
+                        }
+                    }
+                    return CDRF_NEWFONT;
+                }
+            }
+        }
+        break;
+    }
+    case WM_DRAWITEM: {
+        LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
+        if (dis->CtlID == IDOK || dis->CtlID == IDCANCEL) {
+            // Get stored color from GWLP_USERDATA
+            ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
+            return DrawCustomButton(dis, color, g_guiFont);
+        }
+        break;
+    }
+    case WM_CLOSE:
+        DestroyWindow(hDlg);
+        return 0;
+    case WM_DESTROY:
+        // Don't call PostQuitMessage - just let the dialog close and return to main window
+        return 0;
+    }
+    return DefWindowProcW(hDlg, msg, wParam, lParam);
+}
+
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
     case WM_CREATE: {
@@ -199,9 +608,15 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         }
 
         // Language combo (show friendly/native names; store index as item data)
-        // make the combo wider so the dropdown arrow isn't overlapped by the OK button
-        const int comboLeft = 10;
+        // Center the combo with a globe icon to its left
         const int comboWidth = 260;
+        const int iconSize = 30; // slightly bigger than dropdown height
+        const int iconComboGap = 8;
+        const int totalWidth = iconSize + iconComboGap + comboWidth;
+        const int clientWidth = 420 - 16; // approximate client area
+        const int startX = (clientWidth - totalWidth) / 2;
+        const int iconLeft = startX;
+        const int comboLeft = iconLeft + iconSize + iconComboGap;
         // compute dropdown height to try to show all locales (cap to avoid huge lists)
         int itemCount = (int)g_availableLocales.size();
         int itemHeight = 20; // approx per-item height in pixels
@@ -219,6 +634,31 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                                     CLEARTYPE_QUALITY, VARIABLE_PITCH | FF_SWISS, L"Segoe UI");
         }
         if (g_guiFont) SendMessageW(hCombo, WM_SETFONT, (WPARAM)g_guiFont, TRUE);
+
+        // Create font for tooltip
+        if (!g_tooltipFont) {
+            g_tooltipFont = CreateFontW(-14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                                        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                                        CLEARTYPE_QUALITY, VARIABLE_PITCH | FF_SWISS, L"Segoe UI");
+        }
+
+        // Create larger font for globe icon
+        if (!g_globeFont) {
+            g_globeFont = CreateFontW(-24, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                                      DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                                      CLEARTYPE_QUALITY, VARIABLE_PITCH | FF_SWISS, L"Segoe UI Emoji");
+        }
+
+        // Globe icon to the left of combo
+        HWND hIcon = CreateWindowW(L"STATIC", L"🌐",
+            WS_CHILD | WS_VISIBLE | SS_CENTER,
+            iconLeft, 8, iconSize, iconSize,
+            hwnd, (HMENU)IDC_GLOBE_ICON, hInst, NULL);
+        if (g_globeFont) SendMessageW(hIcon, WM_SETFONT, (WPARAM)g_globeFont, TRUE);
+        g_globeIcon = hIcon; // Store for later use
+
+        // Build tooltip text
+        g_tooltipText = BuildMultilingualTooltip();
 
                 // Use canonical mapping from languages.cpp, fall back to system names or prettified codes
                 auto canon = GetCanonicalDisplayNames();
@@ -277,8 +717,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                         if (LoadLocaleFile(savedLocale, g_locale)) {
                             auto itName = g_locale.find(L"app_name");
                             if (itName != g_locale.end()) SetWindowTextW(hwnd, itName->second.c_str());
-                            auto itOk = g_locale.find(L"ok");
-                            if (itOk != g_locale.end()) SetWindowTextW(GetDlgItem(hwnd, IDOK), itOk->second.c_str());
                         }
                         break;
                     }
@@ -296,22 +734,137 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             }
         }
 
-        // OK button (positioned to the right of the combo)
-        const int okLeft = comboLeft + comboWidth + 10;
-        std::wstring okText = L"OK";
-        auto it = g_locale.find(L"ok");
-        if (it != g_locale.end() && !it->second.empty()) okText = it->second;
+        // Create buttons in 2x2 grid: New/Open on top, Delete/Exit on bottom
+        const int buttonWidth = 180;
+        const int buttonHeight = 30;
+        const int buttonGapH = 10;  // horizontal gap
+        const int buttonGapV = 10;  // vertical gap
+        const int buttonsStartX = (clientWidth - (2 * buttonWidth + buttonGapH)) / 2;
+        const int row1Y = 55;
+        const int row2Y = row1Y + buttonHeight + buttonGapV;
+        
+        // Row 1, Column 1: New Project button
+        auto itNewProj = g_locale.find(L"new_project");
+        std::wstring newProjText = (itNewProj != g_locale.end()) ? itNewProj->second : L"New project";
+        CreateCustomButtonWithIcon(hwnd, IDC_NEW_PROJECT_BTN, newProjText, ButtonColor::Blue,
+            L"imageres.dll", 111, buttonsStartX, row1Y, buttonWidth, buttonHeight, hInst);
+        
+        // Row 1, Column 2: Open Project button
+        auto itOpenProj = g_locale.find(L"open_project");
+        std::wstring openProjText = (itOpenProj != g_locale.end()) ? itOpenProj->second : L"Open project";
+        CreateCustomButtonWithIcon(hwnd, IDC_OPEN_PROJECT_BTN, openProjText, ButtonColor::Blue,
+            L"shell32.dll", 4, buttonsStartX + buttonWidth + buttonGapH, row1Y, buttonWidth, buttonHeight, hInst);
 
-        HWND hOk = CreateWindowW(L"BUTTON", okText.c_str(),
-            WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
-            okLeft, 10, 75, 25,
-            hwnd, (HMENU)IDOK, hInst, NULL);
-        if (g_guiFont) SendMessageW(hOk, WM_SETFONT, (WPARAM)g_guiFont, TRUE);
+        // Row 2, Column 1: Delete Project button
+        auto itDelete = g_locale.find(L"delete_project");
+        std::wstring deleteText = (itDelete != g_locale.end()) ? itDelete->second : L"Delete project";
+        CreateCustomButtonWithIcon(hwnd, IDC_DELETE_PROJECT_BTN, deleteText, ButtonColor::Blue,
+            L"imageres.dll", 5370, buttonsStartX, row2Y, buttonWidth, buttonHeight, hInst);
+
+        // Row 2, Column 2: Exit button
+        auto itExit = g_locale.find(L"exit");
+        std::wstring exitText = (itExit != g_locale.end()) ? itExit->second : L"Exit";
+        CreateCustomButtonWithIcon(hwnd, IDC_EXIT_BTN, exitText, ButtonColor::Blue,
+            L"shell32.dll", 27, buttonsStartX + buttonWidth + buttonGapH, row2Y, buttonWidth, buttonHeight, hInst);
+
         return 0;
     }
     case WM_COMMAND:
-        if (LOWORD(wParam) == IDOK) {
-            PostMessage(hwnd, WM_CLOSE, 0, 0);
+        if (LOWORD(wParam) == IDC_NEW_PROJECT_BTN) {
+            // TODO: Handle New Project
+            MessageBoxW(hwnd, L"New Project clicked", L"Info", MB_OK);
+            return 0;
+        }
+        if (LOWORD(wParam) == IDC_EXIT_BTN) {
+            PostQuitMessage(0);
+            return 0;
+        }
+        if (LOWORD(wParam) == IDC_DELETE_PROJECT_BTN) {
+            // Show delete project list dialog
+            HINSTANCE hInst = (HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE);
+            
+            // Register dialog class if not already registered
+            static bool deleteDialogClassRegistered = false;
+            if (!deleteDialogClassRegistered) {
+                WNDCLASSEXW wcDlg = {};
+                wcDlg.cbSize = sizeof(WNDCLASSEXW);
+                wcDlg.style = CS_HREDRAW | CS_VREDRAW;
+                wcDlg.lpfnWndProc = DeleteProjectDlgProc;
+                wcDlg.hInstance = hInst;
+                wcDlg.hCursor = LoadCursor(NULL, IDC_ARROW);
+                wcDlg.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+                wcDlg.lpszClassName = L"DeleteProjectDialogClass";
+                RegisterClassExW(&wcDlg);
+                deleteDialogClassRegistered = true;
+            }
+            
+            HWND hDlg = CreateWindowExW(
+                WS_EX_DLGMODALFRAME | WS_EX_TOPMOST,
+                L"DeleteProjectDialogClass",
+                L"Delete Project",
+                WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
+                CW_USEDEFAULT, CW_USEDEFAULT, 600, 400,
+                hwnd, NULL, hInst, NULL);
+            
+            if (hDlg) {
+                EnableWindow(hwnd, FALSE);
+                ShowWindow(hDlg, SW_SHOW);
+            }
+            return 0;
+        }
+        if (LOWORD(wParam) == IDC_OPEN_PROJECT_BTN) {
+            // Show project list dialog
+            HINSTANCE hInst = (HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE);
+            
+            // Register dialog class if not already registered
+            static bool dialogClassRegistered = false;
+            if (!dialogClassRegistered) {
+                WNDCLASSEXW wcDlg = { };
+                wcDlg.cbSize = sizeof(WNDCLASSEXW);
+                wcDlg.lpfnWndProc = OpenProjectDlgProc;
+                wcDlg.hInstance = hInst;
+                wcDlg.lpszClassName = L"OpenProjectDlgClass";
+                wcDlg.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
+                wcDlg.hCursor = LoadCursorW(NULL, IDC_ARROW);
+                RegisterClassExW(&wcDlg);
+                dialogClassRegistered = true;
+            }
+            
+            // Create modal dialog window
+            auto itTitle = g_locale.find(L"open_project");
+            std::wstring title = (itTitle != g_locale.end()) ? itTitle->second : L"Open Project";
+            
+            HWND hDlg = CreateWindowExW(
+                WS_EX_DLGMODALFRAME | WS_EX_WINDOWEDGE,
+                L"OpenProjectDlgClass",
+                title.c_str(),
+                WS_POPUP | WS_CAPTION | WS_SYSMENU,
+                CW_USEDEFAULT, CW_USEDEFAULT, 600, 400,
+                hwnd, NULL, hInst, NULL);
+            
+            if (hDlg) {
+                // Center dialog on parent
+                RECT rcParent, rcDlg;
+                GetWindowRect(hwnd, &rcParent);
+                GetWindowRect(hDlg, &rcDlg);
+                int x = rcParent.left + (rcParent.right - rcParent.left - (rcDlg.right - rcDlg.left)) / 2;
+                int y = rcParent.top + (rcParent.bottom - rcParent.top - (rcDlg.bottom - rcDlg.top)) / 2;
+                SetWindowPos(hDlg, HWND_TOP, x, y, 0, 0, SWP_NOSIZE);
+                
+                // Show dialog modally
+                EnableWindow(hwnd, FALSE);
+                ShowWindow(hDlg, SW_SHOW);
+                
+                // Message loop for modal dialog
+                MSG msg;
+                while (IsWindow(hDlg) && GetMessageW(&msg, NULL, 0, 0)) {
+                    TranslateMessage(&msg);
+                    DispatchMessageW(&msg);
+                }
+                
+                EnableWindow(hwnd, TRUE);
+                SetForegroundWindow(hwnd);
+            }
             return 0;
         }
         if (LOWORD(wParam) == IDC_LANG_COMBO && HIWORD(wParam) == CBN_SELCHANGE) {
@@ -327,8 +880,29 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                         // update UI strings
                         auto itName = g_locale.find(L"app_name");
                         if (itName != g_locale.end()) SetWindowTextW(hwnd, itName->second.c_str());
-                        auto itOk = g_locale.find(L"ok");
-                        if (itOk != g_locale.end()) SetWindowTextW(GetDlgItem(hwnd, IDOK), itOk->second.c_str());
+                        
+                        // Update button texts
+                        auto itNewProj = g_locale.find(L"new_project");
+                        if (itNewProj != g_locale.end()) {
+                            HWND hNewBtn = GetDlgItem(hwnd, IDC_NEW_PROJECT_BTN);
+                            if (hNewBtn) UpdateButtonText(hNewBtn, itNewProj->second);
+                        }
+                        auto itOpenProj = g_locale.find(L"open_project");
+                        if (itOpenProj != g_locale.end()) {
+                            HWND hOpenBtn = GetDlgItem(hwnd, IDC_OPEN_PROJECT_BTN);
+                            if (hOpenBtn) UpdateButtonText(hOpenBtn, itOpenProj->second);
+                        }
+                        auto itDelete = g_locale.find(L"delete_project");
+                        if (itDelete != g_locale.end()) {
+                            HWND hDeleteBtn = GetDlgItem(hwnd, IDC_DELETE_PROJECT_BTN);
+                            if (hDeleteBtn) UpdateButtonText(hDeleteBtn, itDelete->second);
+                        }
+                        auto itExit = g_locale.find(L"exit");
+                        if (itExit != g_locale.end()) {
+                            HWND hExitBtn = GetDlgItem(hwnd, IDC_EXIT_BTN);
+                            if (hExitBtn) UpdateButtonText(hExitBtn, itExit->second);
+                        }
+                        
                         // persist selection to AppData
                         WriteSavedLocale(code);
                     }
@@ -337,8 +911,85 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             return 0;
         }
         return 0;
+    case WM_MOUSEMOVE: {
+        // Check if mouse is over globe icon
+        POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+        RECT rcIcon;
+        GetWindowRect(g_globeIcon, &rcIcon);
+        ScreenToClient(hwnd, (LPPOINT)&rcIcon.left);
+        ScreenToClient(hwnd, (LPPOINT)&rcIcon.right);
+        
+        if (PtInRect(&rcIcon, pt)) {
+            if (!g_tooltipWindow || !IsWindowVisible(g_tooltipWindow)) {
+                // Show tooltip
+                if (!g_tooltipWindow) {
+                    HINSTANCE hInst = (HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE);
+                    // Calculate dynamic height: rows = (entries + 1) / 2, height = rows * rowHeight + padding
+                    int numRows = ((int)g_tooltipEntries.size() + 1) / 2;
+                    int tooltipHeight = numRows * 22 + 30;
+                    g_tooltipWindow = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+                        TOOLTIP_CLASS_NAME, L"",
+                        WS_POPUP | WS_BORDER,
+                        0, 0, 700, tooltipHeight,
+                        hwnd, NULL, hInst, NULL);
+                }
+                
+                if (g_tooltipWindow) {
+                    // Position tooltip below the globe icon
+                    POINT ptIcon = { rcIcon.left, rcIcon.bottom + 5 };
+                    ClientToScreen(hwnd, &ptIcon);
+                    SetWindowPos(g_tooltipWindow, HWND_TOPMOST, ptIcon.x, ptIcon.y, 0, 0, SWP_NOSIZE | SWP_SHOWWINDOW | SWP_NOACTIVATE);
+                }
+            }
+            
+            // Track mouse to detect when it leaves
+            if (!g_mouseTracking) {
+                TRACKMOUSEEVENT tme = { 0 };
+                tme.cbSize = sizeof(TRACKMOUSEEVENT);
+                tme.dwFlags = TME_LEAVE;
+                tme.hwndTrack = hwnd;
+                TrackMouseEvent(&tme);
+                g_mouseTracking = true;
+            }
+        } else {
+            // Hide tooltip if mouse is not over icon
+            if (g_tooltipWindow && IsWindowVisible(g_tooltipWindow)) {
+                ShowWindow(g_tooltipWindow, SW_HIDE);
+            }
+        }
+        return 0;
+    }
+    case WM_MOUSELEAVE:
+        g_mouseTracking = false;
+        if (g_tooltipWindow && IsWindowVisible(g_tooltipWindow)) {
+            ShowWindow(g_tooltipWindow, SW_HIDE);
+        }
+        return 0;
+    case WM_CTLCOLORSTATIC: {
+        HDC hdc = (HDC)wParam;
+        HWND hControl = (HWND)lParam;
+        if (GetDlgCtrlID(hControl) == IDC_GLOBE_ICON) {
+            SetTextColor(hdc, RGB(0, 102, 204)); // blue color
+            SetBkMode(hdc, TRANSPARENT);
+            return (LRESULT)GetStockObject(NULL_BRUSH);
+        }
+        break;
+    }
+    case WM_DRAWITEM: {
+        LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
+        if (dis->CtlID == IDC_NEW_PROJECT_BTN || dis->CtlID == IDC_OPEN_PROJECT_BTN || 
+            dis->CtlID == IDC_EXIT_BTN || dis->CtlID == IDC_DELETE_PROJECT_BTN) {
+            // Get stored color from GWLP_USERDATA
+            ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
+            return DrawCustomButton(dis, color, g_guiFont);
+        }
+        break;
+    }
     case WM_DESTROY:
+        if (g_tooltipWindow) { DestroyWindow(g_tooltipWindow); g_tooltipWindow = NULL; }
         if (g_guiFont) { DeleteObject(g_guiFont); g_guiFont = NULL; }
+        if (g_globeFont) { DeleteObject(g_globeFont); g_globeFont = NULL; }
+        if (g_tooltipFont) { DeleteObject(g_tooltipFont); g_tooltipFont = NULL; }
         PostQuitMessage(0);
         return 0;
     }
@@ -346,6 +997,19 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 }
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR pCmdLine, int nCmdShow) {
+    // Initialize database
+    DB::InitDb();
+
+    // Register tooltip window class
+    WNDCLASSEXW wcTooltip = { };
+    wcTooltip.cbSize = sizeof(WNDCLASSEXW);
+    wcTooltip.lpfnWndProc = TooltipWndProc;
+    wcTooltip.hInstance = hInstance;
+    wcTooltip.lpszClassName = TOOLTIP_CLASS_NAME;
+    wcTooltip.hbrBackground = (HBRUSH)(COLOR_INFOBK + 1);
+    wcTooltip.hCursor = LoadCursorW(NULL, IDC_ARROW);
+    RegisterClassExW(&wcTooltip);
+
     WNDCLASSEXW wc = { };
     wc.cbSize = sizeof(WNDCLASSEXW);
     wc.lpfnWndProc = WndProc;
@@ -374,7 +1038,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR pCmdLine, int nCmdShow
 
     HWND hwnd = CreateWindowExW(0, CLASS_NAME, L"Skeleton App",
         WS_OVERLAPPEDWINDOW & ~WS_MAXIMIZEBOX & ~WS_THICKFRAME,
-        CW_USEDEFAULT, CW_USEDEFAULT, 420, 200,
+        CW_USEDEFAULT, CW_USEDEFAULT, 420, 180,
         NULL, NULL, hInstance, NULL);
 
     if (!hwnd) return 0;
@@ -389,3 +1053,4 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR pCmdLine, int nCmdShow
 
     return (int)msg.wParam;
 }
+

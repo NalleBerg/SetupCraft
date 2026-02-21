@@ -1,3 +1,9 @@
 app_name=SetupCraft
-ok=OK
 search_btn=🔍 Cercar
+select_language=Tscherna la lingua per tes project
+new_project=➕ Nov project
+open_project=📂 Avrir project
+cancel=✖ Interrumper
+exit=🚪 Serrar
+delete_project=🗑️ Stizzar project
+ok=✓ OK

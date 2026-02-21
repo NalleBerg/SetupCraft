@@ -16,6 +16,7 @@ add_executable(SkeletonApp WIN32
     main.cpp
     languages.cpp
     db.cpp
+    button.cpp
     ${RESOURCE_FILES}
 )
 
