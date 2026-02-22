@@ -262,22 +262,15 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
     int pageY = s_toolbarHeight;
     int pageHeight = rc.bottom - s_toolbarHeight - 25;
     
-    // Create container for page content
-    s_hCurrentPage = CreateWindowExW(
-        0, L"STATIC", L"",
-        WS_CHILD | WS_VISIBLE,
-        0, pageY, rc.right, pageHeight,
-        hwnd, NULL, hInst, NULL);
-    
     // Create page-specific content
     switch (pageIndex) {
-    case 0: // Files page
+    case 0: // Files page - no page container, all controls are direct children of main window
     {
-        // H3 headline
+        // H3 headline (direct child of main window)
         HWND hTitle = CreateWindowExW(0, L"STATIC", L"Files Management",
             WS_CHILD | WS_VISIBLE | SS_LEFT,
-            20, 15, rc.right - 40, 30,
-            s_hCurrentPage, NULL, hInst, NULL);
+            20, pageY + 15, rc.right - 40, 30,
+            hwnd, NULL, hInst, NULL);
         HFONT hTitleFont = CreateFontW(-18, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
             CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
@@ -295,18 +288,18 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         HWND hRemoveBtn = CreateCustomButtonWithIcon(hwnd, IDC_FILES_REMOVE, L"Remove", ButtonColor::Red,
             L"shell32.dll", 131, 20, s_toolbarHeight + 100, 250, 35, hInst);
         
-        // Install directory label
+        // Install directory label (direct child of main window)
         HWND hInstallLabel = CreateWindowExW(0, L"STATIC", L"Install directory:",
             WS_CHILD | WS_VISIBLE | SS_LEFT,
-            290, 55, 150, 20,
-            s_hCurrentPage, NULL, hInst, NULL);
+            290, pageY + 55, 150, 20,
+            hwnd, NULL, hInst, NULL);
         
-        // Install directory edit field
+        // Install directory edit field (direct child of main window)
         std::wstring defaultPath = L"C:\\Program Files\\" + s_currentProject.name;
         HWND hInstallEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", defaultPath.c_str(),
             WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL,
-            290, 75, rc.right - 355, 22,
-            s_hCurrentPage, (HMENU)101, hInst, NULL);
+            290, pageY + 75, rc.right - 355, 22,
+            hwnd, (HMENU)101, hInst, NULL);
         
         // Browse button for install directory (child of main window for WM_DRAWITEM)
         CreateCustomButtonWithIcon(hwnd, IDC_BROWSE_INSTALL_DIR, L"...", ButtonColor::Blue,
@@ -375,6 +368,13 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
     }
     case 1: // Registry page
     {
+        // Create container for page content
+        s_hCurrentPage = CreateWindowExW(
+            0, L"STATIC", L"",
+            WS_CHILD | WS_VISIBLE,
+            0, pageY, rc.right, pageHeight,
+            hwnd, NULL, hInst, NULL);
+        
         HWND hTitle = CreateWindowExW(0, L"STATIC", L"Registry Entries",
             WS_CHILD | WS_VISIBLE | SS_LEFT,
             20, 20, rc.right - 40, 30,
@@ -392,6 +392,13 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
     }
     case 2: // Shortcuts page
     {
+        // Create container for page content
+        s_hCurrentPage = CreateWindowExW(
+            0, L"STATIC", L"",
+            WS_CHILD | WS_VISIBLE,
+            0, pageY, rc.right, pageHeight,
+            hwnd, NULL, hInst, NULL);
+        
         HWND hTitle = CreateWindowExW(0, L"STATIC", L"Shortcuts",
             WS_CHILD | WS_VISIBLE | SS_LEFT,
             20, 20, rc.right - 40, 30,
@@ -409,6 +416,13 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
     }
     case 3: // Dependencies page
     {
+        // Create container for page content
+        s_hCurrentPage = CreateWindowExW(
+            0, L"STATIC", L"",
+            WS_CHILD | WS_VISIBLE,
+            0, pageY, rc.right, pageHeight,
+            hwnd, NULL, hInst, NULL);
+        
         HWND hTitle = CreateWindowExW(0, L"STATIC", L"Dependencies",
             WS_CHILD | WS_VISIBLE | SS_LEFT,
             20, 20, rc.right - 40, 30,
@@ -426,6 +440,13 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
     }
     case 4: // Settings page
     {
+        // Create container for page content
+        s_hCurrentPage = CreateWindowExW(
+            0, L"STATIC", L"",
+            WS_CHILD | WS_VISIBLE,
+            0, pageY, rc.right, pageHeight,
+            hwnd, NULL, hInst, NULL);
+        
         HWND hTitle = CreateWindowExW(0, L"STATIC", L"Installer Settings",
             WS_CHILD | WS_VISIBLE | SS_LEFT,
             20, 20, rc.right - 40, 30,
@@ -443,6 +464,13 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
     }
     case 5: // Build page
     {
+        // Create container for page content
+        s_hCurrentPage = CreateWindowExW(
+            0, L"STATIC", L"",
+            WS_CHILD | WS_VISIBLE,
+            0, pageY, rc.right, pageHeight,
+            hwnd, NULL, hInst, NULL);
+        
         HWND hTitle = CreateWindowExW(0, L"STATIC", L"Build Installer",
             WS_CHILD | WS_VISIBLE | SS_LEFT,
             20, 20, rc.right - 40, 30,
@@ -460,6 +488,13 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
     }
     case 6: // Test page
     {
+        // Create container for page content
+        s_hCurrentPage = CreateWindowExW(
+            0, L"STATIC", L"",
+            WS_CHILD | WS_VISIBLE,
+            0, pageY, rc.right, pageHeight,
+            hwnd, NULL, hInst, NULL);
+        
         HWND hTitle = CreateWindowExW(0, L"STATIC", L"Test Installer",
             WS_CHILD | WS_VISIBLE | SS_LEFT,
             20, 20, rc.right - 40, 30,
@@ -477,6 +512,13 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
     }
     case 7: // Scripts page
     {
+        // Create container for page content
+        s_hCurrentPage = CreateWindowExW(
+            0, L"STATIC", L"",
+            WS_CHILD | WS_VISIBLE,
+            0, pageY, rc.right, pageHeight,
+            hwnd, NULL, hInst, NULL);
+        
         HWND hTitle = CreateWindowExW(0, L"STATIC", L"Run Scripts",
             WS_CHILD | WS_VISIBLE | SS_LEFT,
             20, 20, rc.right - 40, 30,
@@ -566,11 +608,17 @@ void MainWindow::PopulateTreeView(HWND hTree, const std::wstring &rootPath, cons
     
     // Expand parent and root nodes
     TreeView_Expand(hTree, hParent, TVE_EXPAND);
+    UpdateWindow(hTree);
     TreeView_Expand(hTree, hRoot, TVE_EXPAND);
+    UpdateWindow(hTree);
     
     // Select app root and populate list with root contents
     TreeView_SelectItem(hTree, hRoot);
     PopulateListView(s_hListView, rootPath);
+    
+    // Force complete redraw
+    InvalidateRect(hTree, NULL, TRUE);
+    UpdateWindow(hTree);
 }
 
 void MainWindow::PopulateListView(HWND hList, const std::wstring &folderPath) {

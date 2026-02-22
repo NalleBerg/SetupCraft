@@ -27,6 +27,8 @@
 <li><strong>Files-Only ListView:</strong> Filters out directories in PopulateListView() - only files displayed with (!(dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) check</li>
 <li><strong>Page Cleanup System:</strong> SwitchPage() properly destroys previous page buttons, browse button, TreeView, and ListView before creating new page to prevent memory leaks</li>
 <li><strong>Toolbar Tooltips i18n:</strong> All 8 buttons have localized tooltips - tt_files: "Manage files and folders to include", tt_scripts: "Configure scripts to run before/after installation", etc. (20 languages)</li>
+<li><strong>Page Switching Bug Fix:</strong> Fixed TreeView/ListView disappearing when switching pages - Files page controls now created as direct children of main window without page container (s_hCurrentPage) to prevent STATIC control from covering TreeView/ListView on page switch</li>
+<li><strong>TreeView Redraw Fix:</strong> Added InvalidateRect() and UpdateWindow() calls after TreeView_Expand() operations to force complete redraw when returning to Files page, ensuring full tree visibility</li>
 </ul>
 
 <h3 style="text-align: center;">&nbsp;</h3>

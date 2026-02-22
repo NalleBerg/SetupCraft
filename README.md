@@ -2,7 +2,7 @@
 
 An installer creation tool for making your developed packages distributable. Designed to be simple to use with a clean, native Windows interface.
 
-> Note: This project is in active development. Entry screen and main window Files management are complete.
+> Note: This project is in active development. Entry screen and main window Files management page are complete with proper page switching.
 
 ## Features
 
