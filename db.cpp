@@ -250,6 +250,45 @@ std::vector<ProjectRow> DB::ListProjects() {
     return out;
 }
 
+bool DB::GetProject(int id, ProjectRow &outProject) {
+    std::wstring dbPath = GetAppDataDbPath();
+    std::string dbPathUtf8 = WToUtf8(dbPath);
+    void *db = NULL;
+    int flags = 0x00000002 /*SQLITE_OPEN_READWRITE*/ | 0x00000004 /*SQLITE_OPEN_CREATE*/;
+    if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return false;
+
+    const char *sql = "SELECT id, name, directory, description, lang, version, created, last_updated FROM projects WHERE id = ?;";
+    void *stmt = NULL;
+    if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return false; }
+    
+    std::string idStr;
+    { std::ostringstream os; os << id; idStr = os.str(); }
+    if (p_bind_text) p_bind_text(stmt, 1, idStr.c_str(), -1, NULL);
+
+    bool found = false;
+    if (p_step(stmt) == 100 /*SQLITE_ROW*/) {
+        outProject.id = (int)p_col_int64(stmt, 0);
+        const unsigned char *t0 = p_col_text(stmt, 1);
+        const unsigned char *t1 = p_col_text(stmt, 2);
+        const unsigned char *t2 = p_col_text(stmt, 3);
+        const unsigned char *t3 = p_col_text(stmt, 4);
+        const unsigned char *t4 = p_col_text(stmt, 5);
+        const unsigned char *t5 = p_col_text(stmt, 6);
+        const unsigned char *t6 = p_col_text(stmt, 7);
+        outProject.name = Utf8ToW(t0 ? (const char*)t0 : "");
+        outProject.directory = Utf8ToW(t1 ? (const char*)t1 : "");
+        outProject.description = Utf8ToW(t2 ? (const char*)t2 : "");
+        outProject.lang = Utf8ToW(t3 ? (const char*)t3 : "");
+        outProject.version = Utf8ToW(t4 ? (const char*)t4 : "");
+        outProject.created = t5 ? atoll((const char*)t5) : 0;
+        outProject.last_updated = t6 ? atoll((const char*)t6) : 0;
+        found = true;
+    }
+    if (p_finalize) p_finalize(stmt);
+    p_close(db);
+    return found;
+}
+
 bool DB::GetSetting(const std::wstring &key, std::wstring &outValue) {
     outValue.clear();
     std::wstring dbPath = GetAppDataDbPath();

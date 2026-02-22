@@ -8,7 +8,33 @@ exit=Wyjście
 delete_project=Usuń projekt
 ok=OK
 
+# Column headers
+col_id=ID
+col_name=Nazwa
+col_version=Wersja
+col_last_updated=Ostatnia aktualizacja
+
 quit_title=Zamknij SetupCraft
 quit_message=Czy na pewno chcesz wyjść?
 yes=Tak
 no=Nie
+
+# Toolbar buttons
+tb_files=Files
+tb_add_registry=Registry
+tb_add_shortcut=Shortcuts
+tb_add_dependency=Dependencies
+tb_settings=Settings
+tb_build=Build (F7)
+tb_test=Test (F5)
+tb_scripts=Scripts
+
+# Toolbar tooltips
+tt_files=Manage files and folders to include in the installer
+tt_add_registry=Add registry entries
+tt_add_shortcut=Create shortcuts for start menu or desktop
+tt_add_dependency=Add runtime dependencies
+tt_settings=Configure installer settings
+tt_build=Compile the installer package
+tt_test=Test the compiled installer
+tt_scripts=Skonfiguruj skrypty do uruchomienia przed/po instalacji

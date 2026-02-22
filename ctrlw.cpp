@@ -78,6 +78,12 @@ LRESULT CALLBACK QuitDialogProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lPara
         }
         break;
     }
+    case WM_CTLCOLORSTATIC: {
+        // Make static text background transparent
+        HDC hdcStatic = (HDC)wParam;
+        SetBkMode(hdcStatic, TRANSPARENT);
+        return (LRESULT)GetStockObject(NULL_BRUSH);
+    }
     case WM_CLOSE:
         g_quitDialogResult = false;
         DestroyWindow(hDlg);
@@ -115,6 +121,27 @@ bool ShowQuitDialog(HWND hwndParent, const std::map<std::wstring, std::wstring>&
     auto itTitle = locale.find(L"quit_title");
     std::wstring title = (itTitle != locale.end()) ? itTitle->second : L"Exit";
     
+    // Calculate centered position
+    RECT rcParent;
+    if (hwndParent && GetWindowRect(hwndParent, &rcParent)) {
+        // Center on parent
+    } else {
+        // Center on screen work area
+        SystemParametersInfoW(SPI_GETWORKAREA, 0, &rcParent, 0);
+    }
+    
+    int width = 400, height = 160;
+    int x = rcParent.left + (rcParent.right - rcParent.left - width) / 2;
+    int y = rcParent.top + (rcParent.bottom - rcParent.top - height) / 2;
+    
+    // Ensure dialog is visible on screen
+    RECT rcWork;
+    SystemParametersInfoW(SPI_GETWORKAREA, 0, &rcWork, 0);
+    if (x < rcWork.left) x = rcWork.left;
+    if (y < rcWork.top) y = rcWork.top;
+    if (x + width > rcWork.right) x = rcWork.right - width;
+    if (y + height > rcWork.bottom) y = rcWork.bottom - height;
+    
     // Create a non-const copy of locale to pass as parameter
     std::map<std::wstring, std::wstring>* pLocaleCopy = 
         new std::map<std::wstring, std::wstring>(locale);
@@ -123,19 +150,11 @@ bool ShowQuitDialog(HWND hwndParent, const std::map<std::wstring, std::wstring>&
         WS_EX_DLGMODALFRAME | WS_EX_TOPMOST,
         L"QuitDialogClass",
         title.c_str(),
-        WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
-        CW_USEDEFAULT, CW_USEDEFAULT, 400, 160,
+        WS_POPUP | WS_CAPTION | WS_SYSMENU,
+        x, y, width, height,
         hwndParent, NULL, GetModuleHandle(NULL), pLocaleCopy);
     
     if (hDlg) {
-        // Center the dialog on parent
-        RECT rcParent, rcDlg;
-        GetWindowRect(hwndParent, &rcParent);
-        GetWindowRect(hDlg, &rcDlg);
-        int x = rcParent.left + (rcParent.right - rcParent.left - (rcDlg.right - rcDlg.left)) / 2;
-        int y = rcParent.top + (rcParent.bottom - rcParent.top - (rcDlg.bottom - rcDlg.top)) / 2;
-        SetWindowPos(hDlg, NULL, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
-        
         // Disable parent window
         EnableWindow(hwndParent, FALSE);
         ShowWindow(hDlg, SW_SHOW);

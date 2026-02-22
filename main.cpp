@@ -13,6 +13,7 @@
 #include "db.h"
 #include "button.h"
 #include "ctrlw.h"
+#include "mainwindow.h"
 
 // IDs
 #ifndef IDC_LANG_COMBO
@@ -211,6 +212,27 @@ static void WriteSavedLocale(const std::wstring &code) {
     DB::SetSetting(L"language", code);
 }
 
+// Helper function to calculate centered position for a window
+static void GetCenteredPosition(HWND hwndParent, int width, int height, int &outX, int &outY) {
+    RECT rc;
+    if (hwndParent && GetWindowRect(hwndParent, &rc)) {
+        // Center on parent window
+        outX = rc.left + (rc.right - rc.left - width) / 2;
+        outY = rc.top + (rc.bottom - rc.top - height) / 2;
+    } else {
+        // Center on screen work area
+        SystemParametersInfoW(SPI_GETWORKAREA, 0, &rc, 0);
+        outX = rc.left + (rc.right - rc.left - width) / 2;
+        outY = rc.top + (rc.bottom - rc.top - height) / 2;
+    }
+    
+    // Ensure window is visible on screen
+    if (outX < rc.left) outX = rc.left;
+    if (outY < rc.top) outY = rc.top;
+    if (outX + width > rc.right) outX = rc.right - width;
+    if (outY + height > rc.bottom) outY = rc.bottom - height;
+}
+
 static bool LoadLocaleFile(const std::wstring &code, std::map<std::wstring, std::wstring> &out) {
     wchar_t path[MAX_PATH];
     swprintf_s(path, L"locale\\%s.txt", code.c_str());
@@ -284,23 +306,35 @@ LRESULT CALLBACK DeleteProjectDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM
         ListView_SetExtendedListViewStyle(hList, LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
         if (g_guiFont) SendMessageW(hList, WM_SETFONT, (WPARAM)g_guiFont, TRUE);
         
-        // Add columns
+        // Add columns with i18n
+        auto itColId = g_locale.find(L"col_id");
+        std::wstring colIdText = (itColId != g_locale.end()) ? itColId->second : L"ID";
+        
+        auto itColName = g_locale.find(L"col_name");
+        std::wstring colNameText = (itColName != g_locale.end()) ? itColName->second : L"Name";
+        
+        auto itColVersion = g_locale.find(L"col_version");
+        std::wstring colVersionText = (itColVersion != g_locale.end()) ? itColVersion->second : L"Version";
+        
+        auto itColLastUpdated = g_locale.find(L"col_last_updated");
+        std::wstring colLastUpdatedText = (itColLastUpdated != g_locale.end()) ? itColLastUpdated->second : L"Last Updated";
+        
         LVCOLUMNW col = {};
         col.mask = LVCF_TEXT | LVCF_WIDTH;
         col.cx = 50;
-        col.pszText = (LPWSTR)L"ID";
+        col.pszText = (LPWSTR)colIdText.c_str();
         ListView_InsertColumn(hList, 0, &col);
         
         col.cx = 200;
-        col.pszText = (LPWSTR)L"Name";
+        col.pszText = (LPWSTR)colNameText.c_str();
         ListView_InsertColumn(hList, 1, &col);
         
         col.cx = 120;
-        col.pszText = (LPWSTR)L"Version";
+        col.pszText = (LPWSTR)colVersionText.c_str();
         ListView_InsertColumn(hList, 2, &col);
         
         col.cx = 140;
-        col.pszText = (LPWSTR)L"Last Updated";
+        col.pszText = (LPWSTR)colLastUpdatedText.c_str();
         ListView_InsertColumn(hList, 3, &col);
         
         // Load projects from database
@@ -438,6 +472,8 @@ LRESULT CALLBACK DeleteProjectDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM
 }
 
 // Dialog procedure for Open Project dialog
+static bool g_projectOpened = false;
+
 LRESULT CALLBACK OpenProjectDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
     case WM_CREATE: {
@@ -452,23 +488,35 @@ LRESULT CALLBACK OpenProjectDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM l
         ListView_SetExtendedListViewStyle(hList, LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
         if (g_guiFont) SendMessageW(hList, WM_SETFONT, (WPARAM)g_guiFont, TRUE);
         
-        // Add columns
+        // Add columns with i18n
+        auto itColId = g_locale.find(L"col_id");
+        std::wstring colIdText = (itColId != g_locale.end()) ? itColId->second : L"ID";
+        
+        auto itColName = g_locale.find(L"col_name");
+        std::wstring colNameText = (itColName != g_locale.end()) ? itColName->second : L"Name";
+        
+        auto itColVersion = g_locale.find(L"col_version");
+        std::wstring colVersionText = (itColVersion != g_locale.end()) ? itColVersion->second : L"Version";
+        
+        auto itColLastUpdated = g_locale.find(L"col_last_updated");
+        std::wstring colLastUpdatedText = (itColLastUpdated != g_locale.end()) ? itColLastUpdated->second : L"Last Updated";
+        
         LVCOLUMNW col = {};
         col.mask = LVCF_TEXT | LVCF_WIDTH;
         col.cx = 50;
-        col.pszText = (LPWSTR)L"ID";
+        col.pszText = (LPWSTR)colIdText.c_str();
         ListView_InsertColumn(hList, 0, &col);
         
         col.cx = 200;
-        col.pszText = (LPWSTR)L"Name";
+        col.pszText = (LPWSTR)colNameText.c_str();
         ListView_InsertColumn(hList, 1, &col);
         
         col.cx = 120;
-        col.pszText = (LPWSTR)L"Version";
+        col.pszText = (LPWSTR)colVersionText.c_str();
         ListView_InsertColumn(hList, 2, &col);
         
         col.cx = 140;
-        col.pszText = (LPWSTR)L"Last Updated";
+        col.pszText = (LPWSTR)colLastUpdatedText.c_str();
         ListView_InsertColumn(hList, 3, &col);
         
         // Load projects from database
@@ -521,7 +569,16 @@ LRESULT CALLBACK OpenProjectDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM l
                 item.iItem = sel;
                 ListView_GetItem(hList, &item);
                 int projId = (int)item.lParam;
-                // TODO: Open the selected project
+                
+                // Load project from database
+                ProjectRow project;
+                if (DB::GetProject(projId, project)) {
+                    // Create main window
+                    HINSTANCE hInst = (HINSTANCE)GetWindowLongPtr(hDlg, GWLP_HINSTANCE);
+                    MainWindow::Create(hInst, project, g_locale);
+                    g_projectOpened = true;
+                }
+                
                 DestroyWindow(hDlg);
             } else {
                 MessageBoxW(hDlg, L"Please select a project", L"Info", MB_OK | MB_ICONINFORMATION);
@@ -801,12 +858,16 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 deleteDialogClassRegistered = true;
             }
             
+            // Calculate centered position
+            int x, y;
+            GetCenteredPosition(hwnd, 600, 400, x, y);
+            
             HWND hDlg = CreateWindowExW(
                 WS_EX_DLGMODALFRAME | WS_EX_TOPMOST,
                 L"DeleteProjectDialogClass",
                 L"Delete Project",
-                WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
-                CW_USEDEFAULT, CW_USEDEFAULT, 600, 400,
+                WS_POPUP | WS_CAPTION | WS_SYSMENU,
+                x, y, 600, 400,
                 hwnd, NULL, hInst, NULL);
             
             if (hDlg) {
@@ -837,36 +898,39 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             auto itTitle = g_locale.find(L"open_project");
             std::wstring title = (itTitle != g_locale.end()) ? itTitle->second : L"Open Project";
             
+            // Calculate centered position
+            int x, y;
+            GetCenteredPosition(hwnd, 600, 400, x, y);
+            
             HWND hDlg = CreateWindowExW(
                 WS_EX_DLGMODALFRAME | WS_EX_WINDOWEDGE,
                 L"OpenProjectDlgClass",
                 title.c_str(),
                 WS_POPUP | WS_CAPTION | WS_SYSMENU,
-                CW_USEDEFAULT, CW_USEDEFAULT, 600, 400,
+                x, y, 600, 400,
                 hwnd, NULL, hInst, NULL);
             
             if (hDlg) {
-                // Center dialog on parent
-                RECT rcParent, rcDlg;
-                GetWindowRect(hwnd, &rcParent);
-                GetWindowRect(hDlg, &rcDlg);
-                int x = rcParent.left + (rcParent.right - rcParent.left - (rcDlg.right - rcDlg.left)) / 2;
-                int y = rcParent.top + (rcParent.bottom - rcParent.top - (rcDlg.bottom - rcDlg.top)) / 2;
-                SetWindowPos(hDlg, HWND_TOP, x, y, 0, 0, SWP_NOSIZE);
                 
                 // Show dialog modally
                 EnableWindow(hwnd, FALSE);
                 ShowWindow(hDlg, SW_SHOW);
                 
                 // Message loop for modal dialog
+                g_projectOpened = false;
                 MSG msg;
                 while (IsWindow(hDlg) && GetMessageW(&msg, NULL, 0, 0)) {
                     TranslateMessage(&msg);
                     DispatchMessageW(&msg);
                 }
                 
-                EnableWindow(hwnd, TRUE);
-                SetForegroundWindow(hwnd);
+                // If a project was opened, hide the entry screen
+                if (g_projectOpened) {
+                    ShowWindow(hwnd, SW_HIDE);
+                } else {
+                    EnableWindow(hwnd, TRUE);
+                    SetForegroundWindow(hwnd);
+                }
             }
             return 0;
         }
@@ -1052,9 +1116,13 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR pCmdLine, int nCmdShow
         }
     }
 
+    // Calculate centered position for entry window
+    int x, y;
+    GetCenteredPosition(NULL, 420, 180, x, y);
+    
     HWND hwnd = CreateWindowExW(0, CLASS_NAME, L"Skeleton App",
         WS_OVERLAPPEDWINDOW & ~WS_MAXIMIZEBOX & ~WS_THICKFRAME,
-        CW_USEDEFAULT, CW_USEDEFAULT, 420, 180,
+        x, y, 420, 180,
         NULL, NULL, hInstance, NULL);
 
     if (!hwnd) return 0;

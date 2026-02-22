@@ -17,6 +17,7 @@ namespace DB {
     bool InitDb();
     bool InsertProject(const std::wstring &name, const std::wstring &directory, const std::wstring &description, const std::wstring &lang, const std::wstring &version, int &outId);
     std::vector<ProjectRow> ListProjects();
+    bool GetProject(int id, ProjectRow &outProject);
     bool GetSetting(const std::wstring &key, std::wstring &outValue);
     bool SetSetting(const std::wstring &key, const std::wstring &value);
 }

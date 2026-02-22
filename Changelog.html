@@ -2,6 +2,34 @@
 <h3 style="text-align: center;">&nbsp;</h3>
 <p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 22 February 2026<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
 
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.02.22.10</span></h3>
+<p><strong>Main Window &amp; Files Management Implementation (22 February 2026):</strong></p>
+<ul>
+<li><strong>8-Button Toolbar:</strong> Horizontal toolbar with Files, Registry, Shortcuts, Dependencies, Settings, Build (F7), Test (F5), Scripts buttons - custom owner-draw buttons with system icons</li>
+<li><strong>Page-Based Architecture:</strong> 8 distinct pages accessible via toolbar - each page created dynamically in container window with page-specific content</li>
+<li><strong>Files Management Page:</strong> Complete file/folder selection interface with split-pane layout (30% TreeView / 70% ListView)</li>
+<li><strong>TreeView Folder Hierarchy:</strong> Recursive directory tree showing full folder structure with folder icons (shell32.dll #4 closed, #5 open), checkboxes for multi-select removal</li>
+<li><strong>ListView File Display:</strong> Files-only view with system file type icons via SHGetFileInfo(), two columns (Source Path 55% / Destination 45%), multi-select support (Ctrl/Shift)</li>
+<li><strong>Install Directory Configuration:</strong> Edit field with default "C:\Program Files\[ProjectName]" path, folder picker button (...) with browse dialog that preserves app name while changing base directory</li>
+<li><strong>Add Folder/Add Files Buttons:</strong> Blue buttons positioned above TreeView/ListView (placeholders for future implementation)</li>
+<li><strong>Remove Button:</strong> Red button for removing selected items - intelligently detects focus between TreeView (checkboxes) and ListView (selected files), supports multi-item removal with memory cleanup</li>
+<li><strong>TreeView Structure Enhancement:</strong> Shows "Program Files" as root → "SetupCraft" as child → subdirectories (inno, locale, mingw_dlls, sqlite3, etc.) for proper install directory visualization</li>
+<li><strong>TreeView Selection Sync:</strong> Clicking folders in TreeView automatically updates ListView to show files in that directory with icon refresh and proper notification handling</li>
+<li><strong>File Type Icons:</strong> Each file displays with its associated Windows icon (exe, ico, md, txt, png, svg, dll, bat, etc.) using system image list</li>
+<li><strong>Tooltip System:</strong> LVS_EX_INFOTIP with LVN_GETINFOTIP handler displays full file path when hovering over truncated paths in ListView</li>
+<li><strong>Scripts Page:</strong> 8th page for configuring batch/PowerShell scripts to run before or after installation (Inno Setup-like functionality) - placeholder with H3 headline and description</li>
+<li><strong>Column Header i18n:</strong> Localized ListView column headers in Open/Delete Project dialogs - ID, Name, Version, Last Updated translated to all 20 languages (Norwegian: Navn/Versjon/Sist oppdatert, Greek: Όνομα/Έκδοση/Τελευταία ενημέρωση, etc.)</li>
+<li><strong>Multi-Select Implementation:</strong> ListView supports standard Windows multi-select (Ctrl+Click, Shift+Click, Ctrl+A), TreeView uses checkboxes for multi-folder selection</li>
+<li><strong>Memory Management:</strong> Proper malloc/free for LPARAM path storage in TreeView and ListView items, cleanup on removal and page switching</li>
+<li><strong>Child Window Architecture:</strong> TreeView/ListView/buttons created as children of main window (not page container) to properly receive WM_NOTIFY and WM_DRAWITEM messages</li>
+<li><strong>Browse Button Integration:</strong> Folder picker extracts app name from current path, lets user select new base directory, appends app name automatically (e.g., D:\MyApps → D:\MyApps\SetupCraft)</li>
+<li><strong>Recursive Tree Population:</strong> AddTreeNodeRecursive() scans all subdirectories at page load, stores full paths in LPARAM for selection handling</li>
+<li><strong>Files-Only ListView:</strong> Filters out directories in PopulateListView() - only files displayed with (!(dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) check</li>
+<li><strong>Page Cleanup System:</strong> SwitchPage() properly destroys previous page buttons, browse button, TreeView, and ListView before creating new page to prevent memory leaks</li>
+<li><strong>Toolbar Tooltips i18n:</strong> All 8 buttons have localized tooltips - tt_files: "Manage files and folders to include", tt_scripts: "Configure scripts to run before/after installation", etc. (20 languages)</li>
+</ul>
+
+<h3 style="text-align: center;">&nbsp;</h3>
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.02.22.01</span></h3>
 <p><strong>Quit Dialog System &amp; Icon Refinement (22 February 2026):</strong></p>
 <ul>
@@ -67,6 +95,6 @@
 </ul>
 
 <hr />
-<p style="text-align: center; color: #007a00;"><strong>Development Status:</strong> Entry screen complete &mdash; main application functionality in development</p>
-<p style="text-align: center; font-size: 12px; color: #666;">Updated 22 February 2026 &mdash; Quit dialog system and icon refinements complete</p>
+<p style="text-align: center; color: #007a00;"><strong>Development Status:</strong> Main window with Files management page complete &mdash; file add/build functionality in development</p>
+<p style="text-align: center; font-size: 12px; color: #666;">Updated 22 February 2026 &mdash; Main window, toolbar, Files page, TreeView/ListView, and removal system complete</p>
 <p><br /><br /></p>
