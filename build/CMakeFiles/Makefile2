@@ -84,12 +84,12 @@ clean: CMakeFiles/SkeletonApp.dir/clean
 CMakeFiles/SkeletonApp.dir/all:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\build\CMakeFiles --progress-num=1,2,3,4 "Built target SkeletonApp"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\build\CMakeFiles --progress-num=1,2,3,4,5,6,7 "Built target SkeletonApp"
 .PHONY : CMakeFiles/SkeletonApp.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/SkeletonApp.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\build\CMakeFiles 4
+	$(CMAKE_COMMAND) -E cmake_progress_start C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\build\CMakeFiles 7
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\Makefile2 CMakeFiles/SkeletonApp.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\build\CMakeFiles 0
 .PHONY : CMakeFiles/SkeletonApp.dir/rule
@@ -101,7 +101,7 @@ SkeletonApp: CMakeFiles/SkeletonApp.dir/rule
 # codegen rule for target.
 CMakeFiles/SkeletonApp.dir/codegen:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/codegen
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\build\CMakeFiles --progress-num=1,2,3,4 "Finished codegen for target SkeletonApp"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\build\CMakeFiles --progress-num=1,2,3,4,5,6,7 "Finished codegen for target SkeletonApp"
 .PHONY : CMakeFiles/SkeletonApp.dir/codegen
 
 # clean rule for target.

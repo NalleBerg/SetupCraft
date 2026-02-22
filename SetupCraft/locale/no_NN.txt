@@ -1,9 +1,14 @@
 app_name=SetupCraft
 search_btn=🔍 Søk
 select_language=Vel språk for prosjektet ditt
-new_project=➕ Nytt prosjekt
-open_project=📂 Opne prosjekt
-cancel=✖ Avbryt
-exit=🚪 Avslutt
-delete_project=🗑️ Slett prosjekt
-ok=✓ OK
+new_project=Nytt prosjekt
+open_project=Opne prosjekt
+cancel=Avbryt
+exit=Avslutt
+delete_project=Slett prosjekt
+ok=OK
+
+quit_title=Avslutt SetupCraft
+quit_message=Er du sikker på at du vil avslutta?
+yes=Ja
+no=Nei

@@ -1,9 +1,14 @@
 app_name=SetupCraft
 search_btn=🔍 Αναζήτηση
 select_language=Επιλέξτε γλώσσα για το έργο σας
-new_project=➕ Νέο έργο
-open_project=📂 Άνοιγμα έργου
-cancel=✖ Ακύρωση
-exit=🚪 Έξοδος
-delete_project=🗑️ Διαγραφή έργου
-ok=✓ Εντάξει
+new_project=Νέο έργο
+open_project=Άνοιγμα έργου
+cancel=Ακύρωση
+exit=Έξοδος
+delete_project=Διαγραφή έργου
+ok=Εντάξει
+
+quit_title=Έξοδος από το SetupCraft
+quit_message=Είστε βέβαιοι ότι θέλετε να τερματίσετε;
+yes=Ναι
+no=Όχι

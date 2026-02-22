@@ -1,9 +1,14 @@
 app_name=SetupCraft
 search_btn=🔍 Search
 select_language=Select language for your project
-new_project=➕ New project
-open_project=📂 Open project
-cancel=✖ Cancel
-exit=🚪 Exit
-delete_project=🗑️ Delete project
-ok=✓ OK
+new_project=New project
+open_project=Open project
+cancel=Cancel
+exit=Exit
+delete_project=Delete project
+ok=OK
+
+quit_title=Exit SetupCraft
+quit_message=Are you sure you want to quit?
+yes=Yes
+no=No

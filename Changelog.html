@@ -1,153 +1,72 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SetupCraft - Changelog</title>
-    <style>
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            max-width: 900px;
-            margin: 40px auto;
-            padding: 20px;
-            background-color: #f5f5f5;
-            line-height: 1.6;
-        }
-        h1 {
-            color: #2c3e50;
-            border-bottom: 3px solid #3498db;
-            padding-bottom: 10px;
-        }
-        h3 {
-            color: #c0392b;
-            margin-top: 30px;
-            margin-bottom: 10px;
-            font-size: 1.3em;
-        }
-        .entry {
-            background-color: white;
-            padding: 20px;
-            margin-bottom: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        ul {
-            margin-top: 10px;
-        }
-        li {
-            margin-bottom: 8px;
-        }
-        .feature {
-            color: #27ae60;
-            font-weight: bold;
-        }
-        .fix {
-            color: #e67e22;
-            font-weight: bold;
-        }
-        .technical {
-            color: #3498db;
-            font-weight: bold;
-        }
-    </style>
-</head>
-<body>
-    <h1>🛠️ SetupCraft Changelog</h1>
+<h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
+<h3 style="text-align: center;">&nbsp;</h3>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 22 February 2026<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
 
-    <div class="entry">
-        <h3>Version 2026.02.21.10 - February 21, 2026</h3>
-        
-        <h4>🌟 Major Features</h4>
-        <ul>
-            <li><span class="feature">NEW:</span> Complete entry screen implementation with 2×2 button grid layout</li>
-            <li><span class="feature">NEW:</span> Multilingual support for 20 languages (Norwegian, English, Greek, Spanish, German, French, Italian, Dutch, Portuguese, Polish, Romanian, Ukrainian, Icelandic, Romansh, Danish)</li>
-            <li><span class="feature">NEW:</span> SQLite database integration stored in <code>%APPDATA%\SetupCraft\SetupCraft.db</code></li>
-            <li><span class="feature">NEW:</span> Project management system with Create, Open, and Delete functionality</li>
-            <li><span class="feature">NEW:</span> Globe icon with comprehensive multilingual tooltip showing all available languages in 4-column table format</li>
-        </ul>
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.02.22.01</span></h3>
+<p><strong>Quit Dialog System &amp; Icon Refinement (22 February 2026):</strong></p>
+<ul>
+<li><strong>Professional Quit Confirmation Dialog:</strong> Custom quit dialog with Yes/No buttons using native Windows styling - shows on Exit button, X button, and Ctrl+W keyboard shortcut</li>
+<li><strong>Complete i18n for Quit System:</strong> Added quit_title, quit_message, yes, and no translations to all 20 languages (Norwegian: "Avslutt SetupCraft", "Er du sikker på at du vil avslutte?", Greek: "Έξοδος από το SetupCraft", "Είστε βέβαιοι ότι θέλετε να τερματίσετε;", etc.)</li>
+<li><strong>Ctrl+W Keyboard Shortcut:</strong> WM_KEYDOWN handler detects Ctrl+W globally for quick quit with confirmation</li>
+<li><strong>Modal Dialog Implementation:</strong> Quit dialog disables parent window during display, properly centered, with custom message loop for modal behavior</li>
+<li><strong>ctrlw.cpp/.h Module:</strong> Centralized quit handling with ShowQuitDialog() and IsCtrlWPressed() functions</li>
+<li><strong>Icon Cleanup:</strong> Removed emoji prefixes from all button text (new_project, open_project, delete_project, exit, ok, cancel) since Windows system icons are displayed</li>
+<li><strong>Delete Button Icon Fix:</strong> Changed from invalid imageres.dll #5370 to shell32.dll #31 (recycle bin icon) - fixes text alignment issue where invalid icon caused centered text instead of left-aligned</li>
+<li><strong>Consistent Button Text Alignment:</strong> All buttons now properly left-aligned with icons displayed to the left of text</li>
+<li><strong>WM_CLOSE Handler:</strong> Window X button now shows quit dialog before closing instead of immediate termination</li>
+<li><strong>Exit Button Integration:</strong> Exit button calls ShowQuitDialog() - only quits if user confirms with "Yes"</li>
+</ul>
 
-        <h4>🎨 User Interface</h4>
-        <ul>
-            <li><span class="feature">NEW:</span> Native Windows button styling with light gray backgrounds (RGB 225,225,225)</li>
-            <li><span class="feature">NEW:</span> Dark blue button text (RGB 7,50,116) for professional appearance</li>
-            <li><span class="feature">NEW:</span> Windows system icons from shell32.dll and imageres.dll:
-                <ul>
-                    <li>New Project: Green plus circle (imageres.dll #111)</li>
-                    <li>Open Project: Yellow folder (shell32.dll #4)</li>
-                    <li>Delete Project: Red trash icon (imageres.dll #5370)</li>
-                    <li>Exit: Application icon (shell32.dll #27)</li>
-                    <li>OK: Green checkmark (imageres.dll #89)</li>
-                    <li>Cancel: Red X (shell32.dll #131)</li>
-                </ul>
-            </li>
-            <li><span class="feature">NEW:</span> Per-button hover states with proper state management using window properties</li>
-            <li><span class="feature">NEW:</span> Responsive button press states with immediate visual feedback</li>
-        </ul>
+<h3 style="text-align: center;">&nbsp;</h3>
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.02.21.10</span></h3>
+<p><strong>Entry Screen Complete with Full Internationalization (21 February 2026):</strong></p>
+<ul>
+<li><strong>Entry Screen Implementation:</strong> Complete entry screen with 2×2 button grid - New Project, Open Project (top row), Delete Project, Exit (bottom row)</li>
+<li><strong>20-Language Support:</strong> Full multilingual support for Norwegian (Bokmål, Nynorsk), English, Greek, Spanish, German (DE, CH), French (FR, CH), Italian (IT, CH), Dutch (NL, BE), Portuguese, Polish, Romanian, Ukrainian, Icelandic, Romansh, Danish</li>
+<li><strong>SQLite Database Integration:</strong> Project database stored in <code>%APPDATA%\SetupCraft\SetupCraft.db</code> with settings and projects tables</li>
+<li><strong>Project Management Dialogs:</strong> Open Project and Delete Project dialogs with ListView displaying ID, Name (bold), Version, Last Updated columns</li>
+<li><strong>Globe Icon with Tooltip:</strong> Blue globe icon beside language dropdown - mouseover displays all available languages in 4-column table format with country codes right-aligned</li>
+<li><strong>Native Windows Button Styling:</strong> Light gray backgrounds (RGB 225,225,225 base, 229,241,251 hover, 204,228,247 pressed), dark blue text (RGB 7,50,116), 1px gray borders</li>
+<li><strong>Windows System Icons:</strong> Professional colored icons from system DLLs:
+    <ul>
+    <li>New Project: imageres.dll #111 (green plus circle)</li>
+    <li>Open Project: shell32.dll #4 (yellow folder)</li>
+    <li>Delete Project: shell32.dll #31 (recycle bin)</li>
+    <li>Exit: shell32.dll #27 (application icon)</li>
+    <li>OK: imageres.dll #89 (green checkmark)</li>
+    <li>Cancel: shell32.dll #131 (red X)</li>
+    </ul>
+</li>
+<li><strong>Per-Button Hover States:</strong> Fixed static variable bug - each button now tracks hover state independently using SetPropW/GetPropW("IsHovering") window properties</li>
+<li><strong>Owner-Draw Button System:</strong> BS_OWNERDRAW buttons with custom rendering in DrawCustomButton() - ExtractIconW() loads system icons, DrawIconEx() renders at 20x20px</li>
+<li><strong>Real-Time Language Switching:</strong> Language dropdown updates all UI elements immediately - window title, button text (New/Open/Delete/Exit), dialog buttons automatically refresh</li>
+<li><strong>Project Database Schema:</strong> Projects table with id, name, directory, description, lang, version (YYYY.MM.DD.HH format), created, last_updated fields</li>
+<li><strong>Auto-Inserted Demo Project:</strong> "SetupCraft" project automatically created in database on first run with current timestamp</li>
+<li><strong>Delete Project Confirmation:</strong> Delete dialog shows project list, displays confirmation MessageBox before deletion (actual deletion not yet implemented)</li>
+<li><strong>Version Format:</strong> YYYY.MM.DD.HH timestamps for project versions (e.g., 2026.02.21.10)</li>
+<li><strong>Cancel Button Width Fix:</strong> Increased from 100px to 120px to accommodate Greek "Ακύρωση" and other long translations</li>
+<li><strong>Localized OK Button:</strong> Proper translations - Greek: Εντάξει, Spanish: Aceptar, Icelandic: Í lagi, Ukrainian: Гаразд (not just "OK")</li>
+<li><strong>Dialog Return Behavior:</strong> Dialogs now return to main window on close/cancel instead of terminating application (removed PostQuitMessage from dialog WM_DESTROY)</li>
+<li><strong>Window Height Optimization:</strong> Reduced from 250px to 180px to eliminate excessive bottom whitespace</li>
+<li><strong>Language Persistence:</strong> Selected language stored in settings table and automatically loaded on startup</li>
+<li><strong>ListView Custom Draw:</strong> Project names displayed in bold in ListView column 1 using NM_CUSTOMDRAW with CDRF_NEWFONT</li>
+<li><strong>Button Press Visual Feedback:</strong> WM_LBUTTONUP handler forces immediate InvalidateRect() for instant pressed-to-normal state transition</li>
+<li><strong>Comprehensive Icon Documentation:</strong> icons/README.txt documents all icon sources, indices, descriptions, and usage examples</li>
+</ul>
 
-        <h4>📂 Project Management</h4>
-        <ul>
-            <li><span class="feature">NEW:</span> Open Project dialog with ListView showing ID, Name (bold), Version, and Last Updated</li>
-            <li><span class="feature">NEW:</span> Delete Project dialog with confirmation prompt</li>
-            <li><span class="feature">NEW:</span> Auto-inserted "SetupCraft" demo project in database</li>
-            <li><span class="feature">NEW:</span> Version format: YYYY.MM.DD.HH (e.g., 2026.02.21.10)</li>
-            <li><span class="feature">NEW:</span> Project database schema with description, lang, version, created, and last_updated fields</li>
-        </ul>
+<h3 style="text-align: center;">&nbsp;</h3>
+<h3 style="text-align: center;"><span style="color: #ff0000;">Initial Setup - Before February 21, 2026</span></h3>
+<p><strong>Project Foundation:</strong></p>
+<ul>
+<li><strong>Project Structure:</strong> Basic C++ project with CMake build system and MinGW GCC compiler support</li>
+<li><strong>Windows Application:</strong> Win32 skeleton application with window class registration and message loop</li>
+<li><strong>GPLv2 Licensing:</strong> Open source license with full license text in GPLv2.md</li>
+<li><strong>Build Scripts:</strong> makeit.bat for simplified building - calls CMake configure and mingw32-make</li>
+<li><strong>Resource File:</strong> SetupCraft.rc with application icon and version information</li>
+<li><strong>Directory Structure:</strong> Source files in root, build outputs in build/, packaged distribution in SetupCraft/</li>
+</ul>
 
-        <h4>🌐 Internationalization</h4>
-        <ul>
-            <li><span class="feature">NEW:</span> Real-time language switching from dropdown</li>
-            <li><span class="feature">NEW:</span> All UI elements update automatically when language changes</li>
-            <li><span class="feature">NEW:</span> Proper localized translations for OK button (Greek: Εντάξει, Spanish: Aceptar, Icelandic: Í lagi, Ukrainian: Гаразд)</li>
-            <li><span class="feature">NEW:</span> Language preference persisted to database</li>
-            <li><span class="feature">NEW:</span> Locale files in <code>locale/*.txt</code> format with 8 translation keys</li>
-        </ul>
-
-        <h4>🐛 Bug Fixes</h4>
-        <ul>
-            <li><span class="fix">FIXED:</span> Static hover variable causing all buttons to share hover state</li>
-            <li><span class="fix">FIXED:</span> Button pressed state persisting after mouse release</li>
-            <li><span class="fix">FIXED:</span> Norwegian "Avbryt" text truncated at 80px width (increased to 100px, then 120px for Greek)</li>
-            <li><span class="fix">FIXED:</span> Dialog close behavior - now returns to main window instead of terminating application</li>
-            <li><span class="fix">FIXED:</span> Delete and Exit buttons not updating when language changed</li>
-            <li><span class="fix">FIXED:</span> Cancel button width insufficient for Greek text "Ακύρωση" (increased to 120px)</li>
-        </ul>
-
-        <h4>🔧 Technical Improvements</h4>
-        <ul>
-            <li><span class="technical">IMPROVED:</span> Migrated from .ini files to SQLite database for settings storage</li>
-            <li><span class="technical">IMPROVED:</span> Owner-draw button system with BS_OWNERDRAW for custom rendering</li>
-            <li><span class="technical">IMPROVED:</span> ExtractIconW() and DrawIconEx() for loading system icons</li>
-            <li><span class="technical">IMPROVED:</span> Per-button state management using SetPropW/GetPropW("IsHovering")</li>
-            <li><span class="technical">IMPROVED:</span> Window height reduced from 250px to 180px to fit content better</li>
-            <li><span class="technical">IMPROVED:</span> Button layout changed from vertical stack to 2×2 grid</li>
-            <li><span class="technical">IMPROVED:</span> ListView custom draw for bold project names in column 1</li>
-        </ul>
-
-        <h4>📚 Documentation</h4>
-        <ul>
-            <li><span class="technical">ADDED:</span> Comprehensive icon system documentation in <code>icons/README.txt</code></li>
-            <li><span class="technical">ADDED:</span> Updated README.md with feature list and current status</li>
-            <li><span class="technical">ADDED:</span> This changelog file for tracking project history</li>
-        </ul>
-
-        <h4>🎯 Known Limitations</h4>
-        <ul>
-            <li>Delete project functionality shows confirmation but doesn't actually delete from database yet</li>
-            <li>New project button shows placeholder message</li>
-            <li>Open project button loads dialog but doesn't open project yet</li>
-            <li>Main application functionality (installer creation) not yet implemented</li>
-        </ul>
-    </div>
-
-    <div class="entry">
-        <h3>Initial Release - Before February 21, 2026</h3>
-        <ul>
-            <li><span class="technical">INITIAL:</span> Basic project structure</li>
-            <li><span class="technical">INITIAL:</span> CMake build system with MinGW support</li>
-            <li><span class="technical">INITIAL:</span> GPLv2 licensing</li>
-            <li><span class="technical">INITIAL:</span> Basic Windows application skeleton</li>
-        </ul>
-    </div>
-
-</body>
-</html>
+<hr />
+<p style="text-align: center; color: #007a00;"><strong>Development Status:</strong> Entry screen complete &mdash; main application functionality in development</p>
+<p style="text-align: center; font-size: 12px; color: #666;">Updated 22 February 2026 &mdash; Quit dialog system and icon refinements complete</p>
+<p><br /><br /></p>

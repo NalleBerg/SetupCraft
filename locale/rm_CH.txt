@@ -1,9 +1,14 @@
 app_name=SetupCraft
 search_btn=🔍 Cercar
 select_language=Tscherna la lingua per tes project
-new_project=➕ Nov project
-open_project=📂 Avrir project
-cancel=✖ Interrumper
-exit=🚪 Serrar
-delete_project=🗑️ Stizzar project
-ok=✓ OK
+new_project=Nov project
+open_project=Avrir project
+cancel=Interrumper
+exit=Serrar
+delete_project=Stizzar project
+ok=OK
+
+quit_title=Serrar SetupCraft
+quit_message=Essas Vus propi serrar?
+yes=Gea
+no=Na

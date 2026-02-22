@@ -11,6 +11,8 @@ An installer creation tool for making your developed packages distributable. Des
 - **Native Windows UI**: Clean interface using Windows system icons and native styling
 - **Project Management**: Create, open, and delete installation projects
 - **Intuitive Design**: Globe icon with multilingual tooltip showing all available languages
+- **Professional Quit System**: Confirmation dialog with Yes/No buttons - triggered by Exit button, X button, or Ctrl+W keyboard shortcut
+- **Keyboard Shortcuts**: Ctrl+W for quick exit with confirmation
 
 ## Current Status
 
@@ -21,6 +23,7 @@ An installer creation tool for making your developed packages distributable. Des
 ✅ Delete project with confirmation
 ✅ Native Windows button styling with system icons
 ✅ Full internationalization (i18n) support
+✅ Quit confirmation dialog with Ctrl+W support
 
 ## Building
 

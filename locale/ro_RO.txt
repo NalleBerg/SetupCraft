@@ -1,9 +1,14 @@
 app_name=SetupCraft
 search_btn=🔍 Căutare
 select_language=Selectați limba pentru proiectul dvs.
-new_project=➕ Proiect nou
-open_project=📂 Deschide proiect
-cancel=✖ Anulează
-exit=🚪 Ieșire
-delete_project=🗑️ Șterge proiect
-ok=✓ OK
+new_project=Proiect nou
+open_project=Deschide proiect
+cancel=Anulează
+exit=Ieșire
+delete_project=Șterge proiect
+ok=OK
+
+quit_title=Ieșire din SetupCraft
+quit_message=Sigur doriți să ieșiți?
+yes=Da
+no=Nu

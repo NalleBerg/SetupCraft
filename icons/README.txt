@@ -20,8 +20,8 @@ Icon assignments for buttons:
    Description: Open yellow folder icon
 
 3. DELETE PROJECT BUTTON (🗑️ Slett prosjekt)
-   Source: imageres.dll, Index: 5370
-   Description: Red/white delete/trash icon
+   Source: shell32.dll, Index: 31
+   Description: Recycle bin icon
 
 4. EXIT BUTTON (🚪 Avslutt)
    Source: shell32.dll, Index: 27

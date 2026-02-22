@@ -136,6 +136,78 @@ SetupCraft.rc.obj:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/SetupCraft.rc.obj
 .PHONY : SetupCraft.rc.obj
 
+button.obj: button.cpp.obj
+.PHONY : button.obj
+
+# target to build an object file
+button.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/button.cpp.obj
+.PHONY : button.cpp.obj
+
+button.i: button.cpp.i
+.PHONY : button.i
+
+# target to preprocess a source file
+button.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/button.cpp.i
+.PHONY : button.cpp.i
+
+button.s: button.cpp.s
+.PHONY : button.s
+
+# target to generate assembly for a file
+button.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/button.cpp.s
+.PHONY : button.cpp.s
+
+ctrlw.obj: ctrlw.cpp.obj
+.PHONY : ctrlw.obj
+
+# target to build an object file
+ctrlw.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/ctrlw.cpp.obj
+.PHONY : ctrlw.cpp.obj
+
+ctrlw.i: ctrlw.cpp.i
+.PHONY : ctrlw.i
+
+# target to preprocess a source file
+ctrlw.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/ctrlw.cpp.i
+.PHONY : ctrlw.cpp.i
+
+ctrlw.s: ctrlw.cpp.s
+.PHONY : ctrlw.s
+
+# target to generate assembly for a file
+ctrlw.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/ctrlw.cpp.s
+.PHONY : ctrlw.cpp.s
+
+db.obj: db.cpp.obj
+.PHONY : db.obj
+
+# target to build an object file
+db.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/db.cpp.obj
+.PHONY : db.cpp.obj
+
+db.i: db.cpp.i
+.PHONY : db.i
+
+# target to preprocess a source file
+db.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/db.cpp.i
+.PHONY : db.cpp.i
+
+db.s: db.cpp.s
+.PHONY : db.s
+
+# target to generate assembly for a file
+db.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/db.cpp.s
+.PHONY : db.cpp.s
+
 languages.obj: languages.cpp.obj
 .PHONY : languages.obj
 
@@ -194,6 +266,15 @@ help:
 	@echo ... rebuild_cache
 	@echo ... SkeletonApp
 	@echo ... SetupCraft.obj
+	@echo ... button.obj
+	@echo ... button.i
+	@echo ... button.s
+	@echo ... ctrlw.obj
+	@echo ... ctrlw.i
+	@echo ... ctrlw.s
+	@echo ... db.obj
+	@echo ... db.i
+	@echo ... db.s
 	@echo ... languages.obj
 	@echo ... languages.i
 	@echo ... languages.s

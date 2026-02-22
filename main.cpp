@@ -12,6 +12,7 @@
 #include "languages.h"
 #include "db.h"
 #include "button.h"
+#include "ctrlw.h"
 
 // IDs
 #ifndef IDC_LANG_COMBO
@@ -759,7 +760,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         auto itDelete = g_locale.find(L"delete_project");
         std::wstring deleteText = (itDelete != g_locale.end()) ? itDelete->second : L"Delete project";
         CreateCustomButtonWithIcon(hwnd, IDC_DELETE_PROJECT_BTN, deleteText, ButtonColor::Blue,
-            L"imageres.dll", 5370, buttonsStartX, row2Y, buttonWidth, buttonHeight, hInst);
+            L"shell32.dll", 31, buttonsStartX, row2Y, buttonWidth, buttonHeight, hInst);
 
         // Row 2, Column 2: Exit button
         auto itExit = g_locale.find(L"exit");
@@ -776,7 +777,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             return 0;
         }
         if (LOWORD(wParam) == IDC_EXIT_BTN) {
-            PostQuitMessage(0);
+            if (ShowQuitDialog(hwnd, g_locale)) {
+                PostQuitMessage(0);
+            }
             return 0;
         }
         if (LOWORD(wParam) == IDC_DELETE_PROJECT_BTN) {
@@ -985,6 +988,19 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         }
         break;
     }
+    case WM_KEYDOWN:
+        if (IsCtrlWPressed(msg, wParam)) {
+            if (ShowQuitDialog(hwnd, g_locale)) {
+                PostQuitMessage(0);
+            }
+            return 0;
+        }
+        break;
+    case WM_CLOSE:
+        if (ShowQuitDialog(hwnd, g_locale)) {
+            DestroyWindow(hwnd);
+        }
+        return 0;
     case WM_DESTROY:
         if (g_tooltipWindow) { DestroyWindow(g_tooltipWindow); g_tooltipWindow = NULL; }
         if (g_guiFont) { DeleteObject(g_guiFont); g_guiFont = NULL; }
