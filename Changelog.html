@@ -1,7 +1,22 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 22 February 2026<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 23 February 2026<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
 
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.02.23.01</span></h3>
+<p><strong>Files Management UI Refinements &amp; Virtual Folder Support (23 February 2026):</strong></p>
+<ul>
+<li><strong>TreeView Proper Indentation:</strong> Set 19-pixel indentation for folder hierarchy to clearly show parent-child relationships under Program Files</li>
+<li><strong>Smart Install Path Updates:</strong> Install path in header now automatically updates when first folder under Program Files is renamed, deleted, or replaced</li>
+<li><strong>Context-Aware Add Folder:</strong> Right-click "Create Folder" and Add Folder button now respect selected folder as parent instead of always adding to root</li>
+<li><strong>Context-Aware Add Files:</strong> Add Files button uses currently selected folder as target, allowing files to be added to any level of the hierarchy</li>
+<li><strong>ListView Refresh Fix:</strong> ListView now always clears before repopulating on selection change, eliminating stale data display issues</li>
+<li><strong>Virtual Folder File Persistence:</strong> Files added to virtual folders (created folders without physical disk paths) now persist when navigating between folders</li>
+<li><strong>Virtual Folder Storage System:</strong> Implemented std::map-based storage with VirtualFolderFile struct to track source paths and destination paths for virtual folders</li>
+<li><strong>Recursive Virtual Folder Cleanup:</strong> Folder deletion properly cleans up all virtual folder file entries recursively for the deleted folder and its children</li>
+<li><strong>Empty Path Detection Fix:</strong> Fixed virtual folder detection to properly check for empty strings (L"") rather than just NULL pointers</li>
+</ul>
+
+<h3 style="text-align: center;">&nbsp;</h3>
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.02.22.10</span></h3>
 <p><strong>Main Window &amp; Files Management Implementation (22 February 2026):</strong></p>
 <ul>

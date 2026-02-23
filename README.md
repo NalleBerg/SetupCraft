@@ -7,13 +7,16 @@ An installer creation tool for making your developed packages distributable. Des
 ## Features
 
 - **Main Window Interface**: 8-button toolbar for accessing Files, Registry, Shortcuts, Dependencies, Settings, Build, Test, and Scripts pages
-- **Files Management**: Split-pane interface with TreeView (folder hierarchy with proper indentation) and ListView (file display) for visual file selection
+- **Files Management**: Split-pane interface with TreeView (folder hierarchy with 19px indentation) and ListView (file display) for visual file selection
+- **Virtual Folder Support**: Create custom folder structures without physical disk paths - files persist when navigating between folders
+- **Context-Aware Operations**: Add Folder/Add Files buttons respect currently selected folder as parent/target
+- **Smart Install Path**: Auto-updates install path display when first folder under Program Files is renamed/deleted/replaced
 - **Smart Project Naming**: Automatically derives project name from first folder added, with protection against accidental overwrites
 - **Install Path Display**: Read-only dark blue install path display that reflects actual folder structure
 - **Context Menus**: Right-click options for creating and removing folders with confirmation dialogs
 - **Add Folder/Files**: Buttons to add existing folders or individual files with automatic folder structure creation
 - **Multi-Select Support**: Ctrl/Shift selection in ListView for files, checkboxes in TreeView for folders
-- **Remove Functionality**: Delete individual or multiple files/folders with proper memory cleanup
+- **Remove Functionality**: Delete individual or multiple files/folders with proper memory cleanup and virtual folder cleanup
 - **File Type Icons**: System icons for all file types (exe, dll, txt, md, png, etc.) with transparent backgrounds
 - **Multilingual Support**: 20 languages with native translations (Norwegian, English, Greek, Spanish, German, French, Italian, Dutch, and more)
 - **SQLite Database**: Project configurations stored in `%APPDATA%\SetupCraft\SetupCraft.db`

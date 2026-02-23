@@ -4,6 +4,7 @@
 #include <shlobj.h>
 #include <windowsx.h>
 #include <functional>
+#include <vector>
 #include "ctrlw.h"
 #include "button.h"
 
@@ -27,6 +28,13 @@ static bool s_isNewUnsavedProject = false;
 static HTREEITEM s_rightClickedItem = NULL; // Track which TreeView item was right-clicked
 static bool s_projectNameManuallySet = false; // Track if user manually edited project name
 static bool s_updatingProjectNameProgrammatically = false; // Prevent EN_CHANGE during programmatic updates
+
+// Store files added to virtual folders (keyed by HTREEITEM)
+struct VirtualFolderFile {
+    std::wstring sourcePath;
+    std::wstring destination;
+};
+static std::map<HTREEITEM, std::vector<VirtualFolderFile>> s_virtualFolderFiles;
 
 // Menu IDs
 #define IDM_FILE_NEW        4000
@@ -1017,17 +1025,52 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         // Handle TreeView selection change
         if (nmhdr->idFrom == 102 && nmhdr->code == TVN_SELCHANGED) {
             LPNMTREEVIEW pnmtv = (LPNMTREEVIEW)lParam;
-            if (s_hListView && IsWindow(s_hListView) && pnmtv->itemNew.lParam) {
-                // Get path from tree item
-                wchar_t* folderPath = (wchar_t*)pnmtv->itemNew.lParam;
-                if (folderPath && wcslen(folderPath) > 0) {
-                    // Clear and repopulate ListView
-                    ListView_DeleteAllItems(s_hListView);
-                    PopulateListView(s_hListView, folderPath);
-                    // Force ListView to redraw
-                    InvalidateRect(s_hListView, NULL, TRUE);
-                    UpdateWindow(s_hListView);
+            if (s_hListView && IsWindow(s_hListView)) {
+                // Always clear ListView first
+                ListView_DeleteAllItems(s_hListView);
+                
+                // Check if folder has a physical path
+                bool hasPhysicalPath = false;
+                if (pnmtv->itemNew.lParam) {
+                    wchar_t* folderPath = (wchar_t*)pnmtv->itemNew.lParam;
+                    if (folderPath && wcslen(folderPath) > 0) {
+                        // Physical folder - populate from disk
+                        PopulateListView(s_hListView, folderPath);
+                        hasPhysicalPath = true;
+                    }
                 }
+                
+                // If no physical path, check for virtual folder files
+                if (!hasPhysicalPath) {
+                    auto it = s_virtualFolderFiles.find(pnmtv->itemNew.hItem);
+                    if (it != s_virtualFolderFiles.end()) {
+                        for (const auto& fileInfo : it->second) {
+                            // Get file icon
+                            SHFILEINFOW sfi = {};
+                            SHGetFileInfoW(fileInfo.sourcePath.c_str(), 0, &sfi, sizeof(sfi), SHGFI_SYSICONINDEX | SHGFI_SMALLICON);
+                            
+                            LVITEMW lvi = {};
+                            lvi.mask = LVIF_TEXT | LVIF_PARAM | LVIF_IMAGE;
+                            lvi.iItem = ListView_GetItemCount(s_hListView);
+                            lvi.iSubItem = 0;
+                            lvi.pszText = (LPWSTR)fileInfo.sourcePath.c_str();
+                            lvi.iImage = sfi.iIcon;
+                            
+                            wchar_t* pathCopy = (wchar_t*)malloc((fileInfo.sourcePath.length() + 1) * sizeof(wchar_t));
+                            if (pathCopy) {
+                                wcscpy(pathCopy, fileInfo.sourcePath.c_str());
+                                lvi.lParam = (LPARAM)pathCopy;
+                            }
+                            
+                            int idx = ListView_InsertItem(s_hListView, &lvi);
+                            ListView_SetItemText(s_hListView, idx, 1, (LPWSTR)fileInfo.destination.c_str());
+                        }
+                    }
+                }
+                
+                // Force ListView to redraw
+                InvalidateRect(s_hListView, NULL, TRUE);
+                UpdateWindow(s_hListView);
             }
             return 0;
         }
@@ -1124,23 +1167,32 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                     size_t lastSlash = path.find_last_of(L"\\/");
                     std::wstring folderName = (lastSlash != std::wstring::npos) ? path.substr(lastSlash + 1) : path;
                     
-                    // Add folder to TreeView under Program Files root
+                    // Add folder to TreeView - use selected item as parent if any, otherwise Program Files root
                     if (s_hTreeView && s_hProgramFilesRoot) {
-                        // Check if this is the first folder under Program Files
-                        HTREEITEM hFirstChild = TreeView_GetChild(s_hTreeView, s_hProgramFilesRoot);
-                        bool isFirstFolder = (hFirstChild == NULL);
+                        // Get currently selected item (if any)
+                        HTREEITEM hSelectedItem = TreeView_GetSelection(s_hTreeView);
+                        HTREEITEM hParent = s_hProgramFilesRoot;
                         
-                        HTREEITEM hRoot = AddTreeNode(s_hTreeView, s_hProgramFilesRoot, folderName, path);
+                        // If a folder is selected and it's not Program Files root, use it as parent
+                        if (hSelectedItem && hSelectedItem != s_hProgramFilesRoot) {
+                            hParent = hSelectedItem;
+                        }
+                        
+                        // Check if this will be the first folder under Program Files root
+                        HTREEITEM hFirstChild = TreeView_GetChild(s_hTreeView, s_hProgramFilesRoot);
+                        bool isFirstFolderUnderProgramFiles = (hParent == s_hProgramFilesRoot && hFirstChild == NULL);
+                        
+                        HTREEITEM hRoot = AddTreeNode(s_hTreeView, hParent, folderName, path);
                         AddTreeNodeRecursive(s_hTreeView, hRoot, path);
-                        TreeView_Expand(s_hTreeView, s_hProgramFilesRoot, TVE_EXPAND);
+                        TreeView_Expand(s_hTreeView, hParent, TVE_EXPAND);
                         TreeView_Expand(s_hTreeView, hRoot, TVE_EXPAND);
                         TreeView_SelectItem(s_hTreeView, hRoot);
                         
                         // Populate ListView with folder contents
                         PopulateListView(s_hListView, path);
                         
-                        // If this is the first folder, update install path and possibly project name
-                        if (isFirstFolder) {
+                        // If this is the first folder under Program Files, update install path and possibly project name
+                        if (isFirstFolderUnderProgramFiles) {
                             std::wstring newInstallPath = L"C:\\Program Files\\" + folderName;
                             SetDlgItemTextW(hwnd, IDC_INSTALL_FOLDER, newInstallPath.c_str());
                             
@@ -1183,10 +1235,14 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 std::wstring directory(fileBuffer);
                 wchar_t* p = fileBuffer + directory.length() + 1;
                 
-                // Ensure we have a folder structure (first child under Program Files)
+                // Get currently selected folder as target, or first child under Program Files
                 HTREEITEM hTargetFolder = NULL;
-                if (s_hTreeView && s_hProgramFilesRoot) {
-                    hTargetFolder = TreeView_GetChild(s_hTreeView, s_hProgramFilesRoot);
+                if (s_hTreeView) {
+                    hTargetFolder = TreeView_GetSelection(s_hTreeView);
+                    // If nothing selected or Program Files root selected, use first child
+                    if (!hTargetFolder || hTargetFolder == s_hProgramFilesRoot) {
+                        hTargetFolder = TreeView_GetChild(s_hTreeView, s_hProgramFilesRoot);
+                    }
                 }
                 
                 // Check if single file or multiple
@@ -1240,7 +1296,25 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                         }
                         
                         int idx = ListView_InsertItem(s_hListView, &lvi);
-                        ListView_SetItemText(s_hListView, idx, 1, (LPWSTR)(L"\\" + fileName).c_str());
+                        std::wstring dest = L"\\" + fileName;
+                        ListView_SetItemText(s_hListView, idx, 1, (LPWSTR)dest.c_str());
+                        
+                        // If target folder is virtual (no physical path), store file for persistence
+                        if (hTargetFolder) {
+                            TVITEMW tvItem = {};
+                            tvItem.mask = TVIF_PARAM;
+                            tvItem.hItem = hTargetFolder;
+                            TreeView_GetItem(s_hTreeView, &tvItem);
+                            
+                            wchar_t* folderPath = (wchar_t*)tvItem.lParam;
+                            if (!folderPath || wcslen(folderPath) == 0) {
+                                // Virtual folder - store file
+                                VirtualFolderFile fileInfo;
+                                fileInfo.sourcePath = fullPath;
+                                fileInfo.destination = dest;
+                                s_virtualFolderFiles[hTargetFolder].push_back(fileInfo);
+                            }
+                        }
                     }
                 } else {
                     // Multiple files - first file used for folder and project name
@@ -1294,7 +1368,25 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                             }
                             
                             int idx = ListView_InsertItem(s_hListView, &lvi);
-                            ListView_SetItemText(s_hListView, idx, 1, (LPWSTR)(L"\\" + fileName).c_str());
+                            std::wstring dest = L"\\" + fileName;
+                            ListView_SetItemText(s_hListView, idx, 1, (LPWSTR)dest.c_str());
+                            
+                            // If target folder is virtual (no physical path), store file for persistence
+                            if (hTargetFolder) {
+                                TVITEMW tvItem = {};
+                                tvItem.mask = TVIF_PARAM;
+                                tvItem.hItem = hTargetFolder;
+                                TreeView_GetItem(s_hTreeView, &tvItem);
+                                
+                                wchar_t* folderPath = (wchar_t*)tvItem.lParam;
+                                if (!folderPath || wcslen(folderPath) == 0) {
+                                    // Virtual folder - store file
+                                    VirtualFolderFile fileInfo;
+                                    fileInfo.sourcePath = fullPath;
+                                    fileInfo.destination = dest;
+                                    s_virtualFolderFiles[hTargetFolder].push_back(fileInfo);
+                                }
+                            }
                         }
                         
                         p += fileName.length() + 1;
@@ -1534,6 +1626,20 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                     // Check if deleted item was under Program Files root
                     HTREEITEM hParent = TreeView_GetParent(s_hTreeView, s_rightClickedItem);
                     bool wasUnderProgramFiles = (hParent == s_hProgramFilesRoot);
+                    
+                    // Clean up virtual folder files recursively before deleting
+                    std::function<void(HTREEITEM)> CleanupVirtualFolderFiles = [&](HTREEITEM hItem) {
+                        // Remove this folder's files from the map
+                        s_virtualFolderFiles.erase(hItem);
+                        
+                        // Recursively clean children
+                        HTREEITEM hChild = TreeView_GetChild(s_hTreeView, hItem);
+                        while (hChild) {
+                            CleanupVirtualFolderFiles(hChild);
+                            hChild = TreeView_GetNextSibling(s_hTreeView, hChild);
+                        }
+                    };
+                    CleanupVirtualFolderFiles(s_rightClickedItem);
                     
                     TreeView_DeleteItem(s_hTreeView, s_rightClickedItem);
                     MarkAsModified();
