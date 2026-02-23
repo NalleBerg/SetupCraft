@@ -26,6 +26,7 @@ tb_settings=Settings
 tb_build=Build (F7)
 tb_test=Test (F5)
 tb_scripts=Scripts
+tb_save=Speichern
 
 # Toolbar tooltips
 tt_files=Manage files and folders to include in the installer
@@ -36,3 +37,4 @@ tt_settings=Configure installer settings
 tt_build=Compile the installer package
 tt_test=Test the compiled installer
 tt_scripts=Skripte konfigurieren, die vor/nach der Installation ausgeführt werden
+tt_save=Projektänderungen speichern

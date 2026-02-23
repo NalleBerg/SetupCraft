@@ -3,6 +3,18 @@
 
 #pragma comment(lib, "comctl32.lib")
 
+// Declare PrivateExtractIconsW for transparent icon extraction
+extern "C" UINT WINAPI PrivateExtractIconsW(
+    LPCWSTR szFileName,
+    int nIconIndex,
+    int cxIcon,
+    int cyIcon,
+    HICON *phicon,
+    UINT *piconid,
+    UINT nIcons,
+    UINT flags
+);
+
 struct ButtonColors {
     COLORREF base;
     COLORREF hover;
@@ -185,8 +197,12 @@ BOOL DrawCustomButton(LPDRAWITEMSTRUCT dis, ButtonColor color, HFONT hFont) {
         wcscat(dllPath, L"\\");
         wcscat(dllPath, iconDll);
         
-        // Extract icon from DLL
-        hIcon = ExtractIconW(NULL, dllPath, iconIndex);
+        // Extract icon from DLL using PrivateExtractIconsW for transparent background
+        UINT extracted = PrivateExtractIconsW(dllPath, iconIndex, 20, 20, &hIcon, NULL, 1, 0);
+        if (extracted == 0 || !hIcon) {
+            // Fallback to ExtractIconW if PrivateExtractIconsW fails
+            hIcon = ExtractIconW(NULL, dllPath, iconIndex);
+        }
     }
     
     // Create bold font from the passed font for regular text

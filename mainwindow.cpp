@@ -2,6 +2,7 @@
 #include <commctrl.h>
 #include <shlwapi.h>
 #include <shlobj.h>
+#include <windowsx.h>
 #include <functional>
 #include "ctrlw.h"
 #include "button.h"
@@ -18,10 +19,17 @@ HWND MainWindow::s_hPageButton1 = NULL;
 HWND MainWindow::s_hPageButton2 = NULL;
 HWND MainWindow::s_hTreeView = NULL;
 HWND MainWindow::s_hListView = NULL;
+HTREEITEM MainWindow::s_hProgramFilesRoot = NULL;
 int MainWindow::s_toolbarHeight = 50;
 int MainWindow::s_currentPageIndex = 0;
+static bool s_hasUnsavedChanges = false;
+static bool s_isNewUnsavedProject = false;
+static HTREEITEM s_rightClickedItem = NULL; // Track which TreeView item was right-clicked
+static bool s_projectNameManuallySet = false; // Track if user manually edited project name
+static bool s_updatingProjectNameProgrammatically = false; // Prevent EN_CHANGE during programmatic updates
 
 // Menu IDs
+#define IDM_FILE_NEW        4000
 #define IDM_FILE_SAVE       4001
 #define IDM_FILE_SAVEAS     4002
 #define IDM_FILE_CLOSE      4003
@@ -44,6 +52,7 @@ int MainWindow::s_currentPageIndex = 0;
 #define IDC_TB_BUILD        5015
 #define IDC_TB_TEST         5016
 #define IDC_TB_SCRIPTS      5017
+#define IDC_TB_SAVE         5018
 
 // Files dialog button IDs
 #define IDC_FILES_ADD_DIR   5020
@@ -51,6 +60,12 @@ int MainWindow::s_currentPageIndex = 0;
 #define IDC_FILES_DLG       5022
 #define IDC_BROWSE_INSTALL_DIR 5023
 #define IDC_FILES_REMOVE    5024
+#define IDC_PROJECT_NAME    5025
+#define IDC_INSTALL_FOLDER  5026
+
+// Context menu IDs
+#define IDM_TREEVIEW_ADD_FOLDER 5030
+#define IDM_TREEVIEW_REMOVE_FOLDER 5031
 
 HWND MainWindow::Create(HINSTANCE hInstance, const ProjectRow &project, const std::map<std::wstring, std::wstring> &locale) {
     s_currentProject = project;
@@ -114,13 +129,49 @@ HWND MainWindow::Create(HINSTANCE hInstance, const ProjectRow &project, const st
     return hwnd;
 }
 
+HWND MainWindow::CreateNew(HINSTANCE hInstance, const std::map<std::wstring, std::wstring> &locale) {
+    // Create a temporary project structure
+    ProjectRow tempProject = {};
+    tempProject.id = 0;  // 0 = not saved to database
+    tempProject.name = L"New Project";
+    tempProject.directory = L"";
+    tempProject.version = L"1.0.0";
+    tempProject.lang = L"en_GB";
+    tempProject.description = L"";
+    tempProject.created = 0;
+    tempProject.last_updated = 0;
+    
+    s_isNewUnsavedProject = true;
+    s_hasUnsavedChanges = false;
+    s_projectNameManuallySet = false; // Reset for new project
+    
+    return Create(hInstance, tempProject, locale);
+}
+
+void MainWindow::MarkAsModified() {
+    s_hasUnsavedChanges = true;
+}
+
+void MainWindow::MarkAsSaved() {
+    s_hasUnsavedChanges = false;
+    s_isNewUnsavedProject = false;
+}
+
+bool MainWindow::HasUnsavedChanges() {
+    return s_hasUnsavedChanges;
+}
+
+bool MainWindow::IsNewUnsavedProject() {
+    return s_isNewUnsavedProject;
+}
+
 void MainWindow::CreateMenuBar(HWND hwnd) {
     HMENU hMenuBar = CreateMenu();
     
     // File menu
     HMENU hFileMenu = CreatePopupMenu();
+    AppendMenuW(hFileMenu, MF_STRING, IDM_FILE_NEW, L"&New Project\tCtrl+N");
     AppendMenuW(hFileMenu, MF_STRING, IDM_FILE_SAVE, L"&Save\tCtrl+S");
-    AppendMenuW(hFileMenu, MF_STRING, IDM_FILE_SAVEAS, L"Save &As...");
     AppendMenuW(hFileMenu, MF_SEPARATOR, 0, NULL);
     AppendMenuW(hFileMenu, MF_STRING, IDM_FILE_CLOSE, L"&Close Project\tCtrl+W");
     AppendMenuW(hFileMenu, MF_STRING, IDM_FILE_EXIT, L"E&xit\tAlt+F4");
@@ -147,7 +198,7 @@ void MainWindow::CreateMenuBar(HWND hwnd) {
 }
 
 void MainWindow::CreateToolbar(HWND hwnd, HINSTANCE hInst) {
-    const int buttonWidth = 110;
+    const int buttonWidth = 95;  // Optimized width for toolbar buttons
     const int buttonHeight = 40;
     const int buttonGap = 5;
     const int startX = 10;
@@ -180,8 +231,8 @@ void MainWindow::CreateToolbar(HWND hwnd, HINSTANCE hInst) {
     auto itAddDep = s_locale.find(L"tb_add_dependency");
     std::wstring addDepText = (itAddDep != s_locale.end()) ? itAddDep->second : L"Dependencies";
     CreateCustomButtonWithIcon(hwnd, IDC_TB_ADD_DEPEND, addDepText, ButtonColor::Blue,
-        L"shell32.dll", 154, x, startY, 145, buttonHeight, hInst);
-    x += 145 + buttonGap;
+        L"shell32.dll", 154, x, startY, 125, buttonHeight, hInst);
+    x += 125 + buttonGap;
     
     // Settings button
     auto itSettings = s_locale.find(L"tb_settings");
@@ -209,6 +260,13 @@ void MainWindow::CreateToolbar(HWND hwnd, HINSTANCE hInst) {
     std::wstring scriptsText = (itScripts != s_locale.end()) ? itScripts->second : L"Scripts";
     CreateCustomButtonWithIcon(hwnd, IDC_TB_SCRIPTS, scriptsText, ButtonColor::Blue,
         L"shell32.dll", 166, x, startY, buttonWidth, buttonHeight, hInst);
+    x += buttonWidth + buttonGap;
+    
+    // Save button
+    auto itSave = s_locale.find(L"tb_save");
+    std::wstring saveText = (itSave != s_locale.end()) ? itSave->second : L"Save";
+    CreateCustomButtonWithIcon(hwnd, IDC_TB_SAVE, saveText, ButtonColor::Green,
+        L"shell32.dll", 258, x, startY, buttonWidth, buttonHeight, hInst);  // Icon #258 is floppy disk save icon
 }
 
 void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
@@ -251,6 +309,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
     // Clear tree/list handles
     s_hTreeView = NULL;
     s_hListView = NULL;
+    s_hProgramFilesRoot = NULL;
     
     s_currentPageIndex = pageIndex;
     
@@ -270,7 +329,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         HWND hTitle = CreateWindowExW(0, L"STATIC", L"Files Management",
             WS_CHILD | WS_VISIBLE | SS_LEFT,
             20, pageY + 15, rc.right - 40, 30,
-            hwnd, NULL, hInst, NULL);
+            hwnd, (HMENU)5100, hInst, NULL); // Give it an ID for WM_CTLCOLORSTATIC
         HFONT hTitleFont = CreateFontW(-18, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
             CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
@@ -288,22 +347,35 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         HWND hRemoveBtn = CreateCustomButtonWithIcon(hwnd, IDC_FILES_REMOVE, L"Remove", ButtonColor::Red,
             L"shell32.dll", 131, 20, s_toolbarHeight + 100, 250, 35, hInst);
         
-        // Install directory label (direct child of main window)
-        HWND hInstallLabel = CreateWindowExW(0, L"STATIC", L"Install directory:",
-            WS_CHILD | WS_VISIBLE | SS_LEFT,
-            290, pageY + 55, 150, 20,
+        // Project name label and field
+        HWND hProjectLabel = CreateWindowExW(0, L"STATIC", L"Project name:",
+            WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
+            290, pageY + 55, 100, 22,
             hwnd, NULL, hInst, NULL);
         
-        // Install directory edit field (direct child of main window)
-        std::wstring defaultPath = L"C:\\Program Files\\" + s_currentProject.name;
-        HWND hInstallEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", defaultPath.c_str(),
+        // Set programmatic flag to prevent EN_CHANGE from marking as manually edited
+        s_updatingProjectNameProgrammatically = true;
+        HWND hProjectEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", s_currentProject.name.c_str(),
             WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL,
-            290, pageY + 75, rc.right - 355, 22,
-            hwnd, (HMENU)101, hInst, NULL);
+            395, pageY + 55, rc.right - 460, 22,
+            hwnd, (HMENU)IDC_PROJECT_NAME, hInst, NULL);
+        s_updatingProjectNameProgrammatically = false;
         
-        // Browse button for install directory (child of main window for WM_DRAWITEM)
+        // Install folder label and field (aligned with project name field)
+        HWND hInstallLabel = CreateWindowExW(0, L"STATIC", L"Install folder:",
+            WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
+            290, pageY + 82, 100, 22,
+            hwnd, NULL, hInst, NULL);
+        
+        std::wstring defaultPath = L"C:\\Program Files\\" + s_currentProject.name;
+        HWND hInstallEdit = CreateWindowExW(0, L"STATIC", defaultPath.c_str(),
+            WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
+            395, pageY + 82, rc.right - 460, 22,
+            hwnd, (HMENU)IDC_INSTALL_FOLDER, hInst, NULL);
+        
+        // Browse button for install folder (aligned with install folder field)
         CreateCustomButtonWithIcon(hwnd, IDC_BROWSE_INSTALL_DIR, L"...", ButtonColor::Blue,
-            L"shell32.dll", 4, rc.right - 55, s_toolbarHeight + 75, 35, 22, hInst);
+            L"shell32.dll", 4, rc.right - 55, s_toolbarHeight + 82, 35, 22, hInst);
         
         // Calculate split pane dimensions (TreeView 30%, ListView 70%)
         int viewTop = 150;  // Moved down to make room for Remove button
@@ -313,9 +385,12 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         
         // TreeView on the left (folder hierarchy) - child of main window to receive notifications
         s_hTreeView = CreateWindowExW(WS_EX_CLIENTEDGE, WC_TREEVIEW, NULL,
-            WS_CHILD | WS_VISIBLE | WS_BORDER | TVS_HASLINES | TVS_HASBUTTONS | TVS_LINESATROOT | TVS_SHOWSELALWAYS | TVS_CHECKBOXES,
+            WS_CHILD | WS_VISIBLE | WS_BORDER | TVS_HASLINES | TVS_HASBUTTONS | TVS_LINESATROOT | TVS_SHOWSELALWAYS | TVS_CHECKBOXES | TVS_EDITLABELS,
             20, s_toolbarHeight + viewTop, treeWidth, viewHeight,
             hwnd, (HMENU)102, hInst, NULL);
+        
+        // Set indent width to make hierarchy more visible
+        TreeView_SetIndent(s_hTreeView, 19);
         
         // Create image list for folder icons
         HIMAGELIST hImageList = ImageList_Create(16, 16, ILC_COLOR32 | ILC_MASK, 2, 2);
@@ -359,7 +434,22 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         col.pszText = (LPWSTR)L"Destination";
         ListView_InsertColumn(s_hListView, 1, &col);
         
-        // Populate TreeView with source directory structure
+        // Always create "Program Files" root node
+        std::wstring defaultInstallPath = L"C:\\Program Files\\" + s_currentProject.name;
+        std::wstring installPathCopy = defaultInstallPath;
+        size_t lastSlash = installPathCopy.find_last_of(L"\\/");
+        std::wstring parentPath = L"Program Files";
+        if (lastSlash != std::wstring::npos) {
+            std::wstring temp = installPathCopy.substr(0, lastSlash);
+            size_t secondLastSlash = temp.find_last_of(L"\\/");
+            if (secondLastSlash != std::wstring::npos) {
+                parentPath = temp.substr(secondLastSlash + 1);
+            }
+        }
+        s_hProgramFilesRoot = AddTreeNode(s_hTreeView, TVI_ROOT, parentPath, L"");
+        TreeView_Expand(s_hTreeView, s_hProgramFilesRoot, TVE_EXPAND);
+        
+        // Populate TreeView with source folder structure if available
         if (!s_currentProject.directory.empty()) {
             PopulateTreeView(s_hTreeView, s_currentProject.directory, defaultPath);
         }
@@ -578,27 +668,30 @@ void MainWindow::AddTreeNodeRecursive(HWND hTree, HTREEITEM hParent, const std::
 }
 
 void MainWindow::PopulateTreeView(HWND hTree, const std::wstring &rootPath, const std::wstring &installPath) {
-    // Extract directory components from install path
+    // Extract folder components from install path
     // e.g., "C:\\Program Files\\SetupCraft" -> show "Program Files" as root -> "SetupCraft" as child
     
-    // Find last two directory components
+    // Find last two folder components
     std::wstring installPathCopy = installPath;
     size_t lastSlash = installPathCopy.find_last_of(L"\\/");
     std::wstring appName = (lastSlash != std::wstring::npos) ? installPathCopy.substr(lastSlash + 1) : installPathCopy;
     
-    std::wstring parentPath;
-    if (lastSlash != std::wstring::npos) {
-        parentPath = installPathCopy.substr(0, lastSlash);
-        size_t secondLastSlash = parentPath.find_last_of(L"\\/");
-        if (secondLastSlash != std::wstring::npos) {
-            parentPath = parentPath.substr(secondLastSlash + 1);
+    // Use existing Program Files root if available, otherwise create it
+    HTREEITEM hParent = s_hProgramFilesRoot;
+    if (!hParent) {
+        std::wstring parentPath;
+        if (lastSlash != std::wstring::npos) {
+            parentPath = installPathCopy.substr(0, lastSlash);
+            size_t secondLastSlash = parentPath.find_last_of(L"\\/");
+            if (secondLastSlash != std::wstring::npos) {
+                parentPath = parentPath.substr(secondLastSlash + 1);
+            }
+        } else {
+            parentPath = L"Program Files";
         }
-    } else {
-        parentPath = L"Program Files";
+        hParent = AddTreeNode(hTree, TVI_ROOT, parentPath, L"");
+        s_hProgramFilesRoot = hParent;
     }
-    
-    // Add parent node (e.g., "Program Files")
-    HTREEITEM hParent = AddTreeNode(hTree, TVI_ROOT, parentPath, L"");
     
     // Add app node as child (e.g., "SetupCraft")
     HTREEITEM hRoot = AddTreeNode(hTree, hParent, appName, rootPath);
@@ -619,6 +712,46 @@ void MainWindow::PopulateTreeView(HWND hTree, const std::wstring &rootPath, cons
     // Force complete redraw
     InvalidateRect(hTree, NULL, TRUE);
     UpdateWindow(hTree);
+}
+
+void MainWindow::UpdateInstallPathFromTree(HWND hwnd) {
+    // Get the first child of Program Files root
+    if (!s_hTreeView || !s_hProgramFilesRoot) {
+        return;
+    }
+    
+    HTREEITEM hFirstChild = TreeView_GetChild(s_hTreeView, s_hProgramFilesRoot);
+    
+    if (hFirstChild) {
+        // Get folder name
+        wchar_t folderName[256];
+        TVITEMW item = {};
+        item.mask = TVIF_TEXT;
+        item.hItem = hFirstChild;
+        item.pszText = folderName;
+        item.cchTextMax = 256;
+        TreeView_GetItem(s_hTreeView, &item);
+        
+        // Update install folder field
+        std::wstring newInstallPath = L"C:\\Program Files\\" + std::wstring(folderName);
+        SetDlgItemTextW(hwnd, IDC_INSTALL_FOLDER, newInstallPath.c_str());
+        
+        // Also update project name if this is a new project and user hasn't manually edited it
+        if (s_isNewUnsavedProject && !s_projectNameManuallySet) {
+            s_currentProject.name = folderName;
+            std::wstring newTitle = L"SetupCraft - " + std::wstring(folderName);
+            SetWindowTextW(hwnd, newTitle.c_str());
+            
+            // Update project name field programmatically
+            s_updatingProjectNameProgrammatically = true;
+            SetDlgItemTextW(hwnd, IDC_PROJECT_NAME, folderName);
+            s_updatingProjectNameProgrammatically = false;
+        }
+    } else {
+        // No folders under Program Files, set to default
+        std::wstring defaultPath = L"C:\\Program Files\\New Project";
+        SetDlgItemTextW(hwnd, IDC_INSTALL_FOLDER, defaultPath.c_str());
+    }
 }
 
 void MainWindow::PopulateListView(HWND hList, const std::wstring &folderPath) {
@@ -840,6 +973,47 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
     case WM_NOTIFY: {
         LPNMHDR nmhdr = (LPNMHDR)lParam;
         
+        // Handle TreeView label edit
+        if (nmhdr->idFrom == 102 && nmhdr->code == TVN_ENDLABELEDIT) {
+            LPNMTVDISPINFO ptvdi = (LPNMTVDISPINFO)lParam;
+            if (ptvdi->item.pszText && wcslen(ptvdi->item.pszText) > 0) {
+                // Check if this is a folder under Program Files
+                HTREEITEM hParent = TreeView_GetParent(s_hTreeView, ptvdi->item.hItem);
+                bool isUnderProgramFiles = (hParent == s_hProgramFilesRoot);
+                
+                // Check if this is THE FIRST child under Program Files
+                bool isFirstChild = false;
+                if (isUnderProgramFiles) {
+                    HTREEITEM hFirstChild = TreeView_GetChild(s_hTreeView, s_hProgramFilesRoot);
+                    isFirstChild = (ptvdi->item.hItem == hFirstChild);
+                }
+                
+                // If editing the first folder under Program Files, always update install path
+                if (isFirstChild) {
+                    std::wstring folderName = ptvdi->item.pszText;
+                    std::wstring newInstallPath = L"C:\\Program Files\\" + folderName;
+                    SetDlgItemTextW(hwnd, IDC_INSTALL_FOLDER, newInstallPath.c_str());
+                    
+                    // Also update project name if this is a new project and user hasn't manually edited it
+                    if (s_isNewUnsavedProject && !s_projectNameManuallySet) {
+                        s_currentProject.name = folderName;
+                        std::wstring newTitle = L"SetupCraft - " + folderName;
+                        SetWindowTextW(hwnd, newTitle.c_str());
+                        
+                        // Update project name field programmatically
+                        s_updatingProjectNameProgrammatically = true;
+                        SetDlgItemTextW(hwnd, IDC_PROJECT_NAME, folderName.c_str());
+                        s_updatingProjectNameProgrammatically = false;
+                    }
+                }
+                
+                // Accept the new label
+                TreeView_SetItem(s_hTreeView, &ptvdi->item);
+                return TRUE;
+            }
+            return FALSE;
+        }
+        
         // Handle TreeView selection change
         if (nmhdr->idFrom == 102 && nmhdr->code == TVN_SELCHANGED) {
             LPNMTREEVIEW pnmtv = (LPNMTREEVIEW)lParam;
@@ -876,6 +1050,29 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
     
     case WM_COMMAND: {
         int wmId = LOWORD(wParam);
+        int wmEvent = HIWORD(wParam);
+        
+        // Handle project name changes
+        if (wmId == IDC_PROJECT_NAME && wmEvent == EN_CHANGE) {
+            // Mark as manually set if this is a user edit (not programmatic)
+            if (!s_updatingProjectNameProgrammatically) {
+                s_projectNameManuallySet = true;
+            }
+            
+            // Get the new project name
+            wchar_t projectName[256];
+            GetDlgItemTextW(hwnd, IDC_PROJECT_NAME, projectName, 256);
+            
+            // Update the window title
+            std::wstring title = L"SetupCraft - " + std::wstring(projectName);
+            SetWindowTextW(hwnd, title.c_str());
+            
+            // Note: Install folder is not updated here - it reflects the actual folder structure
+            
+            MarkAsModified();
+            return 0;
+        }
+        
         switch (wmId) {
         // Toolbar buttons
         case IDC_TB_FILES:
@@ -911,13 +1108,203 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             return 0;
             
         // Files page buttons
-        case IDC_FILES_ADD_DIR:
-            MessageBoxW(hwnd, L"Add Folder functionality to be implemented", L"Add Folder", MB_OK | MB_ICONINFORMATION);
-            return 0;
+        case IDC_FILES_ADD_DIR: {
+            // Open folder picker dialog
+            BROWSEINFOW bi = {};
+            bi.hwndOwner = hwnd;
+            bi.lpszTitle = L"Select a folder to add";
+            bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE | BIF_USENEWUI;
             
-        case IDC_FILES_ADD_FILES:
-            MessageBoxW(hwnd, L"Add Files functionality to be implemented", L"Add Files", MB_OK | MB_ICONINFORMATION);
+            LPITEMIDLIST pidl = SHBrowseForFolderW(&bi);
+            if (pidl) {
+                wchar_t selectedPath[MAX_PATH];
+                if (SHGetPathFromIDListW(pidl, selectedPath)) {
+                    // Extract folder name from path
+                    std::wstring path(selectedPath);
+                    size_t lastSlash = path.find_last_of(L"\\/");
+                    std::wstring folderName = (lastSlash != std::wstring::npos) ? path.substr(lastSlash + 1) : path;
+                    
+                    // Add folder to TreeView under Program Files root
+                    if (s_hTreeView && s_hProgramFilesRoot) {
+                        // Check if this is the first folder under Program Files
+                        HTREEITEM hFirstChild = TreeView_GetChild(s_hTreeView, s_hProgramFilesRoot);
+                        bool isFirstFolder = (hFirstChild == NULL);
+                        
+                        HTREEITEM hRoot = AddTreeNode(s_hTreeView, s_hProgramFilesRoot, folderName, path);
+                        AddTreeNodeRecursive(s_hTreeView, hRoot, path);
+                        TreeView_Expand(s_hTreeView, s_hProgramFilesRoot, TVE_EXPAND);
+                        TreeView_Expand(s_hTreeView, hRoot, TVE_EXPAND);
+                        TreeView_SelectItem(s_hTreeView, hRoot);
+                        
+                        // Populate ListView with folder contents
+                        PopulateListView(s_hListView, path);
+                        
+                        // If this is the first folder, update install path and possibly project name
+                        if (isFirstFolder) {
+                            std::wstring newInstallPath = L"C:\\Program Files\\" + folderName;
+                            SetDlgItemTextW(hwnd, IDC_INSTALL_FOLDER, newInstallPath.c_str());
+                            
+                            // Also update project name if new project and not manually set
+                            if (s_isNewUnsavedProject && !s_projectNameManuallySet) {
+                                s_currentProject.name = folderName;
+                                std::wstring title = L"SetupCraft - " + folderName;
+                                SetWindowTextW(hwnd, title.c_str());
+                                
+                                // Update project name field programmatically
+                                s_updatingProjectNameProgrammatically = true;
+                                SetDlgItemTextW(hwnd, IDC_PROJECT_NAME, folderName.c_str());
+                                s_updatingProjectNameProgrammatically = false;
+                            }
+                        }
+                    }
+                    
+                    MarkAsModified();
+                }
+                CoTaskMemFree(pidl);
+            }
             return 0;
+        }
+            
+        case IDC_FILES_ADD_FILES: {
+            // Open file picker dialog with multi-select
+            wchar_t fileBuffer[8192] = {};
+            OPENFILENAMEW ofn = {};
+            ofn.lStructSize = sizeof(OPENFILENAMEW);
+            ofn.hwndOwner = hwnd;
+            ofn.lpstrFile = fileBuffer;
+            ofn.nMaxFile = 8192;
+            ofn.lpstrFilter = L"All Files (*.*)\0*.*\0";
+            ofn.nFilterIndex = 1;
+            ofn.lpstrTitle = L"Select files to add";
+            ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_ALLOWMULTISELECT | OFN_EXPLORER;
+            
+            if (GetOpenFileNameW(&ofn)) {
+                // Parse multi-select results
+                std::wstring directory(fileBuffer);
+                wchar_t* p = fileBuffer + directory.length() + 1;
+                
+                // Ensure we have a folder structure (first child under Program Files)
+                HTREEITEM hTargetFolder = NULL;
+                if (s_hTreeView && s_hProgramFilesRoot) {
+                    hTargetFolder = TreeView_GetChild(s_hTreeView, s_hProgramFilesRoot);
+                }
+                
+                // Check if single file or multiple
+                if (*p == 0) {
+                    // Single file - full path in directory variable
+                    std::wstring fullPath = directory;
+                    size_t lastSlash = fullPath.find_last_of(L"\\/");
+                    std::wstring fileName = (lastSlash != std::wstring::npos) ? fullPath.substr(lastSlash + 1) : fullPath;
+                    
+                    // If no folder structure exists, create one based on filename (without extension)
+                    if (!hTargetFolder && s_hTreeView && s_hProgramFilesRoot) {
+                        size_t dotPos = fileName.find_last_of(L".");
+                        std::wstring baseName = (dotPos != std::wstring::npos) ? fileName.substr(0, dotPos) : fileName;
+                        
+                        // Create folder under Program Files
+                        hTargetFolder = AddTreeNode(s_hTreeView, s_hProgramFilesRoot, baseName, L"");
+                        TreeView_Expand(s_hTreeView, s_hProgramFilesRoot, TVE_EXPAND);
+                        
+                        // Update install path and project name
+                        std::wstring newInstallPath = L"C:\\Program Files\\" + baseName;
+                        SetDlgItemTextW(hwnd, IDC_INSTALL_FOLDER, newInstallPath.c_str());
+                        
+                        if (s_isNewUnsavedProject && !s_projectNameManuallySet) {
+                            s_currentProject.name = baseName;
+                            std::wstring title = L"SetupCraft - " + baseName;
+                            SetWindowTextW(hwnd, title.c_str());
+                            
+                            // Update project name field programmatically
+                            s_updatingProjectNameProgrammatically = true;
+                            SetDlgItemTextW(hwnd, IDC_PROJECT_NAME, baseName.c_str());
+                            s_updatingProjectNameProgrammatically = false;
+                        }
+                    }
+                    
+                    // Add file to ListView
+                    if (s_hListView) {
+                        SHFILEINFOW sfi = {};
+                        SHGetFileInfoW(fullPath.c_str(), 0, &sfi, sizeof(sfi), SHGFI_SYSICONINDEX | SHGFI_SMALLICON);
+                        
+                        LVITEMW lvi = {};
+                        lvi.mask = LVIF_TEXT | LVIF_PARAM | LVIF_IMAGE;
+                        lvi.iItem = ListView_GetItemCount(s_hListView);
+                        lvi.iSubItem = 0;
+                        lvi.pszText = (LPWSTR)fullPath.c_str();
+                        lvi.iImage = sfi.iIcon;
+                        
+                        wchar_t* pathCopy = (wchar_t*)malloc((fullPath.length() + 1) * sizeof(wchar_t));
+                        if (pathCopy) {
+                            wcscpy(pathCopy, fullPath.c_str());
+                            lvi.lParam = (LPARAM)pathCopy;
+                        }
+                        
+                        int idx = ListView_InsertItem(s_hListView, &lvi);
+                        ListView_SetItemText(s_hListView, idx, 1, (LPWSTR)(L"\\" + fileName).c_str());
+                    }
+                } else {
+                    // Multiple files - first file used for folder and project name
+                    
+                    // If no folder structure exists, create one based on first filename (without extension)
+                    if (!hTargetFolder && s_hTreeView && s_hProgramFilesRoot && *p) {
+                        std::wstring firstFileName(p);
+                        size_t dotPos = firstFileName.find_last_of(L".");
+                        std::wstring baseName = (dotPos != std::wstring::npos) ? firstFileName.substr(0, dotPos) : firstFileName;
+                        
+                        // Create folder under Program Files
+                        hTargetFolder = AddTreeNode(s_hTreeView, s_hProgramFilesRoot, baseName, L"");
+                        TreeView_Expand(s_hTreeView, s_hProgramFilesRoot, TVE_EXPAND);
+                        
+                        // Update install path and project name
+                        std::wstring newInstallPath = L"C:\\Program Files\\" + baseName;
+                        SetDlgItemTextW(hwnd, IDC_INSTALL_FOLDER, newInstallPath.c_str());
+                        
+                        if (s_isNewUnsavedProject && !s_projectNameManuallySet) {
+                            s_currentProject.name = baseName;
+                            std::wstring title = L"SetupCraft - " + baseName;
+                            SetWindowTextW(hwnd, title.c_str());
+                            
+                            // Update project name field programmatically
+                            s_updatingProjectNameProgrammatically = true;
+                            SetDlgItemTextW(hwnd, IDC_PROJECT_NAME, baseName.c_str());
+                            s_updatingProjectNameProgrammatically = false;
+                        }
+                    }
+                    
+                    while (*p) {
+                        std::wstring fileName(p);
+                        std::wstring fullPath = directory + L"\\" + fileName;
+                        
+                        // Add file to ListView
+                        if (s_hListView) {
+                            SHFILEINFOW sfi = {};
+                            SHGetFileInfoW(fullPath.c_str(), 0, &sfi, sizeof(sfi), SHGFI_SYSICONINDEX | SHGFI_SMALLICON);
+                            
+                            LVITEMW lvi = {};
+                            lvi.mask = LVIF_TEXT | LVIF_PARAM | LVIF_IMAGE;
+                            lvi.iItem = ListView_GetItemCount(s_hListView);
+                            lvi.iSubItem = 0;
+                            lvi.pszText = (LPWSTR)fullPath.c_str();
+                            lvi.iImage = sfi.iIcon;
+                            
+                            wchar_t* pathCopy = (wchar_t*)malloc((fullPath.length() + 1) * sizeof(wchar_t));
+                            if (pathCopy) {
+                                wcscpy(pathCopy, fullPath.c_str());
+                                lvi.lParam = (LPARAM)pathCopy;
+                            }
+                            
+                            int idx = ListView_InsertItem(s_hListView, &lvi);
+                            ListView_SetItemText(s_hListView, idx, 1, (LPWSTR)(L"\\" + fileName).c_str());
+                        }
+                        
+                        p += fileName.length() + 1;
+                    }
+                }
+                
+                MarkAsModified();
+            }
+            return 0;
+        }
             
         case IDC_FILES_REMOVE: {
             // Determine which control to remove from based on focus
@@ -1002,14 +1389,14 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         }
             
         case IDC_BROWSE_INSTALL_DIR: {
-            // Get the current install directory and extract the last component
-            HWND hEdit = GetDlgItem(s_hCurrentPage, 101);
+            // Get the current install folder and extract the last component
+            HWND hEdit = GetDlgItem(hwnd, IDC_INSTALL_FOLDER);
             if (!hEdit) return 0;
             
             wchar_t currentPath[MAX_PATH];
             GetWindowTextW(hEdit, currentPath, MAX_PATH);
             
-            // Extract the last directory component (e.g., "SetupCraft")
+            // Extract the last folder component (e.g., "SetupCraft")
             std::wstring current(currentPath);
             size_t lastSlash = current.find_last_of(L"\\/");
             std::wstring appName = (lastSlash != std::wstring::npos) ? current.substr(lastSlash + 1) : current;
@@ -1045,6 +1432,12 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         }
             
         // Menu items
+        case IDM_FILE_NEW: {
+            HINSTANCE hInst = (HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE);
+            MainWindow::CreateNew(hInst, s_locale);
+            return 0;
+        }
+            
         case IDM_FILE_SAVE:
             MessageBoxW(hwnd, L"Save functionality to be implemented", L"Save", MB_OK | MB_ICONINFORMATION);
             return 0;
@@ -1069,11 +1462,177 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         case IDM_HELP_ABOUT:
             MessageBoxW(hwnd, L"SetupCraft - Installer Creation Tool\nVersion 2026.02.22", L"About", MB_OK | MB_ICONINFORMATION);
             return 0;
+            
+        case IDM_TREEVIEW_ADD_FOLDER: {
+            // Create a folder with a default name
+            std::wstring folderName = L"NewFolder";
+            
+            // Use the right-clicked item as parent (or Program Files root as fallback)
+            HTREEITEM hParent = s_rightClickedItem ? s_rightClickedItem : s_hProgramFilesRoot;
+            
+            // Find a unique name if NewFolder already exists under this parent
+            int counter = 1;
+            HTREEITEM hChild = TreeView_GetChild(s_hTreeView, hParent);
+            while (hChild) {
+                wchar_t text[256];
+                TVITEMW item = {};
+                item.mask = TVIF_TEXT;
+                item.hItem = hChild;
+                item.pszText = text;
+                item.cchTextMax = 256;
+                TreeView_GetItem(s_hTreeView, &item);
+                
+                if (folderName == text) {
+                    folderName = L"NewFolder" + std::to_wstring(++counter);
+                    hChild = TreeView_GetChild(s_hTreeView, hParent); // Start over
+                } else {
+                    hChild = TreeView_GetNextSibling(s_hTreeView, hChild);
+                }
+            }
+            
+            // Create folder node (empty path means virtual folder)
+            if (s_hTreeView && hParent) {
+                HTREEITEM hFolder = AddTreeNode(s_hTreeView, hParent, folderName, L"");
+                TreeView_Expand(s_hTreeView, hParent, TVE_EXPAND);
+                TreeView_SelectItem(s_hTreeView, hFolder);
+                TreeView_EditLabel(s_hTreeView, hFolder); // Start editing immediately
+                // Note: Install path will be updated when user finishes editing in TVN_ENDLABELEDIT
+            }
+            
+            s_rightClickedItem = NULL; // Clear the tracked item
+            MarkAsModified();
+            return 0;
+        }
+        
+        case IDM_TREEVIEW_REMOVE_FOLDER: {
+            // Remove the right-clicked folder from the tree
+            if (s_rightClickedItem && s_rightClickedItem != s_hProgramFilesRoot) {
+                // Check if folder has children
+                bool hasChildren = (TreeView_GetChild(s_hTreeView, s_rightClickedItem) != NULL);
+                
+                // Get folder name for confirmation message
+                wchar_t folderName[256];
+                TVITEMW item = {};
+                item.mask = TVIF_TEXT;
+                item.hItem = s_rightClickedItem;
+                item.pszText = folderName;
+                item.cchTextMax = 256;
+                TreeView_GetItem(s_hTreeView, &item);
+                
+                // Show confirmation dialog if folder is not empty
+                bool shouldDelete = true;
+                if (hasChildren) {
+                    std::wstring message = L"The folder '" + std::wstring(folderName) + 
+                                          L"' is not empty.\n\nDo you want to delete it and all its contents?";
+                    int result = MessageBoxW(hwnd, message.c_str(), L"Confirm Delete", 
+                                           MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2);
+                    shouldDelete = (result == IDYES);
+                }
+                
+                // Delete the folder and all its children
+                if (shouldDelete) {
+                    // Check if deleted item was under Program Files root
+                    HTREEITEM hParent = TreeView_GetParent(s_hTreeView, s_rightClickedItem);
+                    bool wasUnderProgramFiles = (hParent == s_hProgramFilesRoot);
+                    
+                    TreeView_DeleteItem(s_hTreeView, s_rightClickedItem);
+                    MarkAsModified();
+                    
+                    // Update install path if folder was deleted from Program Files root
+                    if (wasUnderProgramFiles) {
+                        UpdateInstallPathFromTree(hwnd);
+                    }
+                }
+            }
+            
+            s_rightClickedItem = NULL;
+            return 0;
+        }
         }
         break;
     }
     
+    case WM_CONTEXTMENU: {
+        // Handle TreeView context menu
+        HWND hWndContext = (HWND)wParam;
+        if (hWndContext == s_hTreeView) {
+            // Get cursor position
+            int xPos = GET_X_LPARAM(lParam);
+            int yPos = GET_Y_LPARAM(lParam);
+            
+            // If position is -1,-1, it was triggered by keyboard
+            if (xPos == -1 && yPos == -1) {
+                // Get position of selected item
+                HTREEITEM hSelected = TreeView_GetSelection(s_hTreeView);
+                if (hSelected) {
+                    RECT rcItem;
+                    TreeView_GetItemRect(s_hTreeView, hSelected, &rcItem, TRUE);
+                    POINT pt = { rcItem.left, rcItem.bottom };
+                    ClientToScreen(s_hTreeView, &pt);
+                    xPos = pt.x;
+                    yPos = pt.y;
+                }
+            }
+            
+            // Get item at cursor position
+            TVHITTESTINFO ht = {};
+            ht.pt.x = xPos;
+            ht.pt.y = yPos;
+            ScreenToClient(s_hTreeView, &ht.pt);
+            HTREEITEM hItem = TreeView_HitTest(s_hTreeView, &ht);
+            
+            // Show menu if right-clicking on Program Files root or any folder node
+            if (hItem) {
+                s_rightClickedItem = hItem; // Remember which item was clicked
+                
+                // Create context menu
+                HMENU hMenu = CreatePopupMenu();
+                AppendMenuW(hMenu, MF_STRING, IDM_TREEVIEW_ADD_FOLDER, L"Create Folder...");
+                
+                // Add "Remove folder" option if this is not the Program Files root
+                if (hItem != s_hProgramFilesRoot) {
+                    AppendMenuW(hMenu, MF_STRING, IDM_TREEVIEW_REMOVE_FOLDER, L"Remove Folder");
+                }
+                
+                // Show menu
+                TrackPopupMenu(hMenu, TPM_RIGHTBUTTON, xPos, yPos, 0, hwnd, NULL);
+                DestroyMenu(hMenu);
+            }
+            return 0;
+        }
+        break;
+    }
+    
+    case WM_CTLCOLORSTATIC: {
+        // Make static controls have white background like the window
+        HDC hdc = (HDC)wParam;
+        HWND hControl = (HWND)lParam;
+        
+        // Special handling for install folder - dark blue text
+        if (GetDlgCtrlID(hControl) == IDC_INSTALL_FOLDER) {
+            SetTextColor(hdc, RGB(0, 51, 153)); // Dark blue
+            SetBkMode(hdc, TRANSPARENT);
+            return (LRESULT)GetSysColorBrush(COLOR_WINDOW);
+        }
+        
+        SetBkMode(hdc, TRANSPARENT);
+        return (LRESULT)GetSysColorBrush(COLOR_WINDOW);
+    }
+    
     case WM_KEYDOWN: {
+        // Handle Ctrl+N for New Project
+        if (wParam == 'N' && GetKeyState(VK_CONTROL) < 0) {
+            HINSTANCE hInst = (HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE);
+            MainWindow::CreateNew(hInst, s_locale);
+            return 0;
+        }
+        
+        // Handle Ctrl+S for Save
+        if (wParam == 'S' && GetKeyState(VK_CONTROL) < 0) {
+            SendMessageW(hwnd, WM_COMMAND, MAKEWPARAM(IDM_FILE_SAVE, 0), 0);
+            return 0;
+        }
+        
         // Handle Ctrl+W to close project
         if (IsCtrlWPressed(msg, wParam)) {
             if (ShowQuitDialog(hwnd, s_locale)) {
@@ -1094,12 +1653,12 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
     
     case WM_DRAWITEM: {
         LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
-        // Handle custom button drawing for toolbar buttons
-        if ((dis->CtlID >= IDC_TB_FILES && dis->CtlID <= IDC_TB_SCRIPTS) ||
+        // Handle custom button drawing for toolbar buttons (including Save button)
+        if ((dis->CtlID >= IDC_TB_FILES && dis->CtlID <= IDC_TB_SAVE) ||
             (dis->CtlID >= IDC_FILES_ADD_DIR && dis->CtlID <= IDC_FILES_REMOVE)) {
             ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
-            // Create bold font for buttons
-            HFONT hFont = CreateFontW(-14, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+            // Create bold font for buttons (reduced from -14 to -12 for smaller buttons)
+            HFONT hFont = CreateFontW(-12, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
                 DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                 CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
             LRESULT result = DrawCustomButton(dis, color, hFont);

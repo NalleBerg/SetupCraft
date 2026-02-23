@@ -28,6 +28,7 @@ tb_settings=Settings
 tb_build=Build (F7)
 tb_test=Test (F5)
 tb_scripts=Scripts
+tb_save=Save
 
 # Toolbar tooltips
 tt_files=Manage files and folders to include in the installer
@@ -38,3 +39,16 @@ tt_settings=Configure installer settings
 tt_build=Compile the installer package
 tt_test=Test the compiled installer
 tt_scripts=Configure scripts to run before/after installation
+tt_save=Save project changes
+# New Project Dialog
+new_project_title=Create New Project
+new_proj_name_label=Project Name:
+new_proj_dir_label=Source Directory:
+new_proj_desc_label=Description (optional):
+new_proj_lang_label=Default Language:
+new_proj_version_label=Version:
+new_proj_browse_title=Select source directory for the project
+new_proj_err_no_name=Please enter a project name
+new_proj_err_no_dir=Please select a source directory
+new_proj_err_invalid_dir=The selected directory does not exist
+new_proj_err_db=Failed to create project in database

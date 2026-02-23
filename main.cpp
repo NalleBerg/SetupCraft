@@ -1,6 +1,7 @@
 #include <windows.h>
 #include <windowsx.h>
 #include <commctrl.h>
+#include <shlobj.h>
 #include <string>
 #include <map>
 #include <vector>
@@ -37,6 +38,15 @@
 #define IDC_PROJECT_LIST 105
 #define IDD_OPEN_PROJECT 200
 #define IDD_DELETE_PROJECT 201
+
+// New Project Dialog IDs
+#define IDD_NEW_PROJECT 202
+#define IDC_NEW_PROJ_NAME 210
+#define IDC_NEW_PROJ_DIR 211
+#define IDC_NEW_PROJ_BROWSE 212
+#define IDC_NEW_PROJ_DESC 213
+#define IDC_NEW_PROJ_LANG 214
+#define IDC_NEW_PROJ_VERSION 215
 
 // Simple Win32 app with one OK button. This is intended as the skeleton
 // main window for new applications.
@@ -289,6 +299,227 @@ static void LoadAvailableLocales(std::vector<std::wstring> &out) {
         }
     } while (FindNextFileW(h, &fd));
     FindClose(h);
+}
+
+// Dialog procedure for New Project dialog
+LRESULT CALLBACK NewProjectDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+    case WM_CREATE: {
+        HINSTANCE hInst = (HINSTANCE)GetWindowLongPtr(hDlg, GWLP_HINSTANCE);
+        
+        // Title
+        auto itTitle = g_locale.find(L"new_project_title");
+        std::wstring titleText = (itTitle != g_locale.end()) ? itTitle->second : L"Create New Project";
+        HWND hTitle = CreateWindowExW(0, L"STATIC", titleText.c_str(),
+            WS_CHILD | WS_VISIBLE | SS_LEFT,
+            20, 15, 500, 25, hDlg, NULL, hInst, NULL);
+        HFONT hTitleFont = CreateFontW(-18, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+            CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
+        if (hTitleFont) SendMessageW(hTitle, WM_SETFONT, (WPARAM)hTitleFont, TRUE);
+        
+        // Project Name label and edit
+        auto itNameLabel = g_locale.find(L"new_proj_name_label");
+        std::wstring nameLabelText = (itNameLabel != g_locale.end()) ? itNameLabel->second : L"Project Name:";
+        CreateWindowExW(0, L"STATIC", nameLabelText.c_str(),
+            WS_CHILD | WS_VISIBLE | SS_LEFT,
+            20, 55, 150, 20, hDlg, NULL, hInst, NULL);
+        HWND hNameEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
+            WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL,
+            20, 75, 500, 25, hDlg, (HMENU)IDC_NEW_PROJ_NAME, hInst, NULL);
+        if (g_guiFont) SendMessageW(hNameEdit, WM_SETFONT, (WPARAM)g_guiFont, TRUE);
+        
+        // Directory label, edit, and browse button
+        auto itDirLabel = g_locale.find(L"new_proj_dir_label");
+        std::wstring dirLabelText = (itDirLabel != g_locale.end()) ? itDirLabel->second : L"Source Directory:";
+        CreateWindowExW(0, L"STATIC", dirLabelText.c_str(),
+            WS_CHILD | WS_VISIBLE | SS_LEFT,
+            20, 110, 150, 20, hDlg, NULL, hInst, NULL);
+        HWND hDirEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
+            WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL,
+            20, 130, 440, 25, hDlg, (HMENU)IDC_NEW_PROJ_DIR, hInst, NULL);
+        if (g_guiFont) SendMessageW(hDirEdit, WM_SETFONT, (WPARAM)g_guiFont, TRUE);
+        CreateCustomButtonWithIcon(hDlg, IDC_NEW_PROJ_BROWSE, L"...", ButtonColor::Blue,
+            L"shell32.dll", 4, 470, 130, 50, 25, hInst);
+        
+        // Description label and edit
+        auto itDescLabel = g_locale.find(L"new_proj_desc_label");
+        std::wstring descLabelText = (itDescLabel != g_locale.end()) ? itDescLabel->second : L"Description (optional):";
+        CreateWindowExW(0, L"STATIC", descLabelText.c_str(),
+            WS_CHILD | WS_VISIBLE | SS_LEFT,
+            20, 165, 200, 20, hDlg, NULL, hInst, NULL);
+        HWND hDescEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
+            WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL,
+            20, 185, 500, 60, hDlg, (HMENU)IDC_NEW_PROJ_DESC, hInst, NULL);
+        if (g_guiFont) SendMessageW(hDescEdit, WM_SETFONT, (WPARAM)g_guiFont, TRUE);
+        
+        // Language label and combobox
+        auto itLangLabel = g_locale.find(L"new_proj_lang_label");
+        std::wstring langLabelText = (itLangLabel != g_locale.end()) ? itLangLabel->second : L"Default Language:";
+        CreateWindowExW(0, L"STATIC", langLabelText.c_str(),
+            WS_CHILD | WS_VISIBLE | SS_LEFT,
+            20, 255, 200, 20, hDlg, NULL, hInst, NULL);
+        HWND hLangCombo = CreateWindowExW(0, L"COMBOBOX", L"",
+            WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
+            20, 275, 240, 200, hDlg, (HMENU)IDC_NEW_PROJ_LANG, hInst, NULL);
+        if (g_guiFont) SendMessageW(hLangCombo, WM_SETFONT, (WPARAM)g_guiFont, TRUE);
+        
+        // Populate language combobox
+        auto displayNames = GetCanonicalDisplayNames();
+        int englishIdx = 0;
+        int idx = 0;
+        for (const auto &pair : displayNames) {
+            ComboBox_AddString(hLangCombo, pair.second.c_str());
+            ComboBox_SetItemData(hLangCombo, idx, new std::wstring(pair.first));
+            if (pair.first == L"en_GB") englishIdx = idx;
+            idx++;
+        }
+        ComboBox_SetCurSel(hLangCombo, englishIdx);
+        
+        // Version label and edit
+        auto itVersionLabel = g_locale.find(L"new_proj_version_label");
+        std::wstring versionLabelText = (itVersionLabel != g_locale.end()) ? itVersionLabel->second : L"Version:";
+        CreateWindowExW(0, L"STATIC", versionLabelText.c_str(),
+            WS_CHILD | WS_VISIBLE | SS_LEFT,
+            280, 255, 100, 20, hDlg, NULL, hInst, NULL);
+        HWND hVersionEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"1.0.0",
+            WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL,
+            280, 275, 240, 25, hDlg, (HMENU)IDC_NEW_PROJ_VERSION, hInst, NULL);
+        if (g_guiFont) SendMessageW(hVersionEdit, WM_SETFONT, (WPARAM)g_guiFont, TRUE);
+        
+        // Create OK and Cancel buttons
+        auto itOk = g_locale.find(L"ok");
+        std::wstring okText = (itOk != g_locale.end()) ? itOk->second : L"OK";
+        CreateCustomButtonWithIcon(hDlg, IDOK, okText, ButtonColor::Blue,
+            L"imageres.dll", 89, 420, 320, 100, 30, hInst);
+        
+        auto itCancel = g_locale.find(L"cancel");
+        std::wstring cancelText = (itCancel != g_locale.end()) ? itCancel->second : L"Cancel";
+        CreateCustomButtonWithIcon(hDlg, IDCANCEL, cancelText, ButtonColor::Red,
+            L"shell32.dll", 131, 290, 320, 120, 30, hInst);
+        
+        return 0;
+    }
+    case WM_COMMAND:
+        if (LOWORD(wParam) == IDC_NEW_PROJ_BROWSE) {
+            // Browse for source directory
+            auto itBrowseTitle = g_locale.find(L"new_proj_browse_title");
+            std::wstring browseTitleText = (itBrowseTitle != g_locale.end()) ? itBrowseTitle->second : L"Select source directory for the project";
+            
+            BROWSEINFOW bi = {};
+            bi.hwndOwner = hDlg;
+            bi.lpszTitle = browseTitleText.c_str();
+            bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE | BIF_USENEWUI;
+            
+            LPITEMIDLIST pidl = SHBrowseForFolderW(&bi);
+            if (pidl) {
+                wchar_t path[MAX_PATH];
+                if (SHGetPathFromIDListW(pidl, path)) {
+                    SetDlgItemTextW(hDlg, IDC_NEW_PROJ_DIR, path);
+                }
+                CoTaskMemFree(pidl);
+            }
+            return 0;
+        }
+        if (LOWORD(wParam) == IDOK) {
+            // Get values from controls
+            wchar_t name[256] = {0};
+            wchar_t dir[MAX_PATH] = {0};
+            wchar_t desc[1024] = {0};
+            wchar_t version[64] = {0};
+            
+            GetDlgItemTextW(hDlg, IDC_NEW_PROJ_NAME, name, 256);
+            GetDlgItemTextW(hDlg, IDC_NEW_PROJ_DIR, dir, MAX_PATH);
+            GetDlgItemTextW(hDlg, IDC_NEW_PROJ_DESC, desc, 1024);
+            GetDlgItemTextW(hDlg, IDC_NEW_PROJ_VERSION, version, 64);
+            
+            // Validate required fields
+            if (wcslen(name) == 0) {
+                auto itErrNoName = g_locale.find(L"new_proj_err_no_name");
+                std::wstring errNoNameText = (itErrNoName != g_locale.end()) ? itErrNoName->second : L"Please enter a project name";
+                MessageBoxW(hDlg, errNoNameText.c_str(), L"Validation Error", MB_OK | MB_ICONWARNING);
+                return 0;
+            }
+            if (wcslen(dir) == 0) {
+                auto itErrNoDir = g_locale.find(L"new_proj_err_no_dir");
+                std::wstring errNoDirText = (itErrNoDir != g_locale.end()) ? itErrNoDir->second : L"Please select a source directory";
+                MessageBoxW(hDlg, errNoDirText.c_str(), L"Validation Error", MB_OK | MB_ICONWARNING);
+                return 0;
+            }
+            
+            // Check if directory exists
+            DWORD attrs = GetFileAttributesW(dir);
+            if (attrs == INVALID_FILE_ATTRIBUTES || !(attrs & FILE_ATTRIBUTE_DIRECTORY)) {
+                auto itErrInvalidDir = g_locale.find(L"new_proj_err_invalid_dir");
+                std::wstring errInvalidDirText = (itErrInvalidDir != g_locale.end()) ? itErrInvalidDir->second : L"The selected directory does not exist";
+                MessageBoxW(hDlg, errInvalidDirText.c_str(), L"Validation Error", MB_OK | MB_ICONWARNING);
+                return 0;
+            }
+            
+            // Get selected language code
+            HWND hLangCombo = GetDlgItem(hDlg, IDC_NEW_PROJ_LANG);
+            int sel = ComboBox_GetCurSel(hLangCombo);
+            std::wstring langCode = L"en_GB";
+            if (sel >= 0) {
+                std::wstring* pCode = (std::wstring*)ComboBox_GetItemData(hLangCombo, sel);
+                if (pCode) langCode = *pCode;
+            }
+            
+            // Insert project into database
+            int newId = 0;
+            if (DB::InsertProject(name, dir, desc, langCode, version, newId)) {
+                // Close this dialog
+                HWND hParent = GetParent(hDlg);
+                if (hParent) EnableWindow(hParent, TRUE);
+                DestroyWindow(hDlg);
+                
+                // Open main window with the new project
+                ProjectRow newProj;
+                if (DB::GetProject(newId, newProj)) {
+                    HINSTANCE hInst = (HINSTANCE)GetWindowLongPtr(hDlg, GWLP_HINSTANCE);
+                    MainWindow::Create(hInst, newProj, g_locale);
+                    if (hParent) {
+                        ShowWindow(hParent, SW_HIDE);
+                    }
+                }
+            } else {
+                auto itErrDb = g_locale.find(L"new_proj_err_db");
+                std::wstring errDbText = (itErrDb != g_locale.end()) ? itErrDb->second : L"Failed to create project in database";
+                MessageBoxW(hDlg, errDbText.c_str(), L"Error", MB_OK | MB_ICONERROR);
+            }
+            
+            return 0;
+        }
+        if (LOWORD(wParam) == IDCANCEL) {
+            HWND hParent = GetParent(hDlg);
+            if (hParent) EnableWindow(hParent, TRUE);
+            DestroyWindow(hDlg);
+            return 0;
+        }
+        break;
+    case WM_DRAWITEM: {
+        LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
+        if (dis->CtlID == IDOK || dis->CtlID == IDCANCEL || dis->CtlID == IDC_NEW_PROJ_BROWSE) {
+            ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
+            LRESULT result = DrawCustomButton(dis, color, g_guiFont);
+            return result;
+        }
+        break;
+    }
+    case WM_DESTROY: {
+        // Clean up language combo item data
+        HWND hLangCombo = GetDlgItem(hDlg, IDC_NEW_PROJ_LANG);
+        if (hLangCombo) {
+            int count = ComboBox_GetCount(hLangCombo);
+            for (int i = 0; i < count; i++) {
+                std::wstring* pCode = (std::wstring*)ComboBox_GetItemData(hLangCombo, i);
+                delete pCode;
+            }
+        }
+        break;
+    }
+    }
+    return DefWindowProc(hDlg, msg, wParam, lParam);
 }
 
 // Dialog procedure for Delete Project dialog
@@ -687,7 +918,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
         // create and apply a GUI font that supports Cyrillic (Segoe UI)
         if (!g_guiFont) {
-            g_guiFont = CreateFontW(-14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+            g_guiFont = CreateFontW(-12, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,  // Reduced from -14 to -12 for smaller toolbar buttons
                                     DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                                     CLEARTYPE_QUALITY, VARIABLE_PITCH | FF_SWISS, L"Segoe UI");
         }
@@ -700,19 +931,23 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                                         CLEARTYPE_QUALITY, VARIABLE_PITCH | FF_SWISS, L"Segoe UI");
         }
 
-        // Create larger font for globe icon
-        if (!g_globeFont) {
-            g_globeFont = CreateFontW(-24, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-                                      DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                                      CLEARTYPE_QUALITY, VARIABLE_PITCH | FF_SWISS, L"Segoe UI Emoji");
-        }
-
-        // Globe icon to the left of combo
-        HWND hIcon = CreateWindowW(L"STATIC", L"🌐",
-            WS_CHILD | WS_VISIBLE | SS_CENTER,
+        // Globe icon to the left of combo (using shell32.dll icon #13)
+        HWND hIcon = CreateWindowW(L"STATIC", NULL,
+            WS_CHILD | WS_VISIBLE | SS_ICON | SS_CENTERIMAGE,
             iconLeft, 8, iconSize, iconSize,
             hwnd, (HMENU)IDC_GLOBE_ICON, hInst, NULL);
-        if (g_globeFont) SendMessageW(hIcon, WM_SETFONT, (WPARAM)g_globeFont, TRUE);
+        
+        // Load planet icon from shell32.dll using PrivateExtractIconsW for transparent background
+        wchar_t dllPath[MAX_PATH];
+        GetSystemDirectoryW(dllPath, MAX_PATH);
+        wcscat(dllPath, L"\\shell32.dll");
+        
+        HICON hGlobeIcon = NULL;
+        UINT extracted = PrivateExtractIconsW(dllPath, 13, iconSize, iconSize, &hGlobeIcon, NULL, 1, 0);
+        if (extracted > 0 && hGlobeIcon) {
+            SendMessageW(hIcon, STM_SETICON, (WPARAM)hGlobeIcon, 0);
+        }
+        
         g_globeIcon = hIcon; // Store for later use
 
         // Build tooltip text
@@ -829,8 +1064,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     }
     case WM_COMMAND:
         if (LOWORD(wParam) == IDC_NEW_PROJECT_BTN) {
-            // TODO: Handle New Project
-            MessageBoxW(hwnd, L"New Project clicked", L"Info", MB_OK);
+            // Open main window directly without dialog
+            HINSTANCE hInst = (HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE);
+            MainWindow::CreateNew(hInst, g_locale);
+            ShowWindow(hwnd, SW_HIDE);
             return 0;
         }
         if (LOWORD(wParam) == IDC_EXIT_BTN) {
@@ -1036,9 +1273,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         HDC hdc = (HDC)wParam;
         HWND hControl = (HWND)lParam;
         if (GetDlgCtrlID(hControl) == IDC_GLOBE_ICON) {
-            SetTextColor(hdc, RGB(0, 102, 204)); // blue color
             SetBkMode(hdc, TRANSPARENT);
-            return (LRESULT)GetStockObject(NULL_BRUSH);
+            return (LRESULT)GetSysColorBrush(COLOR_WINDOW);
         }
         break;
     }

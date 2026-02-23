@@ -38,3 +38,4 @@ tt_settings=Configure installer settings
 tt_build=Compile the installer package
 tt_test=Test the compiled installer
 tt_scripts=Skonfiguruj skrypty do uruchomienia przed/po instalacji
+tt_save=Zapisz zmiany projektu

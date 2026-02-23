@@ -7,11 +7,14 @@ An installer creation tool for making your developed packages distributable. Des
 ## Features
 
 - **Main Window Interface**: 8-button toolbar for accessing Files, Registry, Shortcuts, Dependencies, Settings, Build, Test, and Scripts pages
-- **Files Management**: Split-pane interface with TreeView (folder hierarchy) and ListView (file display) for visual file selection
-- **Install Directory Configuration**: Editable install path with folder picker dialog
+- **Files Management**: Split-pane interface with TreeView (folder hierarchy with proper indentation) and ListView (file display) for visual file selection
+- **Smart Project Naming**: Automatically derives project name from first folder added, with protection against accidental overwrites
+- **Install Path Display**: Read-only dark blue install path display that reflects actual folder structure
+- **Context Menus**: Right-click options for creating and removing folders with confirmation dialogs
+- **Add Folder/Files**: Buttons to add existing folders or individual files with automatic folder structure creation
 - **Multi-Select Support**: Ctrl/Shift selection in ListView for files, checkboxes in TreeView for folders
 - **Remove Functionality**: Delete individual or multiple files/folders with proper memory cleanup
-- **File Type Icons**: System icons for all file types (exe, dll, txt, md, png, etc.)
+- **File Type Icons**: System icons for all file types (exe, dll, txt, md, png, etc.) with transparent backgrounds
 - **Multilingual Support**: 20 languages with native translations (Norwegian, English, Greek, Spanish, German, French, Italian, Dutch, and more)
 - **SQLite Database**: Project configurations stored in `%APPDATA%\SetupCraft\SetupCraft.db`
 - **Native Windows UI**: Clean interface using Windows system icons and native styling
@@ -32,14 +35,20 @@ An installer creation tool for making your developed packages distributable. Des
 ✅ Quit confirmation dialog with Ctrl+W support
 ✅ Main window with 8-button toolbar
 ✅ Files page with TreeView/ListView split-pane
+✅ TreeView proper indentation and folder hierarchy display
+✅ Project name and install path separation
+✅ Add Folder button (adds to Program Files structure)
+✅ Add Files button (auto-creates folder structure)
+✅ Context menu with Create/Remove Folder options
 ✅ File/folder multi-select and removal
-✅ Install directory configuration with folder picker
+✅ Install path auto-updates with folder operations
+✅ Read-only install path display (dark blue)
 ✅ TreeView selection updates ListView automatically
-✅ System file type icons in ListView
+✅ System file type icons in ListView with transparency
 ✅ Tooltips showing full file paths
 ✅ Scripts page for before/after install hooks
 
-🔄 In Progress: Add Folder/Files functionality, Build/Test implementation
+🔄 In Progress: Build/Test implementation, Registry page, Shortcuts page
 
 ## Building
 

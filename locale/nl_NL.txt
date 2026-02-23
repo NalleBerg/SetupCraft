@@ -28,6 +28,7 @@ tb_settings=Settings
 tb_build=Build (F7)
 tb_test=Test (F5)
 tb_scripts=Scripts
+tb_save=Opslaan
 
 # Toolbar tooltips
 tt_files=Manage files and folders to include in the installer

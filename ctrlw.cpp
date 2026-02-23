@@ -37,7 +37,7 @@ LRESULT CALLBACK QuitDialogProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lPara
             auto itYes = pLocale->find(L"yes");
             std::wstring yesText = (itYes != pLocale->end()) ? itYes->second : L"Yes";
             CreateCustomButtonWithIcon(hDlg, IDYES, yesText, ButtonColor::Green,
-                L"imageres.dll", 89, 80, 80, 100, 30, hInst);
+                L"shell32.dll", 112, 80, 80, 100, 30, hInst);
             
             // Create No button
             auto itNo = pLocale->find(L"no");

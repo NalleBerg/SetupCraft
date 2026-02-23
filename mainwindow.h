@@ -9,7 +9,12 @@
 class MainWindow {
 public:
     static HWND Create(HINSTANCE hInstance, const ProjectRow &project, const std::map<std::wstring, std::wstring> &locale);
+    static HWND CreateNew(HINSTANCE hInstance, const std::map<std::wstring, std::wstring> &locale);
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+    static void MarkAsModified();
+    static void MarkAsSaved();
+    static bool HasUnsavedChanges();
+    static bool IsNewUnsavedProject();
     
 private:
     static void CreateMenuBar(HWND hwnd);
@@ -22,6 +27,7 @@ private:
     static void HideTooltip();
     static void PopulateTreeView(HWND hTree, const std::wstring &rootPath, const std::wstring &installPath);
     static void PopulateListView(HWND hList, const std::wstring &folderPath);
+    static void UpdateInstallPathFromTree(HWND hwnd);
     static HTREEITEM AddTreeNode(HWND hTree, HTREEITEM hParent, const std::wstring &text, const std::wstring &fullPath);
     static void AddTreeNodeRecursive(HWND hTree, HTREEITEM hParent, const std::wstring &folderPath);
     
@@ -37,6 +43,7 @@ private:
     static HWND s_hPageButton2;
     static HWND s_hTreeView;     // Track TreeView for file management
     static HWND s_hListView;     // Track ListView for file management
+    static HTREEITEM s_hProgramFilesRoot; // Track Program Files root node
     static int s_toolbarHeight;
     static int s_currentPageIndex;
 };
