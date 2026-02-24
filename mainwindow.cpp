@@ -36,6 +36,25 @@ struct VirtualFolderFile {
 };
 static std::map<HTREEITEM, std::vector<VirtualFolderFile>> s_virtualFolderFiles;
 
+// Registry entry structure
+struct RegistryEntry {
+    std::wstring hive;     // HKLM, HKCU, etc.
+    std::wstring path;     // Registry path
+    std::wstring name;     // Value name
+    std::wstring type;     // REG_SZ, REG_DWORD, etc.
+    std::wstring data;     // Value data
+};
+static std::vector<RegistryEntry> s_registryEntries;
+
+// Registry page state
+static bool s_registerInWindows = true;
+static std::wstring s_appIconPath;
+static std::wstring s_appPublisher;
+static HWND s_hRegTreeView = NULL;
+static HWND s_hRegListView = NULL;
+static HWND s_hRegKeyDialog = NULL;
+static bool s_navigateToRegKey = false;
+
 // Menu IDs
 #define IDM_FILE_NEW        4000
 #define IDM_FILE_SAVE       4001
@@ -74,6 +93,24 @@ static std::map<HTREEITEM, std::vector<VirtualFolderFile>> s_virtualFolderFiles;
 // Context menu IDs
 #define IDM_TREEVIEW_ADD_FOLDER 5030
 #define IDM_TREEVIEW_REMOVE_FOLDER 5031
+
+// Registry page control IDs
+#define IDC_REG_CHECKBOX    5040
+#define IDC_REG_ICON_PREVIEW 5041
+#define IDC_REG_ADD_ICON    5042
+#define IDC_REG_DISPLAY_NAME 5043
+#define IDC_REG_VERSION     5044
+#define IDC_REG_PUBLISHER   5045
+#define IDC_REG_TREEVIEW    5046
+#define IDC_REG_LISTVIEW    5047
+#define IDC_REG_ADD_KEY     5048
+#define IDC_REG_ADD_VALUE   5049
+#define IDC_REG_REMOVE      5050
+#define IDC_REG_SHOW_REGKEY 5051
+#define IDC_REGKEY_DLG_CLOSE 5052
+#define IDC_REGKEY_DLG_NAVIGATE 5053
+#define IDC_REGKEY_DLG_COPY 5054
+#define IDC_REGKEY_DLG_EDIT 5055
 
 HWND MainWindow::Create(HINSTANCE hInstance, const ProjectRow &project, const std::map<std::wstring, std::wstring> &locale) {
     s_currentProject = project;
@@ -277,6 +314,176 @@ void MainWindow::CreateToolbar(HWND hwnd, HINSTANCE hInst) {
         L"shell32.dll", 258, x, startY, buttonWidth, buttonHeight, hInst);  // Icon #258 is floppy disk save icon
 }
 
+// Helper function to clean up registry TreeView items (free lParam memory)
+static void CleanupRegistryTreeView(HWND hTreeView, HTREEITEM hItem) {
+    if (!hItem) return;
+    
+    // Get item info
+    TVITEMW tvItem = {};
+    tvItem.mask = TVIF_PARAM | TVIF_HANDLE;
+    tvItem.hItem = hItem;
+    
+    if (TreeView_GetItem(hTreeView, &tvItem)) {
+        // Free the lParam if it's a string pointer (not a predefined HKEY)
+        if (tvItem.lParam && 
+            tvItem.lParam != (LPARAM)HKEY_LOCAL_MACHINE && 
+            tvItem.lParam != (LPARAM)HKEY_CURRENT_USER) {
+            delete (std::wstring*)tvItem.lParam;
+        }
+    }
+    
+    // Recursively clean up children
+    HTREEITEM hChild = TreeView_GetChild(hTreeView, hItem);
+    while (hChild) {
+        HTREEITEM hNext = TreeView_GetNextSibling(hTreeView, hChild);
+        CleanupRegistryTreeView(hTreeView, hChild);
+        hChild = hNext;
+    }
+}
+
+// Helper function to populate registry TreeView with actual registry keys
+// Create template registry structure showing installer-added entries only
+static void CreateTemplateRegistryTree(HWND hTreeView, const std::wstring& projectName, const std::wstring& publisher) {
+    // Helper to insert tree items (expanded by default)
+    auto InsertTreeItem = [&](HTREEITEM hParent, const std::wstring& text, const std::wstring* path = nullptr, bool expanded = true) -> HTREEITEM {
+        TVINSERTSTRUCTW tvis = {};
+        tvis.hParent = hParent;
+        tvis.hInsertAfter = TVI_LAST;
+        tvis.item.mask = TVIF_TEXT | TVIF_PARAM | TVIF_STATE;
+        tvis.item.stateMask = TVIS_EXPANDED;
+        tvis.item.state = expanded ? TVIS_EXPANDED : 0;
+        tvis.item.pszText = (LPWSTR)text.c_str();
+        
+        if (path) {
+            std::wstring* storedPath = new std::wstring(*path);
+            tvis.item.lParam = (LPARAM)storedPath;
+        } else {
+            tvis.item.lParam = 0;
+        }
+        
+        return TreeView_InsertItem(hTreeView, &tvis);
+    };
+    
+    // Use publisher or placeholder
+    std::wstring pub = publisher.empty() ? L"[Publisher]" : publisher;
+    std::wstring app = projectName.empty() ? L"[AppName]" : projectName;
+    
+    // Common template for hive roots
+    TVINSERTSTRUCTW tvis = {};
+    tvis.hParent = TVI_ROOT;
+    tvis.hInsertAfter = TVI_LAST;
+    tvis.item.mask = TVIF_TEXT | TVIF_STATE;
+    tvis.item.stateMask = TVIS_EXPANDED;
+    tvis.item.state = TVIS_EXPANDED;
+    
+    // ========== HKEY_CLASSES_ROOT ==========
+    tvis.item.pszText = (LPWSTR)L"HKEY_CLASSES_ROOT";
+    HTREEITEM hHKCR = TreeView_InsertItem(hTreeView, &tvis);
+    
+    // HKCR\[AppName] (for file associations)
+    std::wstring hkcrAppPath = app;
+    InsertTreeItem(hHKCR, app, &hkcrAppPath);
+    
+    // HKCR\.ext (file extensions)
+    std::wstring extPath = L".ext";
+    InsertTreeItem(hHKCR, L".ext", &extPath);
+    
+    // HKCR\CLSID (COM classes)
+    std::wstring clsidPath = L"CLSID";
+    HTREEITEM hCLSID = InsertTreeItem(hHKCR, L"CLSID", &clsidPath);
+    std::wstring clsidGuidPath = L"CLSID\\{GUID}";
+    InsertTreeItem(hCLSID, L"{GUID}", &clsidGuidPath);
+    
+    // ========== HKEY_CURRENT_USER ==========
+    tvis.item.pszText = (LPWSTR)L"HKEY_CURRENT_USER";
+    HTREEITEM hHKCU = TreeView_InsertItem(hTreeView, &tvis);
+    
+    // HKCU\SOFTWARE
+    std::wstring hkcuSoftwarePath = L"SOFTWARE";
+    HTREEITEM hHKCUSoftware = InsertTreeItem(hHKCU, L"SOFTWARE", &hkcuSoftwarePath);
+    
+    // HKCU\SOFTWARE\[Publisher]\[AppName]
+    std::wstring hkcuPublisherPath = L"SOFTWARE\\" + pub;
+    HTREEITEM hHKCUPublisher = InsertTreeItem(hHKCUSoftware, pub, &hkcuPublisherPath);
+    
+    std::wstring hkcuAppPath = L"SOFTWARE\\" + pub + L"\\" + app;
+    InsertTreeItem(hHKCUPublisher, app, &hkcuAppPath);
+    
+    // HKCU\Environment (user environment variables)
+    std::wstring envPath = L"Environment";
+    InsertTreeItem(hHKCU, L"Environment", &envPath);
+    
+    // ========== HKEY_LOCAL_MACHINE ==========
+    tvis.item.pszText = (LPWSTR)L"HKEY_LOCAL_MACHINE";
+    HTREEITEM hHKLM = TreeView_InsertItem(hTreeView, &tvis);
+    
+    // HKLM\SOFTWARE
+    std::wstring hklmSoftwarePath = L"SOFTWARE";
+    HTREEITEM hHKLMSoftware = InsertTreeItem(hHKLM, L"SOFTWARE", &hklmSoftwarePath);
+    
+    // HKLM\SOFTWARE\[Publisher]\[AppName]
+    std::wstring hklmPublisherPath = L"SOFTWARE\\" + pub;
+    HTREEITEM hHKLMPublisher = InsertTreeItem(hHKLMSoftware, pub, &hklmPublisherPath);
+    
+    std::wstring hklmAppPath = L"SOFTWARE\\" + pub + L"\\" + app;
+    InsertTreeItem(hHKLMPublisher, app, &hklmAppPath);
+    
+    // HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion
+    std::wstring microsoftPath = L"SOFTWARE\\Microsoft";
+    HTREEITEM hMicrosoft = InsertTreeItem(hHKLMSoftware, L"Microsoft", &microsoftPath);
+    
+    std::wstring windowsPath = L"SOFTWARE\\Microsoft\\Windows";
+    HTREEITEM hWindows = InsertTreeItem(hMicrosoft, L"Windows", &windowsPath);
+    
+    std::wstring currentVersionPath = L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion";
+    HTREEITEM hCurrentVersion = InsertTreeItem(hWindows, L"CurrentVersion", &currentVersionPath);
+    
+    // HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\[AppName]
+    std::wstring uninstallPath = L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall";
+    HTREEITEM hUninstall = InsertTreeItem(hCurrentVersion, L"Uninstall", &uninstallPath);
+    
+    std::wstring uninstallAppPath = L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\" + app;
+    InsertTreeItem(hUninstall, app, &uninstallAppPath);
+    
+    // HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run (startup programs)
+    std::wstring runPath = L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run";
+    InsertTreeItem(hCurrentVersion, L"Run", &runPath);
+    
+    // HKLM\SYSTEM (system configuration)
+    std::wstring systemPath = L"SYSTEM";
+    HTREEITEM hSystem = InsertTreeItem(hHKLM, L"SYSTEM", &systemPath);
+    
+    std::wstring currentControlSetPath = L"SYSTEM\\CurrentControlSet";
+    HTREEITEM hCCS = InsertTreeItem(hSystem, L"CurrentControlSet", &currentControlSetPath);
+    
+    std::wstring servicesPath = L"SYSTEM\\CurrentControlSet\\Services";
+    InsertTreeItem(hCCS, L"Services", &servicesPath);
+    
+    // ========== HKEY_USERS ==========
+    tvis.item.pszText = (LPWSTR)L"HKEY_USERS";
+    HTREEITEM hHKU = TreeView_InsertItem(hTreeView, &tvis);
+    
+    // HKU\.DEFAULT (default user profile)
+    std::wstring defaultUserPath = L".DEFAULT";
+    HTREEITEM hDefaultUser = InsertTreeItem(hHKU, L".DEFAULT", &defaultUserPath);
+    
+    std::wstring defaultSoftwarePath = L".DEFAULT\\SOFTWARE";
+    InsertTreeItem(hDefaultUser, L"SOFTWARE", &defaultSoftwarePath);
+    
+    // ========== HKEY_CURRENT_CONFIG ==========
+    tvis.item.pszText = (LPWSTR)L"HKEY_CURRENT_CONFIG";
+    HTREEITEM hHKCC = TreeView_InsertItem(hTreeView, &tvis);
+    
+    // HKCC\SOFTWARE (current hardware profile software)
+    std::wstring hkccSoftwarePath = L"SOFTWARE";
+    InsertTreeItem(hHKCC, L"SOFTWARE", &hkccSoftwarePath);
+    
+    // HKCC\SYSTEM (current hardware profile system)
+    std::wstring hkccSystemPath = L"SYSTEM";
+    InsertTreeItem(hHKCC, L"SYSTEM", &hkccSystemPath);
+}
+
+
 void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
     // Destroy previous page content
     if (s_hCurrentPage) {
@@ -294,16 +501,48 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         s_hPageButton2 = NULL;
     }
     
-    // Destroy previous browse button if exists
-    HWND hBrowseBtn = GetDlgItem(hwnd, IDC_BROWSE_INSTALL_DIR);
-    if (hBrowseBtn) {
-        DestroyWindow(hBrowseBtn);
+    // Destroy all known control IDs from previous pages
+    int controlIds[] = {
+        IDC_BROWSE_INSTALL_DIR, IDC_FILES_REMOVE, IDC_PROJECT_NAME, IDC_INSTALL_FOLDER,
+        IDC_REG_CHECKBOX, IDC_REG_ICON_PREVIEW, IDC_REG_ADD_ICON, IDC_REG_DISPLAY_NAME,
+        IDC_REG_VERSION, IDC_REG_PUBLISHER, IDC_REG_ADD_KEY, IDC_REG_ADD_VALUE, IDC_REG_REMOVE,
+        IDC_REG_SHOW_REGKEY,
+        5100, 5101, 5102, 5103, 5104, 5105, 5106, 5107, 5108, 5109, 5110 // Labels and other static controls
+    };
+    
+    for (int id : controlIds) {
+        HWND hCtrl = GetDlgItem(hwnd, id);
+        if (hCtrl) {
+            DestroyWindow(hCtrl);
+        }
     }
     
-    // Destroy previous remove button if exists
-    HWND hRemoveBtn = GetDlgItem(hwnd, IDC_FILES_REMOVE);
-    if (hRemoveBtn) {
-        DestroyWindow(hRemoveBtn);
+    // Enumerate and destroy ALL child windows in the page area (below toolbar, above status bar)
+    RECT rcClient;
+    GetClientRect(hwnd, &rcClient);
+    HWND hChild = GetWindow(hwnd, GW_CHILD);
+    while (hChild) {
+        HWND hNext = GetWindow(hChild, GW_HWNDNEXT);
+        
+        // Get child position
+        RECT rcChild;
+        GetWindowRect(hChild, &rcChild);
+        MapWindowPoints(HWND_DESKTOP, hwnd, (POINT*)&rcChild, 2);
+        
+        // If child is in page area (not toolbar or status bar), destroy it
+        if (rcChild.top > s_toolbarHeight && rcChild.bottom < rcClient.bottom - 25) {
+            // Skip toolbar buttons and known handles
+            int childId = GetDlgCtrlID(hChild);
+            if (childId < IDC_TB_FILES || childId > IDC_TB_SAVE) {
+                if (hChild != s_hTreeView && hChild != s_hListView && 
+                    hChild != s_hRegTreeView && hChild != s_hRegListView &&
+                    hChild != s_hPageButton1 && hChild != s_hPageButton2) {
+                    DestroyWindow(hChild);
+                }
+            }
+        }
+        
+        hChild = hNext;
     }
     
     // Destroy TreeView and ListView if they exist (they're children of main window now)
@@ -314,10 +553,30 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         DestroyWindow(s_hListView);
     }
     
+    // Destroy Registry page TreeView and ListView
+    if (s_hRegTreeView && IsWindow(s_hRegTreeView)) {
+        // Clean up lParam memory from registry TreeView items
+        HTREEITEM hRoot = TreeView_GetRoot(s_hRegTreeView);
+        while (hRoot) {
+            HTREEITEM hNext = TreeView_GetNextSibling(s_hRegTreeView, hRoot);
+            CleanupRegistryTreeView(s_hRegTreeView, hRoot);
+            hRoot = hNext;
+        }
+        DestroyWindow(s_hRegTreeView);
+    }
+    if (s_hRegListView && IsWindow(s_hRegListView)) {
+        DestroyWindow(s_hRegListView);
+    }
+    
     // Clear tree/list handles
     s_hTreeView = NULL;
     s_hListView = NULL;
     s_hProgramFilesRoot = NULL;
+    s_hRegTreeView = NULL;
+    s_hRegListView = NULL;
+    
+    // Force complete window redraw
+    RedrawWindow(hwnd, NULL, NULL, RDW_ERASE | RDW_INVALIDATE | RDW_ALLCHILDREN);
     
     s_currentPageIndex = pageIndex;
     
@@ -466,26 +725,205 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
     }
     case 1: // Registry page
     {
-        // Create container for page content
-        s_hCurrentPage = CreateWindowExW(
-            0, L"STATIC", L"",
-            WS_CHILD | WS_VISIBLE,
-            0, pageY, rc.right, pageHeight,
-            hwnd, NULL, hInst, NULL);
+        // Get localized strings
+        auto itRegTitle = s_locale.find(L"reg_page_title");
+        std::wstring regTitle = (itRegTitle != s_locale.end()) ? itRegTitle->second : L"Registry Management";
         
-        HWND hTitle = CreateWindowExW(0, L"STATIC", L"Registry Entries",
+        auto itRegRegister = s_locale.find(L"reg_register_app");
+        std::wstring regRegister = (itRegRegister != s_locale.end()) ? itRegRegister->second : L"Register in Windows Installed Programs";
+        
+        auto itAddIcon = s_locale.find(L"reg_add_icon");
+        std::wstring addIcon = (itAddIcon != s_locale.end()) ? itAddIcon->second : L"Add Icon";
+        
+        auto itAddIconTT = s_locale.find(L"reg_add_icon_tooltip");
+        std::wstring addIconTT = (itAddIconTT != s_locale.end()) ? itAddIconTT->second : L"Add icon to show in Installed apps in Windows settings (.ico)";
+        
+        auto itDisplayName = s_locale.find(L"reg_display_name");
+        std::wstring displayName = (itDisplayName != s_locale.end()) ? itDisplayName->second : L"Display Name:";
+        
+        auto itVersion = s_locale.find(L"reg_version");
+        std::wstring versionText = (itVersion != s_locale.end()) ? itVersion->second : L"Version:";
+        
+        auto itPublisher = s_locale.find(L"reg_publisher");
+        std::wstring publisherText = (itPublisher != s_locale.end()) ? itPublisher->second : L"Publisher:";
+        
+        auto itAddKey = s_locale.find(L"reg_add_key");
+        std::wstring addKeyText = (itAddKey != s_locale.end()) ? itAddKey->second : L"Add Key";
+        
+        auto itAddValue = s_locale.find(L"reg_add_value");
+        std::wstring addValueText = (itAddValue != s_locale.end()) ? itAddValue->second : L"Add Value";
+        
+        auto itRemove = s_locale.find(L"reg_remove");
+        std::wstring removeText = (itRemove != s_locale.end()) ? itRemove->second : L"Remove";
+        
+        // H3 headline
+        HWND hTitle = CreateWindowExW(0, L"STATIC", regTitle.c_str(),
             WS_CHILD | WS_VISIBLE | SS_LEFT,
-            20, 20, rc.right - 40, 30,
-            s_hCurrentPage, NULL, hInst, NULL);
+            20, pageY + 15, rc.right - 40, 30,
+            hwnd, (HMENU)5100, hInst, NULL);
         HFONT hTitleFont = CreateFontW(-18, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
             CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
         if (hTitleFont) SendMessageW(hTitle, WM_SETFONT, (WPARAM)hTitleFont, TRUE);
         
-        CreateWindowExW(0, L"STATIC", L"Registry entries to be implemented",
+        int currentY = pageY + 55;
+        
+        // Checkbox for "Register in Windows Installed Programs"
+        HWND hCheckbox = CreateWindowExW(0, L"BUTTON", regRegister.c_str(),
+            WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
+            20, currentY, 400, 25,
+            hwnd, (HMENU)IDC_REG_CHECKBOX, hInst, NULL);
+        SendMessageW(hCheckbox, BM_SETCHECK, s_registerInWindows ? BST_CHECKED : BST_UNCHECKED, 0);
+        currentY += 35;
+        
+        // Layout: Icon + Buttons on left, Fields on right
+        // Icon preview area (48x48 static control with border)
+        HWND hIconPreview = CreateWindowExW(WS_EX_CLIENTEDGE, L"STATIC", L"",
+            WS_CHILD | WS_VISIBLE | SS_ICON | SS_CENTERIMAGE,
+            20, currentY, 48, 48,
+            hwnd, (HMENU)IDC_REG_ICON_PREVIEW, hInst, NULL);
+        
+        // Load default generic icon from shell32.dll (icon #2 - generic file icon)
+        if (hIconPreview) {
+            HICON hDefaultIcon = ExtractIconW(hInst, L"shell32.dll", 2);
+            if (hDefaultIcon) {
+                SendMessageW(hIconPreview, STM_SETICON, (WPARAM)hDefaultIcon, 0);
+            }
+        }
+        
+        // Add Icon button (with shell32.dll icon #127)
+        s_hPageButton1 = CreateCustomButtonWithIcon(hwnd, IDC_REG_ADD_ICON, addIcon.c_str(), ButtonColor::Blue,
+            L"shell32.dll", 127, 80, currentY, 120, 30, hInst);
+        
+        // Add tooltip for Add Icon button
+        if (s_hTooltip) {
+            TOOLINFOW ti = {};
+            ti.cbSize = sizeof(TOOLINFOW);
+            ti.uFlags = TTF_IDISHWND | TTF_SUBCLASS;
+            ti.hwnd = hwnd;
+            ti.uId = (UINT_PTR)s_hPageButton1;
+            ti.lpszText = (LPWSTR)addIconTT.c_str();
+            SendMessageW(s_hTooltip, TTM_ADDTOOL, 0, (LPARAM)&ti);
+        }
+        
+        // Show Regkey button (with shell32.dll icon #268) below Add Icon
+        auto itShowRegkey = s_locale.find(L"reg_show_regkey");
+        std::wstring showRegkeyText = (itShowRegkey != s_locale.end()) ? itShowRegkey->second : L"Show Regkey";
+        
+        CreateCustomButtonWithIcon(hwnd, IDC_REG_SHOW_REGKEY, showRegkeyText.c_str(), ButtonColor::Blue,
+            L"shell32.dll", 268, 80, currentY + 35, 120, 30, hInst);
+        
+        // Display Name field (right side, aligned with icon)
+        CreateWindowExW(0, L"STATIC", displayName.c_str(),
+            WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
+            220, currentY, 100, 22,
+            hwnd, (HMENU)5101, hInst, NULL);
+        
+        HWND hDisplayNameEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", s_currentProject.name.c_str(),
+            WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL,
+            325, currentY, 300, 22,
+            hwnd, (HMENU)IDC_REG_DISPLAY_NAME, hInst, NULL);
+        currentY += 27;
+        
+        // Version field
+        CreateWindowExW(0, L"STATIC", versionText.c_str(),
+            WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
+            220, currentY, 100, 22,
+            hwnd, (HMENU)5102, hInst, NULL);
+        
+        HWND hVersionEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", s_currentProject.version.c_str(),
+            WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL,
+            325, currentY, 300, 22,
+            hwnd, (HMENU)IDC_REG_VERSION, hInst, NULL);
+        currentY += 27;
+        
+        // Publisher field
+        CreateWindowExW(0, L"STATIC", publisherText.c_str(),
+            WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
+            220, currentY, 100, 22,
+            hwnd, (HMENU)5103, hInst, NULL);
+        
+        HWND hPublisherEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", s_appPublisher.c_str(),
+            WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL,
+            325, currentY, 300, 22,
+            hwnd, (HMENU)IDC_REG_PUBLISHER, hInst, NULL);
+        currentY += 40;
+        
+        // Divider line
+        CreateWindowExW(0, L"STATIC", L"",
+            WS_CHILD | WS_VISIBLE | SS_ETCHEDHORZ,
+            20, currentY, rc.right - 40, 2,
+            hwnd, (HMENU)5104, hInst, NULL);
+        currentY += 20;
+        
+        // Custom Registry Entries section
+        CreateWindowExW(0, L"STATIC", L"Custom Registry Entries",
             WS_CHILD | WS_VISIBLE | SS_LEFT,
-            20, 60, rc.right - 40, 20,
-            s_hCurrentPage, NULL, hInst, NULL);
+            20, currentY, 300, 20,
+            hwnd, (HMENU)5105, hInst, NULL);
+        currentY += 25;
+        
+        // Split pane: TreeView (left 40%) + ListView (right 60%)
+        int treeWidth = (int)((rc.right - 40) * 0.4);
+        int listWidth = (rc.right - 40) - treeWidth - 10;
+        int paneHeight = rc.bottom - currentY - 90; // Space for bottom buttons
+        
+        // TreeView for registry hive structure with horizontal scrolling
+        s_hRegTreeView = CreateWindowExW(WS_EX_CLIENTEDGE, WC_TREEVIEW, L"",
+            WS_CHILD | WS_VISIBLE | WS_BORDER | TVS_HASLINES | TVS_HASBUTTONS | TVS_LINESATROOT | WS_VSCROLL | WS_HSCROLL,
+            20, currentY, treeWidth, paneHeight,
+            hwnd, (HMENU)IDC_REG_TREEVIEW, hInst, NULL);
+        
+        // Populate TreeView with template registry structure
+        CreateTemplateRegistryTree(s_hRegTreeView, s_currentProject.name, s_appPublisher);
+        
+        // ListView for registry entries with horizontal scrolling
+        s_hRegListView = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEW, L"",
+            WS_CHILD | WS_VISIBLE | WS_BORDER | LVS_REPORT | LVS_SINGLESEL | WS_VSCROLL | WS_HSCROLL,
+            30 + treeWidth, currentY, listWidth, paneHeight,
+            hwnd, (HMENU)IDC_REG_LISTVIEW, hInst, NULL);
+        
+        // Set extended ListView styles
+        ListView_SetExtendedListViewStyle(s_hRegListView, LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
+        
+        // Add columns
+        auto itColName = s_locale.find(L"reg_col_name");
+        std::wstring colName = (itColName != s_locale.end()) ? itColName->second : L"Name";
+        
+        auto itColType = s_locale.find(L"reg_col_type");
+        std::wstring colType = (itColType != s_locale.end()) ? itColType->second : L"Type";
+        
+        auto itColData = s_locale.find(L"reg_col_data");
+        std::wstring colData = (itColData != s_locale.end()) ? itColData->second : L"Data";
+        
+        LVCOLUMNW lvc = {};
+        lvc.mask = LVCF_TEXT | LVCF_WIDTH | LVCF_FMT;
+        lvc.fmt = LVCFMT_LEFT;
+        
+        lvc.pszText = (LPWSTR)colName.c_str();
+        lvc.cx = (int)(listWidth * 0.35);
+        ListView_InsertColumn(s_hRegListView, 0, &lvc);
+        
+        lvc.pszText = (LPWSTR)colType.c_str();
+        lvc.cx = (int)(listWidth * 0.25);
+        ListView_InsertColumn(s_hRegListView, 1, &lvc);
+        
+        lvc.pszText = (LPWSTR)colData.c_str();
+        lvc.cx = (int)(listWidth * 0.40);
+        ListView_InsertColumn(s_hRegListView, 2, &lvc);
+        
+        currentY += paneHeight + 10;
+        
+        // Buttons: Add Key, Add Value, Remove
+        s_hPageButton2 = CreateCustomButtonWithIcon(hwnd, IDC_REG_ADD_KEY, addKeyText.c_str(), ButtonColor::Blue,
+            L"shell32.dll", 4, 20, currentY, 120, 35, hInst);
+        
+        CreateCustomButtonWithIcon(hwnd, IDC_REG_ADD_VALUE, addValueText.c_str(), ButtonColor::Blue,
+            L"shell32.dll", 70, 150, currentY, 120, 35, hInst);
+        
+        CreateCustomButtonWithIcon(hwnd, IDC_REG_REMOVE, removeText.c_str(), ButtonColor::Red,
+            L"shell32.dll", 234, 280, currentY, 120, 35, hInst);
+        
         break;
     }
     case 2: // Shortcuts page
@@ -947,6 +1385,169 @@ void MainWindow::SwitchTab(HWND hwnd, int tabIndex) {
         );
         break;
     }
+}
+
+// Registry key dialog data
+struct RegKeyDialogData {
+    std::wstring regPath;
+    std::wstring labelText;
+    std::wstring closeText;
+    std::wstring navigateText;
+    std::wstring copyText;
+};
+
+// Dialog procedure for Show Registry Key dialog
+LRESULT CALLBACK RegKeyDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+    case WM_CREATE: {
+        CREATESTRUCTW* cs = (CREATESTRUCTW*)lParam;
+        HINSTANCE hInst = cs->hInstance;
+        
+        // Get dialog data from user data
+        RegKeyDialogData* pData = (RegKeyDialogData*)cs->lpCreateParams;
+        
+        // Store pointer in window data for later use
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)pData);
+        
+        // Create label
+        CreateWindowExW(0, L"STATIC", pData->labelText.c_str(),
+            WS_CHILD | WS_VISIBLE | SS_LEFT,
+            20, 20, 560, 20,
+            hwnd, NULL, hInst, NULL);
+        
+        // Create registry path EDIT control (read-only, multiline for full path visibility)
+        HWND hEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", pData->regPath.c_str(),
+            WS_CHILD | WS_VISIBLE | ES_LEFT | ES_READONLY | ES_MULTILINE | ES_AUTOHSCROLL | WS_VSCROLL,
+            20, 50, 560, 60,
+            hwnd, (HMENU)IDC_REGKEY_DLG_EDIT, hInst, NULL);
+        
+        // Create "Take me there" button with icon 267
+        CreateCustomButtonWithIcon(hwnd, IDC_REGKEY_DLG_NAVIGATE, pData->navigateText.c_str(), ButtonColor::Blue,
+            L"shell32.dll", 267, 20, 130, 140, 35, hInst);
+        
+        // Create "Copy" button with icon 64 (centered)
+        CreateCustomButtonWithIcon(hwnd, IDC_REGKEY_DLG_COPY, pData->copyText.c_str(), ButtonColor::Blue,
+            L"shell32.dll", 64, 230, 130, 140, 35, hInst);
+        
+        // Create "Close" button with icon 300
+        CreateCustomButtonWithIcon(hwnd, IDC_REGKEY_DLG_CLOSE, pData->closeText.c_str(), ButtonColor::Blue,
+            L"shell32.dll", 300, 440, 130, 140, 35, hInst);
+        
+        return 0;
+    }
+    
+    case WM_CONTEXTMENU: {
+        // Show context menu on right-click in edit control
+        HWND hEdit = GetDlgItem(hwnd, IDC_REGKEY_DLG_EDIT);
+        if ((HWND)wParam == hEdit) {
+            HMENU hMenu = CreatePopupMenu();
+            RegKeyDialogData* pData = (RegKeyDialogData*)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+            if (hMenu && pData) {
+                AppendMenuW(hMenu, MF_STRING, IDC_REGKEY_DLG_COPY, pData->copyText.c_str());
+                
+                POINT pt;
+                pt.x = GET_X_LPARAM(lParam);
+                pt.y = GET_Y_LPARAM(lParam);
+                
+                TrackPopupMenu(hMenu, TPM_RIGHTBUTTON, pt.x, pt.y, 0, hwnd, NULL);
+                DestroyMenu(hMenu);
+            }
+        }
+        return 0;
+    }
+    
+    case WM_COMMAND:
+        if (LOWORD(wParam) == IDC_REGKEY_DLG_CLOSE) {
+            DestroyWindow(hwnd);
+            s_hRegKeyDialog = NULL;
+            return 0;
+        }
+        else if (LOWORD(wParam) == IDC_REGKEY_DLG_COPY) {
+            // Copy registry path to clipboard
+            HWND hEdit = GetDlgItem(hwnd, IDC_REGKEY_DLG_EDIT);
+            if (hEdit) {
+                int len = GetWindowTextLengthW(hEdit);
+                if (len > 0) {
+                    std::wstring text(len + 1, L'\0');
+                    GetWindowTextW(hEdit, &text[0], len + 1);
+                    text.resize(len);
+                    
+                    if (OpenClipboard(hwnd)) {
+                        EmptyClipboard();
+                        HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, (text.length() + 1) * sizeof(wchar_t));
+                        if (hMem) {
+                            wchar_t* pMem = (wchar_t*)GlobalLock(hMem);
+                            if (pMem) {
+                                wcscpy(pMem, text.c_str());
+                                GlobalUnlock(hMem);
+                                SetClipboardData(CF_UNICODETEXT, hMem);
+                            }
+                        }
+                        CloseClipboard();
+                    }
+                }
+            }
+            return 0;
+        }
+        else if (LOWORD(wParam) == IDC_REGKEY_DLG_NAVIGATE) {
+            s_navigateToRegKey = true;
+            // Don't close the dialog - let user see both dialog and navigation
+            // Trigger navigation in parent window
+            HWND hwndParent = GetParent(hwnd);
+            if (hwndParent) {
+                PostMessageW(hwndParent, WM_USER + 100, 0, 0);
+            }
+            return 0;
+        }
+        break;
+    
+    case WM_DRAWITEM: {
+        LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
+        if (dis->CtlID == IDC_REGKEY_DLG_CLOSE || dis->CtlID == IDC_REGKEY_DLG_NAVIGATE || dis->CtlID == IDC_REGKEY_DLG_COPY) {
+            ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
+            HFONT hFont = CreateFontW(-12, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+                DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+            LRESULT result = DrawCustomButton(dis, color, hFont);
+            if (hFont) DeleteObject(hFont);
+            return result;
+        }
+        break;
+    }
+    
+    case WM_KEYDOWN: {
+        // Handle Ctrl+A and Ctrl+C in edit control
+        if (GetKeyState(VK_CONTROL) & 0x8000) {
+            HWND hEdit = GetDlgItem(hwnd, IDC_REGKEY_DLG_EDIT);
+            if (wParam == 'A') {
+                // Select all
+                if (hEdit) {
+                    SendMessageW(hEdit, EM_SETSEL, 0, -1);
+                }
+                return 0;
+            }
+            else if (wParam == 'C') {
+                // Copy
+                if (hEdit && GetFocus() == hEdit) {
+                    SendMessageW(hwnd, WM_COMMAND, IDC_REGKEY_DLG_COPY, 0);
+                }
+                return 0;
+            }
+        }
+        break;
+    }
+    
+    case WM_CLOSE:
+        DestroyWindow(hwnd);
+        s_hRegKeyDialog = NULL;
+        return 0;
+    
+    case WM_DESTROY:
+        s_hRegKeyDialog = NULL;
+        return 0;
+    }
+    
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
 }
 
 LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -1522,6 +2123,130 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             }
             return 0;
         }
+        
+        // Registry page controls
+        case IDC_REG_CHECKBOX: {
+            // Toggle register in Windows setting
+            HWND hCheckbox = GetDlgItem(hwnd, IDC_REG_CHECKBOX);
+            if (hCheckbox) {
+                s_registerInWindows = (SendMessageW(hCheckbox, BM_GETCHECK, 0, 0) == BST_CHECKED);
+            }
+            return 0;
+        }
+        
+        case IDC_REG_ADD_ICON: {
+            // Open file dialog to select .ico file
+            OPENFILENAMEW ofn = {};
+            wchar_t szFile[MAX_PATH] = {};
+            
+            ofn.lStructSize = sizeof(OPENFILENAMEW);
+            ofn.hwndOwner = hwnd;
+            ofn.lpstrFile = szFile;
+            ofn.nMaxFile = MAX_PATH;
+            ofn.lpstrFilter = L"Icon Files (*.ico)\0*.ico\0All Files (*.*)\0*.*\0";
+            ofn.nFilterIndex = 1;
+            ofn.lpstrTitle = L"Select Application Icon";
+            ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
+            
+            if (GetOpenFileNameW(&ofn)) {
+                s_appIconPath = szFile;
+                
+                // Update icon preview
+                HWND hIconPreview = GetDlgItem(hwnd, IDC_REG_ICON_PREVIEW);
+                if (hIconPreview) {
+                    HICON hIcon = (HICON)LoadImageW(NULL, s_appIconPath.c_str(), IMAGE_ICON, 48, 48, LR_LOADFROMFILE);
+                    if (hIcon) {
+                        SendMessageW(hIconPreview, STM_SETICON, (WPARAM)hIcon, 0);
+                    }
+                }
+            }
+            return 0;
+        }
+        
+        case IDC_REG_SHOW_REGKEY: {
+            // Don't show dialog if already open
+            if (s_hRegKeyDialog && IsWindow(s_hRegKeyDialog)) {
+                SetForegroundWindow(s_hRegKeyDialog);
+                return 0;
+            }
+            
+            // Build dialog data
+            static RegKeyDialogData dialogData;
+            dialogData.regPath = L"HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\";
+            dialogData.regPath += s_currentProject.name;
+            
+            // Get localized strings
+            auto itTitle = s_locale.find(L"reg_regkey_title");
+            std::wstring title = (itTitle != s_locale.end()) ? itTitle->second : L"Registry Key Path";
+            
+            auto itLabel = s_locale.find(L"reg_regkey_label");
+            dialogData.labelText = (itLabel != s_locale.end()) ? itLabel->second : L"This application will be registered at:";
+            
+            auto itClose = s_locale.find(L"reg_regkey_close");
+            dialogData.closeText = (itClose != s_locale.end()) ? itClose->second : L"Close";
+            
+            auto itNavigate = s_locale.find(L"reg_regkey_take_me_there");
+            dialogData.navigateText = (itNavigate != s_locale.end()) ? itNavigate->second : L"Take me there";
+            
+            auto itCopy = s_locale.find(L"reg_regkey_copy");
+            dialogData.copyText = (itCopy != s_locale.end()) ? itCopy->second : L"Copy";
+            
+            // Register dialog window class if needed
+            static bool dialogClassRegistered = false;
+            if (!dialogClassRegistered) {
+                WNDCLASSEXW wcDlg = {};
+                wcDlg.cbSize = sizeof(WNDCLASSEXW);
+                wcDlg.style = CS_HREDRAW | CS_VREDRAW;
+                wcDlg.lpfnWndProc = RegKeyDialogProc;
+                wcDlg.hInstance = GetModuleHandleW(NULL);
+                wcDlg.hCursor = LoadCursor(NULL, IDC_ARROW);
+                wcDlg.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+                wcDlg.lpszClassName = L"RegKeyDialog";
+                RegisterClassExW(&wcDlg);
+                dialogClassRegistered = true;
+            }
+            
+            // Center dialog over main window
+            RECT rcMain;
+            GetWindowRect(hwnd, &rcMain);
+            int dlgWidth = 600;
+            int dlgHeight = 220;
+            int dlgX = rcMain.left + (rcMain.right - rcMain.left - dlgWidth) / 2;
+            int dlgY = rcMain.top + (rcMain.bottom - rcMain.top - dlgHeight) / 2;
+            
+            // Create modeless dialog
+            s_hRegKeyDialog = CreateWindowExW(
+                WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+                L"RegKeyDialog",
+                title.c_str(),
+                WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
+                dlgX, dlgY, dlgWidth, dlgHeight,
+                hwnd,
+                NULL,
+                GetModuleHandleW(NULL),
+                &dialogData
+            );
+            
+            return 0;
+        }
+        
+        case IDC_REG_ADD_KEY: {
+            // TODO: Implement Add Registry Key dialog
+            MessageBoxW(hwnd, L"Add Registry Key to be implemented", L"Add Key", MB_OK | MB_ICONINFORMATION);
+            return 0;
+        }
+        
+        case IDC_REG_ADD_VALUE: {
+            // TODO: Implement Add Registry Value dialog
+            MessageBoxW(hwnd, L"Add Registry Value to be implemented", L"Add Value", MB_OK | MB_ICONINFORMATION);
+            return 0;
+        }
+        
+        case IDC_REG_REMOVE: {
+            // TODO: Implement Remove Registry Entry
+            MessageBoxW(hwnd, L"Remove Registry Entry to be implemented", L"Remove", MB_OK | MB_ICONINFORMATION);
+            return 0;
+        }
             
         // Menu items
         case IDM_FILE_NEW: {
@@ -1759,9 +2484,10 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
     
     case WM_DRAWITEM: {
         LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
-        // Handle custom button drawing for toolbar buttons (including Save button)
+        // Handle custom button drawing for toolbar buttons and page buttons
         if ((dis->CtlID >= IDC_TB_FILES && dis->CtlID <= IDC_TB_SAVE) ||
-            (dis->CtlID >= IDC_FILES_ADD_DIR && dis->CtlID <= IDC_FILES_REMOVE)) {
+            (dis->CtlID >= IDC_FILES_ADD_DIR && dis->CtlID <= IDC_FILES_REMOVE) ||
+            (dis->CtlID >= IDC_REG_CHECKBOX && dis->CtlID <= IDC_REG_SHOW_REGKEY)) {
             ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
             // Create bold font for buttons (reduced from -14 to -12 for smaller buttons)
             HFONT hFont = CreateFontW(-12, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
@@ -1772,6 +2498,140 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             return result;
         }
         break;
+    }
+    
+    case WM_USER + 100: {
+        // Navigate to registry key in TreeView
+        if (!s_hRegTreeView || !IsWindow(s_hRegTreeView)) {
+            return 0;
+        }
+        
+        // Path to navigate: HKEY_LOCAL_MACHINE -> SOFTWARE -> Microsoft -> Windows -> CurrentVersion -> Uninstall -> [AppName]
+        // We need to find and expand each level
+        
+        // Helper lambda to find child by text
+        auto FindChild = [](HWND hTree, HTREEITEM hParent, const std::wstring& text) -> HTREEITEM {
+            HTREEITEM hItem = TreeView_GetChild(hTree, hParent);
+            wchar_t buffer[256];
+            TVITEMW tvi = {};
+            tvi.mask = TVIF_TEXT;
+            tvi.pszText = buffer;
+            tvi.cchTextMax = 256;
+            
+            while (hItem) {
+                tvi.hItem = hItem;
+                if (TreeView_GetItem(hTree, &tvi)) {
+                    if (wcscmp(buffer, text.c_str()) == 0) {
+                        return hItem;
+                    }
+                }
+                hItem = TreeView_GetNextSibling(hTree, hItem);
+            }
+            return NULL;
+        };
+        
+        // Start from root
+        HTREEITEM hCurrent = TreeView_GetRoot(s_hRegTreeView);
+        
+        // Find HKEY_LOCAL_MACHINE
+        wchar_t buffer[256];
+        TVITEMW tvi = {};
+        tvi.mask = TVIF_TEXT;
+        tvi.pszText = buffer;
+        tvi.cchTextMax = 256;
+        
+        while (hCurrent) {
+            tvi.hItem = hCurrent;
+            if (TreeView_GetItem(s_hRegTreeView, &tvi)) {
+                if (wcscmp(buffer, L"HKEY_LOCAL_MACHINE") == 0) {
+                    break;
+                }
+            }
+            hCurrent = TreeView_GetNextSibling(s_hRegTreeView, hCurrent);
+        }
+        
+        if (!hCurrent) return 0;
+        
+        // Expand and navigate through: SOFTWARE -> Microsoft -> Windows -> CurrentVersion -> Uninstall -> [AppName]
+        std::vector<std::wstring> path = {
+            L"SOFTWARE",
+            L"Microsoft",
+            L"Windows",
+            L"CurrentVersion",
+            L"Uninstall",
+            s_currentProject.name
+        };
+        
+        for (const auto& nodeName : path) {
+            TreeView_Expand(s_hRegTreeView, hCurrent, TVE_EXPAND);
+            hCurrent = FindChild(s_hRegTreeView, hCurrent, nodeName);
+            if (!hCurrent) break;
+        }
+        
+        // Select and ensure visible
+        if (hCurrent) {
+            TreeView_SelectItem(s_hRegTreeView, hCurrent);
+            TreeView_EnsureVisible(s_hRegTreeView, hCurrent);
+            
+            // Populate ListView with registry values for this key
+            if (s_hRegListView && IsWindow(s_hRegListView)) {
+                ListView_DeleteAllItems(s_hRegListView);
+                
+                // Add typical Uninstall registry values
+                LVITEMW lvi = {};
+                lvi.mask = LVIF_TEXT;
+                lvi.iItem = 0;
+                lvi.iSubItem = 0;
+                
+                // DisplayName
+                lvi.pszText = (LPWSTR)L"DisplayName";
+                int idx = ListView_InsertItem(s_hRegListView, &lvi);
+                ListView_SetItemText(s_hRegListView, idx, 1, (LPWSTR)L"REG_SZ");
+                ListView_SetItemText(s_hRegListView, idx, 2, (LPWSTR)s_currentProject.name.c_str());
+                
+                // DisplayVersion
+                lvi.iItem = 1;
+                lvi.pszText = (LPWSTR)L"DisplayVersion";
+                idx = ListView_InsertItem(s_hRegListView, &lvi);
+                ListView_SetItemText(s_hRegListView, idx, 1, (LPWSTR)L"REG_SZ");
+                ListView_SetItemText(s_hRegListView, idx, 2, (LPWSTR)s_currentProject.version.c_str());
+                
+                // Publisher
+                if (!s_appPublisher.empty()) {
+                    lvi.iItem = 2;
+                    lvi.pszText = (LPWSTR)L"Publisher";
+                    idx = ListView_InsertItem(s_hRegListView, &lvi);
+                    ListView_SetItemText(s_hRegListView, idx, 1, (LPWSTR)L"REG_SZ");
+                    ListView_SetItemText(s_hRegListView, idx, 2, (LPWSTR)s_appPublisher.c_str());
+                }
+                
+                // InstallLocation
+                lvi.iItem = 3;
+                lvi.pszText = (LPWSTR)L"InstallLocation";
+                idx = ListView_InsertItem(s_hRegListView, &lvi);
+                ListView_SetItemText(s_hRegListView, idx, 1, (LPWSTR)L"REG_SZ");
+                ListView_SetItemText(s_hRegListView, idx, 2, (LPWSTR)s_currentProject.directory.c_str());
+                
+                // DisplayIcon
+                if (!s_appIconPath.empty()) {
+                    lvi.iItem = 4;
+                    lvi.pszText = (LPWSTR)L"DisplayIcon";
+                    idx = ListView_InsertItem(s_hRegListView, &lvi);
+                    ListView_SetItemText(s_hRegListView, idx, 1, (LPWSTR)L"REG_SZ");
+                    ListView_SetItemText(s_hRegListView, idx, 2, (LPWSTR)s_appIconPath.c_str());
+                }
+                
+                // UninstallString
+                lvi.iItem = 5;
+                lvi.pszText = (LPWSTR)L"UninstallString";
+                idx = ListView_InsertItem(s_hRegListView, &lvi);
+                ListView_SetItemText(s_hRegListView, idx, 1, (LPWSTR)L"REG_SZ");
+                std::wstring uninstallStr = s_currentProject.directory + L"\\uninstall.exe";
+                ListView_SetItemText(s_hRegListView, idx, 2, (LPWSTR)uninstallStr.c_str());
+            }
+        }
+        
+        return 0;
     }
     
     case WM_DESTROY:

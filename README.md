@@ -8,6 +8,10 @@ An installer creation tool for making your developed packages distributable. Des
 
 - **Main Window Interface**: 8-button toolbar for accessing Files, Registry, Shortcuts, Dependencies, Settings, Build, Test, and Scripts pages
 - **Files Management**: Split-pane interface with TreeView (folder hierarchy with 19px indentation) and ListView (file display) for visual file selection
+- **Registry Management**: Complete Windows Registry integration page for Add/Remove Programs registration with icon preview and registry path navigation
+- **Registry Templates**: All 5 HKEY hives (HKCR, HKCU, HKLM, HKU, HKCC) with common paths pre-expanded for easy navigation
+- **Show Regkey Dialog**: Professional dialog displaying full uninstall registry path with Copy button, Ctrl+C support, and right-click context menu
+- **Take Me There Navigation**: Navigate to registry key in TreeView and automatically populate ListView with uninstall values (DisplayName, DisplayVersion, Publisher, etc.)
 - **Virtual Folder Support**: Create custom folder structures without physical disk paths - files persist when navigating between folders
 - **Context-Aware Operations**: Add Folder/Add Files buttons respect currently selected folder as parent/target
 - **Smart Install Path**: Auto-updates install path display when first folder under Program Files is renamed/deleted/replaced
@@ -50,8 +54,13 @@ An installer creation tool for making your developed packages distributable. Des
 ✅ System file type icons in ListView with transparency
 ✅ Tooltips showing full file paths
 ✅ Scripts page for before/after install hooks
+✅ Registry page with Windows Installed Apps integration
+✅ Registry TreeView with all 5 HKEY hives
+✅ Show Regkey dialog with copy/navigation functionality
+✅ Registry value population in ListView
+✅ Icon preview with default generic Windows icon
 
-🔄 In Progress: Build/Test implementation, Registry page, Shortcuts page
+🔄 In Progress: Build/Test implementation, Shortcuts page, Registry add/edit functionality
 
 ## Building
 

@@ -28,6 +28,7 @@ set(CMAKE_DEPENDS_DEPENDENCY_FILES
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/db.cpp" "CMakeFiles/SkeletonApp.dir/db.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/db.cpp.obj.d"
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/languages.cpp" "CMakeFiles/SkeletonApp.dir/languages.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/languages.cpp.obj.d"
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/main.cpp" "CMakeFiles/SkeletonApp.dir/main.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/main.cpp.obj.d"
+  "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/mainwindow.cpp" "CMakeFiles/SkeletonApp.dir/mainwindow.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/mainwindow.cpp.obj.d"
   )
 
 # Targets to which this target links which contain Fortran sources.

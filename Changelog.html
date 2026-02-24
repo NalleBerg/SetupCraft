@@ -2,9 +2,22 @@
 <h3 style="text-align: center;">&nbsp;</h3>
 <p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 24 February 2026<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
 
-<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.02.24.01</span></h3>
-<p><strong>Toolbar Icon Refinements &amp; Composite Icon Support (24 February 2026):</strong></p>
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.02.24.10</span></h3>
+<p><strong>Registry Page Implementation &amp; Icon Refinements (24 February 2026):</strong></p>
 <ul>
+<li><strong>Registry Management Page:</strong> Complete Windows Registry integration page with checkbox to enable/disable registration in Windows Installed Apps</li>
+<li><strong>Registry Icon Preview:</strong> 48x48 icon preview with default generic Windows icon (shell32.dll #2) - updates when custom .ico file is selected</li>
+<li><strong>Add Icon Button:</strong> Blue button with icon picker dialog (*.ico files) - selected icon displayed in preview and stored for DisplayIcon registry value</li>
+<li><strong>Show Regkey Button:</strong> Displays custom dialog with full registry path (HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\[ProjectName])</li>
+<li><strong>Registry Key Dialog:</strong> Professional modeless dialog centered over main window (600x220) with selectable text field and multiple copy methods</li>
+<li><strong>Copy Functionality:</strong> Three ways to copy registry path - Copy button (shell32.dll #64), Ctrl+C keyboard shortcut, right-click context menu</li>
+<li><strong>Take Me There Navigation:</strong> Navigate button (shell32.dll #267) expands TreeView to show path and populates ListView with registry values without closing dialog</li>
+<li><strong>Registry TreeView Structure:</strong> All 5 HKEY hives (HKCR, HKCU, HKLM, HKU, HKCC) with common paths expanded by default - shows complete registry template</li>
+<li><strong>Registry ListView Population:</strong> Displays uninstall registry values (DisplayName, DisplayVersion, Publisher, InstallLocation, DisplayIcon, UninstallString) with proper REG_SZ types</li>
+<li><strong>Text Selection Support:</strong> Edit control with ES_READONLY, ES_MULTILINE, ES_AUTOHSCROLL - allows mouse selection, Ctrl+A select all, scrollable for long paths</li>
+<li><strong>Clipboard Operations:</strong> Proper Windows clipboard integration with OpenClipboard, EmptyClipboard, GlobalAlloc, SetClipboardData using CF_UNICODETEXT format</li>
+<li><strong>Dialog Button Icons:</strong> Close (shell32.dll #300), Navigate (shell32.dll #267), Copy (shell32.dll #64) with custom owner-draw rendering</li>
+<li><strong>Localization Support:</strong> All registry page UI strings fully localized (reg_regkey_title, reg_regkey_close, reg_regkey_take_me_there, reg_regkey_copy, reg_regkey_label) in all 20 languages</li>
 <li><strong>Updated Toolbar Icons:</strong> Refined icon selection for better visual clarity - Build (shell32.dll #80), Dependencies (#278), Settings (#314), Add Folder (#296), Remove (#234)</li>
 <li><strong>Composite Icon System:</strong> Implemented overlay icon support allowing two icons to be combined - base icon with overlay drawn on top for visual combinations</li>
 <li><strong>Shortcuts Button:</strong> Uses composite icon with shell32.dll #257 as base and #29 (arrow) as full-size overlay for clear shortcut representation</li>
