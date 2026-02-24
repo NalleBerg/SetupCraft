@@ -18,6 +18,7 @@ struct ButtonIconInfo {
 // Button creation and management
 HWND CreateCustomButton(HWND hwndParent, int id, const std::wstring &text, ButtonColor color, int x, int y, int width, int height, HINSTANCE hInst);
 HWND CreateCustomButtonWithIcon(HWND hwndParent, int id, const std::wstring &text, ButtonColor color, const wchar_t* iconDll, int iconIndex, int x, int y, int width, int height, HINSTANCE hInst);
+HWND CreateCustomButtonWithCompositeIcon(HWND hwndParent, int id, const std::wstring &text, ButtonColor color, const wchar_t* iconDll1, int iconIndex1, const wchar_t* iconDll2, int iconIndex2, int x, int y, int width, int height, HINSTANCE hInst);
 void UpdateButtonText(HWND hButton, const std::wstring &text);
 
 // Button subclass procedure for hover effects

@@ -228,32 +228,32 @@ void MainWindow::CreateToolbar(HWND hwnd, HINSTANCE hInst) {
         L"shell32.dll", 166, x, startY, buttonWidth, buttonHeight, hInst);
     x += buttonWidth + buttonGap;
     
-    // Add Shortcut button
+    // Add Shortcut button (composite icon: 257 with 29 overlay)
     auto itAddShortcut = s_locale.find(L"tb_add_shortcut");
     std::wstring addShortcutText = (itAddShortcut != s_locale.end()) ? itAddShortcut->second : L"Shortcuts";
-    CreateCustomButtonWithIcon(hwnd, IDC_TB_ADD_SHORTCUT, addShortcutText, ButtonColor::Blue,
-        L"shell32.dll", 1, x, startY, buttonWidth, buttonHeight, hInst);
+    CreateCustomButtonWithCompositeIcon(hwnd, IDC_TB_ADD_SHORTCUT, addShortcutText, ButtonColor::Blue,
+        L"shell32.dll", 257, L"shell32.dll", 29, x, startY, buttonWidth, buttonHeight, hInst);
     x += buttonWidth + buttonGap;
     
     // Add Dependency button (wider to fit text)
     auto itAddDep = s_locale.find(L"tb_add_dependency");
     std::wstring addDepText = (itAddDep != s_locale.end()) ? itAddDep->second : L"Dependencies";
     CreateCustomButtonWithIcon(hwnd, IDC_TB_ADD_DEPEND, addDepText, ButtonColor::Blue,
-        L"shell32.dll", 154, x, startY, 125, buttonHeight, hInst);
+        L"shell32.dll", 278, x, startY, 125, buttonHeight, hInst);
     x += 125 + buttonGap;
     
     // Settings button
     auto itSettings = s_locale.find(L"tb_settings");
     std::wstring settingsText = (itSettings != s_locale.end()) ? itSettings->second : L"Settings";
     CreateCustomButtonWithIcon(hwnd, IDC_TB_SETTINGS, settingsText, ButtonColor::Blue,
-        L"shell32.dll", 316, x, startY, buttonWidth, buttonHeight, hInst);
+        L"shell32.dll", 314, x, startY, buttonWidth, buttonHeight, hInst);
     x += buttonWidth + buttonGap;
     
     // Build button
     auto itBuild = s_locale.find(L"tb_build");
     std::wstring buildText = (itBuild != s_locale.end()) ? itBuild->second : L"Build (F7)";
     CreateCustomButtonWithIcon(hwnd, IDC_TB_BUILD, buildText, ButtonColor::Green,
-        L"imageres.dll", 109, x, startY, buttonWidth, buttonHeight, hInst);
+        L"shell32.dll", 80, x, startY, buttonWidth, buttonHeight, hInst);
     x += buttonWidth + buttonGap;
     
     // Test button
@@ -267,7 +267,7 @@ void MainWindow::CreateToolbar(HWND hwnd, HINSTANCE hInst) {
     auto itScripts = s_locale.find(L"tb_scripts");
     std::wstring scriptsText = (itScripts != s_locale.end()) ? itScripts->second : L"Scripts";
     CreateCustomButtonWithIcon(hwnd, IDC_TB_SCRIPTS, scriptsText, ButtonColor::Blue,
-        L"shell32.dll", 166, x, startY, buttonWidth, buttonHeight, hInst);
+        L"shell32.dll", 310, x, startY, buttonWidth, buttonHeight, hInst);
     x += buttonWidth + buttonGap;
     
     // Save button
@@ -345,7 +345,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         
         // Add Folder button (child of main window, positioned relative to it)
         s_hPageButton1 = CreateCustomButtonWithIcon(hwnd, IDC_FILES_ADD_DIR, L"Add Folder", ButtonColor::Blue,
-            L"shell32.dll", 4, 20, s_toolbarHeight + 55, 120, 35, hInst);
+            L"shell32.dll", 296, 20, s_toolbarHeight + 55, 120, 35, hInst);
         
         // Add Files button (child of main window, positioned relative to it)
         s_hPageButton2 = CreateCustomButtonWithIcon(hwnd, IDC_FILES_ADD_FILES, L"Add Files", ButtonColor::Blue,
@@ -353,7 +353,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         
         // Remove button (for removing selected items)
         HWND hRemoveBtn = CreateCustomButtonWithIcon(hwnd, IDC_FILES_REMOVE, L"Remove", ButtonColor::Red,
-            L"shell32.dll", 131, 20, s_toolbarHeight + 100, 250, 35, hInst);
+            L"shell32.dll", 234, 20, s_toolbarHeight + 100, 250, 35, hInst);
         
         // Project name label and field
         HWND hProjectLabel = CreateWindowExW(0, L"STATIC", L"Project name:",

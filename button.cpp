@@ -97,6 +97,52 @@ HWND CreateCustomButtonWithIcon(HWND hwndParent, int id, const std::wstring &tex
     return hButton;
 }
 
+HWND CreateCustomButtonWithCompositeIcon(HWND hwndParent, int id, const std::wstring &text, ButtonColor color, const wchar_t* iconDll1, int iconIndex1, const wchar_t* iconDll2, int iconIndex2, int x, int y, int width, int height, HINSTANCE hInst) {
+    HWND hButton = CreateWindowExW(
+        0,
+        L"BUTTON",
+        text.c_str(),
+        WS_CHILD | WS_VISIBLE | BS_OWNERDRAW | WS_TABSTOP,
+        x, y, width, height,
+        hwndParent,
+        (HMENU)(INT_PTR)id,
+        hInst,
+        NULL
+    );
+    
+    if (hButton) {
+        // Store color as user data
+        SetWindowLongPtrW(hButton, GWLP_USERDATA, (LONG_PTR)color);
+        
+        // Store first icon info
+        if (iconDll1 && iconIndex1 >= 0) {
+            size_t len = wcslen(iconDll1) + 1;
+            wchar_t* dllCopy = (wchar_t*)malloc(len * sizeof(wchar_t));
+            if (dllCopy) {
+                wcscpy(dllCopy, iconDll1);
+                SetPropW(hButton, L"IconDLL", (HANDLE)dllCopy);
+            }
+            SetPropW(hButton, L"IconIndex", (HANDLE)(INT_PTR)iconIndex1);
+        }
+        
+        // Store second icon info (overlay)
+        if (iconDll2 && iconIndex2 >= 0) {
+            size_t len = wcslen(iconDll2) + 1;
+            wchar_t* dllCopy = (wchar_t*)malloc(len * sizeof(wchar_t));
+            if (dllCopy) {
+                wcscpy(dllCopy, iconDll2);
+                SetPropW(hButton, L"IconDLL2", (HANDLE)dllCopy);
+            }
+            SetPropW(hButton, L"IconIndex2", (HANDLE)(INT_PTR)iconIndex2);
+        }
+        
+        // Subclass for hover effects
+        SetWindowSubclass(hButton, ButtonSubclassProc, 0, 0);
+    }
+    
+    return hButton;
+}
+
 void UpdateButtonText(HWND hButton, const std::wstring &text) {
     if (hButton) {
         SetWindowTextW(hButton, text.c_str());
@@ -140,6 +186,15 @@ LRESULT CALLBACK ButtonSubclassProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM 
             RemovePropW(hwnd, L"IconDLL");
         }
         RemovePropW(hwnd, L"IconIndex");
+        
+        // Clean up second icon DLL string if allocated
+        wchar_t* dllName2 = (wchar_t*)GetPropW(hwnd, L"IconDLL2");
+        if (dllName2) {
+            free(dllName2);
+            RemovePropW(hwnd, L"IconDLL2");
+        }
+        RemovePropW(hwnd, L"IconIndex2");
+        
         RemovePropW(hwnd, L"IsHovering");
         RemoveWindowSubclass(hwnd, ButtonSubclassProc, uIdSubclass);
         break;
@@ -255,6 +310,23 @@ BOOL DrawCustomButton(LPDRAWITEMSTRUCT dis, ButtonColor color, HFONT hFont) {
         
         DrawIconEx(hdc, iconX, iconY, hIcon, iconSize, iconSize, 0, NULL, DI_NORMAL);
         DestroyIcon(hIcon);
+        
+        // Check for overlay icon
+        wchar_t* iconDll2 = (wchar_t*)GetPropW(dis->hwndItem, L"IconDLL2");
+        INT_PTR iconIndex2 = (INT_PTR)GetPropW(dis->hwndItem, L"IconIndex2");
+        
+        if (iconDll2 && iconIndex2 > 0) {
+            HMODULE hIconDll2 = LoadLibraryExW(iconDll2, NULL, LOAD_LIBRARY_AS_DATAFILE);
+            if (hIconDll2) {
+                HICON hIcon2 = (HICON)LoadImageW(hIconDll2, MAKEINTRESOURCEW(iconIndex2), IMAGE_ICON, 20, 20, 0);
+                if (hIcon2) {
+                    // Draw overlay on top of base icon at full size
+                    DrawIconEx(hdc, iconX, iconY, hIcon2, 20, 20, 0, NULL, DI_NORMAL);
+                    DestroyIcon(hIcon2);
+                }
+                FreeLibrary(hIconDll2);
+            }
+        }
         
         // Draw text in dark blue
         SetTextColor(hdc, RGB(7, 50, 116));
