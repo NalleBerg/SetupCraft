@@ -28,5 +28,13 @@ CREATE TABLE IF NOT EXISTS registry_entries (
     FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS files (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL,
+    source_path TEXT NOT NULL,
+    destination_path TEXT NOT NULL,
+    FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+);
+
 -- You can insert the initial project like this (example):
 -- INSERT INTO projects (name, directory, last_updated) VALUES ('SetupCraft', 'C:/path/to/project', strftime('%s','now'));

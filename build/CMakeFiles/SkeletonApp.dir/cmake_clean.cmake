@@ -12,6 +12,8 @@ file(REMOVE_RECURSE
   "CMakeFiles/SkeletonApp.dir/main.cpp.obj.d"
   "CMakeFiles/SkeletonApp.dir/mainwindow.cpp.obj"
   "CMakeFiles/SkeletonApp.dir/mainwindow.cpp.obj.d"
+  "CMakeFiles/SkeletonApp.dir/spinner_dialog.cpp.obj"
+  "CMakeFiles/SkeletonApp.dir/spinner_dialog.cpp.obj.d"
   "SetupCraft.exe"
   "SetupCraft.exe.manifest"
   "SetupCraft.pdb"

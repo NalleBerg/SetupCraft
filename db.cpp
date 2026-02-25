@@ -107,6 +107,7 @@ bool DB::InitDb() {
     const char *createProjects = "CREATE TABLE IF NOT EXISTS projects (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, directory TEXT NOT NULL, description TEXT, lang TEXT, version TEXT, created INTEGER, last_updated INTEGER, register_in_windows INTEGER DEFAULT 1, app_icon_path TEXT, app_publisher TEXT);";
     const char *createSettings = "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);";
     const char *createRegistry = "CREATE TABLE IF NOT EXISTS registry_entries (id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER NOT NULL, hive TEXT NOT NULL, path TEXT NOT NULL, name TEXT NOT NULL, type TEXT NOT NULL, data TEXT, FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);";
+    const char *createFiles = "CREATE TABLE IF NOT EXISTS files (id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER NOT NULL, source_path TEXT NOT NULL, destination_path TEXT NOT NULL, FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);";
     char *errmsg = NULL;
     if (p_exec(db, createProjects, NULL, NULL, &errmsg) != 0) {
         // ignore
@@ -115,6 +116,9 @@ bool DB::InitDb() {
         // ignore
     }
     if (p_exec(db, createRegistry, NULL, NULL, &errmsg) != 0) {
+        // ignore
+    }
+    if (p_exec(db, createFiles, NULL, NULL, &errmsg) != 0) {
         // ignore
     }
     

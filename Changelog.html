@@ -1,7 +1,31 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 24 February 2026<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 25 February 2026<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
 
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.02.25.11</span></h3>
+<p><strong>Registry Backup System &amp; Custom Tooltip Implementation (25 February 2026):</strong></p>
+<ul>
+<li><strong>System Restore Point Integration:</strong> "Create Restore Point" button (shell32.dll #238) creates Windows System Restore Point before registry edits for safety</li>
+<li><strong>Spinner Dialog System:</strong> Modal loading dialog with animated circle spinner and multi-line text display for long-running backup operations</li>
+<li><strong>Backup Operation Flow:</strong> Creates restore point with project name description, shows spinner with progress message, displays success/error dialog on completion</li>
+<li><strong>Escape Sequence Processing:</strong> SetText() method converts literal "\r\n" and "\n" escape sequences to actual Windows line breaks (CR+LF) for proper multi-line display</li>
+<li><strong>Custom Warning Tooltip:</strong> Professional tooltip window class (WarningTooltipClass) for warning icon with custom WM_PAINT rendering matching globe icon tooltip style</li>
+<li><strong>Tooltip Styling:</strong> Light yellow background RGB(255,255,225), black 1px border, black text with 10px padding, -14pt Segoe UI font for consistency</li>
+<li><strong>Tooltip Positioning:</strong> Positioned below warning icon, shifted left to stay within window bounds, calculated dynamically based on text height with DT_CALCRECT</li>
+<li><strong>Warning Icon Integration:</strong> Yellow warning triangle (imageres.dll #244, 24x24) positioned left of backup button with mouse tracking for tooltip display</li>
+<li><strong>Mouse Tracking System:</strong> WM_MOUSEMOVE handler with PtInRect detection, WM_MOUSELEAVE with TrackMouseEvent for proper tooltip show/hide behavior</li>
+<li><strong>Tooltip Content:</strong> Two-paragraph warning explaining registry editing risks and recommending "Create Restore Point" button with proper line breaks</li>
+<li><strong>Button Height Adjustments:</strong> Backup button increased to 40px height, Edit/Delete buttons 35px for better touch targets and preventing truncation</li>
+<li><strong>Button Spacing:</strong> Increased currentY increment to 48px (from 45px) for better vertical spacing between registry controls</li>
+<li><strong>Spinner Positioning:</strong> Text label at Y=110 (60px height), spinner control at Y=175 to show more text while maintaining proper vertical centering</li>
+<li><strong>WM_DRAWITEM Range Fix:</strong> Extended button custom draw range to IDC_REG_BACKUP (5058) to ensure all registry buttons render with icons properly</li>
+<li><strong>Localization Updates:</strong> Added reg_backup="Create Restore Point", reg_backup_spinner/success/failed messages, reg_warning_tooltip text to all 20 languages</li>
+<li><strong>Tooltip Memory Management:</strong> Static HFONT s_warningTooltipFont created once in Create(), tooltip window destroyed on page switch to prevent leaks</li>
+<li><strong>Window Class Registration:</strong> WarningTooltipWndProc registered in Create() with hbrBackground COLOR_INFOBK and IDC_ARROW cursor</li>
+<li><strong>Text Proofreading:</strong> Fixed spelling ("recommended", "clicking"), capitalization ("create a Windows Restore point", "Create Restore Point" button text)</li>
+</ul>
+
+<h3 style="text-align: center;">&nbsp;</h3>
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.02.24.10</span></h3>
 <p><strong>Registry Page Implementation &amp; Icon Refinements (24 February 2026):</strong></p>
 <ul>
@@ -137,6 +161,6 @@
 </ul>
 
 <hr />
-<p style="text-align: center; color: #007a00;"><strong>Development Status:</strong> Main window with Files management page complete &mdash; file add/build functionality in development</p>
-<p style="text-align: center; font-size: 12px; color: #666;">Updated 22 February 2026 &mdash; Main window, toolbar, Files page, TreeView/ListView, and removal system complete</p>
+<p style="text-align: center; color: #007a00;"><strong>Development Status:</strong> Registry page with backup system complete &mdash; registry edit functionality in development</p>
+<p style="text-align: center; font-size: 12px; color: #666;">Updated 25 February 2026 &mdash; System Restore Point integration, spinner dialog, and custom warning tooltip complete</p>
 <p><br /><br /></p>

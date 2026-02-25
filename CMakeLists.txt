@@ -19,6 +19,7 @@ add_executable(SkeletonApp WIN32
     button.cpp
     ctrlw.cpp
     mainwindow.cpp
+    spinner_dialog.cpp
     ${RESOURCE_FILES}
 )
 

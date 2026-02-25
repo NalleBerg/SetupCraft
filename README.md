@@ -9,9 +9,12 @@ An installer creation tool for making your developed packages distributable. Des
 - **Main Window Interface**: 8-button toolbar for accessing Files, Registry, Shortcuts, Dependencies, Settings, Build, Test, and Scripts pages
 - **Files Management**: Split-pane interface with TreeView (folder hierarchy with 19px indentation) and ListView (file display) for visual file selection
 - **Registry Management**: Complete Windows Registry integration page for Add/Remove Programs registration with icon preview and registry path navigation
+- **Registry Backup System**: "Create Restore Point" button creates Windows System Restore Point before registry edits with animated spinner dialog
+- **Registry Warning Tooltip**: Custom tooltip with light yellow background matching globe icon style, explains risks and recommends restore point creation
 - **Registry Templates**: All 5 HKEY hives (HKCR, HKCU, HKLM, HKU, HKCC) with common paths pre-expanded for easy navigation
 - **Show Regkey Dialog**: Professional dialog displaying full uninstall registry path with Copy button, Ctrl+C support, and right-click context menu
 - **Take Me There Navigation**: Navigate to registry key in TreeView and automatically populate ListView with uninstall values (DisplayName, DisplayVersion, Publisher, etc.)
+- **Spinner Dialog System**: Modal loading dialog with animated multi-line text display for long-running operations
 - **Virtual Folder Support**: Create custom folder structures without physical disk paths - files persist when navigating between folders
 - **Context-Aware Operations**: Add Folder/Add Files buttons respect currently selected folder as parent/target
 - **Smart Install Path**: Auto-updates install path display when first folder under Program Files is renamed/deleted/replaced
@@ -59,8 +62,11 @@ An installer creation tool for making your developed packages distributable. Des
 ✅ Show Regkey dialog with copy/navigation functionality
 ✅ Registry value population in ListView
 ✅ Icon preview with default generic Windows icon
+✅ Registry backup system with System Restore Point creation
+✅ Spinner dialog with animated loading and multi-line text
+✅ Warning tooltip with custom styling matching globe tooltip
 
-🔄 In Progress: Build/Test implementation, Shortcuts page, Registry add/edit functionality
+🔄 In Progress: Registry edit functionality for keys and values, Build/Test implementation, Shortcuts page
 
 ## Building
 

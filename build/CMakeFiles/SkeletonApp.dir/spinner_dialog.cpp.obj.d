@@ -1,6 +1,6 @@
-CMakeFiles/SkeletonApp.dir/mainwindow.cpp.obj: \
- C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\mainwindow.cpp \
- C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\mainwindow.h \
+CMakeFiles/SkeletonApp.dir/spinner_dialog.cpp.obj: \
+ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\spinner_dialog.cpp \
+ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\spinner_dialog.h \
  C:/mingw64/x86_64-w64-mingw32/include/windows.h \
  C:/mingw64/x86_64-w64-mingw32/include/_mingw.h \
  C:/mingw64/x86_64-w64-mingw32/include/_mingw_mac.h \
@@ -297,7 +297,6 @@ CMakeFiles/SkeletonApp.dir/mainwindow.cpp.obj: \
  C:/mingw64/x86_64-w64-mingw32/include/winsvc.h \
  C:/mingw64/x86_64-w64-mingw32/include/mcx.h \
  C:/mingw64/x86_64-w64-mingw32/include/imm.h \
- C:/mingw64/x86_64-w64-mingw32/include/commctrl.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/string \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/requires_hosted.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stringfwd.h \
@@ -377,41 +376,4 @@ CMakeFiles/SkeletonApp.dir/mainwindow.cpp.obj: \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/node_handle.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_map.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_multimap.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/erase_if.h \
- C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\db.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/vector \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_uninitialized.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_vector.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_bvector.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/vector.tcc \
- C:/mingw64/x86_64-w64-mingw32/include/shlwapi.h \
- C:/mingw64/x86_64-w64-mingw32/include/shtypes.h \
- C:/mingw64/x86_64-w64-mingw32/include/shlobj.h \
- C:/mingw64/x86_64-w64-mingw32/include/shlguid.h \
- C:/mingw64/x86_64-w64-mingw32/include/isguids.h \
- C:/mingw64/x86_64-w64-mingw32/include/exdisp.h \
- C:/mingw64/x86_64-w64-mingw32/include/ocidl.h \
- C:/mingw64/x86_64-w64-mingw32/include/docobj.h \
- C:/mingw64/x86_64-w64-mingw32/include/shldisp.h \
- C:/mingw64/x86_64-w64-mingw32/include/knownfolders.h \
- C:/mingw64/x86_64-w64-mingw32/include/shobjidl.h \
- C:/mingw64/x86_64-w64-mingw32/include/comcat.h \
- C:/mingw64/x86_64-w64-mingw32/include/propsys.h \
- C:/mingw64/x86_64-w64-mingw32/include/structuredquerycondition.h \
- C:/mingw64/x86_64-w64-mingw32/include/propkeydef.h \
- C:/mingw64/x86_64-w64-mingw32/include/objectarray.h \
- C:/mingw64/x86_64-w64-mingw32/include/sherrors.h \
- C:/mingw64/x86_64-w64-mingw32/include/windowsx.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/functional \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/std_function.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/typeinfo \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/unordered_map \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/unordered_map.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/hashtable.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/hashtable_policy.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/enable_special_members.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/array \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/compare \
- C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\ctrlw.h \
- C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\button.h \
- C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\spinner_dialog.h
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/erase_if.h

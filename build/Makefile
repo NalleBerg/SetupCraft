@@ -280,6 +280,30 @@ mainwindow.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/mainwindow.cpp.s
 .PHONY : mainwindow.cpp.s
 
+spinner_dialog.obj: spinner_dialog.cpp.obj
+.PHONY : spinner_dialog.obj
+
+# target to build an object file
+spinner_dialog.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/spinner_dialog.cpp.obj
+.PHONY : spinner_dialog.cpp.obj
+
+spinner_dialog.i: spinner_dialog.cpp.i
+.PHONY : spinner_dialog.i
+
+# target to preprocess a source file
+spinner_dialog.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/spinner_dialog.cpp.i
+.PHONY : spinner_dialog.cpp.i
+
+spinner_dialog.s: spinner_dialog.cpp.s
+.PHONY : spinner_dialog.s
+
+# target to generate assembly for a file
+spinner_dialog.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/spinner_dialog.cpp.s
+.PHONY : spinner_dialog.cpp.s
+
 # Help Target
 help:
 	@echo The following are some of the valid targets for this Makefile:
@@ -308,6 +332,9 @@ help:
 	@echo ... mainwindow.obj
 	@echo ... mainwindow.i
 	@echo ... mainwindow.s
+	@echo ... spinner_dialog.obj
+	@echo ... spinner_dialog.i
+	@echo ... spinner_dialog.s
 .PHONY : help
 
 
