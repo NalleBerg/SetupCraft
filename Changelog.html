@@ -1,7 +1,23 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 25 February 2026<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 26 February 2026<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
 
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.02.26.08</span></h3>
+<p><strong>Registry Tree Cleanup &amp; Value Population Fix (26 February 2026):</strong></p>
+<ul>
+<li><strong>Registry TreeView Simplification:</strong> Removed template app name entries that don't contain actual registry values - cleaner tree structure showing only keys with data</li>
+<li><strong>Removed Empty Templates:</strong> Eliminated HKEY_CLASSES_ROOT\[AppName], HKEY_CURRENT_USER\SOFTWARE\[Publisher]\[AppName], and HKEY_LOCAL_MACHINE\SOFTWARE\[Publisher]\[AppName] placeholder entries</li>
+<li><strong>Single Data-Bearing Key:</strong> Only HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\[AppName] shown with actual registry values (DisplayName, DisplayVersion, Publisher, etc.)</li>
+<li><strong>Registry Values Auto-Population:</strong> Fixed issue where clicking on registry keys didn't show values - values now pre-populated in s_registryValues map during tree creation</li>
+<li><strong>Immediate Value Display:</strong> TVN_SELCHANGED handler now correctly finds and displays registry values when user clicks on Uninstall\[ProjectName] key</li>
+<li><strong>Add Key Dialog Pre-fill:</strong> "Add Registry Key" dialog now pre-fills key name field with project name (fully editable) for convenience</li>
+<li><strong>Dialog Data Structure:</strong> Added defaultKeyName field to AddKeyDialogData struct to pass project name from WM_COMMAND handler to dialog creation</li>
+<li><strong>Function Signature Update:</strong> CreateTemplateRegistryTree() now accepts version, directory, and iconPath parameters for proper value population</li>
+<li><strong>Value Storage During Tree Creation:</strong> Registry values for Uninstall key stored in s_registryValues map immediately when tree node is created, not on first selection</li>
+<li><strong>Tooltip Text Refinement:</strong> Changed "button to the right" to "button at the right of this warning" for better clarity in warning tooltip</li>
+</ul>
+
+<h3 style="text-align: center;">&nbsp;</h3>
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.02.25.11</span></h3>
 <p><strong>Registry Backup System &amp; Custom Tooltip Implementation (25 February 2026):</strong></p>
 <ul>
@@ -161,6 +177,6 @@
 </ul>
 
 <hr />
-<p style="text-align: center; color: #007a00;"><strong>Development Status:</strong> Registry page with backup system complete &mdash; registry edit functionality in development</p>
-<p style="text-align: center; font-size: 12px; color: #666;">Updated 25 February 2026 &mdash; System Restore Point integration, spinner dialog, and custom warning tooltip complete</p>
+<p style="text-align: center; color: #007a00;"><strong>Development Status:</strong> Registry page with value display complete &mdash; registry edit functionality in development</p>
+<p style="text-align: center; font-size: 12px; color: #666;">Updated 26 February 2026 &mdash; Registry tree cleanup and value population fixes complete</p>
 <p><br /><br /></p>

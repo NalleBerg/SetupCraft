@@ -439,7 +439,8 @@ static void CleanupRegistryTreeView(HWND hTreeView, HTREEITEM hItem) {
 
 // Helper function to populate registry TreeView with actual registry keys
 // Create template registry structure showing installer-added entries only
-static void CreateTemplateRegistryTree(HWND hTreeView, const std::wstring& projectName, const std::wstring& publisher) {
+static void CreateTemplateRegistryTree(HWND hTreeView, const std::wstring& projectName, const std::wstring& publisher, 
+                                       const std::wstring& version, const std::wstring& directory, const std::wstring& iconPath) {
     // Helper to insert tree items (expanded by default)
     auto InsertTreeItem = [&](HTREEITEM hParent, const std::wstring& text, const std::wstring* path = nullptr, bool expanded = true) -> HTREEITEM {
         TVINSERTSTRUCTW tvis = {};
@@ -476,10 +477,6 @@ static void CreateTemplateRegistryTree(HWND hTreeView, const std::wstring& proje
     tvis.item.pszText = (LPWSTR)L"HKEY_CLASSES_ROOT";
     HTREEITEM hHKCR = TreeView_InsertItem(hTreeView, &tvis);
     
-    // HKCR\[AppName] (for file associations)
-    std::wstring hkcrAppPath = app;
-    InsertTreeItem(hHKCR, app, &hkcrAppPath);
-    
     // HKCR\.ext (file extensions)
     std::wstring extPath = L".ext";
     InsertTreeItem(hHKCR, L".ext", &extPath);
@@ -498,12 +495,9 @@ static void CreateTemplateRegistryTree(HWND hTreeView, const std::wstring& proje
     std::wstring hkcuSoftwarePath = L"SOFTWARE";
     HTREEITEM hHKCUSoftware = InsertTreeItem(hHKCU, L"SOFTWARE", &hkcuSoftwarePath);
     
-    // HKCU\SOFTWARE\[Publisher]\[AppName]
+    // HKCU\SOFTWARE\[Publisher]
     std::wstring hkcuPublisherPath = L"SOFTWARE\\" + pub;
-    HTREEITEM hHKCUPublisher = InsertTreeItem(hHKCUSoftware, pub, &hkcuPublisherPath);
-    
-    std::wstring hkcuAppPath = L"SOFTWARE\\" + pub + L"\\" + app;
-    InsertTreeItem(hHKCUPublisher, app, &hkcuAppPath);
+    InsertTreeItem(hHKCUSoftware, pub, &hkcuPublisherPath);
     
     // HKCU\Environment (user environment variables)
     std::wstring envPath = L"Environment";
@@ -517,12 +511,9 @@ static void CreateTemplateRegistryTree(HWND hTreeView, const std::wstring& proje
     std::wstring hklmSoftwarePath = L"SOFTWARE";
     HTREEITEM hHKLMSoftware = InsertTreeItem(hHKLM, L"SOFTWARE", &hklmSoftwarePath);
     
-    // HKLM\SOFTWARE\[Publisher]\[AppName]
+    // HKLM\SOFTWARE\[Publisher]
     std::wstring hklmPublisherPath = L"SOFTWARE\\" + pub;
-    HTREEITEM hHKLMPublisher = InsertTreeItem(hHKLMSoftware, pub, &hklmPublisherPath);
-    
-    std::wstring hklmAppPath = L"SOFTWARE\\" + pub + L"\\" + app;
-    InsertTreeItem(hHKLMPublisher, app, &hklmAppPath);
+    InsertTreeItem(hHKLMSoftware, pub, &hklmPublisherPath);
     
     // HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion
     std::wstring microsoftPath = L"SOFTWARE\\Microsoft";
@@ -539,7 +530,73 @@ static void CreateTemplateRegistryTree(HWND hTreeView, const std::wstring& proje
     HTREEITEM hUninstall = InsertTreeItem(hCurrentVersion, L"Uninstall", &uninstallPath);
     
     std::wstring uninstallAppPath = L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\" + app;
-    InsertTreeItem(hUninstall, app, &uninstallAppPath);
+    HTREEITEM hUninstallApp = InsertTreeItem(hUninstall, app, &uninstallAppPath);
+    
+    // Populate registry values for the uninstall key
+    if (hUninstallApp) {
+        std::vector<RegistryEntry> values;
+        
+        // DisplayName
+        RegistryEntry displayName;
+        displayName.hive = L"HKLM";
+        displayName.path = uninstallAppPath;
+        displayName.name = L"DisplayName";
+        displayName.type = L"REG_SZ";
+        displayName.data = projectName;
+        values.push_back(displayName);
+        
+        // DisplayVersion
+        RegistryEntry displayVersion;
+        displayVersion.hive = L"HKLM";
+        displayVersion.path = uninstallAppPath;
+        displayVersion.name = L"DisplayVersion";
+        displayVersion.type = L"REG_SZ";
+        displayVersion.data = version;
+        values.push_back(displayVersion);
+        
+        // Publisher
+        if (!publisher.empty()) {
+            RegistryEntry publisherEntry;
+            publisherEntry.hive = L"HKLM";
+            publisherEntry.path = uninstallAppPath;
+            publisherEntry.name = L"Publisher";
+            publisherEntry.type = L"REG_SZ";
+            publisherEntry.data = publisher;
+            values.push_back(publisherEntry);
+        }
+        
+        // InstallLocation
+        RegistryEntry installLocation;
+        installLocation.hive = L"HKLM";
+        installLocation.path = uninstallAppPath;
+        installLocation.name = L"InstallLocation";
+        installLocation.type = L"REG_SZ";
+        installLocation.data = directory;
+        values.push_back(installLocation);
+        
+        // DisplayIcon
+        if (!iconPath.empty()) {
+            RegistryEntry displayIcon;
+            displayIcon.hive = L"HKLM";
+            displayIcon.path = uninstallAppPath;
+            displayIcon.name = L"DisplayIcon";
+            displayIcon.type = L"REG_SZ";
+            displayIcon.data = iconPath;
+            values.push_back(displayIcon);
+        }
+        
+        // UninstallString
+        RegistryEntry uninstallString;
+        uninstallString.hive = L"HKLM";
+        uninstallString.path = uninstallAppPath;
+        uninstallString.name = L"UninstallString";
+        uninstallString.type = L"REG_SZ";
+        uninstallString.data = directory + L"\\uninstall.exe";
+        values.push_back(uninstallString);
+        
+        // Store in map
+        s_registryValues[hUninstallApp] = values;
+    }
     
     // HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run (startup programs)
     std::wstring runPath = L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run";
@@ -1018,7 +1075,8 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
             hwnd, (HMENU)IDC_REG_TREEVIEW, hInst, NULL);
         
         // Populate TreeView with template registry structure
-        CreateTemplateRegistryTree(s_hRegTreeView, s_currentProject.name, s_appPublisher);
+        CreateTemplateRegistryTree(s_hRegTreeView, s_currentProject.name, s_appPublisher, 
+                                   s_currentProject.version, s_currentProject.directory, s_appIconPath);
         
         // ListView for registry entries with horizontal scrolling
         s_hRegListView = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEW, L"",
@@ -1928,6 +1986,7 @@ struct AddKeyDialogData {
     std::wstring okText;
     std::wstring cancelText;
     std::wstring keyName;
+    std::wstring defaultKeyName;
     bool okClicked;
 };
 
@@ -1944,11 +2003,11 @@ LRESULT CALLBACK AddKeyDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
         
         int y = 20;
         
-        // Key Name label and edit
+        // Key Name label and edit (pre-fill with default key name)
         CreateWindowExW(0, L"STATIC", pData->nameText.c_str(),
             WS_CHILD | WS_VISIBLE | SS_LEFT,
             20, y, 120, 20, hwnd, NULL, hInst, NULL);
-        CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
+        CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", pData->defaultKeyName.c_str(),
             WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL,
             150, y, 330, 22, hwnd, (HMENU)IDC_ADDKEY_NAME, hInst, NULL);
         y += 45;
@@ -2749,6 +2808,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             dialogData.nameText = nameLabel;
             dialogData.okText = okText;
             dialogData.cancelText = cancelText;
+            dialogData.defaultKeyName = s_currentProject.name;
             dialogData.okClicked = false;
             
             // Register dialog class if not already registered
