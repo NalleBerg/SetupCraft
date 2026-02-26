@@ -2,6 +2,24 @@
 <h3 style="text-align: center;">&nbsp;</h3>
 <p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 26 February 2026<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
 
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.02.26.11</span></h3>
+<p><strong>About Icon Click Handler &amp; Unsaved Changes Dialog (26 February 2026, 11:06):</strong></p>
+<ul>
+<li><strong>About Icon Click Fix:</strong> Restored click functionality for About icons on both entry screen and main window that stopped working after tooltip implementation</li>
+<li><strong>WM_LBUTTONDOWN Handler:</strong> Implemented click detection using WM_LBUTTONDOWN message instead of SS_NOTIFY flag to avoid interference with tooltip mouse tracking</li>
+<li><strong>WS_EX_TRANSPARENT Style:</strong> Added WS_EX_TRANSPARENT extended style to About and Globe icons to allow mouse events to pass through to parent window</li>
+<li><strong>Tooltip Visibility Issue:</strong> Addressed tooltip persistence issue in main window - attempted multiple approaches including timer-based polling and WM_SETCURSOR handling</li>
+<li><strong>Entry Screen Pattern Copy:</strong> Final solution copies exact tooltip handling pattern from working entry screen (using overAboutIcon flag and unconditional hide in else branch)</li>
+<li><strong>Unsaved Changes Warning:</strong> Added custom 3-button dialog (Save/Don't Save/Cancel) when closing projects with unsaved changes</li>
+<li><strong>Custom Dialog Buttons:</strong> Follows QuitDialog pattern with colored buttons: green Save with floppy icon, blue Don't Save with warning icon, red Cancel with X icon</li>
+<li><strong>I18n Support:</strong> Added 4 new locale keys (close_unsaved_title, close_unsaved_message, save, dont_save) to all 20 language files</li>
+<li><strong>Project State Tracking:</strong> s_hasUnsavedChanges flag set by MarkAsModified() and checked before IDM_FILE_CLOSE operation</li>
+<li><strong>Dialog Return Values:</strong> ShowUnsavedChangesDialog returns 0=Cancel, 1=Save, 2=Don't Save for proper flow control</li>
+<li><strong>Page Switch Cleanup:</strong> Added tooltip hiding when switching between pages/tabs to prevent tooltip persistence</li>
+<li><strong>Window Focus Handling:</strong> WM_ACTIVATE and WM_KILLFOCUS handlers hide tooltips when window loses focus or goes to background</li>
+</ul>
+
+<h3 style="text-align: center;">&nbsp;</h3>
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.02.26.08</span></h3>
 <p><strong>About Dialog &amp; Version Management System (26 February 2026, 08:39):</strong></p>
 <ul>

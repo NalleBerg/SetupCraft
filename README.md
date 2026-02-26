@@ -37,6 +37,8 @@ An installer creation tool for making your developed packages distributable. Des
 - **Project Management**: Create, open, and delete installation projects
 - **Intuitive Design**: Globe icon with multilingual tooltip showing all available languages
 - **Professional Quit System**: Confirmation dialog with Yes/No buttons - triggered by Exit button, X button, or Ctrl+W keyboard shortcut
+- **Unsaved Changes Warning**: Custom 3-button dialog (Save/Don't Save/Cancel) warns before closing projects with unsaved changes
+- **About Icon Functionality**: Clickable About (i) icons on both entry screen and main window with tooltip support - WM_LBUTTONDOWN handler for reliable click detection
 - **Keyboard Shortcuts**: Ctrl+W for quick exit with confirmation, F7 for Build, F5 for Test
 
 ## Current Status
@@ -76,6 +78,9 @@ An installer creation tool for making your developed packages distributable. Des
 ✅ Enhanced license dialog with GnuLogo and formatted GPL text
 ✅ Version management system (curver.txt + NewVersion.ps1)
 ✅ Dynamic version loading in About dialog
+✅ About icon click functionality on entry screen and main window
+✅ Unsaved changes warning dialog (Save/Don't Save/Cancel)
+✅ Close Project confirmation with unsaved changes detection
 
 🔄 In Progress: Registry edit functionality for keys and values, Build/Test implementation, Shortcuts page
 
