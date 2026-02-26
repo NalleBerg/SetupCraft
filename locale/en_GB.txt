@@ -29,6 +29,7 @@ tb_build=Build (F7)
 tb_test=Test (F5)
 tb_scripts=Scripts
 tb_save=Save
+tb_about=About
 
 # Toolbar tooltips
 tt_files=Manage files and folders to include in the installer

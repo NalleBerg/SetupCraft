@@ -3,6 +3,24 @@
 <p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 26 February 2026<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.02.26.08</span></h3>
+<p><strong>About Dialog &amp; Version Management System (26 February 2026, 08:39):</strong></p>
+<ul>
+<li><strong>Professional About Dialog:</strong> Styled About dialog matching WinUpdate template with RichEdit control, formatted text, and colored sections</li>
+<li><strong>Icon-Only About Button:</strong> Converted About button to compact icon-only (40px wide) with tooltip support using same pattern as globe icon</li>
+<li><strong>SetupCraft Logo Integration:</strong> About dialog displays SetupCraft.png logo with transparency using GDI+, scaled to 75% and scrollable with content</li>
+<li><strong>Formatted Content Display:</strong> Multi-colored text with Segoe UI font, blue headers (RGB 0,70,140), gray descriptions, and centered version info dividers</li>
+<li><strong>Key Features Section:</strong> Bullet-pointed list of features including File Management, Registry Integration, Shortcuts, Dependencies, Scripts, and Multilingual Support</li>
+<li><strong>License Dialog Enhancement:</strong> Enhanced GPL license display with formatted sections, colored headers, and GnuLogo.bmp support</li>
+<li><strong>Version Management System:</strong> Created curver.txt file and NewVersion.ps1 script for centralized version control</li>
+<li><strong>Dynamic Version Loading:</strong> About dialog reads version and published timestamp from curver.txt at runtime (no recompile needed for version updates)</li>
+<li><strong>NewVersion.ps1 Script:</strong> PowerShell script with auto mode (current date/time) or manual mode with parameters for Published/Version fields</li>
+<li><strong>Build System Updates:</strong> makeit.bat copies curver.txt, SetupCraft.png, and GnuLogo.bmp to build and package directories</li>
+<li><strong>GDI+ Support:</strong> Added gdiplus library to CMakeLists.txt for PNG rendering with transparency</li>
+<li><strong>Version Format:</strong> Published: DD.MM.YYYY HH:MM, Version: YYYY.MM.DD.HH for consistent tracking</li>
+</ul>
+
+<h3 style="text-align: center;">&nbsp;</h3>
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.02.26.08 (Early)</span></h3>
 <p><strong>Registry Tree Cleanup &amp; Value Population Fix (26 February 2026):</strong></p>
 <ul>
 <li><strong>Registry TreeView Simplification:</strong> Removed template app name entries that don't contain actual registry values - cleaner tree structure showing only keys with data</li>

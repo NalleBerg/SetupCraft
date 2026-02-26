@@ -9,6 +9,7 @@
 #include "ctrlw.h"
 #include "button.h"
 #include "spinner_dialog.h"
+#include "about.h"
 
 // Static member initialization
 ProjectRow MainWindow::s_currentProject = {};
@@ -133,6 +134,7 @@ static std::map<HTREEITEM, std::vector<RegistryEntry>> s_registryValues;
 #define IDC_TB_TEST         5016
 #define IDC_TB_SCRIPTS      5017
 #define IDC_TB_SAVE         5018
+#define IDC_TB_ABOUT        5019
 
 // Files dialog button IDs
 #define IDC_FILES_ADD_DIR   5020
@@ -408,6 +410,24 @@ void MainWindow::CreateToolbar(HWND hwnd, HINSTANCE hInst) {
     std::wstring saveText = (itSave != s_locale.end()) ? itSave->second : L"Save";
     CreateCustomButtonWithIcon(hwnd, IDC_TB_SAVE, saveText, ButtonColor::Green,
         L"shell32.dll", 258, x, startY, buttonWidth, buttonHeight, hInst);  // Icon #258 is floppy disk save icon
+    x += buttonWidth + buttonGap;
+    
+    // About button (icon-only, with tooltip)
+    HWND hAboutBtn = CreateCustomButtonWithIcon(hwnd, IDC_TB_ABOUT, L"", ButtonColor::Blue,
+        L"shell32.dll", 221, x, startY, 40, buttonHeight, hInst);  // Icon #221 is information/about icon
+    
+    // Add tooltip for About button
+    if (s_hTooltip) {
+        auto itAbout = s_locale.find(L"tb_about");
+        std::wstring aboutText = (itAbout != s_locale.end()) ? itAbout->second : L"About";
+        TOOLINFOW ti = {};
+        ti.cbSize = sizeof(TOOLINFOW);
+        ti.uFlags = TTF_IDISHWND | TTF_SUBCLASS;
+        ti.hwnd = hwnd;
+        ti.uId = (UINT_PTR)hAboutBtn;
+        ti.lpszText = (LPWSTR)aboutText.c_str();
+        SendMessageW(s_hTooltip, TTM_ADDTOOL, 0, (LPARAM)&ti);
+    }
 }
 
 // Helper function to clean up registry TreeView items (free lParam memory)
@@ -693,7 +713,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         if (rcChild.top > s_toolbarHeight && rcChild.bottom < rcClient.bottom - 25) {
             // Skip toolbar buttons and known handles
             int childId = GetDlgCtrlID(hChild);
-            if (childId < IDC_TB_FILES || childId > IDC_TB_SAVE) {
+            if (childId < IDC_TB_FILES || childId > IDC_TB_ABOUT) {
                 if (hChild != s_hTreeView && hChild != s_hListView && 
                     hChild != s_hRegTreeView && hChild != s_hRegListView &&
                     hChild != s_hPageButton1 && hChild != s_hPageButton2) {
@@ -2298,6 +2318,14 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             SwitchPage(hwnd, 7);
             return 0;
             
+        case IDC_TB_SAVE:
+            // TODO: Implement save functionality
+            return 0;
+            
+        case IDC_TB_ABOUT:
+            ShowAboutDialog(hwnd);
+            return 0;
+            
         // Files page buttons
         case IDC_FILES_ADD_DIR: {
             // Open folder picker dialog
@@ -3470,7 +3498,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             return 0;
             
         case IDM_HELP_ABOUT:
-            MessageBoxW(hwnd, L"SetupCraft - Installer Creation Tool\nVersion 2026.02.22", L"About", MB_OK | MB_ICONINFORMATION);
+            ShowAboutDialog(hwnd);
             return 0;
             
         case IDM_TREEVIEW_ADD_FOLDER: {
@@ -3789,7 +3817,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
     case WM_DRAWITEM: {
         LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
         // Handle custom button drawing for toolbar buttons and page buttons
-        if ((dis->CtlID >= IDC_TB_FILES && dis->CtlID <= IDC_TB_SAVE) ||
+        if ((dis->CtlID >= IDC_TB_FILES && dis->CtlID <= IDC_TB_ABOUT) ||
             (dis->CtlID >= IDC_FILES_ADD_DIR && dis->CtlID <= IDC_FILES_REMOVE) ||
             (dis->CtlID >= IDC_REG_CHECKBOX && dis->CtlID <= IDC_REG_BACKUP)) {
             ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);

@@ -14,6 +14,11 @@ An installer creation tool for making your developed packages distributable. Des
 - **Registry Tree Structure**: Clean registry hierarchy showing only keys with actual values - Uninstall key displays DisplayName, DisplayVersion, Publisher, InstallLocation, DisplayIcon, UninstallString
 - **Registry Templates**: All 5 HKEY hives (HKCR, HKCU, HKLM, HKU, HKCC) with common paths pre-expanded for easy navigation
 - **Show Regkey Dialog**: Professional dialog displaying full uninstall registry path with Copy button, Ctrl+C support, and right-click context menu
+- **About Dialog System**: Professional About dialog with SetupCraft logo (PNG with transparency), formatted RichEdit content, and colored sections matching WinUpdate template
+- **Icon-Only About Button**: Compact About button (40px) with shell32.dll icon #221 and tooltip support matching globe icon pattern
+- **License Dialog**: Enhanced GPL v2 license display with GnuLogo.bmp, formatted sections, colored headers (blue/red), and proper parsing
+- **Version Management**: Centralized version control via curver.txt file and NewVersion.ps1 PowerShell script for automated version updates
+- **Dynamic Version Loading**: About dialog reads Published timestamp and Version from curver.txt at runtime (no recompile needed for version changes)
 - **Take Me There Navigation**: Navigate to registry key in TreeView and automatically populate ListView with uninstall values (DisplayName, DisplayVersion, Publisher, etc.)
 - **Spinner Dialog System**: Modal loading dialog with animated multi-line text display for long-running operations
 - **Virtual Folder Support**: Create custom folder structures without physical disk paths - files persist when navigating between folders
@@ -66,6 +71,11 @@ An installer creation tool for making your developed packages distributable. Des
 ✅ Registry backup system with System Restore Point creation
 ✅ Spinner dialog with animated loading and multi-line text
 ✅ Warning tooltip with custom styling matching globe tooltip
+✅ About dialog with SetupCraft logo and formatted content
+✅ Icon-only About button with tooltip support
+✅ Enhanced license dialog with GnuLogo and formatted GPL text
+✅ Version management system (curver.txt + NewVersion.ps1)
+✅ Dynamic version loading in About dialog
 
 🔄 In Progress: Registry edit functionality for keys and values, Build/Test implementation, Shortcuts page
 

@@ -31,6 +31,12 @@ cmake --build build --config %CONFIG%
 
 echo Build complete.
 
+REM Copy runtime files to build directory for testing
+copy /y "%~dp0SetupCraft.png" "%~dp0build\" >nul 2>&1
+copy /y "%~dp0GPLv2.md" "%~dp0build\" >nul 2>&1
+copy /y "%~dp0GnuLogo.bmp" "%~dp0build\" >nul 2>&1
+copy /y "%~dp0curver.txt" "%~dp0build\" >nul 2>&1
+
 REM --- Package the build into .\SetupCraft\ ---
 set "PKG_DIR=%~dp0SetupCraft"
 if exist "%PKG_DIR%" (
@@ -94,5 +100,7 @@ copy /y "%~dp0SetupCraft.ico" "%PKG_DIR%\" >nul 2>&1
 copy /y "%~dp0SetupCraft.png" "%PKG_DIR%\" >nul 2>&1
 copy /y "%~dp0SetupCraft.svg" "%PKG_DIR%\" >nul 2>&1
 copy /y "%~dp0GPLv2.md" "%PKG_DIR%\" >nul 2>&1
+copy /y "%~dp0GnuLogo.bmp" "%PKG_DIR%\" >nul 2>&1
+copy /y "%~dp0curver.txt" "%PKG_DIR%\" >nul 2>&1
 
 echo Package created at %PKG_DIR%

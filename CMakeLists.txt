@@ -20,6 +20,7 @@ add_executable(SkeletonApp WIN32
     ctrlw.cpp
     mainwindow.cpp
     spinner_dialog.cpp
+    about.cpp
     ${RESOURCE_FILES}
 )
 
@@ -30,6 +31,7 @@ target_link_libraries(SkeletonApp
     comctl32
     user32
     gdi32
+    gdiplus
     shell32
 )
 
