@@ -10,6 +10,7 @@
 #include "button.h"
 #include "spinner_dialog.h"
 #include "about.h"
+#include "tooltip.h"
 
 // Static member initialization
 ProjectRow MainWindow::s_currentProject = {};
@@ -31,6 +32,8 @@ static bool s_isNewUnsavedProject = false;
 static HTREEITEM s_rightClickedItem = NULL; // Track which TreeView item was right-clicked
 static bool s_projectNameManuallySet = false; // Track if user manually edited project name
 static bool s_updatingProjectNameProgrammatically = false; // Prevent EN_CHANGE during programmatic updates
+static HWND s_hAboutButton = NULL; // Track About button for tooltip
+static bool s_aboutMouseTracking = false; // Track mouse for About button tooltip
 
 // Store files added to virtual folders (keyed by HTREEITEM)
 struct VirtualFolderFile {
@@ -155,6 +158,7 @@ static std::map<HTREEITEM, std::vector<RegistryEntry>> s_registryValues;
 #define IDM_REG_EDIT_VALUE      5034
 #define IDM_REG_DELETE_VALUE    5035
 #define IDM_REG_DELETE_KEY      5036
+#define IDM_REG_EDIT_KEY        5037
 
 // Registry page control IDs
 #define IDC_REG_CHECKBOX    5040
@@ -412,21 +416,25 @@ void MainWindow::CreateToolbar(HWND hwnd, HINSTANCE hInst) {
         L"shell32.dll", 258, x, startY, buttonWidth, buttonHeight, hInst);  // Icon #258 is floppy disk save icon
     x += buttonWidth + buttonGap;
     
-    // About button (icon-only, with tooltip)
-    HWND hAboutBtn = CreateCustomButtonWithIcon(hwnd, IDC_TB_ABOUT, L"", ButtonColor::Blue,
-        L"shell32.dll", 221, x, startY, 40, buttonHeight, hInst);  // Icon #221 is information/about icon
+    // About icon (static control with custom tooltip)
+    const int aboutIconSize = 32;
+    const int aboutIconY = startY + (buttonHeight - aboutIconSize) / 2;  // Center vertically with buttons
+    s_hAboutButton = CreateWindowExW(
+        WS_EX_TRANSPARENT,  // Allow mouse events to pass through to parent
+        L"STATIC", NULL,
+        WS_CHILD | WS_VISIBLE | SS_ICON | SS_CENTERIMAGE,
+        x, aboutIconY, aboutIconSize, aboutIconSize,
+        hwnd, (HMENU)IDC_TB_ABOUT, hInst, NULL);
     
-    // Add tooltip for About button
-    if (s_hTooltip) {
-        auto itAbout = s_locale.find(L"tb_about");
-        std::wstring aboutText = (itAbout != s_locale.end()) ? itAbout->second : L"About";
-        TOOLINFOW ti = {};
-        ti.cbSize = sizeof(TOOLINFOW);
-        ti.uFlags = TTF_IDISHWND | TTF_SUBCLASS;
-        ti.hwnd = hwnd;
-        ti.uId = (UINT_PTR)hAboutBtn;
-        ti.lpszText = (LPWSTR)aboutText.c_str();
-        SendMessageW(s_hTooltip, TTM_ADDTOOL, 0, (LPARAM)&ti);
+    // Load info icon from shell32.dll (icon #221 is information/about icon)
+    wchar_t dllPath[MAX_PATH];
+    GetSystemDirectoryW(dllPath, MAX_PATH);
+    wcscat(dllPath, L"\\shell32.dll");
+    
+    HICON hAboutIconImage = NULL;
+    UINT extracted = PrivateExtractIconsW(dllPath, 221, aboutIconSize, aboutIconSize, &hAboutIconImage, NULL, 1, 0);
+    if (extracted > 0 && hAboutIconImage) {
+        SendMessageW(s_hAboutButton, STM_SETICON, (WPARAM)hAboutIconImage, 0);
     }
 }
 
@@ -757,6 +765,10 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
     
     // Clear registry values map
     s_registryValues.clear();
+    
+    // Hide About tooltip when switching pages
+    HideTooltip();
+    s_aboutMouseTracking = false;
     
     // Force complete window redraw
     RedrawWindow(hwnd, NULL, NULL, RDW_ERASE | RDW_INVALIDATE | RDW_ALLCHILDREN);
@@ -2090,6 +2102,34 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
     switch (msg) {
     case WM_CREATE: {
         HINSTANCE hInst = ((LPCREATESTRUCT)lParam)->hInstance;
+        // Initialize tooltip system for main window
+        InitTooltipSystem(hInst);
+        
+        // Build About tooltip entries once at startup
+        std::vector<std::wstring> availableLocales;
+        wchar_t exePath[MAX_PATH];
+        std::wstring exeDir = L".";
+        if (GetModuleFileNameW(NULL, exePath, MAX_PATH)) {
+            wchar_t *p = wcsrchr(exePath, L'\\');
+            if (p) {
+                *p = 0;
+                exeDir = exePath;
+            }
+        }
+        WIN32_FIND_DATAW findData;
+        std::wstring searchPath = exeDir + L"\\locale\\*.txt";
+        HANDLE hFind = FindFirstFileW(searchPath.c_str(), &findData);
+        if (hFind != INVALID_HANDLE_VALUE) {
+            do {
+                std::wstring filename = findData.cFileName;
+                size_t dotPos = filename.rfind(L'.');
+                if (dotPos != std::wstring::npos) {
+                    availableLocales.push_back(filename.substr(0, dotPos));
+                }
+            } while (FindNextFileW(hFind, &findData));
+            FindClose(hFind);
+        }
+        
         CreateMenuBar(hwnd);
         CreateToolbar(hwnd, hInst);
         CreateStatusBar(hwnd, hInst);
@@ -2323,7 +2363,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             return 0;
             
         case IDC_TB_ABOUT:
-            ShowAboutDialog(hwnd);
+            // This case is no longer used - clicks handled in WM_LBUTTONDOWN
             return 0;
             
         // Files page buttons
@@ -3120,8 +3160,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             if (hFocused == s_hRegTreeView) {
                 HTREEITEM hSelected = TreeView_GetSelection(s_hRegTreeView);
                 if (hSelected) {
-                    // TODO: Implement key rename functionality
-                    MessageBoxW(hwnd, L"Key rename functionality to be implemented", L"Edit Key", MB_OK | MB_ICONINFORMATION);
+                    // Call the Edit Key handler
+                    SendMessageW(hwnd, WM_COMMAND, IDM_REG_EDIT_KEY, 0);
                 } else {
                     auto itMsg = s_locale.find(L"reg_select_to_edit");
                     std::wstring msg = (itMsg != s_locale.end()) ? itMsg->second : L"Please select a registry key or value to edit.";
@@ -3144,17 +3184,17 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 return 0;
             }
             
-            // Neither control has focus - check which has the focused (blue) selection
+            // Neither control has focus - check which has the selected item
             HTREEITEM hTreeSel = TreeView_GetSelection(s_hRegTreeView);
-            int iListSel = ListView_GetNextItem(s_hRegListView, -1, LVNI_FOCUSED);
+            int iListSel = ListView_GetNextItem(s_hRegListView, -1, LVNI_SELECTED);
             
-            // Prioritize ListView selection (values) for edit - more common use case
+            // Prioritize ListView SELECTED item for edit (values) - more common use case
             if (iListSel != -1) {
-                // ListView has a focused selection - edit the value
+                // ListView has a selected item - edit the value
                 SendMessageW(hwnd, WM_COMMAND, IDM_REG_EDIT_VALUE, 0);
             } else if (hTreeSel) {
                 // TreeView has a selection - edit (rename) the key
-                MessageBoxW(hwnd, L"Key rename functionality to be implemented", L"Edit Key", MB_OK | MB_ICONINFORMATION);
+                SendMessageW(hwnd, WM_COMMAND, IDM_REG_EDIT_KEY, 0);
             } else {
                 // Nothing selected
                 auto itMsg = s_locale.find(L"reg_select_to_edit");
@@ -3269,6 +3309,83 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         case IDM_REG_ADD_VALUE: {
             // Route to Add Value button handler
             SendMessageW(hwnd, WM_COMMAND, IDC_REG_ADD_VALUE, 0);
+            return 0;
+        }
+        
+        case IDM_REG_EDIT_KEY: {
+            // Rename selected key in TreeView
+            HTREEITEM hSelected = TreeView_GetSelection(s_hRegTreeView);
+            if (!hSelected) {
+                return 0;
+            }
+            
+            // Get current key name
+            TVITEMW tvi = {};
+            tvi.mask = TVIF_TEXT;
+            tvi.hItem = hSelected;
+            wchar_t szText[256];
+            tvi.pszText = szText;
+            tvi.cchTextMax = 256;
+            TreeView_GetItem(s_hRegTreeView, &tvi);
+            
+            // Get locale strings
+            auto itTitle = s_locale.find(L"reg_edit_key_title");
+            std::wstring title = (itTitle != s_locale.end()) ? itTitle->second : L"Edit Registry Key";
+            
+            auto itName = s_locale.find(L"reg_add_key_name");
+            std::wstring nameLabel = (itName != s_locale.end()) ? itName->second : L"Key Name:";
+            
+            auto itOk = s_locale.find(L"reg_add_key_ok");
+            std::wstring okText = (itOk != s_locale.end()) ? itOk->second : L"OK";
+            
+            auto itCancel = s_locale.find(L"reg_add_key_cancel");
+            std::wstring cancelText = (itCancel != s_locale.end()) ? itCancel->second : L"Cancel";
+            
+            // Create dialog structure
+            AddKeyDialogData data;
+            data.nameText = nameLabel;
+            data.okText = okText;
+            data.cancelText = cancelText;
+            data.defaultKeyName = szText;
+            data.okClicked = false;
+            
+            // Create dialog window
+            HINSTANCE hInst = GetModuleHandleW(NULL);
+            
+            RECT rcParent;
+            GetWindowRect(hwnd, &rcParent);
+            int dlgX = rcParent.left + (rcParent.right - rcParent.left - 520) / 2;
+            int dlgY = rcParent.top + (rcParent.bottom - rcParent.top - 160) / 2;
+            
+            HWND hDialog = CreateWindowExW(WS_EX_DLGMODALFRAME | WS_EX_TOPMOST,
+                L"AddKeyDialog", title.c_str(),
+                WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
+                dlgX, dlgY, 520, 160, hwnd, NULL, hInst, &data);
+            
+            if (hDialog) {
+                EnableWindow(hwnd, FALSE);
+                
+                // Message loop for modal dialog
+                MSG msg;
+                while (GetMessageW(&msg, NULL, 0, 0)) {
+                    if (!IsWindow(hDialog)) break;
+                    TranslateMessage(&msg);
+                    DispatchMessageW(&msg);
+                }
+                
+                EnableWindow(hwnd, TRUE);
+                SetForegroundWindow(hwnd);
+                
+                // If OK was clicked and name changed, update the tree item
+                if (data.okClicked && !data.keyName.empty() && data.keyName != szText) {
+                    TVITEMW tviUpdate = {};
+                    tviUpdate.mask = TVIF_TEXT;
+                    tviUpdate.hItem = hSelected;
+                    tviUpdate.pszText = (LPWSTR)data.keyName.c_str();
+                    TreeView_SetItem(s_hRegTreeView, &tviUpdate);
+                }
+            }
+            
             return 0;
         }
         
@@ -3484,7 +3601,31 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             MessageBoxW(hwnd, L"Save As functionality to be implemented", L"Save As", MB_OK | MB_ICONINFORMATION);
             return 0;
             
-        case IDM_FILE_CLOSE:
+        case IDM_FILE_CLOSE: {
+            // Check for unsaved changes
+            if (s_hasUnsavedChanges) {
+                int result = ShowUnsavedChangesDialog(hwnd, s_locale);
+                if (result == 0) {
+                    // Cancel - don't close
+                    return 0;
+                } else if (result == 1) {
+                    // Save - TODO: implement save functionality
+                    MessageBoxW(hwnd, L"Save functionality to be implemented", L"Save", MB_OK | MB_ICONINFORMATION);
+                    return 0;
+                }
+                // result == 2: Don't Save - proceed with close
+            }
+            
+            // Close project and return to entry screen
+            HWND entryWindow = FindWindowW(L"SetupCraft_EntryScreen", NULL);
+            if (entryWindow) {
+                ShowWindow(entryWindow, SW_SHOW);
+                SetForegroundWindow(entryWindow);
+            }
+            DestroyWindow(hwnd);
+            return 0;
+        }
+        
         case IDM_FILE_EXIT:
             SendMessageW(hwnd, WM_CLOSE, 0, 0);
             return 0;
@@ -3643,6 +3784,9 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 auto itAddValue = s_locale.find(L"reg_context_add_value");
                 std::wstring addValue = (itAddValue != s_locale.end()) ? itAddValue->second : L"Add Value";
                 
+                auto itEdit = s_locale.find(L"reg_context_edit");
+                std::wstring editText = (itEdit != s_locale.end()) ? itEdit->second : L"Edit";
+                
                 auto itDelete = s_locale.find(L"reg_context_delete");
                 std::wstring deleteText = (itDelete != s_locale.end()) ? itDelete->second : L"Delete";
                 
@@ -3651,6 +3795,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 AppendMenuW(hMenu, MF_STRING, IDM_REG_ADD_KEY, addKey.c_str());
                 AppendMenuW(hMenu, MF_STRING, IDM_REG_ADD_VALUE, addValue.c_str());
                 AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
+                AppendMenuW(hMenu, MF_STRING, IDM_REG_EDIT_KEY, editText.c_str());
                 AppendMenuW(hMenu, MF_STRING, IDM_REG_DELETE_KEY, deleteText.c_str());
                 
                 // Show menu
@@ -3817,7 +3962,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
     case WM_DRAWITEM: {
         LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
         // Handle custom button drawing for toolbar buttons and page buttons
-        if ((dis->CtlID >= IDC_TB_FILES && dis->CtlID <= IDC_TB_ABOUT) ||
+        // Note: IDC_TB_ABOUT is now a static icon, not a button, so exclude it
+        if ((dis->CtlID >= IDC_TB_FILES && dis->CtlID <= IDC_TB_SAVE) ||
             (dis->CtlID >= IDC_FILES_ADD_DIR && dis->CtlID <= IDC_FILES_REMOVE) ||
             (dis->CtlID >= IDC_REG_CHECKBOX && dis->CtlID <= IDC_REG_BACKUP)) {
             ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
@@ -3999,10 +4145,77 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         return 0;
     }
     
+    case WM_LBUTTONDOWN: {
+        // Check if click is on About icon
+        POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+        if (s_hAboutButton) {
+            RECT rcIcon;
+            GetWindowRect(s_hAboutButton, &rcIcon);
+            ScreenToClient(hwnd, (LPPOINT)&rcIcon.left);
+            ScreenToClient(hwnd, (LPPOINT)&rcIcon.right);
+            
+            if (PtInRect(&rcIcon, pt)) {
+                ShowAboutDialog(hwnd);
+                return 0;
+            }
+        }
+        // Hide tooltip when clicking anywhere else
+        HideTooltip();
+        s_aboutMouseTracking = false;
+        break;
+    }
+    
     case WM_MOUSEMOVE: {
+        POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+        bool overAboutIcon = false;
+        RECT rcIcon;
+        
+        // Check if mouse is over About button (in toolbar)
+        if (s_hAboutButton) {
+            GetWindowRect(s_hAboutButton, &rcIcon);
+            ScreenToClient(hwnd, (LPPOINT)&rcIcon.left);
+            ScreenToClient(hwnd, (LPPOINT)&rcIcon.right);
+            
+            if (PtInRect(&rcIcon, pt)) {
+                overAboutIcon = true;
+                
+                if (!IsTooltipVisible()) {
+                    // Show simple tooltip with current language text only
+                    auto it = s_locale.find(L"about_setupcraft");
+                    std::wstring tooltipText = (it != s_locale.end()) ? it->second : L"About SetupCraft";
+                    
+                    // Create single entry for simple tooltip
+                    std::vector<std::pair<std::wstring, std::wstring>> simpleEntry;
+                    simpleEntry.push_back({L"", tooltipText}); // Empty country code for simple tooltip
+                    
+                    // Position tooltip below the about icon
+                    POINT ptIcon = { rcIcon.left, rcIcon.bottom + 5 };
+                    ClientToScreen(hwnd, &ptIcon);
+                    ShowMultilingualTooltip(simpleEntry, ptIcon.x, ptIcon.y, hwnd);
+                }
+            }
+        }
+        
+        if (overAboutIcon) {
+            // Track mouse to detect when it leaves
+            if (!s_aboutMouseTracking) {
+                TRACKMOUSEEVENT tme = { 0 };
+                tme.cbSize = sizeof(TRACKMOUSEEVENT);
+                tme.dwFlags = TME_LEAVE;
+                tme.hwndTrack = hwnd;
+                TrackMouseEvent(&tme);
+                s_aboutMouseTracking = true;
+            }
+        } else {
+            // Hide tooltip if mouse is not over About button
+            if (IsTooltipVisible()) {
+                HideTooltip();
+            }
+            s_aboutMouseTracking = false;
+        }
+        
         // Check if mouse is over warning icon
         if (s_currentPageIndex == 1) { // Registry page
-            POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
             HWND hWarnIcon = GetDlgItem(hwnd, IDC_REG_WARNING_ICON);
             
             if (hWarnIcon) {
@@ -4099,14 +4312,37 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         return 0;
     }
     
+    case WM_ACTIVATE:
+        // Hide tooltip when window loses focus
+        if (LOWORD(wParam) == WA_INACTIVE) {
+            HideTooltip();
+            s_aboutMouseTracking = false;
+            if (s_hWarningTooltip && IsWindowVisible(s_hWarningTooltip)) {
+                ShowWindow(s_hWarningTooltip, SW_HIDE);
+            }
+            s_warningTooltipTracking = false;
+        }
+        break;
+    
+    case WM_KILLFOCUS:
+        // Hide tooltip when window loses keyboard focus
+        HideTooltip();
+        s_aboutMouseTracking = false;
+        break;
+    
     case WM_MOUSELEAVE:
         s_warningTooltipTracking = false;
         if (s_hWarningTooltip && IsWindowVisible(s_hWarningTooltip)) {
             ShowWindow(s_hWarningTooltip, SW_HIDE);
         }
+        // Hide About button tooltip
+        s_aboutMouseTracking = false;
+        HideTooltip();
         return 0;
     
     case WM_DESTROY:
+        // Clean up tooltip system
+        CleanupTooltipSystem();
         // Don't call PostQuitMessage here - just close the window
         // The entry screen will be shown again
         return 0;

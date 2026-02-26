@@ -21,6 +21,7 @@ add_executable(SkeletonApp WIN32
     mainwindow.cpp
     spinner_dialog.cpp
     about.cpp
+    tooltip.cpp
     ${RESOURCE_FILES}
 )
 

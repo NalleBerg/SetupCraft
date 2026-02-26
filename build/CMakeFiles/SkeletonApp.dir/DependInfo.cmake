@@ -23,6 +23,7 @@ set(CMAKE_RC_TARGET_INCLUDE_PATH
 
 # The set of dependency files which are needed:
 set(CMAKE_DEPENDS_DEPENDENCY_FILES
+  "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/about.cpp" "CMakeFiles/SkeletonApp.dir/about.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/about.cpp.obj.d"
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/button.cpp" "CMakeFiles/SkeletonApp.dir/button.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/button.cpp.obj.d"
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/ctrlw.cpp" "CMakeFiles/SkeletonApp.dir/ctrlw.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/ctrlw.cpp.obj.d"
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/db.cpp" "CMakeFiles/SkeletonApp.dir/db.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/db.cpp.obj.d"
@@ -30,6 +31,7 @@ set(CMAKE_DEPENDS_DEPENDENCY_FILES
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/main.cpp" "CMakeFiles/SkeletonApp.dir/main.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/main.cpp.obj.d"
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/mainwindow.cpp" "CMakeFiles/SkeletonApp.dir/mainwindow.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/mainwindow.cpp.obj.d"
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/spinner_dialog.cpp" "CMakeFiles/SkeletonApp.dir/spinner_dialog.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/spinner_dialog.cpp.obj.d"
+  "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/tooltip.cpp" "CMakeFiles/SkeletonApp.dir/tooltip.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/tooltip.cpp.obj.d"
   )
 
 # Targets to which this target links which contain Fortran sources.

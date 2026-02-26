@@ -1,6 +1,7 @@
 app_name=SetupCraft
 search_btn=🔍 Søg
 select_language=Vælg sprog til dit projekt
+about_setupcraft=Om SetupCraft
 new_project=Nyt projekt
 open_project=Åbn projekt
 cancel=Annuller
@@ -16,6 +17,10 @@ col_last_updated=Sidst opdateret
 
 quit_title=Afslut SetupCraft
 quit_message=Er du sikker på, at du vil afslutte?
+close_unsaved_title=Ikke-gemte ændringer
+close_unsaved_message=Du har ikke-gemte ændringer. Vil du gemme før lukning?
+save=Gem
+dont_save=Gem ikke
 yes=Ja
 no=Nej
 

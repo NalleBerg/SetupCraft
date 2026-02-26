@@ -15,6 +15,8 @@
 #include "button.h"
 #include "ctrlw.h"
 #include "mainwindow.h"
+#include "about.h"
+#include "tooltip.h"
 
 // IDs
 #ifndef IDC_LANG_COMBO
@@ -35,6 +37,9 @@
 #ifndef IDC_DELETE_PROJECT_BTN
 #define IDC_DELETE_PROJECT_BTN 107
 #endif
+#ifndef IDC_ABOUT_ICON
+#define IDC_ABOUT_ICON 108
+#endif
 #define IDC_PROJECT_LIST 105
 #define IDD_OPEN_PROJECT 200
 #define IDD_DELETE_PROJECT 201
@@ -51,8 +56,7 @@
 // Simple Win32 app with one OK button. This is intended as the skeleton
 // main window for new applications.
 
-const wchar_t CLASS_NAME[] = L"SkeletonAppWindowClass";
-const wchar_t TOOLTIP_CLASS_NAME[] = L"CustomTooltipClass";
+const wchar_t CLASS_NAME[] = L"SetupCraft_EntryScreen";
 
 static std::map<std::wstring, std::wstring> g_locale;
 static std::vector<std::wstring> g_availableLocales;
@@ -61,8 +65,9 @@ static HFONT g_globeFont = NULL;
 static HFONT g_tooltipFont = NULL;
 static std::wstring g_tooltipText;
 static std::vector<std::pair<std::wstring, std::wstring>> g_tooltipEntries; // country code, text
-static HWND g_tooltipWindow = NULL;
 static HWND g_globeIcon = NULL;
+static HWND g_aboutIcon = NULL;
+static HWND g_currentTooltipIcon = NULL; // Track which icon is showing tooltip
 static bool g_mouseTracking = false;
 
 static std::wstring Utf8ToW(const std::string &s) {
@@ -92,113 +97,6 @@ static void TrimW(std::wstring &s) {
 
 // Forward declaration
 static bool LoadLocaleFile(const std::wstring &code, std::map<std::wstring, std::wstring> &out);
-
-static std::wstring GetCountryCode(const std::wstring &code) {
-    // Extract country code (last 2 chars of locale code like en_GB -> GB)
-    if (code.size() < 2) return L"";
-    size_t pos = code.find(L'_');
-    if (pos == std::wstring::npos) return L"";
-    std::wstring country = code.substr(pos + 1);
-    if (country.size() == 2) {
-        return L"[" + country + L"] ";
-    }
-    return L"";
-}
-
-static std::wstring BuildMultilingualTooltip() {
-    // Load select_language from all available locale files with country codes
-    g_tooltipEntries.clear();
-    for (const auto &code : g_availableLocales) {
-        std::map<std::wstring, std::wstring> tempLocale;
-        if (LoadLocaleFile(code, tempLocale)) {
-            auto it = tempLocale.find(L"select_language");
-            if (it != tempLocale.end() && !it->second.empty()) {
-                std::wstring cc = GetCountryCode(code);
-                g_tooltipEntries.push_back({cc, it->second});
-            }
-        }
-    }
-    
-    // Sort by country code ascending
-    std::sort(g_tooltipEntries.begin(), g_tooltipEntries.end(),
-        [](const std::pair<std::wstring, std::wstring> &a, const std::pair<std::wstring, std::wstring> &b) {
-            return a.first < b.first;
-        });
-    
-    return L""; // Not used anymore, we draw directly
-}
-
-// Custom tooltip window procedure
-LRESULT CALLBACK TooltipWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
-    switch (msg) {
-    case WM_PAINT: {
-        PAINTSTRUCT ps;
-        HDC hdc = BeginPaint(hwnd, &ps);
-        
-        // Get client area
-        RECT rc;
-        GetClientRect(hwnd, &rc);
-        
-        // Fill background with light yellow
-        HBRUSH hBrush = CreateSolidBrush(RGB(255, 255, 225));
-        FillRect(hdc, &rc, hBrush);
-        DeleteObject(hBrush);
-        
-        // Draw border
-        HPEN hPen = CreatePen(PS_SOLID, 1, RGB(0, 0, 0));
-        HPEN hOldPen = (HPEN)SelectObject(hdc, hPen);
-        MoveToEx(hdc, rc.left, rc.top, NULL);
-        LineTo(hdc, rc.right - 1, rc.top);
-        LineTo(hdc, rc.right - 1, rc.bottom - 1);
-        LineTo(hdc, rc.left, rc.bottom - 1);
-        LineTo(hdc, rc.left, rc.top);
-        SelectObject(hdc, hOldPen);
-        DeleteObject(hPen);
-        
-        // Draw table with translations in 4 columns: Code | Text | Code | Text
-        SetBkMode(hdc, TRANSPARENT);
-        if (g_tooltipFont) SelectObject(hdc, g_tooltipFont);
-        
-        const int startX = 10;
-        const int startY = 10;
-        const int rowHeight = 22;
-        const int textCol1X = 65;      // First text column (codes right-aligned before this)
-        const int textCol2X = 410;     // Second text column (codes right-aligned before this)
-        
-        // Process 2 entries per row
-        for (size_t i = 0; i < g_tooltipEntries.size(); i += 2) {
-            int row = (int)(i / 2);
-            int y = startY + row * rowHeight;
-            
-            // Draw first entry (left side)
-            // Country code in royal blue, right-aligned
-            SetTextColor(hdc, RGB(65, 105, 225));
-            SIZE sz1;
-            GetTextExtentPoint32W(hdc, g_tooltipEntries[i].first.c_str(), (int)g_tooltipEntries[i].first.length(), &sz1);
-            TextOutW(hdc, textCol1X - sz1.cx - 5, y, g_tooltipEntries[i].first.c_str(), (int)g_tooltipEntries[i].first.length());
-            // Translation text in black
-            SetTextColor(hdc, RGB(0, 0, 0));
-            TextOutW(hdc, textCol1X, y, g_tooltipEntries[i].second.c_str(), (int)g_tooltipEntries[i].second.length());
-            
-            // Draw second entry (right side) if it exists
-            if (i + 1 < g_tooltipEntries.size()) {
-                // Country code in royal blue, right-aligned
-                SetTextColor(hdc, RGB(65, 105, 225));
-                SIZE sz2;
-                GetTextExtentPoint32W(hdc, g_tooltipEntries[i + 1].first.c_str(), (int)g_tooltipEntries[i + 1].first.length(), &sz2);
-                TextOutW(hdc, textCol2X - sz2.cx - 5, y, g_tooltipEntries[i + 1].first.c_str(), (int)g_tooltipEntries[i + 1].first.length());
-                // Translation text in black
-                SetTextColor(hdc, RGB(0, 0, 0));
-                TextOutW(hdc, textCol2X, y, g_tooltipEntries[i + 1].second.c_str(), (int)g_tooltipEntries[i + 1].second.length());
-            }
-        }
-        
-        EndPaint(hwnd, &ps);
-        return 0;
-    }
-    }
-    return DefWindowProcW(hwnd, msg, wParam, lParam);
-}
 
 static void NormalizeDisplayName(std::wstring &s) {
     // remove parenthetical part like " (Country)"
@@ -932,7 +830,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         }
 
         // Globe icon to the left of combo (using shell32.dll icon #13)
-        HWND hIcon = CreateWindowW(L"STATIC", NULL,
+        HWND hIcon = CreateWindowExW(
+            WS_EX_TRANSPARENT,  // Allow mouse events to pass through to parent
+            L"STATIC", NULL,
             WS_CHILD | WS_VISIBLE | SS_ICON | SS_CENTERIMAGE,
             iconLeft, 8, iconSize, iconSize,
             hwnd, (HMENU)IDC_GLOBE_ICON, hInst, NULL);
@@ -950,8 +850,32 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         
         g_globeIcon = hIcon; // Store for later use
 
-        // Build tooltip text
-        g_tooltipText = BuildMultilingualTooltip();
+        // Build tooltip entries
+        g_tooltipEntries = BuildMultilingualEntries(L"select_language", L"locale", g_availableLocales);
+
+        // Initialize tooltip system
+        InitTooltipSystem(hInst);
+
+        // Add info icon to the right of language combo for About dialog
+        const int aboutIconSize = 24;
+        const int aboutIconGap = 8;
+        const int aboutIconLeft = comboLeft + comboWidth + aboutIconGap;
+        
+        HWND hAboutIcon = CreateWindowExW(
+            WS_EX_TRANSPARENT,  // Allow mouse events to pass through to parent
+            L"STATIC", NULL,
+            WS_CHILD | WS_VISIBLE | SS_ICON | SS_CENTERIMAGE,
+            aboutIconLeft, 12, aboutIconSize, aboutIconSize,
+            hwnd, (HMENU)IDC_ABOUT_ICON, hInst, NULL);
+        
+        // Load info icon from shell32.dll (icon #221 is information/about icon)
+        HICON hAboutIconImage = NULL;
+        extracted = PrivateExtractIconsW(dllPath, 221, aboutIconSize, aboutIconSize, &hAboutIconImage, NULL, 1, 0);
+        if (extracted > 0 && hAboutIconImage) {
+            SendMessageW(hAboutIcon, STM_SETICON, (WPARAM)hAboutIconImage, 0);
+        }
+        
+        g_aboutIcon = hAboutIcon; // Store for later use
 
                 // Use canonical mapping from languages.cpp, fall back to system names or prettified codes
                 auto canon = GetCanonicalDisplayNames();
@@ -1062,6 +986,23 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
         return 0;
     }
+    case WM_LBUTTONDOWN: {
+        // Check if click is on About icon
+        POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+        if (g_aboutIcon) {
+            RECT rcIcon;
+            GetWindowRect(g_aboutIcon, &rcIcon);
+            ScreenToClient(hwnd, (LPPOINT)&rcIcon.left);
+            ScreenToClient(hwnd, (LPPOINT)&rcIcon.right);
+            
+            if (PtInRect(&rcIcon, pt)) {
+                ShowAboutDialog(hwnd);
+                return 0;
+            }
+        }
+        break;
+    }
+    
     case WM_COMMAND:
         if (LOWORD(wParam) == IDC_NEW_PROJECT_BTN) {
             // Open main window directly without dialog
@@ -1216,36 +1157,70 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         }
         return 0;
     case WM_MOUSEMOVE: {
-        // Check if mouse is over globe icon
         POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+        bool overIcon = false;
+        HWND newTooltipIcon = NULL;
         RECT rcIcon;
-        GetWindowRect(g_globeIcon, &rcIcon);
-        ScreenToClient(hwnd, (LPPOINT)&rcIcon.left);
-        ScreenToClient(hwnd, (LPPOINT)&rcIcon.right);
         
-        if (PtInRect(&rcIcon, pt)) {
-            if (!g_tooltipWindow || !IsWindowVisible(g_tooltipWindow)) {
-                // Show tooltip
-                if (!g_tooltipWindow) {
-                    HINSTANCE hInst = (HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE);
-                    // Calculate dynamic height: rows = (entries + 1) / 2, height = rows * rowHeight + padding
-                    int numRows = ((int)g_tooltipEntries.size() + 1) / 2;
-                    int tooltipHeight = numRows * 22 + 30;
-                    g_tooltipWindow = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
-                        TOOLTIP_CLASS_NAME, L"",
-                        WS_POPUP | WS_BORDER,
-                        0, 0, 700, tooltipHeight,
-                        hwnd, NULL, hInst, NULL);
+        // Check if mouse is over globe icon
+        if (g_globeIcon) {
+            GetWindowRect(g_globeIcon, &rcIcon);
+            ScreenToClient(hwnd, (LPPOINT)&rcIcon.left);
+            ScreenToClient(hwnd, (LPPOINT)&rcIcon.right);
+            
+            if (PtInRect(&rcIcon, pt)) {
+                overIcon = true;
+                newTooltipIcon = g_globeIcon;
+                
+                // Hide current tooltip if switching to different icon
+                if (g_currentTooltipIcon != g_globeIcon && IsTooltipVisible()) {
+                    HideTooltip();
                 }
                 
-                if (g_tooltipWindow) {
+                if (!IsTooltipVisible()) {
                     // Position tooltip below the globe icon
                     POINT ptIcon = { rcIcon.left, rcIcon.bottom + 5 };
                     ClientToScreen(hwnd, &ptIcon);
-                    SetWindowPos(g_tooltipWindow, HWND_TOPMOST, ptIcon.x, ptIcon.y, 0, 0, SWP_NOSIZE | SWP_SHOWWINDOW | SWP_NOACTIVATE);
+                    ShowMultilingualTooltip(g_tooltipEntries, ptIcon.x, ptIcon.y, hwnd);
+                    g_currentTooltipIcon = g_globeIcon;
                 }
             }
+        }
+        
+        // Check if mouse is over about icon
+        if (!overIcon && g_aboutIcon) {
+            GetWindowRect(g_aboutIcon, &rcIcon);
+            ScreenToClient(hwnd, (LPPOINT)&rcIcon.left);
+            ScreenToClient(hwnd, (LPPOINT)&rcIcon.right);
             
+            if (PtInRect(&rcIcon, pt)) {
+                overIcon = true;
+                newTooltipIcon = g_aboutIcon;
+                
+                // Hide current tooltip if switching to different icon
+                if (g_currentTooltipIcon != g_aboutIcon && IsTooltipVisible()) {
+                    HideTooltip();
+                }
+                
+                if (!IsTooltipVisible()) {
+                    // Show simple tooltip with current language text only
+                    auto it = g_locale.find(L"about_setupcraft");
+                    std::wstring tooltipText = (it != g_locale.end()) ? it->second : L"About SetupCraft";
+                    
+                    // Create single entry for simple tooltip
+                    std::vector<std::pair<std::wstring, std::wstring>> simpleEntry;
+                    simpleEntry.push_back({L"", tooltipText}); // Empty country code for simple tooltip
+                    
+                    // Position tooltip below the about icon
+                    POINT ptIcon = { rcIcon.left, rcIcon.bottom + 5 };
+                    ClientToScreen(hwnd, &ptIcon);
+                    ShowMultilingualTooltip(simpleEntry, ptIcon.x, ptIcon.y, hwnd);
+                    g_currentTooltipIcon = g_aboutIcon;
+                }
+            }
+        }
+        
+        if (overIcon) {
             // Track mouse to detect when it leaves
             if (!g_mouseTracking) {
                 TRACKMOUSEEVENT tme = { 0 };
@@ -1256,23 +1231,22 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 g_mouseTracking = true;
             }
         } else {
-            // Hide tooltip if mouse is not over icon
-            if (g_tooltipWindow && IsWindowVisible(g_tooltipWindow)) {
-                ShowWindow(g_tooltipWindow, SW_HIDE);
-            }
+            // Hide tooltip if mouse is not over any icon
+            HideTooltip();
+            g_currentTooltipIcon = NULL;
         }
         return 0;
     }
     case WM_MOUSELEAVE:
         g_mouseTracking = false;
-        if (g_tooltipWindow && IsWindowVisible(g_tooltipWindow)) {
-            ShowWindow(g_tooltipWindow, SW_HIDE);
-        }
+        HideTooltip();
+        g_currentTooltipIcon = NULL;
         return 0;
     case WM_CTLCOLORSTATIC: {
         HDC hdc = (HDC)wParam;
         HWND hControl = (HWND)lParam;
-        if (GetDlgCtrlID(hControl) == IDC_GLOBE_ICON) {
+        int ctrlId = GetDlgCtrlID(hControl);
+        if (ctrlId == IDC_GLOBE_ICON || ctrlId == IDC_ABOUT_ICON) {
             SetBkMode(hdc, TRANSPARENT);
             return (LRESULT)GetSysColorBrush(COLOR_WINDOW);
         }
@@ -1302,7 +1276,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         }
         return 0;
     case WM_DESTROY:
-        if (g_tooltipWindow) { DestroyWindow(g_tooltipWindow); g_tooltipWindow = NULL; }
+        CleanupTooltipSystem();
         if (g_guiFont) { DeleteObject(g_guiFont); g_guiFont = NULL; }
         if (g_globeFont) { DeleteObject(g_globeFont); g_globeFont = NULL; }
         if (g_tooltipFont) { DeleteObject(g_tooltipFont); g_tooltipFont = NULL; }
@@ -1315,16 +1289,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR pCmdLine, int nCmdShow) {
     // Initialize database
     DB::InitDb();
-
-    // Register tooltip window class
-    WNDCLASSEXW wcTooltip = { };
-    wcTooltip.cbSize = sizeof(WNDCLASSEXW);
-    wcTooltip.lpfnWndProc = TooltipWndProc;
-    wcTooltip.hInstance = hInstance;
-    wcTooltip.lpszClassName = TOOLTIP_CLASS_NAME;
-    wcTooltip.hbrBackground = (HBRUSH)(COLOR_INFOBK + 1);
-    wcTooltip.hCursor = LoadCursorW(NULL, IDC_ARROW);
-    RegisterClassExW(&wcTooltip);
 
     WNDCLASSEXW wc = { };
     wc.cbSize = sizeof(WNDCLASSEXW);

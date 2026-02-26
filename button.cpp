@@ -4,7 +4,7 @@
 #pragma comment(lib, "comctl32.lib")
 
 // Declare PrivateExtractIconsW for transparent icon extraction
-extern "C" UINT WINAPI PrivateExtractIconsW(
+extern "C" __declspec(dllimport) UINT WINAPI PrivateExtractIconsW(
     LPCWSTR szFileName,
     int nIconIndex,
     int cxIcon,
@@ -215,9 +215,36 @@ BOOL DrawCustomButton(LPDRAWITEMSTRUCT dis, ButtonColor color, HFONT hFont) {
     // Get hover state from button property
     BOOL hover = (BOOL)(INT_PTR)GetPropW(dis->hwndItem, L"IsHovering") && !pressed;
     
+    // Check if button is icon-only (empty text)
+    wchar_t buttonText[256] = {0};
+    GetWindowTextW(dis->hwndItem, buttonText, 256);
+    BOOL isIconOnly = (wcslen(buttonText) == 0);
+    
     // Get colors
     ButtonColors colors = GetButtonColors(color);
-    COLORREF bgColor = pressed ? colors.pressed : (hover ? colors.hover : colors.base);
+    COLORREF bgColor;
+    
+    if (isIconOnly) {
+        // For icon-only buttons, use system button face color for better integration
+        bgColor = GetSysColor(COLOR_BTNFACE);
+        // Show subtle hover/press effects
+        if (pressed) {
+            bgColor = RGB(
+                std::max(0, (int)GetRValue(bgColor) - 30),
+                std::max(0, (int)GetGValue(bgColor) - 30),
+                std::max(0, (int)GetBValue(bgColor) - 30)
+            );
+        } else if (hover) {
+            bgColor = RGB(
+                std::min(255, (int)GetRValue(bgColor) + 20),
+                std::min(255, (int)GetGValue(bgColor) + 20),
+                std::min(255, (int)GetBValue(bgColor) + 20)
+            );
+        }
+    } else {
+        // For text buttons, use full color scheme
+        bgColor = pressed ? colors.pressed : (hover ? colors.hover : colors.base);
+    }
     
     // Fill background
     HBRUSH hBrush = CreateSolidBrush(bgColor);

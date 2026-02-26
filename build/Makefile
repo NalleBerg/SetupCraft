@@ -136,6 +136,30 @@ SetupCraft.rc.obj:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/SetupCraft.rc.obj
 .PHONY : SetupCraft.rc.obj
 
+about.obj: about.cpp.obj
+.PHONY : about.obj
+
+# target to build an object file
+about.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/about.cpp.obj
+.PHONY : about.cpp.obj
+
+about.i: about.cpp.i
+.PHONY : about.i
+
+# target to preprocess a source file
+about.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/about.cpp.i
+.PHONY : about.cpp.i
+
+about.s: about.cpp.s
+.PHONY : about.s
+
+# target to generate assembly for a file
+about.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/about.cpp.s
+.PHONY : about.cpp.s
+
 button.obj: button.cpp.obj
 .PHONY : button.obj
 
@@ -304,6 +328,30 @@ spinner_dialog.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/spinner_dialog.cpp.s
 .PHONY : spinner_dialog.cpp.s
 
+tooltip.obj: tooltip.cpp.obj
+.PHONY : tooltip.obj
+
+# target to build an object file
+tooltip.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/tooltip.cpp.obj
+.PHONY : tooltip.cpp.obj
+
+tooltip.i: tooltip.cpp.i
+.PHONY : tooltip.i
+
+# target to preprocess a source file
+tooltip.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/tooltip.cpp.i
+.PHONY : tooltip.cpp.i
+
+tooltip.s: tooltip.cpp.s
+.PHONY : tooltip.s
+
+# target to generate assembly for a file
+tooltip.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/tooltip.cpp.s
+.PHONY : tooltip.cpp.s
+
 # Help Target
 help:
 	@echo The following are some of the valid targets for this Makefile:
@@ -314,6 +362,9 @@ help:
 	@echo ... rebuild_cache
 	@echo ... SkeletonApp
 	@echo ... SetupCraft.obj
+	@echo ... about.obj
+	@echo ... about.i
+	@echo ... about.s
 	@echo ... button.obj
 	@echo ... button.i
 	@echo ... button.s
@@ -335,6 +386,9 @@ help:
 	@echo ... spinner_dialog.obj
 	@echo ... spinner_dialog.i
 	@echo ... spinner_dialog.s
+	@echo ... tooltip.obj
+	@echo ... tooltip.i
+	@echo ... tooltip.s
 .PHONY : help
 
 

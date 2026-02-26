@@ -1,6 +1,7 @@
 app_name=SetupCraft
 search_btn=🔍 Suche
 select_language=Sprache für Ihr Projekt wählen
+about_setupcraft=Über SetupCraft
 new_project=Neues Projekt
 open_project=Projekt öffnen
 cancel=Abbrechen
@@ -12,8 +13,13 @@ col_id=ID
 col_name=Name
 col_version=Version
 col_last_updated=Zuletzt aktualisiert
+
 quit_title=SetupCraft beenden
 quit_message=Sind Sie sicher, dass Sie beenden möchten?
+close_unsaved_title=Nicht gespeicherte Änderungen
+close_unsaved_message=Sie haben nicht gespeicherte Änderungen. Vor dem Schließen speichern?
+save=Speichern
+dont_save=Nicht speichern
 yes=Ja
 no=Nein
 

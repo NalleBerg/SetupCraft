@@ -169,9 +169,37 @@ CMakeFiles/SkeletonApp.dir/spinner_dialog.cpp.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/SkeletonApp.dir/spinner_dialog.cpp.s"
 	C:\mingw64\bin\c++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\spinner_dialog.cpp -o CMakeFiles\SkeletonApp.dir\spinner_dialog.cpp.s
 
+CMakeFiles/SkeletonApp.dir/about.cpp.obj: CMakeFiles/SkeletonApp.dir/flags.make
+CMakeFiles/SkeletonApp.dir/about.cpp.obj: C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/about.cpp
+CMakeFiles/SkeletonApp.dir/about.cpp.obj: CMakeFiles/SkeletonApp.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\build\CMakeFiles --progress-num=$(CMAKE_PROGRESS_8) "Building CXX object CMakeFiles/SkeletonApp.dir/about.cpp.obj"
+	C:\mingw64\bin\c++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/SkeletonApp.dir/about.cpp.obj -MF CMakeFiles\SkeletonApp.dir\about.cpp.obj.d -o CMakeFiles\SkeletonApp.dir\about.cpp.obj -c C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\about.cpp
+
+CMakeFiles/SkeletonApp.dir/about.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/SkeletonApp.dir/about.cpp.i"
+	C:\mingw64\bin\c++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\about.cpp > CMakeFiles\SkeletonApp.dir\about.cpp.i
+
+CMakeFiles/SkeletonApp.dir/about.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/SkeletonApp.dir/about.cpp.s"
+	C:\mingw64\bin\c++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\about.cpp -o CMakeFiles\SkeletonApp.dir\about.cpp.s
+
+CMakeFiles/SkeletonApp.dir/tooltip.cpp.obj: CMakeFiles/SkeletonApp.dir/flags.make
+CMakeFiles/SkeletonApp.dir/tooltip.cpp.obj: C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/tooltip.cpp
+CMakeFiles/SkeletonApp.dir/tooltip.cpp.obj: CMakeFiles/SkeletonApp.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\build\CMakeFiles --progress-num=$(CMAKE_PROGRESS_9) "Building CXX object CMakeFiles/SkeletonApp.dir/tooltip.cpp.obj"
+	C:\mingw64\bin\c++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/SkeletonApp.dir/tooltip.cpp.obj -MF CMakeFiles\SkeletonApp.dir\tooltip.cpp.obj.d -o CMakeFiles\SkeletonApp.dir\tooltip.cpp.obj -c C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\tooltip.cpp
+
+CMakeFiles/SkeletonApp.dir/tooltip.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/SkeletonApp.dir/tooltip.cpp.i"
+	C:\mingw64\bin\c++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\tooltip.cpp > CMakeFiles\SkeletonApp.dir\tooltip.cpp.i
+
+CMakeFiles/SkeletonApp.dir/tooltip.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/SkeletonApp.dir/tooltip.cpp.s"
+	C:\mingw64\bin\c++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\tooltip.cpp -o CMakeFiles\SkeletonApp.dir\tooltip.cpp.s
+
 CMakeFiles/SkeletonApp.dir/SetupCraft.rc.obj: CMakeFiles/SkeletonApp.dir/flags.make
 CMakeFiles/SkeletonApp.dir/SetupCraft.rc.obj: C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/SetupCraft.rc
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\build\CMakeFiles --progress-num=$(CMAKE_PROGRESS_8) "Building RC object CMakeFiles/SkeletonApp.dir/SetupCraft.rc.obj"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\build\CMakeFiles --progress-num=$(CMAKE_PROGRESS_10) "Building RC object CMakeFiles/SkeletonApp.dir/SetupCraft.rc.obj"
 	C:\mingw64\bin\windres.exe -O coff $(RC_DEFINES) $(RC_INCLUDES) $(RC_FLAGS) C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\SetupCraft.rc CMakeFiles\SkeletonApp.dir\SetupCraft.rc.obj
 
 # Object files for target SkeletonApp
@@ -183,6 +211,8 @@ SkeletonApp_OBJECTS = \
 "CMakeFiles/SkeletonApp.dir/ctrlw.cpp.obj" \
 "CMakeFiles/SkeletonApp.dir/mainwindow.cpp.obj" \
 "CMakeFiles/SkeletonApp.dir/spinner_dialog.cpp.obj" \
+"CMakeFiles/SkeletonApp.dir/about.cpp.obj" \
+"CMakeFiles/SkeletonApp.dir/tooltip.cpp.obj" \
 "CMakeFiles/SkeletonApp.dir/SetupCraft.rc.obj"
 
 # External object files for target SkeletonApp
@@ -195,12 +225,14 @@ SetupCraft.exe: CMakeFiles/SkeletonApp.dir/button.cpp.obj
 SetupCraft.exe: CMakeFiles/SkeletonApp.dir/ctrlw.cpp.obj
 SetupCraft.exe: CMakeFiles/SkeletonApp.dir/mainwindow.cpp.obj
 SetupCraft.exe: CMakeFiles/SkeletonApp.dir/spinner_dialog.cpp.obj
+SetupCraft.exe: CMakeFiles/SkeletonApp.dir/about.cpp.obj
+SetupCraft.exe: CMakeFiles/SkeletonApp.dir/tooltip.cpp.obj
 SetupCraft.exe: CMakeFiles/SkeletonApp.dir/SetupCraft.rc.obj
 SetupCraft.exe: CMakeFiles/SkeletonApp.dir/build.make
 SetupCraft.exe: CMakeFiles/SkeletonApp.dir/linkLibs.rsp
 SetupCraft.exe: CMakeFiles/SkeletonApp.dir/objects1.rsp
 SetupCraft.exe: CMakeFiles/SkeletonApp.dir/link.txt
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\build\CMakeFiles --progress-num=$(CMAKE_PROGRESS_9) "Linking CXX executable SetupCraft.exe"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\build\CMakeFiles --progress-num=$(CMAKE_PROGRESS_11) "Linking CXX executable SetupCraft.exe"
 	$(CMAKE_COMMAND) -E cmake_link_script CMakeFiles\SkeletonApp.dir\link.txt --verbose=$(VERBOSE)
 
 # Rule to build all files generated by this target.

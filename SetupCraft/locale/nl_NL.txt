@@ -1,6 +1,7 @@
 app_name=SetupCraft
 search_btn=🔍 Zoeken
 select_language=Selecteer taal voor uw project
+about_setupcraft=Over SetupCraft
 new_project=Nieuw project
 open_project=Project openen
 cancel=Annuleren
@@ -14,10 +15,7 @@ col_name=Naam
 col_version=Versie
 col_last_updated=Laatst bijgewerkt
 
-quit_title=SetupCraft afsluiten
-quit_message=Weet u zeker dat u wilt afsluiten?
-yes=Ja
-no=Nee
+quit_title=SetupCraft afsluiten`r`nquit_message=Weet u zeker dat u wilt afsluiten?`r`nclose_unsaved_title=Unsaved Changes`r`nclose_unsaved_message=You have unsaved changes. Save before closing?`r`nsave=Save`r`ndont_save=Don't Save`r`nyes=Ja`r`nno=Nee
 
 # Toolbar buttons
 tb_files=Files

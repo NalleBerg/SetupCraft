@@ -1,6 +1,7 @@
 app_name=SetupCraft
 search_btn=🔍 Cercar
 select_language=Tscherna la lingua per tes project
+about_setupcraft=Davart SetupCraft
 new_project=Nov project
 open_project=Avrir project
 cancel=Interrumper
@@ -14,10 +15,7 @@ col_name=Num
 col_version=Versiun
 col_last_updated=L'ultima actualisaziun
 
-quit_title=Serrar SetupCraft
-quit_message=Essas Vus propi serrar?
-yes=Gea
-no=Na
+quit_title=Serrar SetupCraft`r`nquit_message=Essas Vus propi serrar?`r`nclose_unsaved_title=Unsaved Changes`r`nclose_unsaved_message=You have unsaved changes. Save before closing?`r`nsave=Save`r`ndont_save=Don't Save`r`nyes=Gea`r`nno=Na
 
 # Toolbar buttons
 tb_files=Files

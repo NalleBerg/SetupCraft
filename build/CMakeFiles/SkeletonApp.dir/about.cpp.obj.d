@@ -1,5 +1,6 @@
-CMakeFiles/SkeletonApp.dir/main.cpp.obj: \
- C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\main.cpp \
+CMakeFiles/SkeletonApp.dir/about.cpp.obj: \
+ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\about.cpp \
+ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\about.h \
  C:/mingw64/x86_64-w64-mingw32/include/windows.h \
  C:/mingw64/x86_64-w64-mingw32/include/_mingw.h \
  C:/mingw64/x86_64-w64-mingw32/include/_mingw_mac.h \
@@ -296,24 +297,7 @@ CMakeFiles/SkeletonApp.dir/main.cpp.obj: \
  C:/mingw64/x86_64-w64-mingw32/include/winsvc.h \
  C:/mingw64/x86_64-w64-mingw32/include/mcx.h \
  C:/mingw64/x86_64-w64-mingw32/include/imm.h \
- C:/mingw64/x86_64-w64-mingw32/include/windowsx.h \
- C:/mingw64/x86_64-w64-mingw32/include/commctrl.h \
- C:/mingw64/x86_64-w64-mingw32/include/shlobj.h \
- C:/mingw64/x86_64-w64-mingw32/include/shlguid.h \
- C:/mingw64/x86_64-w64-mingw32/include/isguids.h \
- C:/mingw64/x86_64-w64-mingw32/include/exdisp.h \
- C:/mingw64/x86_64-w64-mingw32/include/ocidl.h \
- C:/mingw64/x86_64-w64-mingw32/include/docobj.h \
- C:/mingw64/x86_64-w64-mingw32/include/shldisp.h \
- C:/mingw64/x86_64-w64-mingw32/include/knownfolders.h \
- C:/mingw64/x86_64-w64-mingw32/include/shtypes.h \
- C:/mingw64/x86_64-w64-mingw32/include/shobjidl.h \
- C:/mingw64/x86_64-w64-mingw32/include/comcat.h \
- C:/mingw64/x86_64-w64-mingw32/include/propsys.h \
- C:/mingw64/x86_64-w64-mingw32/include/structuredquerycondition.h \
- C:/mingw64/x86_64-w64-mingw32/include/propkeydef.h \
- C:/mingw64/x86_64-w64-mingw32/include/objectarray.h \
- C:/mingw64/x86_64-w64-mingw32/include/sherrors.h \
+ C:/mingw64/x86_64-w64-mingw32/include/richedit.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/string \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/requires_hosted.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stringfwd.h \
@@ -387,29 +371,7 @@ CMakeFiles/SkeletonApp.dir/main.cpp.obj: \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/uses_allocator.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/uses_allocator_args.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/tuple \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/map \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_tree.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/ext/aligned_buffer.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/node_handle.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_map.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_multimap.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/erase_if.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/vector \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_uninitialized.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_vector.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_bvector.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/vector.tcc \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/algorithm \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_algo.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/algorithmfwd.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_heap.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/uniform_int_dist.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_tempbuf.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/pstl/glue_algorithm_defs.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/pstl/execution_defs.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/cwctype \
- C:/mingw64/x86_64-w64-mingw32/include/wctype.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/fstream \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/sstream \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/istream \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/ios \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/exception \
@@ -452,6 +414,8 @@ CMakeFiles/SkeletonApp.dir/main.cpp.obj: \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/streambuf.tcc \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/basic_ios.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/locale_facets.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/cwctype \
+ C:/mingw64/x86_64-w64-mingw32/include/wctype.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/x86_64-w64-mingw32/bits/ctype_base.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/streambuf_iterator.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/x86_64-w64-mingw32/bits/ctype_inline.h \
@@ -461,19 +425,49 @@ CMakeFiles/SkeletonApp.dir/main.cpp.obj: \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/ostream.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/ostream.tcc \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/istream.tcc \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/codecvt.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/x86_64-w64-mingw32/bits/basic_file.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/x86_64-w64-mingw32/bits/c++io.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/fstream.tcc \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/sstream \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/sstream.tcc \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/ctime \
- C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\languages.h \
- C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\db.h \
- C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\button.h \
- C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\ctrlw.h \
- C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\mainwindow.h \
- C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\about.h \
- C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\tooltip.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/utility \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_relops.h
+ C:/mingw64/x86_64-w64-mingw32/include/gdiplus.h \
+ C:/mingw64/x86_64-w64-mingw32/include/gdiplus/gdiplus.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/math.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/cmath \
+ C:/mingw64/x86_64-w64-mingw32/include/math.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/specfun.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/limits \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/tr1/gamma.tcc \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/tr1/special_function_util.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/tr1/bessel_function.tcc \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/tr1/beta_function.tcc \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/tr1/ell_integral.tcc \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/tr1/exp_integral.tcc \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/tr1/hypergeometric.tcc \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/tr1/legendre_function.tcc \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/tr1/modified_bessel_func.tcc \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/tr1/poly_hermite.tcc \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/tr1/poly_laguerre.tcc \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/tr1/riemann_zeta.tcc \
+ C:/mingw64/x86_64-w64-mingw32/include/basetyps.h \
+ C:/mingw64/x86_64-w64-mingw32/include/gdiplus/gdiplusenums.h \
+ C:/mingw64/x86_64-w64-mingw32/include/gdiplus/gdiplustypes.h \
+ C:/mingw64/x86_64-w64-mingw32/include/gdiplus/gdiplusgpstubs.h \
+ C:/mingw64/x86_64-w64-mingw32/include/gdiplus/gdiplusimaging.h \
+ C:/mingw64/x86_64-w64-mingw32/include/gdiplus/gdiplusinit.h \
+ C:/mingw64/x86_64-w64-mingw32/include/gdiplus/gdiplusmem.h \
+ C:/mingw64/x86_64-w64-mingw32/include/gdiplus/gdiplusmetaheader.h \
+ C:/mingw64/x86_64-w64-mingw32/include/gdiplus/gdipluspixelformats.h \
+ C:/mingw64/x86_64-w64-mingw32/include/gdiplus/gdipluscolor.h \
+ C:/mingw64/x86_64-w64-mingw32/include/gdiplus/gdipluscolormatrix.h \
+ C:/mingw64/x86_64-w64-mingw32/include/gdiplus/gdiplusflat.h \
+ C:/mingw64/x86_64-w64-mingw32/include/gdiplus/gdipluseffects.h \
+ C:/mingw64/x86_64-w64-mingw32/include/gdiplus/gdiplusimagecodec.h \
+ C:/mingw64/x86_64-w64-mingw32/include/gdiplus/gdiplusbase.h \
+ C:/mingw64/x86_64-w64-mingw32/include/gdiplus/gdiplusheaders.h \
+ C:/mingw64/x86_64-w64-mingw32/include/gdiplus/gdiplusimageattributes.h \
+ C:/mingw64/x86_64-w64-mingw32/include/gdiplus/gdiplusmatrix.h \
+ C:/mingw64/x86_64-w64-mingw32/include/gdiplus/gdiplusbrush.h \
+ C:/mingw64/x86_64-w64-mingw32/include/gdiplus/gdiplusmetafile.h \
+ C:/mingw64/x86_64-w64-mingw32/include/gdiplus/gdipluspen.h \
+ C:/mingw64/x86_64-w64-mingw32/include/gdiplus/gdiplusstringformat.h \
+ C:/mingw64/x86_64-w64-mingw32/include/gdiplus/gdipluspath.h \
+ C:/mingw64/x86_64-w64-mingw32/include/gdiplus/gdiplusgraphics.h \
+ C:/mingw64/x86_64-w64-mingw32/include/gdiplus/gdipluslinecaps.h \
+ C:/mingw64/x86_64-w64-mingw32/include/gdiplus/gdiplusimpl.h

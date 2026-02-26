@@ -1,6 +1,7 @@
 app_name=SetupCraft
 search_btn=🔍 Search
 select_language=Select language for your project
+about_setupcraft=About SetupCraft
 new_project=New project
 open_project=Open project
 cancel=Cancel
@@ -16,6 +17,10 @@ col_last_updated=Last Updated
 
 quit_title=Exit SetupCraft
 quit_message=Are you sure you want to quit?
+close_unsaved_title=Unsaved Changes
+close_unsaved_message=You have unsaved changes. Do you want to save before closing?
+save=Save
+dont_save=Don't Save
 yes=Yes
 no=No
 
