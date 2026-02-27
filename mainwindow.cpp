@@ -11,6 +11,7 @@
 #include "spinner_dialog.h"
 #include "about.h"
 #include "tooltip.h"
+#include "about_icon.h"
 
 // Static member initialization
 ProjectRow MainWindow::s_currentProject = {};
@@ -30,10 +31,14 @@ int MainWindow::s_currentPageIndex = 0;
 static bool s_hasUnsavedChanges = false;
 static bool s_isNewUnsavedProject = false;
 static HTREEITEM s_rightClickedItem = NULL; // Track which TreeView item was right-clicked
+static int s_rightClickedRegIndex = -1; // Track which ListView item was right-clicked
 static bool s_projectNameManuallySet = false; // Track if user manually edited project name
 static bool s_updatingProjectNameProgrammatically = false; // Prevent EN_CHANGE during programmatic updates
 static HWND s_hAboutButton = NULL; // Track About button for tooltip
 static bool s_aboutMouseTracking = false; // Track mouse for About button tooltip
+// Mirror entry-screen tooltip tracking state
+static HWND s_currentTooltipIcon = NULL; // Which icon currently has the tooltip shown
+static bool s_mouseTracking = false; // General mouse tracking flag for tooltip
 
 // Store files added to virtual folders (keyed by HTREEITEM)
 struct VirtualFolderFile {
@@ -50,7 +55,7 @@ struct RegistryEntry {
     std::wstring type;     // REG_SZ, REG_DWORD, etc.
     std::wstring data;     // Value data
 };
-static std::vector<RegistryEntry> s_registryEntries;
+static std::map<HTREEITEM, std::vector<RegistryEntry>> s_registryValues;
 
 // Registry page state
 static bool s_registerInWindows = true;
@@ -65,64 +70,22 @@ static bool s_warningTooltipTracking = false;
 static std::wstring s_warningTooltipText;
 static HFONT s_warningTooltipFont = NULL;
 
-const wchar_t WARNING_TOOLTIP_CLASS_NAME[] = L"WarningTooltipClass";
-
-// Warning tooltip window procedure
-LRESULT CALLBACK WarningTooltipWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
-    switch (msg) {
-    case WM_PAINT: {
-        PAINTSTRUCT ps;
-        HDC hdc = BeginPaint(hwnd, &ps);
-        
-        // Get client area
-        RECT rc;
-        GetClientRect(hwnd, &rc);
-        
-        // Fill background with light yellow
-        HBRUSH hBrush = CreateSolidBrush(RGB(255, 255, 225));
-        FillRect(hdc, &rc, hBrush);
-        DeleteObject(hBrush);
-        
-        // Draw border
-        HPEN hPen = CreatePen(PS_SOLID, 1, RGB(0, 0, 0));
-        HPEN hOldPen = (HPEN)SelectObject(hdc, hPen);
-        MoveToEx(hdc, rc.left, rc.top, NULL);
-        LineTo(hdc, rc.right - 1, rc.top);
-        LineTo(hdc, rc.right - 1, rc.bottom - 1);
-        LineTo(hdc, rc.left, rc.bottom - 1);
-        LineTo(hdc, rc.left, rc.top);
-        SelectObject(hdc, hOldPen);
-        DeleteObject(hPen);
-        
-        // Draw text in black with padding
-        SetBkMode(hdc, TRANSPARENT);
-        SetTextColor(hdc, RGB(0, 0, 0));
-        if (s_warningTooltipFont) SelectObject(hdc, s_warningTooltipFont);
-        
-        RECT textRect = { 10, 10, rc.right - 10, rc.bottom - 10 };
-        DrawTextW(hdc, s_warningTooltipText.c_str(), -1, &textRect, DT_LEFT | DT_WORDBREAK);
-        
-        EndPaint(hwnd, &ps);
-        return 0;
-    }
-    }
-    return DefWindowProcW(hwnd, msg, wParam, lParam);
-}
-
-// Store registry values per tree item (like virtual folder files)
-static std::map<HTREEITEM, std::vector<RegistryEntry>> s_registryValues;
-
-// Menu IDs
-#define IDM_FILE_NEW        4000
-#define IDM_FILE_SAVE       4001
-#define IDM_FILE_SAVEAS     4002
-#define IDM_FILE_CLOSE      4003
-#define IDM_FILE_EXIT       4004
-#define IDM_EDIT_UNDO       4011
+// Command and control IDs
 #define IDM_EDIT_REDO       4012
 #define IDM_BUILD_COMPILE   4021
 #define IDM_BUILD_TEST      4022
 #define IDM_HELP_ABOUT      4031
+
+// File/menu command IDs
+#define IDM_FILE_NEW        4001
+#define IDM_FILE_OPEN       4002
+#define IDM_FILE_SAVE       4003
+#define IDM_FILE_SAVEAS     4004
+#define IDM_FILE_CLOSE      4005
+#define IDM_FILE_EXIT       4006
+
+// Edit commands
+#define IDM_EDIT_UNDO       4011
 
 #define IDC_TAB_CONTROL     5001
 #define IDC_STATUS_BAR      5002
@@ -192,6 +155,29 @@ static std::map<HTREEITEM, std::vector<RegistryEntry>> s_registryValues;
 #define IDC_ADDKEY_NAME     5070
 #define IDC_ADDKEY_OK       5071
 #define IDC_ADDKEY_CANCEL   5072
+
+const wchar_t WARNING_TOOLTIP_CLASS_NAME[] = L"WarningTooltipClass";
+
+// Warning tooltip window procedure
+LRESULT CALLBACK WarningTooltipWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+    case WM_PAINT: {
+        PAINTSTRUCT ps;
+        HDC hdc = BeginPaint(hwnd, &ps);
+        if (s_warningTooltipFont) SelectObject(hdc, s_warningTooltipFont);
+        RECT rc;
+        GetClientRect(hwnd, &rc);
+        SetBkMode(hdc, TRANSPARENT);
+        DrawTextW(hdc, s_warningTooltipText.c_str(), -1, &rc, DT_WORDBREAK);
+        EndPaint(hwnd, &ps);
+        return 0;
+    }
+    case WM_NCDESTROY:
+        return 0;
+    default:
+        return DefWindowProcW(hwnd, msg, wParam, lParam);
+    }
+}
 
 HWND MainWindow::Create(HINSTANCE hInstance, const ProjectRow &project, const std::map<std::wstring, std::wstring> &locale) {
     s_currentProject = project;
@@ -419,23 +405,8 @@ void MainWindow::CreateToolbar(HWND hwnd, HINSTANCE hInst) {
     // About icon (static control with custom tooltip)
     const int aboutIconSize = 32;
     const int aboutIconY = startY + (buttonHeight - aboutIconSize) / 2;  // Center vertically with buttons
-    s_hAboutButton = CreateWindowExW(
-        WS_EX_TRANSPARENT,  // Allow mouse events to pass through to parent
-        L"STATIC", NULL,
-        WS_CHILD | WS_VISIBLE | SS_ICON | SS_CENTERIMAGE,
-        x, aboutIconY, aboutIconSize, aboutIconSize,
-        hwnd, (HMENU)IDC_TB_ABOUT, hInst, NULL);
-    
-    // Load info icon from shell32.dll (icon #221 is information/about icon)
-    wchar_t dllPath[MAX_PATH];
-    GetSystemDirectoryW(dllPath, MAX_PATH);
-    wcscat(dllPath, L"\\shell32.dll");
-    
-    HICON hAboutIconImage = NULL;
-    UINT extracted = PrivateExtractIconsW(dllPath, 221, aboutIconSize, aboutIconSize, &hAboutIconImage, NULL, 1, 0);
-    if (extracted > 0 && hAboutIconImage) {
-        SendMessageW(s_hAboutButton, STM_SETICON, (WPARAM)hAboutIconImage, 0);
-    }
+    // Create About icon using about_icon module
+    s_hAboutButton = CreateAboutIconControl(hwnd, hInst, x, aboutIconY, aboutIconSize, IDC_TB_ABOUT, s_locale);
 }
 
 // Helper function to clean up registry TreeView items (free lParam memory)
@@ -1885,6 +1856,8 @@ LRESULT CALLBACK AddValueDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         HWND hNameEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", pData->valueName.c_str(),
             WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL,
             150, y, 330, 22, hwnd, (HMENU)IDC_ADDVAL_NAME, hInst, NULL);
+        // Ensure the edit control text is set (explicit prefill for edit mode)
+        SetDlgItemTextW(hwnd, IDC_ADDVAL_NAME, pData->valueName.c_str());
         y += 35;
         
         // Type label and combobox
@@ -1923,6 +1896,8 @@ LRESULT CALLBACK AddValueDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", pData->valueData.c_str(),
             WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL,
             150, y, 330, 22, hwnd, (HMENU)IDC_ADDVAL_DATA, hInst, NULL);
+        // Ensure data edit is filled (explicit prefill)
+        SetDlgItemTextW(hwnd, IDC_ADDVAL_DATA, pData->valueData.c_str());
         y += 45;
         
         // OK and Cancel buttons
@@ -1953,6 +1928,7 @@ LRESULT CALLBACK AddValueDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 // Get value type
                 HWND hCombo = GetDlgItem(hwnd, IDC_ADDVAL_TYPE);
                 int sel = (int)SendMessageW(hCombo, CB_GETCURSEL, 0, 0);
+                if (sel == CB_ERR) sel = 0;
                 wchar_t typeBuf[256];
                 SendMessageW(hCombo, CB_GETLBTEXT, sel, (LPARAM)typeBuf);
                 
@@ -2042,6 +2018,8 @@ LRESULT CALLBACK AddKeyDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
         CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", pData->defaultKeyName.c_str(),
             WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL,
             150, y, 330, 22, hwnd, (HMENU)IDC_ADDKEY_NAME, hInst, NULL);
+        // Explicitly set edit text to ensure prefill works in Edit mode
+        SetDlgItemTextW(hwnd, IDC_ADDKEY_NAME, pData->defaultKeyName.c_str());
         y += 45;
         
         // OK and Cancel buttons
@@ -2062,7 +2040,55 @@ LRESULT CALLBACK AddKeyDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
                 // Get key name
                 wchar_t nameBuf[256];
                 GetDlgItemTextW(hwnd, IDC_ADDKEY_NAME, nameBuf, 256);
-                pData->keyName = nameBuf;
+                std::wstring newName = nameBuf;
+                // Trim whitespace
+                while (!newName.empty() && iswspace(newName.back())) newName.pop_back();
+                size_t i = 0; while (i < newName.size() && iswspace(newName[i])) i++; if (i>0) newName = newName.substr(i);
+
+                if (newName.empty()) {
+                    MessageBoxW(hwnd, L"Key name cannot be empty.", L"Validation Error", MB_OK | MB_ICONWARNING);
+                    return 0;
+                }
+
+                // Disallow path separators in key name
+                if (newName.find(L'\\') != std::wstring::npos || newName.find(L'/') != std::wstring::npos) {
+                    MessageBoxW(hwnd, L"Key name cannot contain path separators (\\ or /).", L"Validation Error", MB_OK | MB_ICONWARNING);
+                    return 0;
+                }
+
+                // Check for duplicates under the currently selected parent
+                HTREEITEM hParent = NULL;
+                if (s_hRegTreeView && IsWindow(s_hRegTreeView)) {
+                    hParent = TreeView_GetSelection(s_hRegTreeView);
+                }
+                bool duplicate = false;
+                if (hParent && s_hRegTreeView) {
+                    HTREEITEM hChild = TreeView_GetChild(s_hRegTreeView, hParent);
+                    while (hChild) {
+                        wchar_t text[256];
+                        TVITEMW item = {};
+                        item.mask = TVIF_TEXT;
+                        item.hItem = hChild;
+                        item.pszText = text;
+                        item.cchTextMax = 256;
+                        TreeView_GetItem(s_hRegTreeView, &item);
+                        std::wstring existing = text;
+                        if (existing == newName) {
+                            // If editing and name equals original default, allow
+                            if (pData->defaultKeyName != newName) {
+                                duplicate = true;
+                                break;
+                            }
+                        }
+                        hChild = TreeView_GetNextSibling(s_hRegTreeView, hChild);
+                    }
+                }
+                if (duplicate) {
+                    MessageBoxW(hwnd, L"A key with this name already exists under the selected parent.", L"Validation Error", MB_OK | MB_ICONWARNING);
+                    return 0;
+                }
+
+                pData->keyName = newName;
                 pData->okClicked = true;
             }
             DestroyWindow(hwnd);
@@ -2229,6 +2255,13 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             }
             return 0;
         }
+
+        // Handle double-click on Registry TreeView -> edit key
+        if (nmhdr->idFrom == IDC_REG_TREEVIEW && nmhdr->code == NM_DBLCLK) {
+            // Route to Edit Key handler
+            SendMessageW(hwnd, WM_COMMAND, IDM_REG_EDIT_KEY, 0);
+            return 0;
+        }
         
         // Handle TreeView selection change
         if (nmhdr->idFrom == 102 && nmhdr->code == TVN_SELCHANGED) {
@@ -2296,6 +2329,14 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             }
         }
         
+        
+        // Handle double-click on Registry ListView -> edit value
+        if (nmhdr->idFrom == IDC_REG_LISTVIEW && nmhdr->code == NM_DBLCLK) {
+            // Route to Edit Value handler
+            SendMessageW(hwnd, WM_COMMAND, IDM_REG_EDIT_VALUE, 0);
+            return 0;
+        }
+
         break;
     }
     
@@ -2858,9 +2899,12 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 return 0;
             }
             
-            // Get locale strings
-            auto itTitle = s_locale.find(L"reg_add_key_title");
-            std::wstring title = (itTitle != s_locale.end()) ? itTitle->second : L"Add Registry Key";
+            // Get locale strings (compose Add / Edit title)
+            auto itTitleAddKey = s_locale.find(L"reg_add_key_title");
+            auto itTitleEditKey = s_locale.find(L"reg_edit_key_title");
+            std::wstring addKeyTitle = (itTitleAddKey != s_locale.end()) ? itTitleAddKey->second : L"Add Registry Key";
+            std::wstring editKeyTitle = (itTitleEditKey != s_locale.end()) ? itTitleEditKey->second : L"Edit Registry Key";
+            std::wstring title = addKeyTitle + L" / " + editKeyTitle;
             
             auto itName = s_locale.find(L"reg_add_key_name");
             std::wstring nameLabel = (itName != s_locale.end()) ? itName->second : L"Key Name:";
@@ -2960,9 +3004,12 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 return 0;
             }
             
-            // Get locale strings
-            auto itTitle = s_locale.find(L"reg_add_value_title");
-            std::wstring title = (itTitle != s_locale.end()) ? itTitle->second : L"Add Registry Value";
+            // Get locale strings (compose Add / Edit title)
+            auto itTitleAdd = s_locale.find(L"reg_add_value_title");
+            auto itTitleEdit = s_locale.find(L"reg_edit_value_title");
+            std::wstring addTitle = (itTitleAdd != s_locale.end()) ? itTitleAdd->second : L"Add Registry Value";
+            std::wstring editTitle = (itTitleEdit != s_locale.end()) ? itTitleEdit->second : L"Edit Registry Value";
+            std::wstring title = addTitle + L" / " + editTitle;
             
             auto itName = s_locale.find(L"reg_add_value_name");
             std::wstring nameLabel = (itName != s_locale.end()) ? itName->second : L"Value Name:";
@@ -3188,13 +3235,13 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             HTREEITEM hTreeSel = TreeView_GetSelection(s_hRegTreeView);
             int iListSel = ListView_GetNextItem(s_hRegListView, -1, LVNI_SELECTED);
             
-            // Prioritize ListView SELECTED item for edit (values) - more common use case
-            if (iListSel != -1) {
-                // ListView has a selected item - edit the value
-                SendMessageW(hwnd, WM_COMMAND, IDM_REG_EDIT_VALUE, 0);
-            } else if (hTreeSel) {
+            // Prefer TreeView selection (editing keys) over ListView selection (values)
+            if (hTreeSel) {
                 // TreeView has a selection - edit (rename) the key
                 SendMessageW(hwnd, WM_COMMAND, IDM_REG_EDIT_KEY, 0);
+            } else if (iListSel != -1) {
+                // ListView has a selected item - edit the value
+                SendMessageW(hwnd, WM_COMMAND, IDM_REG_EDIT_VALUE, 0);
             } else {
                 // Nothing selected
                 auto itMsg = s_locale.find(L"reg_select_to_edit");
@@ -3351,12 +3398,24 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             
             // Create dialog window
             HINSTANCE hInst = GetModuleHandleW(NULL);
-            
+
+            // Ensure dialog class is registered (AddKeyDialog)
+            WNDCLASSEXW wc = {};
+            wc.cbSize = sizeof(WNDCLASSEXW);
+            if (!GetClassInfoExW(GetModuleHandleW(NULL), L"AddKeyDialog", &wc)) {
+                wc.lpfnWndProc = AddKeyDialogProc;
+                wc.hInstance = GetModuleHandleW(NULL);
+                wc.lpszClassName = L"AddKeyDialog";
+                wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
+                wc.hCursor = LoadCursor(NULL, IDC_ARROW);
+                RegisterClassExW(&wc);
+            }
+
             RECT rcParent;
             GetWindowRect(hwnd, &rcParent);
             int dlgX = rcParent.left + (rcParent.right - rcParent.left - 520) / 2;
             int dlgY = rcParent.top + (rcParent.bottom - rcParent.top - 160) / 2;
-            
+
             HWND hDialog = CreateWindowExW(WS_EX_DLGMODALFRAME | WS_EX_TOPMOST,
                 L"AddKeyDialog", title.c_str(),
                 WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
@@ -3390,8 +3449,11 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         }
         
         case IDM_REG_EDIT_VALUE: {
-            // Edit selected value in ListView
+            // Edit selected value in ListView (fall back to last right-clicked item)
             int iSelected = ListView_GetNextItem(s_hRegListView, -1, LVNI_SELECTED);
+            if (iSelected == -1 && s_rightClickedRegIndex != -1) {
+                iSelected = s_rightClickedRegIndex;
+            }
             if (iSelected == -1) {
                 return 0;
             }
@@ -3410,8 +3472,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             
             RegistryEntry& entry = it->second[iSelected];
             
-            // Get locale strings
-            auto itTitle = s_locale.find(L"reg_add_value_title");
+            // Get locale strings (use edit-specific title)
+            auto itTitle = s_locale.find(L"reg_edit_value_title");
             std::wstring title = (itTitle != s_locale.end()) ? itTitle->second : L"Edit Registry Value";
             
             auto itName = s_locale.find(L"reg_add_value_name");
@@ -3435,9 +3497,19 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 entry.name, entry.type, entry.data, false
             };
             
-            // Register and create dialog
+            // Register dialog class if not already registered (AddValueDialog)
             HINSTANCE hInst = (HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE);
-            
+            WNDCLASSEXW wc = {};
+            wc.cbSize = sizeof(WNDCLASSEXW);
+            if (!GetClassInfoExW(GetModuleHandleW(NULL), L"AddValueDialog", &wc)) {
+                wc.lpfnWndProc = AddValueDialogProc;
+                wc.hInstance = GetModuleHandleW(NULL);
+                wc.lpszClassName = L"AddValueDialog";
+                wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
+                wc.hCursor = LoadCursor(NULL, IDC_ARROW);
+                RegisterClassExW(&wc);
+            }
+
             // Create dialog window
             HWND hDialog = CreateWindowExW(WS_EX_DLGMODALFRAME | WS_EX_TOPMOST, L"AddValueDialog",
                 title.c_str(), WS_POPUP | WS_CAPTION | WS_SYSMENU,
@@ -3527,6 +3599,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 }
                 
                 MarkAsModified();
+                // Clear right-click tracker now that we've used it
+                s_rightClickedRegIndex = -1;
             }
             
             return 0;
@@ -3831,6 +3905,10 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             ht.pt.y = yPos;
             ScreenToClient(s_hRegListView, &ht.pt);
             int iItem = ListView_HitTest(s_hRegListView, &ht);
+            s_rightClickedRegIndex = -1;
+            if (iItem != -1) {
+                s_rightClickedRegIndex = iItem;
+            }
             
             // Get locale strings
             auto itAddValue = s_locale.find(L"reg_context_add_value");
@@ -4146,19 +4224,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
     }
     
     case WM_LBUTTONDOWN: {
-        // Check if click is on About icon
-        POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
-        if (s_hAboutButton) {
-            RECT rcIcon;
-            GetWindowRect(s_hAboutButton, &rcIcon);
-            ScreenToClient(hwnd, (LPPOINT)&rcIcon.left);
-            ScreenToClient(hwnd, (LPPOINT)&rcIcon.right);
-            
-            if (PtInRect(&rcIcon, pt)) {
-                ShowAboutDialog(hwnd);
-                return 0;
-            }
-        }
+        // Forward to about icon module (handles clicks on icon)
+        AboutIcon_OnLButtonDown(hwnd, wParam, lParam);
         // Hide tooltip when clicking anywhere else
         HideTooltip();
         s_aboutMouseTracking = false;
@@ -4192,6 +4259,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                     POINT ptIcon = { rcIcon.left, rcIcon.bottom + 5 };
                     ClientToScreen(hwnd, &ptIcon);
                     ShowMultilingualTooltip(simpleEntry, ptIcon.x, ptIcon.y, hwnd);
+                    s_currentTooltipIcon = s_hAboutButton;
                 }
             }
         }
@@ -4205,11 +4273,14 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 tme.hwndTrack = hwnd;
                 TrackMouseEvent(&tme);
                 s_aboutMouseTracking = true;
+                s_mouseTracking = true;
             }
         } else {
             // Hide tooltip if mouse is not over About button
             if (IsTooltipVisible()) {
                 HideTooltip();
+                s_currentTooltipIcon = NULL;
+                s_mouseTracking = false;
             }
             s_aboutMouseTracking = false;
         }
@@ -4337,6 +4408,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         }
         // Hide About button tooltip
         s_aboutMouseTracking = false;
+        s_mouseTracking = false;
+        s_currentTooltipIcon = NULL;
         HideTooltip();
         return 0;
     
