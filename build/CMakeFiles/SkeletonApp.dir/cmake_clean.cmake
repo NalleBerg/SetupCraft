@@ -2,6 +2,8 @@ file(REMOVE_RECURSE
   "CMakeFiles/SkeletonApp.dir/SetupCraft.rc.obj"
   "CMakeFiles/SkeletonApp.dir/about.cpp.obj"
   "CMakeFiles/SkeletonApp.dir/about.cpp.obj.d"
+  "CMakeFiles/SkeletonApp.dir/about_icon.cpp.obj"
+  "CMakeFiles/SkeletonApp.dir/about_icon.cpp.obj.d"
   "CMakeFiles/SkeletonApp.dir/button.cpp.obj"
   "CMakeFiles/SkeletonApp.dir/button.cpp.obj.d"
   "CMakeFiles/SkeletonApp.dir/ctrlw.cpp.obj"

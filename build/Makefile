@@ -160,6 +160,30 @@ about.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/about.cpp.s
 .PHONY : about.cpp.s
 
+about_icon.obj: about_icon.cpp.obj
+.PHONY : about_icon.obj
+
+# target to build an object file
+about_icon.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/about_icon.cpp.obj
+.PHONY : about_icon.cpp.obj
+
+about_icon.i: about_icon.cpp.i
+.PHONY : about_icon.i
+
+# target to preprocess a source file
+about_icon.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/about_icon.cpp.i
+.PHONY : about_icon.cpp.i
+
+about_icon.s: about_icon.cpp.s
+.PHONY : about_icon.s
+
+# target to generate assembly for a file
+about_icon.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/about_icon.cpp.s
+.PHONY : about_icon.cpp.s
+
 button.obj: button.cpp.obj
 .PHONY : button.obj
 
@@ -365,6 +389,9 @@ help:
 	@echo ... about.obj
 	@echo ... about.i
 	@echo ... about.s
+	@echo ... about_icon.obj
+	@echo ... about_icon.i
+	@echo ... about_icon.s
 	@echo ... button.obj
 	@echo ... button.i
 	@echo ... button.s

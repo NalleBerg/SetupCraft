@@ -21,6 +21,7 @@ add_executable(SkeletonApp WIN32
     mainwindow.cpp
     spinner_dialog.cpp
     about.cpp
+    about_icon.cpp
     tooltip.cpp
     ${RESOURCE_FILES}
 )
@@ -34,6 +35,7 @@ target_link_libraries(SkeletonApp
     gdi32
     gdiplus
     shell32
+    shlwapi
 )
 
 target_compile_definitions(SkeletonApp PRIVATE UNICODE _UNICODE)

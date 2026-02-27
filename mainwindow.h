@@ -44,6 +44,8 @@ private:
     static HWND s_hTreeView;     // Track TreeView for file management
     static HWND s_hListView;     // Track ListView for file management
     static HTREEITEM s_hProgramFilesRoot; // Track Program Files root node
+    static HTREEITEM s_hProgramDataRoot; // Track ProgramData root node
+    static HTREEITEM s_hAppDataRoot;     // Track AppData (Roaming) root node
     static int s_toolbarHeight;
     static int s_currentPageIndex;
 };

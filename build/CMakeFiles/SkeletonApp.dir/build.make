@@ -183,10 +183,24 @@ CMakeFiles/SkeletonApp.dir/about.cpp.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/SkeletonApp.dir/about.cpp.s"
 	C:\mingw64\bin\c++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\about.cpp -o CMakeFiles\SkeletonApp.dir\about.cpp.s
 
+CMakeFiles/SkeletonApp.dir/about_icon.cpp.obj: CMakeFiles/SkeletonApp.dir/flags.make
+CMakeFiles/SkeletonApp.dir/about_icon.cpp.obj: C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/about_icon.cpp
+CMakeFiles/SkeletonApp.dir/about_icon.cpp.obj: CMakeFiles/SkeletonApp.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\build\CMakeFiles --progress-num=$(CMAKE_PROGRESS_9) "Building CXX object CMakeFiles/SkeletonApp.dir/about_icon.cpp.obj"
+	C:\mingw64\bin\c++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/SkeletonApp.dir/about_icon.cpp.obj -MF CMakeFiles\SkeletonApp.dir\about_icon.cpp.obj.d -o CMakeFiles\SkeletonApp.dir\about_icon.cpp.obj -c C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\about_icon.cpp
+
+CMakeFiles/SkeletonApp.dir/about_icon.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/SkeletonApp.dir/about_icon.cpp.i"
+	C:\mingw64\bin\c++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\about_icon.cpp > CMakeFiles\SkeletonApp.dir\about_icon.cpp.i
+
+CMakeFiles/SkeletonApp.dir/about_icon.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/SkeletonApp.dir/about_icon.cpp.s"
+	C:\mingw64\bin\c++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\about_icon.cpp -o CMakeFiles\SkeletonApp.dir\about_icon.cpp.s
+
 CMakeFiles/SkeletonApp.dir/tooltip.cpp.obj: CMakeFiles/SkeletonApp.dir/flags.make
 CMakeFiles/SkeletonApp.dir/tooltip.cpp.obj: C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/tooltip.cpp
 CMakeFiles/SkeletonApp.dir/tooltip.cpp.obj: CMakeFiles/SkeletonApp.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\build\CMakeFiles --progress-num=$(CMAKE_PROGRESS_9) "Building CXX object CMakeFiles/SkeletonApp.dir/tooltip.cpp.obj"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\build\CMakeFiles --progress-num=$(CMAKE_PROGRESS_10) "Building CXX object CMakeFiles/SkeletonApp.dir/tooltip.cpp.obj"
 	C:\mingw64\bin\c++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/SkeletonApp.dir/tooltip.cpp.obj -MF CMakeFiles\SkeletonApp.dir\tooltip.cpp.obj.d -o CMakeFiles\SkeletonApp.dir\tooltip.cpp.obj -c C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\tooltip.cpp
 
 CMakeFiles/SkeletonApp.dir/tooltip.cpp.i: cmake_force
@@ -199,7 +213,7 @@ CMakeFiles/SkeletonApp.dir/tooltip.cpp.s: cmake_force
 
 CMakeFiles/SkeletonApp.dir/SetupCraft.rc.obj: CMakeFiles/SkeletonApp.dir/flags.make
 CMakeFiles/SkeletonApp.dir/SetupCraft.rc.obj: C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/SetupCraft.rc
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\build\CMakeFiles --progress-num=$(CMAKE_PROGRESS_10) "Building RC object CMakeFiles/SkeletonApp.dir/SetupCraft.rc.obj"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\build\CMakeFiles --progress-num=$(CMAKE_PROGRESS_11) "Building RC object CMakeFiles/SkeletonApp.dir/SetupCraft.rc.obj"
 	C:\mingw64\bin\windres.exe -O coff $(RC_DEFINES) $(RC_INCLUDES) $(RC_FLAGS) C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\SetupCraft.rc CMakeFiles\SkeletonApp.dir\SetupCraft.rc.obj
 
 # Object files for target SkeletonApp
@@ -212,6 +226,7 @@ SkeletonApp_OBJECTS = \
 "CMakeFiles/SkeletonApp.dir/mainwindow.cpp.obj" \
 "CMakeFiles/SkeletonApp.dir/spinner_dialog.cpp.obj" \
 "CMakeFiles/SkeletonApp.dir/about.cpp.obj" \
+"CMakeFiles/SkeletonApp.dir/about_icon.cpp.obj" \
 "CMakeFiles/SkeletonApp.dir/tooltip.cpp.obj" \
 "CMakeFiles/SkeletonApp.dir/SetupCraft.rc.obj"
 
@@ -226,13 +241,14 @@ SetupCraft.exe: CMakeFiles/SkeletonApp.dir/ctrlw.cpp.obj
 SetupCraft.exe: CMakeFiles/SkeletonApp.dir/mainwindow.cpp.obj
 SetupCraft.exe: CMakeFiles/SkeletonApp.dir/spinner_dialog.cpp.obj
 SetupCraft.exe: CMakeFiles/SkeletonApp.dir/about.cpp.obj
+SetupCraft.exe: CMakeFiles/SkeletonApp.dir/about_icon.cpp.obj
 SetupCraft.exe: CMakeFiles/SkeletonApp.dir/tooltip.cpp.obj
 SetupCraft.exe: CMakeFiles/SkeletonApp.dir/SetupCraft.rc.obj
 SetupCraft.exe: CMakeFiles/SkeletonApp.dir/build.make
 SetupCraft.exe: CMakeFiles/SkeletonApp.dir/linkLibs.rsp
 SetupCraft.exe: CMakeFiles/SkeletonApp.dir/objects1.rsp
 SetupCraft.exe: CMakeFiles/SkeletonApp.dir/link.txt
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\build\CMakeFiles --progress-num=$(CMAKE_PROGRESS_11) "Linking CXX executable SetupCraft.exe"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\build\CMakeFiles --progress-num=$(CMAKE_PROGRESS_12) "Linking CXX executable SetupCraft.exe"
 	$(CMAKE_COMMAND) -E cmake_link_script CMakeFiles\SkeletonApp.dir\link.txt --verbose=$(VERBOSE)
 
 # Rule to build all files generated by this target.

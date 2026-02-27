@@ -1,15 +1,16 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 26 February 2026<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 27 February 2026<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
 
-<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.02.27.10</span></h3>
-<p><strong>Registry edit dialogs, edit behavior and tooling fixes (27.02.2026, 10:44):</strong></p>
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.02.27.14</span></h3>
+<p><strong>Files page roots, virtual-folder auto-creation, and robustness fixes (27.02.2026, 14:42):</strong></p>
 <ul>
-<li><strong>Edit dialogs prefilling:</strong> Key and Value edit dialogs are now correctly prefilled with the currently-selected key/value when invoked.</li>
-<li><strong>Edit-button behavior:</strong> The Edit action now prefers the selected registry key (TreeView) when present, preventing accidental value-edit dialogs.</li>
-<li><strong>Removed debug popups:</strong> Temporary debug MessageBox calls were removed from Edit handlers.</li>
-<li><strong>About/icon & tooltip fixes:</strong> Continued refinements to About icon click handling and tooltip placement.</li>
-<li><strong>Version update:</strong> Bumped `curver.txt` to Version 2026.02.27.10 (Published: 27.02.2026 10:44).</li>
+<li><strong>ProgramData &amp; AppData roots:</strong> Added `ProgramData` and `AppData (Roaming)` top-level roots to the Files page so developers can target system-wide or per-user locations.</li>
+<li><strong>Auto-create app folder:</strong> When adding files without a selected subfolder, the app now automatically creates an application-named folder under the chosen root (Program Files / ProgramData / AppData) and places the files there.</li>
+<li><strong>Virtual folder persistence:</strong> Files added to newly-created virtual folders (no physical path) are stored in-memory and shown when that folder is selected.</li>
+<li><strong>Dialog registration &amp; robustness:</strong> Ensured dialog window classes are registered before CreateWindowEx to avoid missing modal dialogs in some flows.</li>
+<li><strong>Static initialization fix:</strong> Corrected misplaced static declarations that caused build failures; moved static members to header and added proper initializers.</li>
+<li><strong>Version update:</strong> Bumped `curver.txt` to Version 2026.02.27.14 (Published: 27.02.2026 14:42).</li>
 </ul>
 
 <h3 style="text-align: center;">&nbsp;</h3>

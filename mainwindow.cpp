@@ -26,6 +26,8 @@ HWND MainWindow::s_hPageButton2 = NULL;
 HWND MainWindow::s_hTreeView = NULL;
 HWND MainWindow::s_hListView = NULL;
 HTREEITEM MainWindow::s_hProgramFilesRoot = NULL;
+HTREEITEM MainWindow::s_hProgramDataRoot = NULL;
+HTREEITEM MainWindow::s_hAppDataRoot = NULL;
 int MainWindow::s_toolbarHeight = 50;
 int MainWindow::s_currentPageIndex = 0;
 static bool s_hasUnsavedChanges = false;
@@ -880,6 +882,20 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
             }
         }
         s_hProgramFilesRoot = AddTreeNode(s_hTreeView, TVI_ROOT, parentPath, L"");
+        // Add ProgramData and AppData (Roaming) roots so developer can add files there as well
+        wchar_t szPath[MAX_PATH] = {};
+        if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_COMMON_APPDATA, NULL, 0, szPath))) {
+            std::wstring pdPath = szPath;
+            s_hProgramDataRoot = AddTreeNode(s_hTreeView, TVI_ROOT, L"ProgramData", pdPath);
+        } else {
+            s_hProgramDataRoot = AddTreeNode(s_hTreeView, TVI_ROOT, L"ProgramData", L"C:\\ProgramData");
+        }
+        if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_APPDATA, NULL, 0, szPath))) {
+            std::wstring appdataPath = szPath;
+            s_hAppDataRoot = AddTreeNode(s_hTreeView, TVI_ROOT, L"AppData (Roaming)", appdataPath);
+        } else {
+            s_hAppDataRoot = AddTreeNode(s_hTreeView, TVI_ROOT, L"AppData (Roaming)", L"%APPDATA%");
+        }
         TreeView_Expand(s_hTreeView, s_hProgramFilesRoot, TVE_EXPAND);
         
         // Populate TreeView with source folder structure if available
@@ -2492,13 +2508,40 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 std::wstring directory(fileBuffer);
                 wchar_t* p = fileBuffer + directory.length() + 1;
                 
-                // Get currently selected folder as target, or first child under Program Files
+                // Determine selected folder target and root for auto-creation
                 HTREEITEM hTargetFolder = NULL;
+                HTREEITEM hRootForAutoCreate = s_hProgramFilesRoot; // default
+                HTREEITEM hSelected = NULL;
                 if (s_hTreeView) {
-                    hTargetFolder = TreeView_GetSelection(s_hTreeView);
-                    // If nothing selected or Program Files root selected, use first child
-                    if (!hTargetFolder || hTargetFolder == s_hProgramFilesRoot) {
+                    hSelected = TreeView_GetSelection(s_hTreeView);
+                    if (hSelected) {
+                        // If a root node is selected, prefer its first child as target (if any)
+                        if (hSelected == s_hProgramFilesRoot || hSelected == s_hProgramDataRoot || hSelected == s_hAppDataRoot) {
+                            hTargetFolder = TreeView_GetChild(s_hTreeView, hSelected);
+                            hRootForAutoCreate = hSelected;
+                        } else {
+                            // Regular folder selected
+                            hTargetFolder = hSelected;
+                            // Determine which root this folder belongs to for auto-create fallback
+                            HTREEITEM ancestor = hTargetFolder;
+                            HTREEITEM parent = TreeView_GetParent(s_hTreeView, ancestor);
+                            while (parent) {
+                                HTREEITEM grand = TreeView_GetParent(s_hTreeView, parent);
+                                if (!grand) {
+                                    // 'parent' is direct child of root
+                                    if (parent == s_hProgramFilesRoot || parent == s_hProgramDataRoot || parent == s_hAppDataRoot) {
+                                        hRootForAutoCreate = parent;
+                                    }
+                                    break;
+                                }
+                                ancestor = parent;
+                                parent = grand;
+                            }
+                        }
+                    } else {
+                        // No selection: default to first child under Program Files
                         hTargetFolder = TreeView_GetChild(s_hTreeView, s_hProgramFilesRoot);
+                        hRootForAutoCreate = s_hProgramFilesRoot;
                     }
                 }
                 
@@ -2509,28 +2552,29 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                     size_t lastSlash = fullPath.find_last_of(L"\\/");
                     std::wstring fileName = (lastSlash != std::wstring::npos) ? fullPath.substr(lastSlash + 1) : fullPath;
                     
-                    // If no folder structure exists, create one based on filename (without extension)
-                    if (!hTargetFolder && s_hTreeView && s_hProgramFilesRoot) {
-                        size_t dotPos = fileName.find_last_of(L".");
-                        std::wstring baseName = (dotPos != std::wstring::npos) ? fileName.substr(0, dotPos) : fileName;
-                        
-                        // Create folder under Program Files
-                        hTargetFolder = AddTreeNode(s_hTreeView, s_hProgramFilesRoot, baseName, L"");
-                        TreeView_Expand(s_hTreeView, s_hProgramFilesRoot, TVE_EXPAND);
-                        
-                        // Update install path and project name
-                        std::wstring newInstallPath = L"C:\\Program Files\\" + baseName;
-                        SetDlgItemTextW(hwnd, IDC_INSTALL_FOLDER, newInstallPath.c_str());
-                        
-                        if (s_isNewUnsavedProject && !s_projectNameManuallySet) {
-                            s_currentProject.name = baseName;
-                            std::wstring title = L"SetupCraft - " + baseName;
-                            SetWindowTextW(hwnd, title.c_str());
-                            
-                            // Update project name field programmatically
-                            s_updatingProjectNameProgrammatically = true;
-                            SetDlgItemTextW(hwnd, IDC_PROJECT_NAME, baseName.c_str());
-                            s_updatingProjectNameProgrammatically = false;
+                    // If no folder structure exists, create one using the application name under the chosen root
+                    if (!hTargetFolder && s_hTreeView && hRootForAutoCreate) {
+                        std::wstring folderName = !s_currentProject.name.empty() ? s_currentProject.name : fileName;
+                        // Remove extension if folderName came from fileName fallback
+                        size_t dotPos = folderName.find_last_of(L".");
+                        if (dotPos != std::wstring::npos && folderName == fileName) folderName = folderName.substr(0, dotPos);
+
+                        // Create folder under the selected root
+                        hTargetFolder = AddTreeNode(s_hTreeView, hRootForAutoCreate, folderName, L"");
+                        TreeView_Expand(s_hTreeView, hRootForAutoCreate, TVE_EXPAND);
+
+                        // If created under Program Files root, update install path and project name as before
+                        if (hRootForAutoCreate == s_hProgramFilesRoot) {
+                            std::wstring newInstallPath = L"C:\\Program Files\\" + folderName;
+                            SetDlgItemTextW(hwnd, IDC_INSTALL_FOLDER, newInstallPath.c_str());
+                            if (s_isNewUnsavedProject && !s_projectNameManuallySet) {
+                                s_currentProject.name = folderName;
+                                std::wstring title = L"SetupCraft - " + folderName;
+                                SetWindowTextW(hwnd, title.c_str());
+                                s_updatingProjectNameProgrammatically = true;
+                                SetDlgItemTextW(hwnd, IDC_PROJECT_NAME, folderName.c_str());
+                                s_updatingProjectNameProgrammatically = false;
+                            }
                         }
                     }
                     
@@ -2576,29 +2620,29 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 } else {
                     // Multiple files - first file used for folder and project name
                     
-                    // If no folder structure exists, create one based on first filename (without extension)
-                    if (!hTargetFolder && s_hTreeView && s_hProgramFilesRoot && *p) {
+                    // If no folder structure exists, create one using the application name under the chosen root
+                    if (!hTargetFolder && s_hTreeView && hRootForAutoCreate) {
                         std::wstring firstFileName(p);
-                        size_t dotPos = firstFileName.find_last_of(L".");
-                        std::wstring baseName = (dotPos != std::wstring::npos) ? firstFileName.substr(0, dotPos) : firstFileName;
-                        
-                        // Create folder under Program Files
-                        hTargetFolder = AddTreeNode(s_hTreeView, s_hProgramFilesRoot, baseName, L"");
-                        TreeView_Expand(s_hTreeView, s_hProgramFilesRoot, TVE_EXPAND);
-                        
-                        // Update install path and project name
-                        std::wstring newInstallPath = L"C:\\Program Files\\" + baseName;
-                        SetDlgItemTextW(hwnd, IDC_INSTALL_FOLDER, newInstallPath.c_str());
-                        
-                        if (s_isNewUnsavedProject && !s_projectNameManuallySet) {
-                            s_currentProject.name = baseName;
-                            std::wstring title = L"SetupCraft - " + baseName;
-                            SetWindowTextW(hwnd, title.c_str());
-                            
-                            // Update project name field programmatically
-                            s_updatingProjectNameProgrammatically = true;
-                            SetDlgItemTextW(hwnd, IDC_PROJECT_NAME, baseName.c_str());
-                            s_updatingProjectNameProgrammatically = false;
+                        std::wstring folderName = !s_currentProject.name.empty() ? s_currentProject.name : firstFileName;
+                        size_t dotPos = folderName.find_last_of(L".");
+                        if (dotPos != std::wstring::npos && folderName == firstFileName) folderName = folderName.substr(0, dotPos);
+
+                        // Create folder under the selected root
+                        hTargetFolder = AddTreeNode(s_hTreeView, hRootForAutoCreate, folderName, L"");
+                        TreeView_Expand(s_hTreeView, hRootForAutoCreate, TVE_EXPAND);
+
+                        // If created under Program Files root, update install path and project name as before
+                        if (hRootForAutoCreate == s_hProgramFilesRoot) {
+                            std::wstring newInstallPath = L"C:\\Program Files\\" + folderName;
+                            SetDlgItemTextW(hwnd, IDC_INSTALL_FOLDER, newInstallPath.c_str());
+                            if (s_isNewUnsavedProject && !s_projectNameManuallySet) {
+                                s_currentProject.name = folderName;
+                                std::wstring title = L"SetupCraft - " + folderName;
+                                SetWindowTextW(hwnd, title.c_str());
+                                s_updatingProjectNameProgrammatically = true;
+                                SetDlgItemTextW(hwnd, IDC_PROJECT_NAME, folderName.c_str());
+                                s_updatingProjectNameProgrammatically = false;
+                            }
                         }
                     }
                     
