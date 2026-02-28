@@ -46,6 +46,9 @@ tt_build=Compile the installer package
 tt_test=Test the compiled installer
 tt_scripts=Configure scripts to run before/after installation
 tt_save=Save project changes
+ 
+# Ask-at-install tooltip
+ask_at_install_tooltip=Installer will ask the end user whether to install for current user or all users; files will go to AppData or ProgramData accordingly.
 # New Project Dialog
 new_project_title=Create New Project
 new_proj_name_label=Project Name:

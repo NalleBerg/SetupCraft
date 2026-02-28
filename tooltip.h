@@ -29,6 +29,8 @@ void HideTooltip();
 // Check if tooltip is currently visible
 bool IsTooltipVisible();
 
+// (No owner API here) Public tooltip functions only.
+
 // Build multilingual entries for a specific locale key from all available locale files
 // localeKey: the key to look up in locale files (e.g., "select_language", "about_setupcraft")
 // localeDir: directory containing locale files (e.g., "locale")

@@ -1,7 +1,21 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 27 February 2026<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 28 February 2026<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
 
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.02.28.10</span></h3>
+<p><strong>Tooltip and internationalization improvements; packaging update (28.02.2026, 10:56):</strong></p>
+<ul>
+<li><strong>Multilingual globe tooltip:</strong> Implemented a two-column multilingual language table (up to 20 entries, 10 rows per column) for the globe icon on the entry screen. Country codes are shown in blue as [XX] before each translation.</li>
+<li><strong>Tooltip placement & behavior:</strong> Tooltip placement adjusted to avoid overlapping the globe icon to reduce mouseleave interference; lightweight logging added to `tooltip_debug.log` to assist diagnostics.</li>
+<li><strong>Known issue (investigating):</strong> The multilingual table currently flashes briefly and often disappears on hover — visible once but not stable. Needs follow-up to track mouse across icon and tooltip windows and debounce hide behavior.</li>
+<li><strong>Registry warning tooltip:</strong> The warning tooltip on the Registry page displays correctly on hover but sometimes does not hide when the mouse leaves — further investigation required.</li>
+<li><strong>About & Globe icon fixes:</strong> Ensured icons receive mouse messages via `SS_NOTIFY` and control subclassing; restored About click handling and improved WM_MOUSELEAVE tracking.</li>
+<li><strong>Build & packaging:</strong> Updated `curver.txt` to Version 2026.02.28.10 (Published: 28.02.2026 10:56) and rebuilt the package.</li>
+</ul>
+
+<h3 style="text-align: center;">&nbsp;</h3>
+
+<!-- Previous release notes follow -->
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.02.27.14</span></h3>
 <p><strong>Files page roots, virtual-folder auto-creation, and robustness fixes (27.02.2026, 14:42):</strong></p>
 <ul>

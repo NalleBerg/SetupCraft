@@ -12,6 +12,27 @@ static const wchar_t TOOLTIP_CLASS_NAME[] = L"CustomTooltipClass";
 
 // Forward declaration
 static LRESULT CALLBACK TooltipWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+static std::wstring GetExeDir();
+// Helper to find available locale codes under <exeDir>\locale\*.txt
+static std::vector<std::wstring> FindAvailableLocales() {
+    std::vector<std::wstring> codes;
+    std::wstring exeDir = GetExeDir();
+    std::wstring search = exeDir + L"\\locale\\*.txt";
+    WIN32_FIND_DATAW fd;
+    HANDLE h = FindFirstFileW(search.c_str(), &fd);
+    if (h == INVALID_HANDLE_VALUE) return codes;
+    do {
+        if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
+            std::wstring name = fd.cFileName;
+            size_t pos = name.rfind(L".txt");
+            if (pos != std::wstring::npos) codes.push_back(name.substr(0, pos));
+        }
+    } while (FindNextFileW(h, &fd));
+    FindClose(h);
+    std::sort(codes.begin(), codes.end());
+    codes.erase(std::unique(codes.begin(), codes.end()), codes.end());
+    return codes;
+}
 
 // Trim whitespace from a string
 static void TrimW(std::wstring &s) {
@@ -80,8 +101,8 @@ static LRESULT CALLBACK TooltipWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
         RECT rc;
         GetClientRect(hwnd, &rc);
         
-        // Fill background with light yellow
-        HBRUSH hBrush = CreateSolidBrush(RGB(255, 255, 225));
+        // Fill background using system info background (matches other info tooltips)
+        HBRUSH hBrush = CreateSolidBrush(GetSysColor(COLOR_INFOBK));
         FillRect(hdc, &rc, hBrush);
         DeleteObject(hBrush);
         
@@ -102,46 +123,70 @@ static LRESULT CALLBACK TooltipWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
         
         // Check if this is a simple single-entry tooltip (empty country code)
         bool isSimpleTooltip = (g_currentEntries.size() == 1 && g_currentEntries[0].first.empty());
-        
+
         if (isSimpleTooltip) {
-            // Simple tooltip - just draw centered text
+            // Simple tooltip - support multiline (\n separated)
             const int startX = 10;
             const int startY = 10;
+            const int rowHeight = 20;
+            // split lines by '\n'
+            std::vector<std::wstring> lines;
+            std::wstring s = g_currentEntries[0].second;
+            size_t pos = 0;
+            while (true) {
+                size_t nl = s.find(L'\n', pos);
+                if (nl == std::wstring::npos) {
+                    lines.push_back(s.substr(pos));
+                    break;
+                } else {
+                    lines.push_back(s.substr(pos, nl - pos));
+                    pos = nl + 1;
+                }
+            }
             SetTextColor(hdc, RGB(0, 0, 0));
-            TextOutW(hdc, startX, startY, g_currentEntries[0].second.c_str(), (int)g_currentEntries[0].second.length());
+            for (size_t i = 0; i < lines.size(); ++i) {
+                int y = startY + (int)i * rowHeight;
+                RECT lineRc = { startX, y, rc.right - 10, y + rowHeight };
+                DrawTextW(hdc, lines[i].c_str(), -1, &lineRc, DT_LEFT | DT_TOP | DT_SINGLELINE);
+            }
         } else {
-            // Multilingual tooltip - 4 columns: Code | Text | Code | Text
+            // Multilingual tooltip - two columns, up to 10 rows per column
             const int startX = 10;
             const int startY = 10;
             const int rowHeight = 22;
-            const int textCol1X = 65;      // First text column (codes right-aligned before this)
-            const int textCol2X = 410;     // Second text column (codes right-aligned before this)
-            
-            // Process 2 entries per row
-            for (size_t i = 0; i < g_currentEntries.size(); i += 2) {
-                int row = (int)(i / 2);
-                int y = startY + row * rowHeight;
-                
-                // Draw first entry (left side)
-                // Country code in royal blue, right-aligned
-                SetTextColor(hdc, RGB(65, 105, 225));
-                SIZE sz1;
-                GetTextExtentPoint32W(hdc, g_currentEntries[i].first.c_str(), (int)g_currentEntries[i].first.length(), &sz1);
-                TextOutW(hdc, textCol1X - sz1.cx - 5, y, g_currentEntries[i].first.c_str(), (int)g_currentEntries[i].first.length());
-                // Translation text in black
-                SetTextColor(hdc, RGB(0, 0, 0));
-                TextOutW(hdc, textCol1X, y, g_currentEntries[i].second.c_str(), (int)g_currentEntries[i].second.length());
-                
-                // Draw second entry (right side) if it exists
-                if (i + 1 < g_currentEntries.size()) {
-                    // Country code in royal blue, right-aligned
+            const int leftTextColX = 80;   // left column text start
+            const int rightTextColX = 300; // right column text start
+
+            // Cap entries shown to 20 (10 per column)
+            int totalEntries = (int)g_currentEntries.size();
+            if (totalEntries > 20) totalEntries = 20;
+
+            int rows = totalEntries <= 10 ? totalEntries : 10;
+
+            // Draw rows: left column indices [0..rows-1], right column indices [rows..rows+rows-1]
+            for (int r = 0; r < rows; ++r) {
+                int y = startY + r * rowHeight;
+
+                int leftIdx = r;
+                if (leftIdx < totalEntries) {
+                    // country code, blue, right-aligned just before text
                     SetTextColor(hdc, RGB(65, 105, 225));
-                    SIZE sz2;
-                    GetTextExtentPoint32W(hdc, g_currentEntries[i + 1].first.c_str(), (int)g_currentEntries[i + 1].first.length(), &sz2);
-                    TextOutW(hdc, textCol2X - sz2.cx - 5, y, g_currentEntries[i + 1].first.c_str(), (int)g_currentEntries[i + 1].first.length());
-                    // Translation text in black
+                    SIZE szc;
+                    GetTextExtentPoint32W(hdc, g_currentEntries[leftIdx].first.c_str(), (int)g_currentEntries[leftIdx].first.length(), &szc);
+                    TextOutW(hdc, leftTextColX - szc.cx - 5, y, g_currentEntries[leftIdx].first.c_str(), (int)g_currentEntries[leftIdx].first.length());
+                    // text
                     SetTextColor(hdc, RGB(0, 0, 0));
-                    TextOutW(hdc, textCol2X, y, g_currentEntries[i + 1].second.c_str(), (int)g_currentEntries[i + 1].second.length());
+                    TextOutW(hdc, leftTextColX, y, g_currentEntries[leftIdx].second.c_str(), (int)g_currentEntries[leftIdx].second.length());
+                }
+
+                int rightIdx = r + rows;
+                if (rightIdx < totalEntries) {
+                    SetTextColor(hdc, RGB(65, 105, 225));
+                    SIZE szc2;
+                    GetTextExtentPoint32W(hdc, g_currentEntries[rightIdx].first.c_str(), (int)g_currentEntries[rightIdx].first.length(), &szc2);
+                    TextOutW(hdc, rightTextColX - szc2.cx - 5, y, g_currentEntries[rightIdx].first.c_str(), (int)g_currentEntries[rightIdx].first.length());
+                    SetTextColor(hdc, RGB(0, 0, 0));
+                    TextOutW(hdc, rightTextColX, y, g_currentEntries[rightIdx].second.c_str(), (int)g_currentEntries[rightIdx].second.length());
                 }
             }
         }
@@ -160,7 +205,7 @@ bool InitTooltipSystem(HINSTANCE hInstance) {
     wc.lpfnWndProc = TooltipWndProc;
     wc.hInstance = hInstance;
     wc.lpszClassName = TOOLTIP_CLASS_NAME;
-    wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+    wc.hbrBackground = (HBRUSH)(COLOR_INFOBK + 1);
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
     
     if (!RegisterClassExW(&wc)) {
@@ -194,42 +239,130 @@ void CleanupTooltipSystem() {
 
 void ShowMultilingualTooltip(const std::vector<TooltipEntry>& entries, int x, int y, HWND parentHwnd) {
     g_currentEntries = entries;
-    
+
+    // If caller passed an empty multilingual list, attempt to build a multilingual
+    // list from available locale files so the globe/entry-screen tooltip still
+    // shows translations.
+    if (g_currentEntries.empty()) {
+        auto codes = FindAvailableLocales();
+        if (!codes.empty()) {
+            auto fallback = BuildMultilingualEntries(L"select_language", L"locale", codes);
+            if (!fallback.empty()) g_currentEntries = fallback;
+        }
+    }
+
     // Check if this is a simple single-entry tooltip (empty country code)
-    bool isSimpleTooltip = (entries.size() == 1 && entries[0].first.empty());
+    bool isSimpleTooltip = (g_currentEntries.size() == 1 && g_currentEntries[0].first.empty());
     
     // Calculate dimensions
     int tooltipWidth, tooltipHeight;
     if (isSimpleTooltip) {
-        // Simple tooltip - calculate width based on text length
+        // Simple tooltip - calculate width/height for multiline content
+        std::vector<std::wstring> lines;
+        std::wstring s = g_currentEntries[0].second;
+        size_t pos = 0;
+        while (true) {
+            size_t nl = s.find(L'\n', pos);
+            if (nl == std::wstring::npos) {
+                lines.push_back(s.substr(pos));
+                break;
+            } else {
+                lines.push_back(s.substr(pos, nl - pos));
+                pos = nl + 1;
+            }
+        }
         HDC hdc = GetDC(NULL);
         if (g_tooltipFont) SelectObject(hdc, g_tooltipFont);
+        int maxw = 0;
         SIZE sz;
-        GetTextExtentPoint32W(hdc, entries[0].second.c_str(), (int)entries[0].second.length(), &sz);
+        for (const auto &ln : lines) {
+            GetTextExtentPoint32W(hdc, ln.c_str(), (int)ln.length(), &sz);
+            if (sz.cx > maxw) maxw = sz.cx;
+        }
         ReleaseDC(NULL, hdc);
-        tooltipWidth = sz.cx + 25;  // Add padding
-        tooltipHeight = 40;
+        tooltipWidth = maxw + 25;  // Add padding
+        int rowHeight = 20;
+        tooltipHeight = (int)lines.size() * rowHeight + 20;
     } else {
-        // Multilingual tooltip - use full width
-        tooltipWidth = 700;
-        int numRows = ((int)entries.size() + 1) / 2;
-        tooltipHeight = numRows * 22 + 30;
+        // Multilingual tooltip - two columns, up to 10 rows per column
+        int totalEntries = (int)g_currentEntries.size();
+        if (totalEntries > 20) totalEntries = 20; // cap display
+        int rows = totalEntries <= 10 ? totalEntries : 10;
+        // Compute width: reserve space for codes and text columns
+        tooltipWidth = 520;
+        tooltipHeight = rows * 22 + 30;
     }
     
+    // Adjust position to keep tooltip inside parent window bounds if possible
+    int finalX = x;
+    int finalY = y;
+    if (parentHwnd) {
+        RECT rcParent;
+        GetClientRect(parentHwnd, &rcParent);
+        POINT pTopLeft = { rcParent.left, rcParent.top };
+        POINT pBottomRight = { rcParent.right, rcParent.bottom };
+        ClientToScreen(parentHwnd, &pTopLeft);
+        ClientToScreen(parentHwnd, &pBottomRight);
+        int parentLeft = pTopLeft.x;
+        int parentRight = pBottomRight.x;
+        int parentTop = pTopLeft.y;
+        int parentBottom = pBottomRight.y;
+
+        // Clamp tooltip width to parent width minus margins to avoid huge overflow
+        int parentWidth = parentRight - parentLeft;
+        int maxTooltipWidth = parentWidth - 30;
+        if (maxTooltipWidth < 100) maxTooltipWidth = 100;
+        if (tooltipWidth > maxTooltipWidth) tooltipWidth = maxTooltipWidth;
+
+        // If tooltip would overflow right edge, shift it left
+        if (finalX + tooltipWidth > parentRight - 10) {
+            finalX = parentRight - tooltipWidth - 10;
+        }
+        // Ensure not beyond left edge
+        if (finalX < parentLeft + 10) {
+            finalX = parentLeft + 10;
+        }
+        // If tooltip would go below bottom of parent, try moving it above the point
+        if (finalY + tooltipHeight > parentBottom - 10) {
+            // Move above the requested y if possible
+            int aboveY = y - tooltipHeight - 10;
+            if (aboveY >= parentTop + 10) finalY = aboveY;
+            else finalY = parentBottom - tooltipHeight - 10;
+        }
+    }
+
     if (!g_tooltipWindow) {
         HINSTANCE hInst = (HINSTANCE)GetWindowLongPtr(parentHwnd, GWLP_HINSTANCE);
-        g_tooltipWindow = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+        // Make tooltip mouse-transparent so it doesn't steal mouse events from underlying controls
+        LONG_PTR exStyles = WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT;
+        g_tooltipWindow = CreateWindowExW((DWORD)exStyles,
             TOOLTIP_CLASS_NAME, L"",
             WS_POPUP | WS_BORDER,
-            x, y, tooltipWidth, tooltipHeight,
+            finalX, finalY, tooltipWidth, tooltipHeight,
             parentHwnd, NULL, hInst, NULL);
     }
     
     if (g_tooltipWindow) {
-        SetWindowPos(g_tooltipWindow, HWND_TOPMOST, x, y, tooltipWidth, tooltipHeight, 
+        SetWindowPos(g_tooltipWindow, HWND_TOPMOST, finalX, finalY, tooltipWidth, tooltipHeight,
                      SWP_SHOWWINDOW | SWP_NOACTIVATE);
         InvalidateRect(g_tooltipWindow, NULL, TRUE);
     }
+
+    // Lightweight debug log to help diagnose tooltip visibility issues
+    try {
+        std::wstring logPath = GetExeDir() + L"\\tooltip_debug.log";
+        std::wofstream lf;
+        lf.open(logPath.c_str(), std::ios::app);
+        if (lf.is_open()) {
+            lf << L"ShowMultilingualTooltip called: entries=" << g_currentEntries.size() << L" x=" << finalX << L" y=" << finalY << L"\n";
+            // list first few entries codes
+            for (size_t i = 0; i < g_currentEntries.size() && i < 6; ++i) {
+                lf << L"  [" << g_currentEntries[i].first << L"] " << g_currentEntries[i].second << L"\n";
+            }
+            lf.flush();
+            lf.close();
+        }
+    } catch (...) { }
 }
 
 void HideTooltip() {

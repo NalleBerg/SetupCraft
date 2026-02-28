@@ -69,6 +69,47 @@ static HWND g_globeIcon = NULL;
 static HWND g_aboutIcon = NULL;
 static HWND g_currentTooltipIcon = NULL; // Track which icon is showing tooltip
 static bool g_mouseTracking = false;
+static WNDPROC g_prevGlobeProc = NULL;
+
+// Subclass proc for globe icon so the entry screen can show multilingual tooltip
+static LRESULT CALLBACK GlobeIcon_SubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+    case WM_MOUSEMOVE: {
+        if (!IsTooltipVisible()) {
+            // Ensure entries exist (rebuild if necessary)
+            if (g_tooltipEntries.empty()) {
+                g_tooltipEntries = BuildMultilingualEntries(L"select_language", L"locale", g_availableLocales);
+            }
+            // Position tooltip below the globe icon using built multilingual entries
+            RECT rcIcon;
+            GetWindowRect(hwnd, &rcIcon);
+            POINT ptIcon = { rcIcon.left, rcIcon.bottom + 5 };
+            ShowMultilingualTooltip(g_tooltipEntries, ptIcon.x, ptIcon.y, GetParent(hwnd));
+            g_currentTooltipIcon = hwnd;
+        }
+
+        // Start tracking mouse leave on the control itself
+        TRACKMOUSEEVENT tme = { 0 };
+        tme.cbSize = sizeof(tme);
+        tme.dwFlags = TME_LEAVE;
+        tme.hwndTrack = hwnd;
+        TrackMouseEvent(&tme);
+        break;
+    }
+    case WM_MOUSELEAVE: {
+        if (IsTooltipVisible() && g_currentTooltipIcon == hwnd) {
+            HideTooltip();
+            g_currentTooltipIcon = NULL;
+        }
+        break;
+    }
+    case WM_NCDESTROY: {
+        SetWindowLongPtrW(hwnd, GWLP_WNDPROC, (LONG_PTR)g_prevGlobeProc);
+        break;
+    }
+    }
+    return CallWindowProcW(g_prevGlobeProc, hwnd, msg, wParam, lParam);
+}
 
 static std::wstring Utf8ToW(const std::string &s) {
     if (s.empty()) return {};
@@ -831,9 +872,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
         // Globe icon to the left of combo (using shell32.dll icon #13)
         HWND hIcon = CreateWindowExW(
-            WS_EX_TRANSPARENT,  // Allow mouse events to pass through to parent
+            0,
             L"STATIC", NULL,
-            WS_CHILD | WS_VISIBLE | SS_ICON | SS_CENTERIMAGE,
+            WS_CHILD | WS_VISIBLE | SS_ICON | SS_CENTERIMAGE | SS_NOTIFY,
             iconLeft, 8, iconSize, iconSize,
             hwnd, (HMENU)IDC_GLOBE_ICON, hInst, NULL);
         
@@ -849,6 +890,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         }
         
         g_globeIcon = hIcon; // Store for later use
+        // Subclass globe icon so we can track mouse enter/leave on the control itself
+        g_prevGlobeProc = (WNDPROC)SetWindowLongPtrW(g_globeIcon, GWLP_WNDPROC, (LONG_PTR)GlobeIcon_SubclassProc);
 
         // Build tooltip entries
         g_tooltipEntries = BuildMultilingualEntries(L"select_language", L"locale", g_availableLocales);
@@ -1178,10 +1221,23 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 }
                 
                 if (!IsTooltipVisible()) {
-                    // Position tooltip below the globe icon
+                    // Attempt to build multilingual entries and show the table
+                    auto entries = BuildMultilingualEntries(L"select_language", L"locale", g_availableLocales);
                     POINT ptIcon = { rcIcon.left, rcIcon.bottom + 5 };
                     ClientToScreen(hwnd, &ptIcon);
-                    ShowMultilingualTooltip(g_tooltipEntries, ptIcon.x, ptIcon.y, hwnd);
+                    if (!entries.empty()) {
+                        // Position multilingual table to the right of the globe to avoid overlapping the icon
+                        POINT ptRight = { rcIcon.right + 8, rcIcon.top };
+                        ClientToScreen(hwnd, &ptRight);
+                        ShowMultilingualTooltip(entries, ptRight.x, ptRight.y, hwnd);
+                    } else {
+                        // Fallback: simple localized single-line tooltip
+                        auto itText = g_locale.find(L"select_language");
+                        std::wstring tooltipText = (itText != g_locale.end()) ? itText->second : L"Select language for your project";
+                        std::vector<std::pair<std::wstring, std::wstring>> simpleEntry;
+                        simpleEntry.push_back({L"", tooltipText});
+                        ShowMultilingualTooltip(simpleEntry, ptIcon.x, ptIcon.y, hwnd);
+                    }
                     g_currentTooltipIcon = g_globeIcon;
                 }
             }

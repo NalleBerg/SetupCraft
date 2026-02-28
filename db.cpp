@@ -126,6 +126,8 @@ bool DB::InitDb() {
     p_exec(db, "ALTER TABLE projects ADD COLUMN register_in_windows INTEGER DEFAULT 1;", NULL, NULL, &errmsg);
     p_exec(db, "ALTER TABLE projects ADD COLUMN app_icon_path TEXT;", NULL, NULL, &errmsg);
     p_exec(db, "ALTER TABLE projects ADD COLUMN app_publisher TEXT;", NULL, NULL, &errmsg);
+    // Add install_scope column to files table to store per-file or per-folder install scope (PerUser/AllUsers/AskAtInstall)
+    p_exec(db, "ALTER TABLE files ADD COLUMN install_scope TEXT DEFAULT '';", NULL, NULL, &errmsg);
     
     // Check if projects table is empty, if so add SetupCraft project
     const char *countSql = "SELECT COUNT(*) FROM projects;";
@@ -224,6 +226,53 @@ bool DB::InsertProject(const std::wstring &name, const std::wstring &directory, 
         long long id = p_last_insert(db);
         outId = (int)id;
     }
+    p_close(db);
+    return true;
+}
+
+bool DB::DeleteFilesForProject(int projectId) {
+    std::wstring dbPath = GetAppDataDbPath();
+    std::string dbPathUtf8 = WToUtf8(dbPath);
+    void *db = NULL;
+    int flags = 0x00000002 /*SQLITE_OPEN_READWRITE*/ | 0x00000004 /*SQLITE_OPEN_CREATE*/;
+    if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return false;
+
+    const char *sql = "DELETE FROM files WHERE project_id = ?;";
+    void *stmt = NULL;
+    if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return false; }
+    if (p_bind_text) {
+        std::ostringstream os; os << projectId; std::string sId = os.str();
+        p_bind_text(stmt, 1, sId.c_str(), -1, NULL);
+    }
+    p_step(stmt);
+    if (p_finalize) p_finalize(stmt);
+    p_close(db);
+    return true;
+}
+
+bool DB::InsertFile(int projectId, const std::wstring &sourcePath, const std::wstring &destPath, const std::wstring &installScope) {
+    std::wstring dbPath = GetAppDataDbPath();
+    std::string dbPathUtf8 = WToUtf8(dbPath);
+    void *db = NULL;
+    int flags = 0x00000002 /*SQLITE_OPEN_READWRITE*/ | 0x00000004 /*SQLITE_OPEN_CREATE*/;
+    if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return false;
+
+    const char *sql = "INSERT INTO files (project_id, source_path, destination_path, install_scope) VALUES (?, ?, ?, ?);";
+    void *stmt = NULL;
+    if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return false; }
+
+    std::string sProject = std::to_string(projectId);
+    std::string sSource = WToUtf8(sourcePath);
+    std::string sDest = WToUtf8(destPath);
+    std::string sScope = WToUtf8(installScope);
+
+    if (p_bind_text) p_bind_text(stmt, 1, sProject.c_str(), -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 2, sSource.c_str(), -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 3, sDest.c_str(), -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 4, sScope.c_str(), -1, NULL);
+
+    p_step(stmt);
+    if (p_finalize) p_finalize(stmt);
     p_close(db);
     return true;
 }

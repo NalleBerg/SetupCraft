@@ -20,4 +20,7 @@ namespace DB {
     bool GetProject(int id, ProjectRow &outProject);
     bool GetSetting(const std::wstring &key, std::wstring &outValue);
     bool SetSetting(const std::wstring &key, const std::wstring &value);
+    // File persistence
+    bool DeleteFilesForProject(int projectId);
+    bool InsertFile(int projectId, const std::wstring &sourcePath, const std::wstring &destPath, const std::wstring &installScope);
 }

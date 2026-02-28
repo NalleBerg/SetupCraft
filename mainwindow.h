@@ -15,6 +15,9 @@ public:
     static void MarkAsSaved();
     static bool HasUnsavedChanges();
     static bool IsNewUnsavedProject();
+    // Accessors for components needed by non-member helpers
+    static HTREEITEM GetAskAtInstallRoot();
+    static const std::map<std::wstring, std::wstring>& GetLocale();
     
 private:
     static void CreateMenuBar(HWND hwnd);
@@ -46,6 +49,8 @@ private:
     static HTREEITEM s_hProgramFilesRoot; // Track Program Files root node
     static HTREEITEM s_hProgramDataRoot; // Track ProgramData root node
     static HTREEITEM s_hAppDataRoot;     // Track AppData (Roaming) root node
+    static HTREEITEM s_hAskAtInstallRoot; // Virtual root for Ask-at-install scope
+    static bool s_askAtInstallEnabled;    // Whether AskAtInstall mode is enabled for project
     static int s_toolbarHeight;
     static int s_currentPageIndex;
 };

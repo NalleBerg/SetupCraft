@@ -6,6 +6,7 @@
 #include <windowsx.h>
 #include <functional>
 #include <vector>
+#include <algorithm>
 #include "ctrlw.h"
 #include "button.h"
 #include "spinner_dialog.h"
@@ -28,6 +29,8 @@ HWND MainWindow::s_hListView = NULL;
 HTREEITEM MainWindow::s_hProgramFilesRoot = NULL;
 HTREEITEM MainWindow::s_hProgramDataRoot = NULL;
 HTREEITEM MainWindow::s_hAppDataRoot = NULL;
+HTREEITEM MainWindow::s_hAskAtInstallRoot = NULL;
+bool MainWindow::s_askAtInstallEnabled = false;
 int MainWindow::s_toolbarHeight = 50;
 int MainWindow::s_currentPageIndex = 0;
 static bool s_hasUnsavedChanges = false;
@@ -41,11 +44,19 @@ static bool s_aboutMouseTracking = false; // Track mouse for About button toolti
 // Mirror entry-screen tooltip tracking state
 static HWND s_currentTooltipIcon = NULL; // Which icon currently has the tooltip shown
 static bool s_mouseTracking = false; // General mouse tracking flag for tooltip
+static HTREEITEM s_lastHoveredTreeItem = NULL;
+static WNDPROC s_prevTreeProc = NULL;
+static WNDPROC s_prevWarnIconProc = NULL;
+// Forward declarations for functions defined later
+static LRESULT CALLBACK TreeView_SubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+static std::vector<std::wstring> GetAvailableLocales();
+static LRESULT CALLBACK WarningIcon_SubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 // Store files added to virtual folders (keyed by HTREEITEM)
 struct VirtualFolderFile {
     std::wstring sourcePath;
     std::wstring destination;
+    std::wstring install_scope; // e.g., "AskAtInstall", "PerUser", "AllUsers"
 };
 static std::map<HTREEITEM, std::vector<VirtualFolderFile>> s_virtualFolderFiles;
 
@@ -112,6 +123,8 @@ static HFONT s_warningTooltipFont = NULL;
 #define IDC_FILES_REMOVE    5024
 #define IDC_PROJECT_NAME    5025
 #define IDC_INSTALL_FOLDER  5026
+// Ask-at-install checkbox
+#define IDC_ASK_AT_INSTALL  5027
 
 // Context menu IDs
 #define IDM_TREEVIEW_ADD_FOLDER 5030
@@ -179,6 +192,50 @@ LRESULT CALLBACK WarningTooltipWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
     default:
         return DefWindowProcW(hwnd, msg, wParam, lParam);
     }
+}
+
+// Subclass proc for the registry warning icon
+static LRESULT CALLBACK WarningIcon_SubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+    case WM_MOUSEMOVE: {
+        if (!IsTooltipVisible()) {
+            auto it = MainWindow::GetLocale().find(L"reg_warning_tooltip");
+            std::wstring tooltipText = (it != MainWindow::GetLocale().end()) ? it->second :
+                L"Editing the registry can change the machine's behaviour and maybe harm it, so edit at your own risk.";
+            std::vector<std::pair<std::wstring,std::wstring>> simpleEntry;
+            simpleEntry.push_back({L"", tooltipText});
+
+            RECT rcIcon;
+            GetWindowRect(hwnd, &rcIcon);
+            POINT ptIcon = { rcIcon.left, rcIcon.bottom + 5 };
+            ShowMultilingualTooltip(simpleEntry, ptIcon.x, ptIcon.y, GetParent(hwnd));
+            s_currentTooltipIcon = hwnd;
+        }
+
+        if (!s_warningTooltipTracking) {
+            TRACKMOUSEEVENT tme = {0};
+            tme.cbSize = sizeof(tme);
+            tme.dwFlags = TME_LEAVE;
+            tme.hwndTrack = hwnd;
+            TrackMouseEvent(&tme);
+            s_warningTooltipTracking = true;
+        }
+        break;
+    }
+    case WM_MOUSELEAVE: {
+        if (IsTooltipVisible() && s_currentTooltipIcon == hwnd) {
+            HideTooltip();
+            s_currentTooltipIcon = NULL;
+        }
+        s_warningTooltipTracking = false;
+        break;
+    }
+    case WM_NCDESTROY: {
+        SetWindowLongPtrW(hwnd, GWLP_WNDPROC, (LONG_PTR)s_prevWarnIconProc);
+        break;
+    }
+    }
+    return CallWindowProcW(s_prevWarnIconProc, hwnd, msg, wParam, lParam);
 }
 
 HWND MainWindow::Create(HINSTANCE hInstance, const ProjectRow &project, const std::map<std::wstring, std::wstring> &locale) {
@@ -811,6 +868,14 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         // Browse button for install folder (aligned with install folder field)
         CreateCustomButtonWithIcon(hwnd, IDC_BROWSE_INSTALL_DIR, L"...", ButtonColor::Blue,
             L"shell32.dll", 4, rc.right - 55, s_toolbarHeight + 82, 35, 22, hInst);
+
+        // Ask-at-install checkbox below install folder
+        HWND hAskChk = CreateWindowExW(0, L"BUTTON", L"Ask end user at install (Per-user / All-users)",
+            WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
+            395, pageY + 110, 360, 22,
+            hwnd, (HMENU)IDC_ASK_AT_INSTALL, hInst, NULL);
+        // Reflect current state
+        SendMessageW(hAskChk, BM_SETCHECK, s_askAtInstallEnabled ? BST_CHECKED : BST_UNCHECKED, 0);
         
         // Calculate split pane dimensions (TreeView 30%, ListView 70%)
         int viewTop = 150;  // Moved down to make room for Remove button
@@ -837,8 +902,43 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
                 HICON hFolderOpen = (HICON)LoadImageW(hShell32, MAKEINTRESOURCEW(5), IMAGE_ICON, 16, 16, 0);
                 if (hFolderClosed) ImageList_AddIcon(hImageList, hFolderClosed);
                 if (hFolderOpen) ImageList_AddIcon(hImageList, hFolderOpen);
+                // Create a small badge icon (solid blue circle) programmatically
+                HICON hBadge = NULL;
+                {
+                    // Create 32-bit DIB section for icon
+                    HDC hdc = GetDC(NULL);
+                    HBITMAP hBmp = CreateCompatibleBitmap(hdc, 16, 16);
+                    HDC hMem = CreateCompatibleDC(hdc);
+                    HBITMAP hOld = (HBITMAP)SelectObject(hMem, hBmp);
+                    // Fill transparent background
+                    BLENDFUNCTION bf = {0};
+                    HBRUSH hBrush = CreateSolidBrush(RGB(0,0,0));
+                    RECT rc = {0,0,16,16};
+                    FillRect(hMem, &rc, (HBRUSH)GetStockObject(NULL_BRUSH));
+                    // Draw a small blue filled circle
+                    HBRUSH hCircle = CreateSolidBrush(RGB(65,105,225));
+                    HBRUSH hOldBrush = (HBRUSH)SelectObject(hMem, hCircle);
+                    Ellipse(hMem, 3, 3, 13, 13);
+                    SelectObject(hMem, hOldBrush);
+                    DeleteObject(hCircle);
+
+                    ICONINFO ii = {};
+                    ii.fIcon = TRUE;
+                    ii.xHotspot = 0;
+                    ii.yHotspot = 0;
+                    ii.hbmMask = hBmp; // using same bitmap for mask (no transparency)
+                    ii.hbmColor = hBmp;
+                    hBadge = CreateIconIndirect(&ii);
+
+                    SelectObject(hMem, hOld);
+                    DeleteDC(hMem);
+                    ReleaseDC(NULL, hdc);
+                    // Keep hBmp alive for icon (OS owns a copy)
+                }
+                if (hBadge) ImageList_AddIcon(hImageList, hBadge);
                 if (hFolderClosed) DestroyIcon(hFolderClosed);
                 if (hFolderOpen) DestroyIcon(hFolderOpen);
+                if (hBadge) DestroyIcon(hBadge);
                 FreeLibrary(hShell32);
             }
             TreeView_SetImageList(s_hTreeView, hImageList, TVSIL_NORMAL);
@@ -882,25 +982,91 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
             }
         }
         s_hProgramFilesRoot = AddTreeNode(s_hTreeView, TVI_ROOT, parentPath, L"");
-        // Add ProgramData and AppData (Roaming) roots so developer can add files there as well
-        wchar_t szPath[MAX_PATH] = {};
-        if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_COMMON_APPDATA, NULL, 0, szPath))) {
-            std::wstring pdPath = szPath;
-            s_hProgramDataRoot = AddTreeNode(s_hTreeView, TVI_ROOT, L"ProgramData", pdPath);
-        } else {
-            s_hProgramDataRoot = AddTreeNode(s_hTreeView, TVI_ROOT, L"ProgramData", L"C:\\ProgramData");
+        // Root items are system roots - remove deletion checkboxes from them
+        if (s_hProgramFilesRoot) {
+            TVITEMW tv = {};
+            tv.hItem = s_hProgramFilesRoot;
+            tv.mask = TVIF_STATE;
+            tv.stateMask = TVIS_STATEIMAGEMASK;
+            tv.state = 0;
+            TreeView_SetItem(s_hTreeView, &tv);
         }
-        if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_APPDATA, NULL, 0, szPath))) {
-            std::wstring appdataPath = szPath;
-            s_hAppDataRoot = AddTreeNode(s_hTreeView, TVI_ROOT, L"AppData (Roaming)", appdataPath);
+        // If AskAtInstall mode enabled, create the special virtual root; otherwise create ProgramData and AppData
+        if (s_askAtInstallEnabled) {
+            s_hAskAtInstallRoot = AddTreeNode(s_hTreeView, TVI_ROOT, L"AskAtInstall", L"");
+            if (s_hAskAtInstallRoot) {
+                // Remove checkbox state for system-like root
+                TVITEMW tv4 = {};
+                tv4.hItem = s_hAskAtInstallRoot;
+                tv4.mask = TVIF_STATE;
+                tv4.stateMask = TVIS_STATEIMAGEMASK;
+                tv4.state = 0;
+                TreeView_SetItem(s_hTreeView, &tv4);
+                // Assign badge icon (last image index)
+                TVITEMW itImg = {};
+                itImg.hItem = s_hAskAtInstallRoot;
+                itImg.mask = TVIF_IMAGE | TVIF_SELECTEDIMAGE;
+                itImg.iImage = 2; // third image added (badge)
+                itImg.iSelectedImage = 2;
+                TreeView_SetItem(s_hTreeView, &itImg);
+            }
         } else {
-            s_hAppDataRoot = AddTreeNode(s_hTreeView, TVI_ROOT, L"AppData (Roaming)", L"%APPDATA%");
+            // Add ProgramData and AppData (Roaming) roots so developer can add files there as well
+            wchar_t szPath[MAX_PATH] = {};
+            if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_COMMON_APPDATA, NULL, 0, szPath))) {
+                std::wstring pdPath = szPath;
+                    s_hProgramDataRoot = AddTreeNode(s_hTreeView, TVI_ROOT, L"ProgramData", pdPath);
+                    if (s_hProgramDataRoot) {
+                        TVITEMW tv2 = {};
+                        tv2.hItem = s_hProgramDataRoot;
+                        tv2.mask = TVIF_STATE;
+                        tv2.stateMask = TVIS_STATEIMAGEMASK;
+                        tv2.state = 0;
+                        TreeView_SetItem(s_hTreeView, &tv2);
+                    }
+            } else {
+                s_hProgramDataRoot = AddTreeNode(s_hTreeView, TVI_ROOT, L"ProgramData", L"C:\\ProgramData");
+                if (s_hProgramDataRoot) {
+                    TVITEMW tv2 = {};
+                    tv2.hItem = s_hProgramDataRoot;
+                    tv2.mask = TVIF_STATE;
+                    tv2.stateMask = TVIS_STATEIMAGEMASK;
+                    tv2.state = 0;
+                    TreeView_SetItem(s_hTreeView, &tv2);
+                }
+            }
+            if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_APPDATA, NULL, 0, szPath))) {
+                std::wstring appdataPath = szPath;
+                s_hAppDataRoot = AddTreeNode(s_hTreeView, TVI_ROOT, L"AppData (Roaming)", appdataPath);
+                if (s_hAppDataRoot) {
+                    TVITEMW tv3 = {};
+                    tv3.hItem = s_hAppDataRoot;
+                    tv3.mask = TVIF_STATE;
+                    tv3.stateMask = TVIS_STATEIMAGEMASK;
+                    tv3.state = 0;
+                    TreeView_SetItem(s_hTreeView, &tv3);
+                }
+            } else {
+                s_hAppDataRoot = AddTreeNode(s_hTreeView, TVI_ROOT, L"AppData (Roaming)", L"%APPDATA%");
+                if (s_hAppDataRoot) {
+                    TVITEMW tv3 = {};
+                    tv3.hItem = s_hAppDataRoot;
+                    tv3.mask = TVIF_STATE;
+                    tv3.stateMask = TVIS_STATEIMAGEMASK;
+                    tv3.state = 0;
+                    TreeView_SetItem(s_hTreeView, &tv3);
+                }
+            }
         }
         TreeView_Expand(s_hTreeView, s_hProgramFilesRoot, TVE_EXPAND);
         
         // Populate TreeView with source folder structure if available
         if (!s_currentProject.directory.empty()) {
             PopulateTreeView(s_hTreeView, s_currentProject.directory, defaultPath);
+        }
+        // Subclass TreeView so we can show tooltip on hover
+        if (s_hTreeView) {
+            s_prevTreeProc = (WNDPROC)SetWindowLongPtrW(s_hTreeView, GWLP_WNDPROC, (LONG_PTR)TreeView_SubclassProc);
         }
         
         break;
@@ -1079,6 +1245,9 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         if (hWarnIcon) {
             SendMessageW(hWarningIcon, STM_SETICON, (WPARAM)hWarnIcon, 0);
         }
+
+        // Subclass the warning icon so we can get per-control WM_MOUSELEAVE
+        s_prevWarnIconProc = (WNDPROC)SetWindowLongPtrW(hWarningIcon, GWLP_WNDPROC, (LONG_PTR)WarningIcon_SubclassProc);
         
         currentY += 48;
         
@@ -1317,6 +1486,14 @@ HTREEITEM MainWindow::AddTreeNode(HWND hTree, HTREEITEM hParent, const std::wstr
     return TreeView_InsertItem(hTree, &tvis);
 }
 
+HTREEITEM MainWindow::GetAskAtInstallRoot() {
+    return s_hAskAtInstallRoot;
+}
+
+const std::map<std::wstring, std::wstring>& MainWindow::GetLocale() {
+    return s_locale;
+}
+
 void MainWindow::AddTreeNodeRecursive(HWND hTree, HTREEITEM hParent, const std::wstring &folderPath) {
     std::wstring searchPath = folderPath + L"\\*";
     WIN32_FIND_DATAW findData;
@@ -1383,6 +1560,71 @@ void MainWindow::PopulateTreeView(HWND hTree, const std::wstring &rootPath, cons
     // Force complete redraw
     InvalidateRect(hTree, NULL, TRUE);
     UpdateWindow(hTree);
+}
+
+// Helper to enumerate available locale codes from locale directory
+static std::vector<std::wstring> GetAvailableLocales() {
+    std::vector<std::wstring> out;
+    WIN32_FIND_DATAW fd;
+    wchar_t exePath[MAX_PATH];
+    if (!GetModuleFileNameW(NULL, exePath, _countof(exePath))) return out;
+    wchar_t *p = wcsrchr(exePath, L'\\'); if (!p) return out; *p = 0;
+    std::wstring search = std::wstring(exePath) + L"\\locale\\*.txt";
+    HANDLE h = FindFirstFileW(search.c_str(), &fd);
+    if (h == INVALID_HANDLE_VALUE) return out;
+    do {
+        if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
+            std::wstring name = fd.cFileName;
+            size_t pos = name.rfind(L".txt");
+            if (pos != std::wstring::npos) out.push_back(name.substr(0, pos));
+        }
+    } while (FindNextFileW(h, &fd));
+    FindClose(h);
+    std::sort(out.begin(), out.end());
+    out.erase(std::unique(out.begin(), out.end()), out.end());
+    return out;
+}
+
+// TreeView subclass to show AskAtInstall tooltip on hover
+static LRESULT CALLBACK TreeView_SubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+    case WM_MOUSEMOVE: {
+        // Hit test tree item under cursor
+        POINT pt; GetCursorPos(&pt);
+        ScreenToClient(hwnd, &pt);
+        TVHITTESTINFO ht = {};
+        ht.pt = pt;
+        HTREEITEM hItem = TreeView_HitTest(hwnd, &ht);
+        if (hItem != s_lastHoveredTreeItem) {
+            // If moved onto AskAtInstall root, show tooltip
+                    if (hItem == MainWindow::GetAskAtInstallRoot()) {
+                RECT rcItem;
+                    if (TreeView_GetItemRect(hwnd, hItem, &rcItem, TRUE)) {
+                        // Use selected language only (from locale) and show below mouse pointer
+                        auto it = MainWindow::GetLocale().find(L"ask_at_install_tooltip");
+                        std::wstring text = (it != MainWindow::GetLocale().end()) ? it->second : L"Installer will ask the end user whether to install for current user or all users; files will go to AppData or ProgramData accordingly.";
+                        std::vector<TooltipEntry> entries;
+                        entries.push_back({L"", text});
+                        POINT pt; GetCursorPos(&pt);
+                        ShowMultilingualTooltip(entries, pt.x, pt.y + 20, GetParent(hwnd));
+                    }
+            } else {
+                HideTooltip();
+            }
+            s_lastHoveredTreeItem = hItem;
+        }
+        // start mouse leave tracking
+        TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, hwnd, 0 };
+        TrackMouseEvent(&tme);
+        break;
+    }
+    case WM_MOUSELEAVE: {
+        HideTooltip();
+        s_lastHoveredTreeItem = NULL;
+        break;
+    }
+    }
+    return CallWindowProcW(s_prevTreeProc, hwnd, msg, wParam, lParam);
 }
 
 void MainWindow::UpdateInstallPathFromTree(HWND hwnd) {
@@ -2328,6 +2570,29 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 // Force ListView to redraw
                 InvalidateRect(s_hListView, NULL, TRUE);
                 UpdateWindow(s_hListView);
+                // Show tooltip if AskAtInstall root is selected
+                if (pnmtv->itemNew.hItem == s_hAskAtInstallRoot) {
+                    // Get item rect
+                    RECT rcItem;
+                    if (TreeView_GetItemRect(s_hTreeView, s_hAskAtInstallRoot, &rcItem, TRUE)) {
+                        // Use selected language only (from locale) and show below mouse pointer
+                        auto it = MainWindow::GetLocale().find(L"ask_at_install_tooltip");
+                        std::wstring text = (it != MainWindow::GetLocale().end()) ? it->second : L"Installer will ask the end user whether to install for current user or all users; files will go to AppData or ProgramData accordingly.";
+                        std::vector<TooltipEntry> entries;
+                        entries.push_back({L"", text});
+                        POINT pt; GetCursorPos(&pt);
+                        ShowMultilingualTooltip(entries, pt.x, pt.y + 20, hwnd);
+                    } else {
+                        auto it = MainWindow::GetLocale().find(L"ask_at_install_tooltip");
+                        std::wstring text = (it != MainWindow::GetLocale().end()) ? it->second : L"Installer will ask the end user whether to install for current user or all users; files will go to AppData or ProgramData accordingly.";
+                        std::vector<TooltipEntry> entries;
+                        entries.push_back({L"", text});
+                        POINT pt; GetCursorPos(&pt);
+                        ShowMultilingualTooltip(entries, pt.x, pt.y + 20, hwnd);
+                    }
+                } else {
+                    HideTooltip();
+                }
             }
             return 0;
         }
@@ -2613,6 +2878,9 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                                 VirtualFolderFile fileInfo;
                                 fileInfo.sourcePath = fullPath;
                                 fileInfo.destination = dest;
+                                if (hRootForAutoCreate == s_hAskAtInstallRoot) {
+                                    fileInfo.install_scope = L"AskAtInstall";
+                                }
                                 s_virtualFolderFiles[hTargetFolder].push_back(fileInfo);
                             }
                         }
@@ -2685,6 +2953,9 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                                     VirtualFolderFile fileInfo;
                                     fileInfo.sourcePath = fullPath;
                                     fileInfo.destination = dest;
+                                    if (hRootForAutoCreate == s_hAskAtInstallRoot) {
+                                        fileInfo.install_scope = L"AskAtInstall";
+                                    }
                                     s_virtualFolderFiles[hTargetFolder].push_back(fileInfo);
                                 }
                             }
@@ -2696,6 +2967,14 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 
                 MarkAsModified();
             }
+            return 0;
+        }
+
+        case IDC_ASK_AT_INSTALL: {
+            // Toggle ask-at-install mode and refresh page
+            s_askAtInstallEnabled = (SendMessageW(GetDlgItem(hwnd, IDC_ASK_AT_INSTALL), BM_GETCHECK, 0, 0) == BST_CHECKED);
+            // Recreate Files page to reflect root changes
+            SwitchPage(hwnd, 0);
             return 0;
         }
             
@@ -2739,39 +3018,54 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                             RemoveCheckedItems(hChild);
                         }
                         
-                        // Check if this item is checked
-                        if (TreeView_GetCheckState(s_hTreeView, hItem)) {
-                            // Get the item to free path memory
+                                // We'll collect checked items first to avoid deleting while iterating
+                                hItem = hNext;
+                    }
+                        };
+
+                        // Collect all checked items starting from root(s)
+                        std::vector<HTREEITEM> toDelete;
+                        std::function<void(HTREEITEM)> CollectChecked = [&](HTREEITEM hItem) {
+                            while (hItem) {
+                                HTREEITEM hNext = TreeView_GetNextSibling(s_hTreeView, hItem);
+                                HTREEITEM hChild = TreeView_GetChild(s_hTreeView, hItem);
+                                if (hChild) CollectChecked(hChild);
+                                // Skip protected system roots
+                                if (hItem != s_hProgramFilesRoot && hItem != s_hProgramDataRoot && hItem != s_hAppDataRoot && hItem != s_hAskAtInstallRoot) {
+                                    if (TreeView_GetCheckState(s_hTreeView, hItem)) {
+                                        toDelete.push_back(hItem);
+                                    }
+                                }
+                                hItem = hNext;
+                            }
+                        };
+
+                        HTREEITEM hRoot = TreeView_GetRoot(s_hTreeView);
+                        if (hRoot) CollectChecked(hRoot);
+
+                        for (HTREEITEM hDel : toDelete) {
                             TVITEMW item = {};
                             item.mask = TVIF_PARAM;
-                            item.hItem = hItem;
+                            item.hItem = hDel;
                             TreeView_GetItem(s_hTreeView, &item);
-                            
                             if (item.lParam) {
                                 wchar_t* path = (wchar_t*)item.lParam;
                                 free(path);
                             }
-                            
-                            TreeView_DeleteItem(s_hTreeView, hItem);
+                            // Remove any virtual folder file entries associated with this item
+                            auto itvf = s_virtualFolderFiles.find(hDel);
+                            if (itvf != s_virtualFolderFiles.end()) s_virtualFolderFiles.erase(itvf);
+                            TreeView_DeleteItem(s_hTreeView, hDel);
                             removedSomething = true;
                         }
-                        
-                        hItem = hNext;
-                    }
-                };
-                
-                HTREEITEM hRoot = TreeView_GetRoot(s_hTreeView);
-                if (hRoot) {
-                    RemoveCheckedItems(hRoot);
-                }
-                
-                if (removedSomething) {
-                    // Clear ListView since folders were removed
-                    if (s_hListView && IsWindow(s_hListView)) {
-                        ListView_DeleteAllItems(s_hListView);
-                    }
-                    return 0;
-                }
+
+                        if (removedSomething) {
+                            // Clear ListView since folders were removed
+                            if (s_hListView && IsWindow(s_hListView)) {
+                                ListView_DeleteAllItems(s_hListView);
+                            }
+                            return 0;
+                        }
             }
             
             MessageBoxW(hwnd, L"Please select items to remove:\n\n" 
@@ -3712,8 +4006,28 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         }
             
         case IDM_FILE_SAVE:
-            MessageBoxW(hwnd, L"Save functionality to be implemented", L"Save", MB_OK | MB_ICONINFORMATION);
+        {
+            // Persist project files (virtual folder files) into DB, include install_scope
+            if (s_currentProject.id <= 0) {
+                MessageBoxW(hwnd, L"No project selected to save", L"Save", MB_OK | MB_ICONERROR);
+                return 0;
+            }
+            // Delete existing file rows for this project
+            if (!DB::DeleteFilesForProject(s_currentProject.id)) {
+                // Continue anyway
+            }
+
+            // Insert all virtual files
+            for (auto &pair : s_virtualFolderFiles) {
+                for (const auto &fileInfo : pair.second) {
+                    DB::InsertFile(s_currentProject.id, fileInfo.sourcePath, fileInfo.destination, fileInfo.install_scope);
+                }
+            }
+
+            s_hasUnsavedChanges = false;
+            MessageBoxW(hwnd, L"Project saved.", L"Save", MB_OK | MB_ICONINFORMATION);
             return 0;
+        }
             
         case IDM_FILE_SAVEAS:
             MessageBoxW(hwnd, L"Save As functionality to be implemented", L"Save As", MB_OK | MB_ICONINFORMATION);
@@ -4340,73 +4654,34 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 ScreenToClient(hwnd, (LPPOINT)&rcIcon.right);
                 
                 if (PtInRect(&rcIcon, pt)) {
-                    if (!s_hWarningTooltip || !IsWindowVisible(s_hWarningTooltip)) {
-                        // Create tooltip window
-                        if (!s_hWarningTooltip) {
-                            HINSTANCE hInst = (HINSTANCE)GetWindowLongPtrW(hwnd, GWLP_HINSTANCE);
-                            
-                            // Get tooltip text
-                            auto itTooltip = s_locale.find(L"reg_warning_tooltip");
-                            s_warningTooltipText = (itTooltip != s_locale.end()) ? itTooltip->second : 
-                                L"Editing the registry can change the machine's behaviour and maybe harm it, so edit at your own risk, and backup registry before changing.";
-                            
-                            // Convert escape sequences to actual characters (like SpinnerDialog)
-                            size_t pos = 0;
-                            while ((pos = s_warningTooltipText.find(L"\\r\\n", pos)) != std::wstring::npos) {
-                                s_warningTooltipText.replace(pos, 4, L"\r\n");
-                                pos += 2;
-                            }
-                            pos = 0;
-                            while ((pos = s_warningTooltipText.find(L"\\n", pos)) != std::wstring::npos) {
-                                s_warningTooltipText.replace(pos, 2, L"\r\n");
-                                pos += 2;
-                            }
-                            
-                            // Calculate height based on text with font
-                            HDC hdc = GetDC(hwnd);
-                            if (s_warningTooltipFont) SelectObject(hdc, s_warningTooltipFont);
-                            RECT rcText = { 0, 0, 400, 0 };
-                            DrawTextW(hdc, s_warningTooltipText.c_str(), -1, &rcText, DT_CALCRECT | DT_WORDBREAK);
-                            ReleaseDC(hwnd, hdc);
-                            int tooltipHeight = rcText.bottom + 20;
-                            
-                            s_hWarningTooltip = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
-                                WARNING_TOOLTIP_CLASS_NAME, L"",
-                                WS_POPUP,
-                                0, 0, 420, tooltipHeight,
-                                hwnd, NULL, hInst, NULL);
+                    // Show the standard multilingual/info tooltip under the icon
+                    if (!IsTooltipVisible() || s_currentTooltipIcon != hWarnIcon) {
+                        auto itTooltip = s_locale.find(L"reg_warning_tooltip");
+                        std::wstring text = (itTooltip != s_locale.end()) ? itTooltip->second :
+                            L"Editing the registry can change the machine's behaviour and maybe harm it, so edit at your own risk, and backup registry before changing.";
+
+                        // Convert escaped newlines to real CRLF
+                        size_t pos = 0;
+                        while ((pos = text.find(L"\\r\\n", pos)) != std::wstring::npos) {
+                            text.replace(pos, 4, L"\r\n");
+                            pos += 2;
                         }
-                        
-                        if (s_hWarningTooltip) {
-                            // Get window client rect to keep tooltip inside
-                            RECT rcWnd;
-                            GetClientRect(hwnd, &rcWnd);
-                            ClientToScreen(hwnd, (LPPOINT)&rcWnd.left);
-                            ClientToScreen(hwnd, (LPPOINT)&rcWnd.right);
-                            
-                            // Get tooltip size
-                            RECT rcTooltip;
-                            GetWindowRect(s_hWarningTooltip, &rcTooltip);
-                            int tooltipWidth = rcTooltip.right - rcTooltip.left;
-                            int tooltipHeight = rcTooltip.bottom - rcTooltip.top;
-                            
-                            // Position tooltip below and to the left of the warning icon
-                            POINT ptIcon = { rcIcon.left, rcIcon.bottom + 5 };
-                            ClientToScreen(hwnd, &ptIcon);
-                            
-                            // Adjust X to keep tooltip inside window (align to left side of app)
-                            int tooltipX = ptIcon.x - tooltipWidth + 32; // Shift left, align with icon right edge
-                            if (tooltipX < rcWnd.left + 10) {
-                                tooltipX = rcWnd.left + 10; // Keep 10px margin from left edge
-                            }
-                            if (tooltipX + tooltipWidth > rcWnd.right - 10) {
-                                tooltipX = rcWnd.right - tooltipWidth - 10; // Keep inside right edge
-                            }
-                            
-                            SetWindowPos(s_hWarningTooltip, HWND_TOPMOST, tooltipX, ptIcon.y, 0, 0, SWP_NOSIZE | SWP_SHOWWINDOW | SWP_NOACTIVATE);
+                        pos = 0;
+                        while ((pos = text.find(L"\\n", pos)) != std::wstring::npos) {
+                            text.replace(pos, 2, L"\r\n");
+                            pos += 2;
                         }
+
+                        std::vector<std::pair<std::wstring, std::wstring>> simpleEntry;
+                        simpleEntry.push_back({L"", text});
+
+                        // Position tooltip below the warning icon
+                        POINT ptIcon = { rcIcon.left, rcIcon.bottom + 5 };
+                        ClientToScreen(hwnd, &ptIcon);
+                        ShowMultilingualTooltip(simpleEntry, ptIcon.x, ptIcon.y, hwnd);
+                        s_currentTooltipIcon = hWarnIcon;
                     }
-                    
+
                     // Track mouse to detect when it leaves
                     if (!s_warningTooltipTracking) {
                         TRACKMOUSEEVENT tme = { 0 };
@@ -4418,12 +4693,15 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                     }
                 } else {
                     // Hide tooltip if mouse is not over icon
-                    if (s_hWarningTooltip && IsWindowVisible(s_hWarningTooltip)) {
-                        ShowWindow(s_hWarningTooltip, SW_HIDE);
+                    if (IsTooltipVisible() && s_currentTooltipIcon == hWarnIcon) {
+                        HideTooltip();
+                        s_currentTooltipIcon = NULL;
                     }
                 }
             }
+            return 0;
         }
+
         return 0;
     }
     
@@ -4432,9 +4710,6 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         if (LOWORD(wParam) == WA_INACTIVE) {
             HideTooltip();
             s_aboutMouseTracking = false;
-            if (s_hWarningTooltip && IsWindowVisible(s_hWarningTooltip)) {
-                ShowWindow(s_hWarningTooltip, SW_HIDE);
-            }
             s_warningTooltipTracking = false;
         }
         break;
@@ -4446,9 +4721,10 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         break;
     
     case WM_MOUSELEAVE:
+        // Hide any visible multilingual tooltip shown for the warning icon
         s_warningTooltipTracking = false;
-        if (s_hWarningTooltip && IsWindowVisible(s_hWarningTooltip)) {
-            ShowWindow(s_hWarningTooltip, SW_HIDE);
+        if (IsTooltipVisible()) {
+            HideTooltip();
         }
         // Hide About button tooltip
         s_aboutMouseTracking = false;
