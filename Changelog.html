@@ -2,6 +2,21 @@
 <h3 style="text-align: center;">&nbsp;</h3>
 <p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 01 March 2026<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
 
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.01.09</span></h3>
+<p><strong>Globe tooltip: encoding, alignment, and reliability fixes (01.03.2026, 09:28):</strong></p>
+<ul>
+<li><strong>UTF-8 encoding fix:</strong> `tooltip.cpp` `LoadLocaleFile` now uses a narrow `std::ifstream` with `MultiByteToWideChar(CP_UTF8)` — the same proven method used in `main.cpp`. Greek and Ukrainian characters now render correctly in the multilingual tooltip table.</li>
+<li><strong>Tooltip alignment fix:</strong> Multilingual tooltip widened from 520 px to 760 px; right column moved from x=300 to x=430, giving each text column ~330 px so no language strings overlap.</li>
+<li><strong>Monitor-based clamping:</strong> `ShowMultilingualTooltip` now clamps the tooltip position to the monitor work area instead of the tiny entry-screen parent window (180 px tall). The old parent-clamping produced a negative Y and placed the tooltip off-screen or behind the window.</li>
+<li><strong>WM_MOUSELEAVE race fix:</strong> Parent `WM_MOUSELEAVE` now calls `GetCursorPos` before hiding — the tooltip is only hidden if the cursor is not already over a tracked icon. This prevents the subclass from showing the tooltip and the parent immediately dismissing it.</li>
+<li><strong>Globe icon style:</strong> Globe static control set to `WS_EX_TRANSPARENT` matching the About icon, so mouse events pass through to the parent for reliable hover detection.</li>
+<li><strong>Tooltip position:</strong> Globe tooltip now opens below the icon (`rcIcon.bottom + 5`) instead of to its right, keeping it visible within the screen regardless of window position.</li>
+<li><strong>tooltip_API.txt updated:</strong> Added CRITICAL PITFALL callouts for all three root-cause bugs (monitor clamping, WM_MOUSELEAVE race, position below vs. right of icon) so the API is toolbox-ready.</li>
+</ul>
+
+<h3 style="text-align: center;">&nbsp;</h3>
+
+<!-- Previous release notes follow -->
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.01.08</span></h3>
 <p><strong>Tooltip reliability, documentation, and packaging update (01.03.2026, 08:46):</strong></p>
 <ul>

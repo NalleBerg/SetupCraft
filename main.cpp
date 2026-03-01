@@ -84,8 +84,20 @@ static LRESULT CALLBACK GlobeIcon_SubclassProc(HWND hwnd, UINT msg, WPARAM wPara
             RECT rcIcon;
             GetWindowRect(hwnd, &rcIcon);
             POINT ptIcon = { rcIcon.left, rcIcon.bottom + 5 };
-            ShowMultilingualTooltip(g_tooltipEntries, ptIcon.x, ptIcon.y, GetParent(hwnd));
-            g_currentTooltipIcon = hwnd;
+                ShowMultilingualTooltip(g_tooltipEntries, ptIcon.x, ptIcon.y, GetParent(hwnd));
+                g_currentTooltipIcon = hwnd;
+
+                // Also track mouse leave for the tooltip window itself so moving the
+                // cursor from the globe into the multilingual table doesn't cause an
+                // immediate WM_MOUSELEAVE on the icon to hide the tooltip.
+                HWND tt = GetTooltipWindow();
+                if (tt && IsWindow(tt)) {
+                    TRACKMOUSEEVENT tme2 = { 0 };
+                    tme2.cbSize = sizeof(tme2);
+                    tme2.dwFlags = TME_LEAVE;
+                    tme2.hwndTrack = tt;
+                    TrackMouseEvent(&tme2);
+                }
         }
 
         // Start tracking mouse leave on the control itself
@@ -872,7 +884,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
         // Globe icon to the left of combo (using shell32.dll icon #13)
         HWND hIcon = CreateWindowExW(
-            0,
+            WS_EX_TRANSPARENT,
             L"STATIC", NULL,
             WS_CHILD | WS_VISIBLE | SS_ICON | SS_CENTERIMAGE | SS_NOTIFY,
             iconLeft, 8, iconSize, iconSize,
@@ -1223,20 +1235,18 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 if (!IsTooltipVisible()) {
                     // Attempt to build multilingual entries and show the table
                     auto entries = BuildMultilingualEntries(L"select_language", L"locale", g_availableLocales);
-                    POINT ptIcon = { rcIcon.left, rcIcon.bottom + 5 };
-                    ClientToScreen(hwnd, &ptIcon);
+                    // Position tooltip below the globe icon in screen coordinates
+                    POINT ptBelow = { rcIcon.left, rcIcon.bottom + 5 };
+                    ClientToScreen(hwnd, &ptBelow);
                     if (!entries.empty()) {
-                        // Position multilingual table to the right of the globe to avoid overlapping the icon
-                        POINT ptRight = { rcIcon.right + 8, rcIcon.top };
-                        ClientToScreen(hwnd, &ptRight);
-                        ShowMultilingualTooltip(entries, ptRight.x, ptRight.y, hwnd);
+                        ShowMultilingualTooltip(entries, ptBelow.x, ptBelow.y, hwnd);
                     } else {
                         // Fallback: simple localized single-line tooltip
                         auto itText = g_locale.find(L"select_language");
                         std::wstring tooltipText = (itText != g_locale.end()) ? itText->second : L"Select language for your project";
                         std::vector<std::pair<std::wstring, std::wstring>> simpleEntry;
                         simpleEntry.push_back({L"", tooltipText});
-                        ShowMultilingualTooltip(simpleEntry, ptIcon.x, ptIcon.y, hwnd);
+                        ShowMultilingualTooltip(simpleEntry, ptBelow.x, ptBelow.y, hwnd);
                     }
                     g_currentTooltipIcon = g_globeIcon;
                 }
@@ -1293,11 +1303,31 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         }
         return 0;
     }
-    case WM_MOUSELEAVE:
+    case WM_MOUSELEAVE: {
         g_mouseTracking = false;
-        HideTooltip();
-        g_currentTooltipIcon = NULL;
+        // Only hide if the cursor actually left all icon areas.
+        // WM_MOUSELEAVE also fires when the mouse moves from the parent onto
+        // a child control, so we must guard against hiding the tooltip that
+        // was just shown for the globe or about icon.
+        POINT ptCursor;
+        GetCursorPos(&ptCursor);
+        bool stillOverIcon = false;
+        if (g_globeIcon) {
+            RECT rcG;
+            GetWindowRect(g_globeIcon, &rcG);
+            if (PtInRect(&rcG, ptCursor)) stillOverIcon = true;
+        }
+        if (!stillOverIcon && g_aboutIcon) {
+            RECT rcA;
+            GetWindowRect(g_aboutIcon, &rcA);
+            if (PtInRect(&rcA, ptCursor)) stillOverIcon = true;
+        }
+        if (!stillOverIcon) {
+            HideTooltip();
+            g_currentTooltipIcon = NULL;
+        }
         return 0;
+    }
     case WM_CTLCOLORSTATIC: {
         HDC hdc = (HDC)wParam;
         HWND hControl = (HWND)lParam;

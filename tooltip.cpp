@@ -52,28 +52,54 @@ static std::wstring GetExeDir() {
     return std::wstring(exePath);
 }
 
-// Load a locale file
+// Load a locale file (UTF-8 aware — uses narrow ifstream + MultiByteToWideChar)
 static bool LoadLocaleFile(const std::wstring &code, const std::wstring& localeDir, std::map<std::wstring, std::wstring> &out) {
     std::wstring dir = GetExeDir();
-    std::wstring path = dir + L"\\" + localeDir + L"\\" + code + L".txt";
-    
-    std::wifstream f(path.c_str());
+    std::wstring wpath = dir + L"\\" + localeDir + L"\\" + code + L".txt";
+
+    // Convert wide path to UTF-8 narrow string for ifstream
+    int pathLen = WideCharToMultiByte(CP_UTF8, 0, wpath.c_str(), -1, NULL, 0, NULL, NULL);
+    if (pathLen <= 0) return false;
+    std::string narrowPath(pathLen - 1, 0);
+    WideCharToMultiByte(CP_UTF8, 0, wpath.c_str(), -1, &narrowPath[0], pathLen, NULL, NULL);
+
+    std::ifstream f(narrowPath);
     if (!f.is_open()) return false;
-    
+
     out.clear();
-    std::wstring line;
+    std::string line;
     while (std::getline(f, line)) {
-        // remove BOM if present
-        if (!line.empty() && line[0] == 0xFEFF) line.erase(0, 1);
-        TrimW(line);
-        if (line.empty() || line[0] == L'#') continue;
-        size_t eq = line.find(L'=');
-        if (eq == std::wstring::npos) continue;
-        std::wstring key = line.substr(0, eq);
-        std::wstring val = (eq + 1 < line.size()) ? line.substr(eq + 1) : L"";
-        TrimW(key);
-        TrimW(val);
-        if (!key.empty()) out[key] = val;
+        if (line.empty()) continue;
+        // Strip UTF-8 BOM (EF BB BF)
+        if (line.size() >= 3 &&
+            (unsigned char)line[0] == 0xEF &&
+            (unsigned char)line[1] == 0xBB &&
+            (unsigned char)line[2] == 0xBF)
+            line.erase(0, 3);
+        if (line.empty() || line[0] == '#') continue;
+        size_t eq = line.find('=');
+        if (eq == std::string::npos) continue;
+        std::string key = line.substr(0, eq);
+        std::string val = (eq + 1 < line.size()) ? line.substr(eq + 1) : "";
+        // Trim narrow strings
+        auto trimN = [](std::string &s) {
+            size_t a = s.find_first_not_of(" \t\r\n");
+            if (a == std::string::npos) { s.clear(); return; }
+            size_t b = s.find_last_not_of(" \t\r\n");
+            s = s.substr(a, b - a + 1);
+        };
+        trimN(key); trimN(val);
+        if (key.empty()) continue;
+        // Convert UTF-8 key and value to wide strings
+        auto toW = [](const std::string &s) -> std::wstring {
+            if (s.empty()) return {};
+            int n = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), NULL, 0);
+            if (n <= 0) return {};
+            std::wstring w(n, 0);
+            MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), &w[0], n);
+            return w;
+        };
+        out[toW(key)] = toW(val);
     }
     return true;
 }
@@ -135,7 +161,7 @@ static LRESULT CALLBACK TooltipWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
             const int startY = 10;
             const int rowHeight = 22;
             const int leftTextColX = 80;   // left column text start
-            const int rightTextColX = 300; // right column text start
+            const int rightTextColX = 430; // right column text start (760px total / 2 = 380, +50 for code)
 
             // Cap entries shown to 20 (10 per column)
             int totalEntries = (int)g_currentEntries.size();
@@ -267,53 +293,58 @@ void ShowMultilingualTooltip(const std::vector<TooltipEntry>& entries, int x, in
         int totalEntries = (int)g_currentEntries.size();
         if (totalEntries > 20) totalEntries = 20; // cap display
         int rows = totalEntries <= 10 ? totalEntries : 10;
-        // Compute width: reserve space for codes and text columns
-        tooltipWidth = 520;
+        // 760px: each column gets ~330px for text (code ~50px + gap + text ~330px)
+        tooltipWidth = 760;
         tooltipHeight = rows * 22 + 30;
     }
     
-    // Adjust position to keep tooltip inside parent window bounds if possible
+    // Clamp to monitor bounds (not parent bounds — the parent entry window is
+    // only ~180px tall and cannot contain the multilingual table at all).
     int finalX = x;
     int finalY = y;
-    if (parentHwnd) {
-        RECT rcParent;
-        GetClientRect(parentHwnd, &rcParent);
-        POINT pTopLeft = { rcParent.left, rcParent.top };
-        POINT pBottomRight = { rcParent.right, rcParent.bottom };
-        ClientToScreen(parentHwnd, &pTopLeft);
-        ClientToScreen(parentHwnd, &pBottomRight);
-        int parentLeft = pTopLeft.x;
-        int parentRight = pBottomRight.x;
-        int parentTop = pTopLeft.y;
-        int parentBottom = pBottomRight.y;
+    {
+        POINT pt = { x, y };
+        HMONITOR hMon = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
+        MONITORINFO mi = {};
+        mi.cbSize = sizeof(mi);
+        if (GetMonitorInfo(hMon, &mi)) {
+            int monLeft   = mi.rcWork.left;
+            int monTop    = mi.rcWork.top;
+            int monRight  = mi.rcWork.right;
+            int monBottom = mi.rcWork.bottom;
 
-        // Clamp tooltip width to parent width minus margins to avoid huge overflow
-        int parentWidth = parentRight - parentLeft;
-        int maxTooltipWidth = parentWidth - 30;
-        if (maxTooltipWidth < 100) maxTooltipWidth = 100;
-        if (tooltipWidth > maxTooltipWidth) tooltipWidth = maxTooltipWidth;
+            // Clamp width
+            int maxW = monRight - monLeft - 20;
+            if (tooltipWidth > maxW) tooltipWidth = maxW;
 
-        // If tooltip would overflow right edge, shift it left
-        if (finalX + tooltipWidth > parentRight - 10) {
-            finalX = parentRight - tooltipWidth - 10;
-        }
-        // Ensure not beyond left edge
-        if (finalX < parentLeft + 10) {
-            finalX = parentLeft + 10;
-        }
-        // If tooltip would go below bottom of parent, try moving it above the point
-        if (finalY + tooltipHeight > parentBottom - 10) {
-            // Move above the requested y if possible
-            int aboveY = y - tooltipHeight - 10;
-            if (aboveY >= parentTop + 10) finalY = aboveY;
-            else finalY = parentBottom - tooltipHeight - 10;
+            // Keep within horizontal bounds
+            if (finalX + tooltipWidth > monRight - 10)
+                finalX = monRight - tooltipWidth - 10;
+            if (finalX < monLeft + 10)
+                finalX = monLeft + 10;
+
+            // Prefer below requested y; if it overflows, try above
+            if (finalY + tooltipHeight > monBottom - 10) {
+                int aboveY = y - tooltipHeight - 10;
+                if (aboveY >= monTop + 10)
+                    finalY = aboveY;
+                else
+                    finalY = monBottom - tooltipHeight - 10;
+            }
+            if (finalY < monTop + 10)
+                finalY = monTop + 10;
         }
     }
 
     if (!g_tooltipWindow) {
         HINSTANCE hInst = (HINSTANCE)GetWindowLongPtr(parentHwnd, GWLP_HINSTANCE);
-        // Make tooltip mouse-transparent so it doesn't steal mouse events from underlying controls
-        LONG_PTR exStyles = WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT;
+        // For simple single-entry tooltips we keep them mouse-transparent so they
+        // don't steal events; for multilingual table tooltips we must allow the
+        // tooltip to receive mouse events so we can track mouse enter/leave on
+        // the tooltip window itself (prevents flashing when moving from icon
+        // into the tooltip).
+        LONG_PTR exStyles = WS_EX_TOPMOST | WS_EX_TOOLWINDOW;
+        if (isSimpleTooltip) exStyles |= WS_EX_TRANSPARENT;
         g_tooltipWindow = CreateWindowExW((DWORD)exStyles,
             TOOLTIP_CLASS_NAME, L"",
             WS_POPUP | WS_BORDER,
@@ -342,6 +373,10 @@ void ShowMultilingualTooltip(const std::vector<TooltipEntry>& entries, int x, in
             lf.close();
         }
     } catch (...) { }
+}
+
+HWND GetTooltipWindow() {
+    return g_tooltipWindow;
 }
 
 void HideTooltip() {

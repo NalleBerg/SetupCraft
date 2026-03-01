@@ -114,9 +114,10 @@ API REFERENCE:
       ShowMultilingualTooltip(entries, pt.x, pt.y, hwndMain);
 
    Notes:
-      - Tooltip width is fixed at 700 pixels
-      - Tooltip height is calculated based on number of entries
-      - Each row displays 2 entries (left and right column)
+      - Tooltip width is 520px for multilingual, 700px for simple (auto-clamped to monitor)
+      - Tooltip height is calculated based on number of entries (rows * 22 + 30)
+      - Tooltip is positioned using MONITOR bounds, not parent window bounds
+        (critical: entry windows are often too small to contain the tooltip table)
       - Tooltip is created on first call, reused on subsequent calls
       - Tooltip is topmost and non-activating
 
@@ -278,10 +279,21 @@ API REFERENCE:
 
    8) Placement and bounds
    ------------------------
-   - `ShowMultilingualTooltip` computes a final X/Y to keep the tooltip inside
-     the parent window (if `parentHwnd` provided). It will:
-     - Avoid overflowing the right edge by shifting left.
-     - Try placing the tooltip above the point if it would overflow bottom.
+   `ShowMultilingualTooltip` clamps the final X/Y to the MONITOR work area, not the
+   parent window client area. This is intentional:
+
+   *** CRITICAL PITFALL ***
+   If you clamp to the parent window, a small entry screen (e.g. 420x180px) will
+   NEVER be tall enough to fit a 250px multilingual table. The clamping math will
+   produce a negative Y (off the top of the screen) or a position behind the window.
+   Always clamp multilingual tooltips to monitor bounds.
+
+   Position rules:
+   - Prefers requested (x, y) as the top-left of the tooltip.
+   - If left edge of tooltip + width overflows monitor right edge, shift tooltip left.
+   - If top edge + height overflows monitor bottom, try placing ABOVE the point;
+     if that also overflows, place against monitor bottom edge.
+   - Always ensure left edge is at least 10px from monitor left.
 
    9) Interaction and hiding rules (how to make it disappear reliably)
    ------------------------------------------------------------------
@@ -292,10 +304,28 @@ API REFERENCE:
      - When the mouse leaves the control, `WM_MOUSELEAVE` will be posted to
        the control's subclass proc — call `HideTooltip()` there.
 
+   *** CRITICAL PITFALL: WM_MOUSELEAVE FIRES WHEN MOUSE ENTERS A CHILD ***
+   When the parent window tracks `TME_LEAVE` on itself, WM_MOUSELEAVE ALSO fires
+   when the mouse moves FROM the parent client area INTO a child control. This
+   means the parent sees WM_MOUSELEAVE → HideTooltip() at the same moment the
+   child's subclass shows the tooltip. The tooltip is shown and immediately hidden.
+
+   FIX: In `WM_MOUSELEAVE` of the parent, call `GetCursorPos` and check whether
+   the cursor is currently inside any of your icon controls:
+
+     case WM_MOUSELEAVE: {
+         POINT ptCur; GetCursorPos(&ptCur);
+         bool overIcon = false;
+         if (g_globeIcon)  { RECT rc; GetWindowRect(g_globeIcon , &rc); if (PtInRect(&rc, ptCur)) overIcon = true; }
+         if (g_aboutIcon)  { RECT rc; GetWindowRect(g_aboutIcon , &rc); if (PtInRect(&rc, ptCur)) overIcon = true; }
+         if (!overIcon) { HideTooltip(); g_currentTooltipIcon = NULL; }
+         return 0;
+     }
+
    - Also hide the tooltip on these cases (redundant safety):
      - `WM_ACTIVATE` when the window deactivates (hide tooltip)
      - `WM_KILLFOCUS` (hide tooltip)
-     - Parent `WM_MOUSEMOVE` checks: if pointer not over icon, call `HideTooltip()`
+     - Parent `WM_MOUSEMOVE` checks: if pointer not over any icon, call `HideTooltip()`
 
    10) Visual look (implementation details)
    ----------------------------------------
@@ -343,9 +373,15 @@ API REFERENCE:
    - Include `tooltip.h` and `tooltip.cpp` in your project.
    - Call `InitTooltipSystem(hInstance)` during window creation.
    - Create the hover `STATIC` icon with `SS_NOTIFY | SS_CENTERIMAGE`.
-   - Subclass the icon with the provided pattern.
-   - In the subclass `WM_MOUSEMOVE` show tooltip and call `TrackMouseEvent` on the icon.
-   - In `WM_MOUSELEAVE` call `HideTooltip()`.
+   - Subclass the icon with the provided pattern (see section 11).
+   - In the subclass `WM_MOUSEMOVE`: build entries, call `ShowMultilingualTooltip`,
+     call `TrackMouseEvent(TME_LEAVE, hwndTrack=icon)`.
+   - In `WM_MOUSELEAVE` of the ICON subclass: call `HideTooltip()`.
+   - In `WM_MOUSELEAVE` of the PARENT window: call `GetCursorPos` first and only
+     call `HideTooltip()` if the cursor is NOT over any icon (see pitfall in §9).
+   - Pass SCREEN coordinates (after `ClientToScreen`) to `ShowMultilingualTooltip`.
+   - Position tooltip BELOW the icon (`y = rc.bottom + 5`) not to its right,
+     so monitor-clamping has room to keep it on screen.
    - Convert any `\n` sequences in strings into `\r\n` before passing to the API.
    - Call `CleanupTooltipSystem()` in `WM_DESTROY`.
 
