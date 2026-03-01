@@ -13,6 +13,7 @@
 #include "about.h"
 #include "tooltip.h"
 #include "about_icon.h"
+#include <fstream>
 
 // Static member initialization
 ProjectRow MainWindow::s_currentProject = {};
@@ -198,10 +199,37 @@ LRESULT CALLBACK WarningTooltipWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
 static LRESULT CALLBACK WarningIcon_SubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
     case WM_MOUSEMOVE: {
+        // Debug log: record mousemove on warning icon
+        {
+            wchar_t exePath[MAX_PATH];
+            if (GetModuleFileNameW(NULL, exePath, _countof(exePath))) {
+                wchar_t *p = wcsrchr(exePath, L'\\');
+                if (p) *(p + 1) = 0; // keep trailing slash
+                std::wstring logPath = std::wstring(exePath) + L"tooltip_debug.log";
+                std::wofstream lf(logPath.c_str(), std::ios::app);
+                if (lf.is_open()) {
+                    lf << L"WarningIcon_SubclassProc WM_MOUSEMOVE hwnd=" << (void*)hwnd << L"\n";
+                    lf.close();
+                }
+            }
+        }
         if (!IsTooltipVisible()) {
             auto it = MainWindow::GetLocale().find(L"reg_warning_tooltip");
             std::wstring tooltipText = (it != MainWindow::GetLocale().end()) ? it->second :
                 L"Editing the registry can change the machine's behaviour and maybe harm it, so edit at your own risk.";
+
+            // Convert escaped newlines ("\\r\\n" and "\\n") into real CRLF for multiline support
+            size_t pos = 0;
+            while ((pos = tooltipText.find(L"\\r\\n", pos)) != std::wstring::npos) {
+                tooltipText.replace(pos, 4, L"\r\n");
+                pos += 2;
+            }
+            pos = 0;
+            while ((pos = tooltipText.find(L"\\n", pos)) != std::wstring::npos) {
+                tooltipText.replace(pos, 2, L"\r\n");
+                pos += 2;
+            }
+
             std::vector<std::pair<std::wstring,std::wstring>> simpleEntry;
             simpleEntry.push_back({L"", tooltipText});
 
@@ -223,9 +251,50 @@ static LRESULT CALLBACK WarningIcon_SubclassProc(HWND hwnd, UINT msg, WPARAM wPa
         break;
     }
     case WM_MOUSELEAVE: {
-        if (IsTooltipVisible() && s_currentTooltipIcon == hwnd) {
+        // Debug log: record mouseleave on warning icon
+        {
+            wchar_t exePath[MAX_PATH];
+            if (GetModuleFileNameW(NULL, exePath, _countof(exePath))) {
+                wchar_t *p = wcsrchr(exePath, L'\\');
+                if (p) *(p + 1) = 0;
+                std::wstring logPath = std::wstring(exePath) + L"tooltip_debug.log";
+                std::wofstream lf(logPath.c_str(), std::ios::app);
+                if (lf.is_open()) {
+                    lf << L"WarningIcon_SubclassProc WM_MOUSELEAVE hwnd=" << (void*)hwnd << L"\n";
+                    lf.close();
+                }
+            }
+        }
+        // Always hide tooltip when mouse leaves the warning icon
+        {
+            wchar_t exePath[MAX_PATH];
+            if (GetModuleFileNameW(NULL, exePath, _countof(exePath))) {
+                wchar_t *p = wcsrchr(exePath, L'\\');
+                if (p) *(p + 1) = 0;
+                std::wstring logPath = std::wstring(exePath) + L"tooltip_debug.log";
+                std::wofstream lf(logPath.c_str(), std::ios::app);
+                if (lf.is_open()) {
+                    lf << L"WarningIcon_SubclassProc about to HideTooltip hwnd=" << (void*)hwnd << L"\n";
+                    lf.close();
+                }
+            }
+        }
+        if (IsTooltipVisible()) {
             HideTooltip();
             s_currentTooltipIcon = NULL;
+        }
+        {
+            wchar_t exePath[MAX_PATH];
+            if (GetModuleFileNameW(NULL, exePath, _countof(exePath))) {
+                wchar_t *p = wcsrchr(exePath, L'\\');
+                if (p) *(p + 1) = 0;
+                std::wstring logPath = std::wstring(exePath) + L"tooltip_debug.log";
+                std::wofstream lf(logPath.c_str(), std::ios::app);
+                if (lf.is_open()) {
+                    lf << L"WarningIcon_SubclassProc after HideTooltip hwnd=" << (void*)hwnd << L"\n";
+                    lf.close();
+                }
+            }
         }
         s_warningTooltipTracking = false;
         break;
@@ -1222,7 +1291,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         
         // Warning icon (imageres.dll icon 244) - positioned just to left of backup button
         HWND hWarningIcon = CreateWindowExW(0, L"STATIC", L"",
-            WS_CHILD | WS_VISIBLE | SS_ICON,
+            WS_CHILD | WS_VISIBLE | SS_ICON | SS_CENTERIMAGE | SS_NOTIFY,
             rc.right - 230, currentY + 4, 32, 32,
             hwnd, (HMENU)IDC_REG_WARNING_ICON, hInst, NULL);
         
@@ -4653,51 +4722,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 ScreenToClient(hwnd, (LPPOINT)&rcIcon.left);
                 ScreenToClient(hwnd, (LPPOINT)&rcIcon.right);
                 
-                if (PtInRect(&rcIcon, pt)) {
-                    // Show the standard multilingual/info tooltip under the icon
-                    if (!IsTooltipVisible() || s_currentTooltipIcon != hWarnIcon) {
-                        auto itTooltip = s_locale.find(L"reg_warning_tooltip");
-                        std::wstring text = (itTooltip != s_locale.end()) ? itTooltip->second :
-                            L"Editing the registry can change the machine's behaviour and maybe harm it, so edit at your own risk, and backup registry before changing.";
-
-                        // Convert escaped newlines to real CRLF
-                        size_t pos = 0;
-                        while ((pos = text.find(L"\\r\\n", pos)) != std::wstring::npos) {
-                            text.replace(pos, 4, L"\r\n");
-                            pos += 2;
-                        }
-                        pos = 0;
-                        while ((pos = text.find(L"\\n", pos)) != std::wstring::npos) {
-                            text.replace(pos, 2, L"\r\n");
-                            pos += 2;
-                        }
-
-                        std::vector<std::pair<std::wstring, std::wstring>> simpleEntry;
-                        simpleEntry.push_back({L"", text});
-
-                        // Position tooltip below the warning icon
-                        POINT ptIcon = { rcIcon.left, rcIcon.bottom + 5 };
-                        ClientToScreen(hwnd, &ptIcon);
-                        ShowMultilingualTooltip(simpleEntry, ptIcon.x, ptIcon.y, hwnd);
-                        s_currentTooltipIcon = hWarnIcon;
-                    }
-
-                    // Track mouse to detect when it leaves
-                    if (!s_warningTooltipTracking) {
-                        TRACKMOUSEEVENT tme = { 0 };
-                        tme.cbSize = sizeof(TRACKMOUSEEVENT);
-                        tme.dwFlags = TME_LEAVE;
-                        tme.hwndTrack = hwnd;
-                        TrackMouseEvent(&tme);
-                        s_warningTooltipTracking = true;
-                    }
-                } else {
-                    // Hide tooltip if mouse is not over icon
-                    if (IsTooltipVisible() && s_currentTooltipIcon == hWarnIcon) {
-                        HideTooltip();
-                        s_currentTooltipIcon = NULL;
-                    }
-                }
+                // Warning icon is handled by its subclass (shows/hides tooltip there).
             }
             return 0;
         }

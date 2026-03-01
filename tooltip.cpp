@@ -125,30 +125,10 @@ static LRESULT CALLBACK TooltipWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
         bool isSimpleTooltip = (g_currentEntries.size() == 1 && g_currentEntries[0].first.empty());
 
         if (isSimpleTooltip) {
-            // Simple tooltip - support multiline (\n separated)
-            const int startX = 10;
-            const int startY = 10;
-            const int rowHeight = 20;
-            // split lines by '\n'
-            std::vector<std::wstring> lines;
-            std::wstring s = g_currentEntries[0].second;
-            size_t pos = 0;
-            while (true) {
-                size_t nl = s.find(L'\n', pos);
-                if (nl == std::wstring::npos) {
-                    lines.push_back(s.substr(pos));
-                    break;
-                } else {
-                    lines.push_back(s.substr(pos, nl - pos));
-                    pos = nl + 1;
-                }
-            }
+            // Simple tooltip - draw wrapped text (up to 3 lines)
+            RECT textRc = { 10, 10, rc.right - 10, rc.bottom - 10 };
             SetTextColor(hdc, RGB(0, 0, 0));
-            for (size_t i = 0; i < lines.size(); ++i) {
-                int y = startY + (int)i * rowHeight;
-                RECT lineRc = { startX, y, rc.right - 10, y + rowHeight };
-                DrawTextW(hdc, lines[i].c_str(), -1, &lineRc, DT_LEFT | DT_TOP | DT_SINGLELINE);
-            }
+            DrawTextW(hdc, g_currentEntries[0].second.c_str(), -1, &textRc, DT_LEFT | DT_TOP | DT_WORDBREAK);
         } else {
             // Multilingual tooltip - two columns, up to 10 rows per column
             const int startX = 10;
@@ -257,32 +237,31 @@ void ShowMultilingualTooltip(const std::vector<TooltipEntry>& entries, int x, in
     // Calculate dimensions
     int tooltipWidth, tooltipHeight;
     if (isSimpleTooltip) {
-        // Simple tooltip - calculate width/height for multiline content
-        std::vector<std::wstring> lines;
+        // Simple tooltip - calculate width/height for multiline content with word-wrap
         std::wstring s = g_currentEntries[0].second;
-        size_t pos = 0;
-        while (true) {
-            size_t nl = s.find(L'\n', pos);
-            if (nl == std::wstring::npos) {
-                lines.push_back(s.substr(pos));
-                break;
-            } else {
-                lines.push_back(s.substr(pos, nl - pos));
-                pos = nl + 1;
-            }
-        }
         HDC hdc = GetDC(NULL);
         if (g_tooltipFont) SelectObject(hdc, g_tooltipFont);
-        int maxw = 0;
-        SIZE sz;
-        for (const auto &ln : lines) {
-            GetTextExtentPoint32W(hdc, ln.c_str(), (int)ln.length(), &sz);
-            if (sz.cx > maxw) maxw = sz.cx;
-        }
-        ReleaseDC(NULL, hdc);
-        tooltipWidth = maxw + 25;  // Add padding
-        int rowHeight = 20;
-        tooltipHeight = (int)lines.size() * rowHeight + 20;
+
+        // Choose max width per API (700px) so text wraps into multiple lines
+        int desiredMaxWidth = 700;
+
+        // Measure wrapped rect using DrawText with DT_CALCRECT | DT_WORDBREAK
+        RECT calcRc = { 0, 0, desiredMaxWidth - 20, 0 };
+        DrawTextW(hdc, s.c_str(), -1, &calcRc, DT_CALCRECT | DT_WORDBREAK);
+
+        // Determine line height from font metrics
+        TEXTMETRIC tm = {0};
+        GetTextMetricsW(hdc, &tm);
+        int lineHeight = tm.tmHeight + tm.tmExternalLeading;
+        if (lineHeight <= 0) lineHeight = 20;
+
+        // Limit height to at most 3 lines
+        int maxHeight = lineHeight * 3;
+        int contentHeight = calcRc.bottom - calcRc.top;
+        if (contentHeight > maxHeight) contentHeight = maxHeight;
+
+        tooltipWidth = desiredMaxWidth;
+        tooltipHeight = contentHeight + 20; // add padding
     } else {
         // Multilingual tooltip - two columns, up to 10 rows per column
         int totalEntries = (int)g_currentEntries.size();
@@ -366,9 +345,24 @@ void ShowMultilingualTooltip(const std::vector<TooltipEntry>& entries, int x, in
 }
 
 void HideTooltip() {
-    if (g_tooltipWindow && IsWindowVisible(g_tooltipWindow)) {
-        ShowWindow(g_tooltipWindow, SW_HIDE);
-    }
+    try {
+        if (g_tooltipWindow && IsWindowVisible(g_tooltipWindow)) {
+            ShowWindow(g_tooltipWindow, SW_HIDE);
+            std::wstring logPath = GetExeDir() + L"\\tooltip_debug.log";
+            std::wofstream lf(logPath.c_str(), std::ios::app);
+            if (lf.is_open()) {
+                lf << L"HideTooltip called - Hid window\n";
+                lf.close();
+            }
+        } else {
+            std::wstring logPath = GetExeDir() + L"\\tooltip_debug.log";
+            std::wofstream lf(logPath.c_str(), std::ios::app);
+            if (lf.is_open()) {
+                lf << L"HideTooltip called - no visible window\n";
+                lf.close();
+            }
+        }
+    } catch(...) {}
 }
 
 bool IsTooltipVisible() {

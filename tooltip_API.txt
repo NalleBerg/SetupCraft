@@ -174,193 +174,198 @@ API REFERENCE:
 6. BUILD MULTILINGUAL ENTRIES
    ---------------------------
 
-   std::vector<TooltipEntry> BuildMultilingualEntries(
-       const std::wstring& localeKey,
-       const std::wstring& localeDir,
-       const std::vector<std::wstring>& availableLocales)
+   ================================================================================
+   CUSTOM MULTILINGUAL TOOLTIP API - PLAIN, COMPLETE, COPY-PASTE GUIDE
+   ================================================================================
 
-   Description:
-      Automatically builds tooltip entries by loading a specific key from all
-      available locale files. Extracts country codes and sorts entries by
-      country code.
+   Goal: make a reliable custom tooltip that shows either a simple multiline
+   message (up to 3 lines) or a multilingual 2-column table of translations.
+   This guide lists every required step, recommended control styles, the
+   subclassing pattern to show/hide the tooltip, sizing rules, and examples.
 
-   Parameters:
-      localeKey        : Key to look up in locale files (e.g., "about_setupcraft")
-      localeDir        : Directory containing locale files (e.g., "locale")
-      availableLocales : Vector of locale codes (e.g., {"en_GB", "de_DE", ...})
+   Files provided in this repo (already implemented):
+   - `tooltip.h`  - API declarations
+   - `tooltip.cpp` - Implementation you can reuse (InitTooltipSystem, Show/Hide)
 
-   Returns:
-      Vector of (country code, translated text) pairs, sorted by country code
+   1) Initialization
+   -----------------
+   - Call `InitTooltipSystem(HINSTANCE hInstance)` once during startup (e.g.
+     in `WM_CREATE` or WinMain). This registers the tooltip window class and
+     creates the tooltip font.
 
-   Example:
-      std::vector<std::wstring> locales = {L"en_GB", L"de_DE", L"fr_FR"};
-      auto entries = BuildMultilingualEntries(
-          L"about_setupcraft",
-          L"locale",
-          locales
-      );
-      // entries now contains: {L"[GB] ", L"About SetupCraft"}, {L"[DE] ", ...}, etc.
+   2) Cleanup
+   ----------
+   - Call `CleanupTooltipSystem()` in your `WM_DESTROY` to free resources.
+
+   3) Control setup (the element you hover)
+   ----------------------------------------
+   - Create the hover control (usually a `STATIC` icon) using these styles:
+     - Window style: `WS_CHILD | WS_VISIBLE | SS_ICON | SS_CENTERIMAGE | SS_NOTIFY`
+       - `SS_NOTIFY` is crucial so the control receives mouse messages.
+       - `SS_CENTERIMAGE` keeps the icon visually centered.
+     - Do NOT make the control transparent with `WS_EX_TRANSPARENT`.
+
+   - Example creation:
+     HWND hIcon = CreateWindowExW(0, L"STATIC", NULL,
+         WS_CHILD | WS_VISIBLE | SS_ICON | SS_CENTERIMAGE | SS_NOTIFY,
+         x, y, width, height, parentHwnd, (HMENU)id, hInst, NULL);
+
+   4) Subclass the control and implement the hover pattern
+   ------------------------------------------------------
+   Use `SetWindowLongPtrW(control, GWLP_WNDPROC, (LONG_PTR)YourSubclassProc)`
+   so the control receives `WM_MOUSEMOVE` and `WM_MOUSELEAVE`. The working
+   pattern used in this project (copy/paste-ready) is:
+
+   SubclassProc(hwnd, msg, wParam, lParam):
+   - WM_MOUSEMOVE:
+     - If tooltip is not visible, prepare the text entries (see section 6)
+       and call `ShowMultilingualTooltip(entries, screenX, screenY, parentHwnd)`.
+       Store the control handle in a module-scoped `s_currentTooltipIcon`.
+     - Start tracking mouse leave on the control itself (important):
+       TRACKMOUSEEVENT tme = {}; tme.cbSize = sizeof(tme); tme.dwFlags = TME_LEAVE;
+       tme.hwndTrack = hwnd; TrackMouseEvent(&tme);
+     - Set a local flag `s_mouseTracking = true`.
+
+   - WM_MOUSELEAVE:
+     - Always call `HideTooltip()` (do not rely on complex state checks).
+     - Clear `s_currentTooltipIcon` and any tracking flags.
+
+   - WM_NCDESTROY:
+     - Restore previous WndProc: `SetWindowLongPtrW(hwnd, GWLP_WNDPROC, (LONG_PTR)prevProc);`
 
    Notes:
-      - Locale files expected format: key=value (one per line)
-      - Locale file names: <code>.txt (e.g., en_GB.txt, de_DE.txt)
-      - Country code extracted from locale code after underscore
-      - Empty or missing translations are skipped
-      - Comments (lines starting with #) are ignored
+   - Tracking `TME_LEAVE` on the control (not the parent window) assures the
+     control receives `WM_MOUSELEAVE` when the mouse exits the control area.
 
-================================================================================
+   5) Show / Hide API
+   -------------------
+   - `ShowMultilingualTooltip(const std::vector<TooltipEntry>& entries, int x, int y, HWND parentHwnd)`
+     - `entries` is a vector of pairs: `{ countryCode, text }`.
+       - For a simple single message, pass a single entry with empty country code:
+         `{ L"", L"Your multilingual message with \n for newline" }`.
+     - `x,y` are screen coordinates (use `ClientToScreen()` to convert).
+     - `parentHwnd` is the top-level window used to limit the tooltip inside.
 
-TYPICAL USAGE PATTERN:
----------------------
+   - `HideTooltip()` hides the tooltip window (but does not destroy it).
+   - `IsTooltipVisible()` returns whether the tooltip is currently visible.
 
-1. Initialize at startup:
-   InitTooltipSystem(hInstance);
+   6) Preparing tooltip text
+   -------------------------
+   - Simple single-message tooltip:
+     - If your locale string uses literal escape sequences (`\n` or `\r\n`),
+       convert them programmatically into real CR/LF before showing the tooltip.
+       Example:
+         while (text.find("\\r\\n") != npos) replace -> "\r\n";
+         while (text.find("\\n") != npos) replace -> "\r\n";
 
-2. On mouse hover (e.g., WM_MOUSEMOVE):
-   if (mouse over icon && !IsTooltipVisible()) {
-       auto entries = BuildMultilingualEntries(L"tooltip_key", L"locale", locales);
-       ShowMultilingualTooltip(entries, x, y, hwnd);
+   - Multilingual tooltip entries:
+     - Use `BuildMultilingualEntries(localeKey, localeDir, availableLocales)`
+       to build a vector of `{ L"[GB] ", L"About..." }` entries automatically.
+     - The code extracts the country code part from file names like `en_GB.txt`.
+
+   7) Sizing rules (how the tooltip sizes itself)
+   ---------------------------------------------
+   - Simple message tooltip (single entry with empty country code):
+     - The implementation uses a fixed max width of **700px**.
+     - The message is measured with `DrawText(..., DT_CALCRECT | DT_WORDBREAK)`
+       and the height is capped to **3 lines** (calculated from font metrics).
+     - Final tooltip height = contentHeight + padding (20px).
+
+   - Multilingual tooltip (multiple `{code, text}` entries):
+     - Two columns layout, up to **20 entries** (10 rows per column).
+     - Default tooltip width for multilingual grid is 520px (left/right columns).
+     - Row height ~22px per row; total height = rows * 22 + 30 padding.
+
+   8) Placement and bounds
+   ------------------------
+   - `ShowMultilingualTooltip` computes a final X/Y to keep the tooltip inside
+     the parent window (if `parentHwnd` provided). It will:
+     - Avoid overflowing the right edge by shifting left.
+     - Try placing the tooltip above the point if it would overflow bottom.
+
+   9) Interaction and hiding rules (how to make it disappear reliably)
+   ------------------------------------------------------------------
+   To make the tooltip reliably hide when the mouse is not over the icon:
+
+   - Make the hovered control receive mouse messages (`SS_NOTIFY`).
+   - Subclass the control and use `TrackMouseEvent` with `hwndTrack = control`.
+     - When the mouse leaves the control, `WM_MOUSELEAVE` will be posted to
+       the control's subclass proc — call `HideTooltip()` there.
+
+   - Also hide the tooltip on these cases (redundant safety):
+     - `WM_ACTIVATE` when the window deactivates (hide tooltip)
+     - `WM_KILLFOCUS` (hide tooltip)
+     - Parent `WM_MOUSEMOVE` checks: if pointer not over icon, call `HideTooltip()`
+
+   10) Visual look (implementation details)
+   ----------------------------------------
+   - Background: system info background (COLOR_INFOBK)
+   - Border: 1px black
+   - Font: Segoe UI (size ~14)
+   - Country codes: royal blue (RGB 65,105,225) and right-aligned before text
+
+   11) Example subclass proc (copy-paste)
+   -------------------------------------
+   static LRESULT CALLBACK Icon_SubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+       switch (msg) {
+       case WM_MOUSEMOVE: {
+           if (!IsTooltipVisible()) {
+               std::vector<std::pair<std::wstring,std::wstring>> entry;
+               entry.push_back({L"", L"Your multiline message with \\n+converted to CRLF"});
+               RECT rc; GetWindowRect(hwnd, &rc);
+               POINT pt = { rc.left, rc.bottom + 5 };
+               // convert to screen coords if needed
+               ShowMultilingualTooltip(entry, pt.x, pt.y, GetParent(hwnd));
+               s_currentTooltipIcon = hwnd;
+           }
+           if (!s_mouseTracking) {
+               TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, hwnd, 0 };
+               TrackMouseEvent(&tme);
+               s_mouseTracking = true;
+           }
+           break;
+       }
+       case WM_MOUSELEAVE: {
+           HideTooltip();
+           s_currentTooltipIcon = NULL;
+           s_mouseTracking = false;
+           break;
+       }
+       case WM_NCDESTROY: {
+           SetWindowLongPtrW(hwnd, GWLP_WNDPROC, (LONG_PTR)prevProc);
+           break;
+       }
+       }
+       return CallWindowProcW(prevProc, hwnd, msg, wParam, lParam);
    }
 
-3. On mouse leave (e.g., WM_MOUSELEAVE):
-   HideTooltip();
+   12) Quick checklist for integrating the tooltip (so a kid can follow):
+   - Include `tooltip.h` and `tooltip.cpp` in your project.
+   - Call `InitTooltipSystem(hInstance)` during window creation.
+   - Create the hover `STATIC` icon with `SS_NOTIFY | SS_CENTERIMAGE`.
+   - Subclass the icon with the provided pattern.
+   - In the subclass `WM_MOUSEMOVE` show tooltip and call `TrackMouseEvent` on the icon.
+   - In `WM_MOUSELEAVE` call `HideTooltip()`.
+   - Convert any `\n` sequences in strings into `\r\n` before passing to the API.
+   - Call `CleanupTooltipSystem()` in `WM_DESTROY`.
 
-4. Cleanup at shutdown (WM_DESTROY):
-   CleanupTooltipSystem();
+   13) Debugging tips
+   ------------------
+   - The repo writes a `tooltip_debug.log` when the tooltip is shown/hidden.
+     Use it to confirm `WM_MOUSEMOVE` and `WM_MOUSELEAVE` reach your subclass.
+   - If the tooltip does not hide:
+     - Ensure `SS_NOTIFY` is set on the control.
+     - Ensure `TrackMouseEvent` used `hwndTrack = control` not the parent window.
+     - Ensure no other window is covering the control and stealing mouse events.
 
-================================================================================
+   14) API reference summary (function signatures)
+   - bool InitTooltipSystem(HINSTANCE hInstance)
+   - void CleanupTooltipSystem()
+   - void ShowMultilingualTooltip(const std::vector<TooltipEntry>& entries, int x, int y, HWND parentHwnd)
+   - void HideTooltip()
+   - bool IsTooltipVisible()
+   - std::vector<TooltipEntry> BuildMultilingualEntries(const std::wstring& localeKey, const std::wstring& localeDir, const std::vector<std::wstring>& availableLocales)
 
-COMPLETE EXAMPLE:
-----------------
-
-// In your WM_CREATE:
-case WM_CREATE: {
-    HINSTANCE hInst = (HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE);
-    InitTooltipSystem(hInst);
-    
-    // Load available locales
-    std::vector<std::wstring> locales = {L"en_GB", L"de_DE", L"fr_FR"};
-    
-    // Create an info icon
-    HWND hIcon = CreateWindowW(L"STATIC", NULL,
-        WS_CHILD | WS_VISIBLE | SS_ICON | SS_NOTIFY,
-        10, 10, 24, 24, hwnd, (HMENU)IDC_INFO_ICON, hInst, NULL);
-    return 0;
-}
-
-// In your WM_MOUSEMOVE:
-case WM_MOUSEMOVE: {
-    POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
-    RECT rcIcon;
-    GetWindowRect(hInfoIcon, &rcIcon);
-    ScreenToClient(hwnd, (LPPOINT)&rcIcon.left);
-    ScreenToClient(hwnd, (LPPOINT)&rcIcon.right);
-    
-    if (PtInRect(&rcIcon, pt)) {
-        if (!IsTooltipVisible()) {
-            auto entries = BuildMultilingualEntries(
-                L"about_setupcraft", L"locale", g_locales);
-            POINT ptIcon = { rcIcon.left, rcIcon.bottom + 5 };
-            ClientToScreen(hwnd, &ptIcon);
-            ShowMultilingualTooltip(entries, ptIcon.x, ptIcon.y, hwnd);
-        }
-        
-        // Track mouse to detect when it leaves
-        TRACKMOUSEEVENT tme = { 0 };
-        tme.cbSize = sizeof(TRACKMOUSEEVENT);
-        tme.dwFlags = TME_LEAVE;
-        tme.hwndTrack = hwnd;
-        TrackMouseEvent(&tme);
-    } else {
-        HideTooltip();
-    }
-    return 0;
-}
-
-// In your WM_MOUSELEAVE:
-case WM_MOUSELEAVE:
-    HideTooltip();
-    return 0;
-
-// In your WM_DESTROY:
-case WM_DESTROY:
-    CleanupTooltipSystem();
-    PostQuitMessage(0);
-    return 0;
-
-================================================================================
-
-DATA TYPES:
-----------
-
-TooltipEntry:
-   typedef std::pair<std::wstring, std::wstring> TooltipEntry
-   
-   First element  : Country code (e.g., "[GB] ", "[DE] ")
-   Second element : Translated text
-
-================================================================================
-
-VISUAL LAYOUT:
--------------
-
-The tooltip displays entries in a 2-column grid:
-
-   +----------------------------------------------------------------+
-   | [GB]  About SetupCraft          [BE]  Over SetupCraft         |
-   | [CH]  À propos de SetupCraft    [DE]  Über SetupCraft         |
-   | [DK]  Om SetupCraft              [ES]  Acerca de SetupCraft    |
-   | ...                              ...                           |
-   +----------------------------------------------------------------+
-
-- Background: Light yellow (RGB 255, 255, 225)
-- Border: 1px black
-- Country codes: Royal blue (RGB 65, 105, 225), right-aligned
-- Text: Black
-- Font: Segoe UI, size 14
-- Width: 700px fixed
-- Height: Dynamic based on entry count (22px per row + 30px padding)
-
-================================================================================
-
-REQUIREMENTS:
-------------
-
-- Windows API (windows.h)
-- C++11 or later (for std::pair, std::vector, std::wstring)
-- Standard C++ library (<fstream>, <sstream>, <algorithm>, <map>)
-
-================================================================================
-
-NOTES AND TIPS:
---------------
-
-1. The tooltip is positioned at absolute screen coordinates. Calculate the
-   position based on the element you want to show the tooltip for.
-
-2. Use ClientToScreen() to convert client coordinates to screen coordinates.
-
-3. The tooltip is non-activating (WS_EX_TOOLWINDOW), so it won't steal focus
-   from the parent window.
-
-4. Use TrackMouseEvent() with TME_LEAVE to detect when the mouse leaves the
-   hover area so you can hide the tooltip.
-
-5. The tooltip window is reused across multiple show/hide cycles for
-   performance. It's only destroyed when CleanupTooltipSystem() is called.
-
-6. Country codes are extracted automatically from locale codes. For example:
-   - "en_GB" -> "[GB] "
-   - "de_DE" -> "[DE] "
-   - "fr_CH" -> "[CH] "
-
-7. If you need custom entries (not from locale files), you can manually
-   create the vector:
-   std::vector<TooltipEntry> customEntries = {
-       {L"[XX] ", L"Custom text 1"},
-       {L"[YY] ", L"Custom text 2"}
-   };
-
-================================================================================
-END OF DOCUMENTATION
-================================================================================
+   ================================================================================
+   END OF DOCUMENTATION
+   ================================================================================
