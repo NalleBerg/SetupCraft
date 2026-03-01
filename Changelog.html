@@ -2,7 +2,18 @@
 <h3 style="text-align: center;">&nbsp;</h3>
 <p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 01 March 2026<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
 
-<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.01.09</span></h3>
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.01.10</span></h3>
+<p><strong>Tooltip font, encoding and multiline fixes (01.03.2026, 10:14):</strong></p>
+<ul>
+<li><strong>System font for tooltips:</strong> Tooltip font now derived from <code>SPI_GETNONCLIENTMETRICS</code> (<code>lfMessageFont</code>, bold) instead of a hardcoded Segoe UI. The OS-provided font always has the correct charset, fixing garbled Greek [GR] and Ukrainian [UA] characters in the globe multilingual tooltip.</li>
+<li><strong>Registry warning tooltip multiline:</strong> Simple tooltips containing <code>\n</code> now use <code>DT_WORDBREAK</code> and measure their full wrapped height — the registry warning text is no longer truncated to a single line.</li>
+<li><strong>About tooltip text fixed:</strong> «About SetupCraft» tooltip was showing only «About» due to the word-break renderer splitting the string across two lines where the second line fell outside the window. Now uses <code>DT_SINGLELINE</code> + <code>DT_VCENTER</code> for single-line tooltips and sizes the window exactly to fit.</li>
+<li><strong>SS_NOTIFY removed from About icon:</strong> Removed <code>SS_NOTIFY</code> style from the About static icon control — it was causing Windows to show its own native tooltip («About») on top of our custom one.</li>
+</ul>
+
+<h3 style="text-align: center;">&nbsp;</h3>
+
+<!-- Previous release notes follow -->
 <p><strong>Globe tooltip: encoding, alignment, and reliability fixes (01.03.2026, 09:28):</strong></p>
 <ul>
 <li><strong>UTF-8 encoding fix:</strong> `tooltip.cpp` `LoadLocaleFile` now uses a narrow `std::ifstream` with `MultiByteToWideChar(CP_UTF8)` — the same proven method used in `main.cpp`. Greek and Ukrainian characters now render correctly in the multilingual tooltip table.</li>
@@ -12,6 +23,8 @@
 <li><strong>Globe icon style:</strong> Globe static control set to `WS_EX_TRANSPARENT` matching the About icon, so mouse events pass through to the parent for reliable hover detection.</li>
 <li><strong>Tooltip position:</strong> Globe tooltip now opens below the icon (`rcIcon.bottom + 5`) instead of to its right, keeping it visible within the screen regardless of window position.</li>
 <li><strong>tooltip_API.txt updated:</strong> Added CRITICAL PITFALL callouts for all three root-cause bugs (monitor clamping, WM_MOUSELEAVE race, position below vs. right of icon) so the API is toolbox-ready.</li>
+<li><strong>Simple tooltip auto-width:</strong> Simple (single-line) tooltips such as «About SetupCraft» now measure the actual text width and size themselves to fit, instead of always using a fixed 700 px. Long text still word-wraps at 500 px max.</li>
+<li><strong>Registry warning tooltip position:</strong> Simple tooltips now clamp their X position to the parent window's right edge, so the registry-warning tooltip no longer overflows the app window to the right.</li>
 </ul>
 
 <h3 style="text-align: center;">&nbsp;</h3>

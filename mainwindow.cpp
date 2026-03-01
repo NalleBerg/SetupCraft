@@ -4674,15 +4674,12 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 overAboutIcon = true;
                 
                 if (!IsTooltipVisible()) {
-                    // Show simple tooltip with current language text only
                     auto it = s_locale.find(L"about_setupcraft");
                     std::wstring tooltipText = (it != s_locale.end()) ? it->second : L"About SetupCraft";
-                    
-                    // Create single entry for simple tooltip
+
                     std::vector<std::pair<std::wstring, std::wstring>> simpleEntry;
-                    simpleEntry.push_back({L"", tooltipText}); // Empty country code for simple tooltip
-                    
-                    // Position tooltip below the about icon
+                    simpleEntry.push_back({L"", tooltipText});
+
                     POINT ptIcon = { rcIcon.left, rcIcon.bottom + 5 };
                     ClientToScreen(hwnd, &ptIcon);
                     ShowMultilingualTooltip(simpleEntry, ptIcon.x, ptIcon.y, hwnd);

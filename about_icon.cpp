@@ -19,19 +19,19 @@ static LRESULT CALLBACK AboutIcon_SubclassProc(HWND hwnd, UINT msg, WPARAM wPara
     case WM_MOUSEMOVE: {
         // Show tooltip when mouse enters; track leave on the control itself
         if (!IsTooltipVisible()) {
+            std::wstring tooltipText = L"About SetupCraft";
             if (s_localePtr) {
                 auto it = s_localePtr->find(L"about_setupcraft");
-                std::wstring tooltipText = (it != s_localePtr->end()) ? it->second : L"About SetupCraft";
-                std::vector<std::pair<std::wstring,std::wstring>> simpleEntry;
-                simpleEntry.push_back({L"", tooltipText});
-
-                RECT rcIcon;
-                GetWindowRect(hwnd, &rcIcon);
-                // rcIcon is in screen coordinates already; place tooltip just below the icon
-                POINT ptIcon = { rcIcon.left, rcIcon.bottom + 5 };
-                ShowMultilingualTooltip(simpleEntry, ptIcon.x, ptIcon.y, s_parentWnd);
-                s_currentTooltipIcon = hwnd;
+                if (it != s_localePtr->end()) tooltipText = it->second;
             }
+            std::vector<std::pair<std::wstring,std::wstring>> simpleEntry;
+            simpleEntry.push_back({L"", tooltipText});
+
+            RECT rcIcon;
+            GetWindowRect(hwnd, &rcIcon);
+            POINT ptIcon = { rcIcon.left, rcIcon.bottom + 5 };
+            ShowMultilingualTooltip(simpleEntry, ptIcon.x, ptIcon.y, s_parentWnd);
+            s_currentTooltipIcon = hwnd;
         }
 
         if (!s_mouseTracking) {
@@ -70,7 +70,7 @@ HWND CreateAboutIconControl(HWND parent, HINSTANCE hInst, int x, int y, int size
     s_aboutIcon = CreateWindowExW(
         0,
         L"STATIC", NULL,
-        WS_CHILD | WS_VISIBLE | SS_ICON | SS_CENTERIMAGE | SS_NOTIFY,
+        WS_CHILD | WS_VISIBLE | SS_ICON | SS_CENTERIMAGE,
         x, y, size, size,
         parent, (HMENU)(INT_PTR)id, hInst, NULL);
 

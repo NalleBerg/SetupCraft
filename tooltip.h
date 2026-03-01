@@ -29,6 +29,9 @@ void HideTooltip();
 // Check if tooltip is currently visible
 bool IsTooltipVisible();
 
+// Get the current tooltip window handle (may be NULL)
+HWND GetTooltipWindow();
+
 // (No owner API here) Public tooltip functions only.
 
 // Build multilingual entries for a specific locale key from all available locale files

@@ -151,10 +151,16 @@ static LRESULT CALLBACK TooltipWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
         bool isSimpleTooltip = (g_currentEntries.size() == 1 && g_currentEntries[0].first.empty());
 
         if (isSimpleTooltip) {
-            // Simple tooltip - draw wrapped text (up to 3 lines)
-            RECT textRc = { 10, 10, rc.right - 10, rc.bottom - 10 };
+            const std::wstring& s = g_currentEntries[0].second;
+            bool isMultiline = (s.find(L'\n') != std::wstring::npos);
             SetTextColor(hdc, RGB(0, 0, 0));
-            DrawTextW(hdc, g_currentEntries[0].second.c_str(), -1, &textRc, DT_LEFT | DT_TOP | DT_WORDBREAK);
+            if (isMultiline) {
+                RECT textRc = { 10, 10, rc.right - 10, rc.bottom - 10 };
+                DrawTextW(hdc, s.c_str(), -1, &textRc, DT_LEFT | DT_TOP | DT_WORDBREAK | DT_NOPREFIX);
+            } else {
+                RECT textRc = { 10, 0, rc.right - 10, rc.bottom };
+                DrawTextW(hdc, s.c_str(), -1, &textRc, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+            }
         } else {
             // Multilingual tooltip - two columns, up to 10 rows per column
             const int startX = 10;
@@ -221,11 +227,15 @@ bool InitTooltipSystem(HINSTANCE hInstance) {
         }
     }
     
-    // Create tooltip font
+    // Create tooltip font: use the OS system message font (bold) so it supports
+    // every script the OS supports (Greek, Cyrillic, etc.) without hardcoding a face name.
     if (!g_tooltipFont) {
-        g_tooltipFont = CreateFontW(-14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-                                    DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                                    CLEARTYPE_QUALITY, VARIABLE_PITCH | FF_SWISS, L"Segoe UI");
+        NONCLIENTMETRICSW ncm = {};
+        ncm.cbSize = sizeof(ncm);
+        SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+        ncm.lfMessageFont.lfWeight = FW_BOLD;   // bold for all tooltips
+        ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+        g_tooltipFont = CreateFontIndirectW(&ncm.lfMessageFont);
     }
     
     return true;
@@ -263,31 +273,40 @@ void ShowMultilingualTooltip(const std::vector<TooltipEntry>& entries, int x, in
     // Calculate dimensions
     int tooltipWidth, tooltipHeight;
     if (isSimpleTooltip) {
-        // Simple tooltip - calculate width/height for multiline content with word-wrap
         std::wstring s = g_currentEntries[0].second;
+        // Detect whether the text is multiline (contains \n)
+        bool isMultiline = (s.find(L'\n') != std::wstring::npos);
+
         HDC hdc = GetDC(NULL);
-        if (g_tooltipFont) SelectObject(hdc, g_tooltipFont);
+        HGDIOBJ hOldFont = NULL;
+        if (g_tooltipFont) hOldFont = SelectObject(hdc, g_tooltipFont);
 
-        // Choose max width per API (700px) so text wraps into multiple lines
-        int desiredMaxWidth = 700;
-
-        // Measure wrapped rect using DrawText with DT_CALCRECT | DT_WORDBREAK
-        RECT calcRc = { 0, 0, desiredMaxWidth - 20, 0 };
-        DrawTextW(hdc, s.c_str(), -1, &calcRc, DT_CALCRECT | DT_WORDBREAK);
-
-        // Determine line height from font metrics
         TEXTMETRIC tm = {0};
         GetTextMetricsW(hdc, &tm);
         int lineHeight = tm.tmHeight + tm.tmExternalLeading;
         if (lineHeight <= 0) lineHeight = 20;
 
-        // Limit height to at most 3 lines
-        int maxHeight = lineHeight * 3;
-        int contentHeight = calcRc.bottom - calcRc.top;
-        if (contentHeight > maxHeight) contentHeight = maxHeight;
+        if (isMultiline) {
+            // Multiline: wrap at 480px, measure actual height needed
+            int maxAllowed = 480;
+            RECT calcRc = { 0, 0, maxAllowed, 0 };
+            DrawTextW(hdc, s.c_str(), -1, &calcRc, DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX);
+            tooltipWidth  = maxAllowed + 20;  // +20 padding
+            tooltipHeight = (calcRc.bottom - calcRc.top) + 20;
+        } else {
+            // Single line: measure exact width, add generous padding so window-DC
+            // rendering never needs to wrap.
+            SIZE sz = {0};
+            GetTextExtentPoint32W(hdc, s.c_str(), (int)s.size(), &sz);
+            int naturalWidth = sz.cx + 32;  // 16px each side
+            int maxAllowed = 500;
+            tooltipWidth  = (naturalWidth < maxAllowed) ? naturalWidth : maxAllowed;
+            if (tooltipWidth < 80) tooltipWidth = 80;
+            tooltipHeight = lineHeight + 20;
+        }
 
-        tooltipWidth = desiredMaxWidth;
-        tooltipHeight = contentHeight + 20; // add padding
+        if (hOldFont) SelectObject(hdc, hOldFont);
+        ReleaseDC(NULL, hdc);
     } else {
         // Multilingual tooltip - two columns, up to 10 rows per column
         int totalEntries = (int)g_currentEntries.size();
@@ -298,10 +317,25 @@ void ShowMultilingualTooltip(const std::vector<TooltipEntry>& entries, int x, in
         tooltipHeight = rows * 22 + 30;
     }
     
-    // Clamp to monitor bounds (not parent bounds — the parent entry window is
-    // only ~180px tall and cannot contain the multilingual table at all).
+    // For simple tooltips, also clamp X to parent window right edge so the
+    // tooltip never overflows the app (e.g. registry warning near the right edge).
     int finalX = x;
     int finalY = y;
+    if (isSimpleTooltip && parentHwnd) {
+        RECT rcParent;
+        GetClientRect(parentHwnd, &rcParent);
+        POINT pBR = { rcParent.right, rcParent.bottom };
+        ClientToScreen(parentHwnd, &pBR);
+        if (finalX + tooltipWidth > pBR.x - 8)
+            finalX = pBR.x - tooltipWidth - 8;
+        POINT pTL = { rcParent.left, rcParent.top };
+        ClientToScreen(parentHwnd, &pTL);
+        if (finalX < pTL.x + 8)
+            finalX = pTL.x + 8;
+    }
+
+    // Clamp to monitor bounds (not parent bounds — the parent entry window is
+    // only ~180px tall and cannot contain the multilingual table at all).
     {
         POINT pt = { x, y };
         HMONITOR hMon = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
