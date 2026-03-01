@@ -79,10 +79,7 @@ static HWND s_hRegTreeView = NULL;
 static HWND s_hRegListView = NULL;
 static HWND s_hRegKeyDialog = NULL;
 static bool s_navigateToRegKey = false;
-static HWND s_hWarningTooltip = NULL;
 static bool s_warningTooltipTracking = false;
-static std::wstring s_warningTooltipText;
-static HFONT s_warningTooltipFont = NULL;
 
 // Command and control IDs
 #define IDM_EDIT_REDO       4012
@@ -172,47 +169,10 @@ static HFONT s_warningTooltipFont = NULL;
 #define IDC_ADDKEY_OK       5071
 #define IDC_ADDKEY_CANCEL   5072
 
-const wchar_t WARNING_TOOLTIP_CLASS_NAME[] = L"WarningTooltipClass";
-
-// Warning tooltip window procedure
-LRESULT CALLBACK WarningTooltipWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
-    switch (msg) {
-    case WM_PAINT: {
-        PAINTSTRUCT ps;
-        HDC hdc = BeginPaint(hwnd, &ps);
-        if (s_warningTooltipFont) SelectObject(hdc, s_warningTooltipFont);
-        RECT rc;
-        GetClientRect(hwnd, &rc);
-        SetBkMode(hdc, TRANSPARENT);
-        DrawTextW(hdc, s_warningTooltipText.c_str(), -1, &rc, DT_WORDBREAK);
-        EndPaint(hwnd, &ps);
-        return 0;
-    }
-    case WM_NCDESTROY:
-        return 0;
-    default:
-        return DefWindowProcW(hwnd, msg, wParam, lParam);
-    }
-}
-
 // Subclass proc for the registry warning icon
 static LRESULT CALLBACK WarningIcon_SubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
     case WM_MOUSEMOVE: {
-        // Debug log: record mousemove on warning icon
-        {
-            wchar_t exePath[MAX_PATH];
-            if (GetModuleFileNameW(NULL, exePath, _countof(exePath))) {
-                wchar_t *p = wcsrchr(exePath, L'\\');
-                if (p) *(p + 1) = 0; // keep trailing slash
-                std::wstring logPath = std::wstring(exePath) + L"tooltip_debug.log";
-                std::wofstream lf(logPath.c_str(), std::ios::app);
-                if (lf.is_open()) {
-                    lf << L"WarningIcon_SubclassProc WM_MOUSEMOVE hwnd=" << (void*)hwnd << L"\n";
-                    lf.close();
-                }
-            }
-        }
         if (!IsTooltipVisible()) {
             auto it = MainWindow::GetLocale().find(L"reg_warning_tooltip");
             std::wstring tooltipText = (it != MainWindow::GetLocale().end()) ? it->second :
@@ -251,50 +211,9 @@ static LRESULT CALLBACK WarningIcon_SubclassProc(HWND hwnd, UINT msg, WPARAM wPa
         break;
     }
     case WM_MOUSELEAVE: {
-        // Debug log: record mouseleave on warning icon
-        {
-            wchar_t exePath[MAX_PATH];
-            if (GetModuleFileNameW(NULL, exePath, _countof(exePath))) {
-                wchar_t *p = wcsrchr(exePath, L'\\');
-                if (p) *(p + 1) = 0;
-                std::wstring logPath = std::wstring(exePath) + L"tooltip_debug.log";
-                std::wofstream lf(logPath.c_str(), std::ios::app);
-                if (lf.is_open()) {
-                    lf << L"WarningIcon_SubclassProc WM_MOUSELEAVE hwnd=" << (void*)hwnd << L"\n";
-                    lf.close();
-                }
-            }
-        }
-        // Always hide tooltip when mouse leaves the warning icon
-        {
-            wchar_t exePath[MAX_PATH];
-            if (GetModuleFileNameW(NULL, exePath, _countof(exePath))) {
-                wchar_t *p = wcsrchr(exePath, L'\\');
-                if (p) *(p + 1) = 0;
-                std::wstring logPath = std::wstring(exePath) + L"tooltip_debug.log";
-                std::wofstream lf(logPath.c_str(), std::ios::app);
-                if (lf.is_open()) {
-                    lf << L"WarningIcon_SubclassProc about to HideTooltip hwnd=" << (void*)hwnd << L"\n";
-                    lf.close();
-                }
-            }
-        }
         if (IsTooltipVisible()) {
             HideTooltip();
             s_currentTooltipIcon = NULL;
-        }
-        {
-            wchar_t exePath[MAX_PATH];
-            if (GetModuleFileNameW(NULL, exePath, _countof(exePath))) {
-                wchar_t *p = wcsrchr(exePath, L'\\');
-                if (p) *(p + 1) = 0;
-                std::wstring logPath = std::wstring(exePath) + L"tooltip_debug.log";
-                std::wofstream lf(logPath.c_str(), std::ios::app);
-                if (lf.is_open()) {
-                    lf << L"WarningIcon_SubclassProc after HideTooltip hwnd=" << (void*)hwnd << L"\n";
-                    lf.close();
-                }
-            }
         }
         s_warningTooltipTracking = false;
         break;
@@ -310,27 +229,6 @@ static LRESULT CALLBACK WarningIcon_SubclassProc(HWND hwnd, UINT msg, WPARAM wPa
 HWND MainWindow::Create(HINSTANCE hInstance, const ProjectRow &project, const std::map<std::wstring, std::wstring> &locale) {
     s_currentProject = project;
     s_locale = locale;
-    
-    // Register tooltip window class
-    static bool tooltipClassRegistered = false;
-    if (!tooltipClassRegistered) {
-        WNDCLASSEXW wcTooltip = { };
-        wcTooltip.cbSize = sizeof(WNDCLASSEXW);
-        wcTooltip.lpfnWndProc = WarningTooltipWndProc;
-        wcTooltip.hInstance = hInstance;
-        wcTooltip.lpszClassName = WARNING_TOOLTIP_CLASS_NAME;
-        wcTooltip.hbrBackground = (HBRUSH)(COLOR_INFOBK + 1);
-        wcTooltip.hCursor = LoadCursorW(NULL, IDC_ARROW);
-        RegisterClassExW(&wcTooltip);
-        tooltipClassRegistered = true;
-    }
-    
-    // Create tooltip font (same as globe tooltip)
-    if (!s_warningTooltipFont) {
-        s_warningTooltipFont = CreateFontW(-14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-                                    DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                                    CLEARTYPE_QUALITY, VARIABLE_PITCH | FF_SWISS, L"Segoe UI");
-    }
     
     // Load application icon from resource
     HICON hIcon = LoadIconW(hInstance, MAKEINTRESOURCEW(1));
@@ -795,13 +693,6 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         if (hCtrl) {
             DestroyWindow(hCtrl);
         }
-    }
-    
-    // Destroy warning tooltip if it exists
-    if (s_hWarningTooltip) {
-        DestroyWindow(s_hWarningTooltip);
-        s_hWarningTooltip = NULL;
-        s_warningTooltipTracking = false;
     }
     
     // Enumerate and destroy ALL child windows in the page area (below toolbar, above status bar)
