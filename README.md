@@ -2,13 +2,15 @@
 
 An installer creation tool for making your developed packages distributable. Designed to be simple to use with a clean, native Windows interface.
 
-**Current Release:** Version 2026.03.02.08 (Published: 02.03.2026 08:59)
+**Current Release:** Version 2026.03.02.10 (Published: 02.03.2026 10:24)
 
 > Note: This project is in active development. Entry screen and main window Files management page are complete with proper page switching.
 
 ## Features
 
-- **Main Window Interface**: 8-button toolbar for accessing Files, Registry, Shortcuts, Dependencies, Settings, Build, Test, and Scripts pages
+- **DPI-Aware Scaling**: Full per-monitor DPI support via `S()` helper — all pixel values, fonts, and tooltip dimensions scale correctly at any DPI (100%, 125%, 150%, 175%, 200%+)
+- **Consistent Body Font**: All labels, edits, checkboxes, TreeViews, and ListViews use a system-derived `NONCLIENTMETRICS` font at 120% scale for clear, legible text on every screen
+- **Bold Page Titles**: Each page has a prominent `S(24)` bold heading (*Files Management*, *Registry*, *Shortcuts*, etc.) so navigation context is always clear
 - **Files Management**: Split-pane interface with TreeView (folder hierarchy with 19px indentation) and ListView (file display) for visual file selection
 - **Registry Management**: Complete Windows Registry integration page for Add/Remove Programs registration with icon preview and registry path navigation
 - **Registry Backup System**: "Create Restore Point" button creates Windows System Restore Point before registry edits with animated spinner dialog

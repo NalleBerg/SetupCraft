@@ -23,6 +23,7 @@ add_executable(SkeletonApp WIN32
     about.cpp
     about_icon.cpp
     tooltip.cpp
+    dpi.cpp
     ${RESOURCE_FILES}
 )
 

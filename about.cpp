@@ -1,5 +1,6 @@
 #include "about.h"
 #include <windows.h>
+#include "dpi.h"
 #include <richedit.h>
 #include <string>
 #include <sstream>
@@ -189,7 +190,7 @@ void ShowAboutDialog(HWND parent) {
     g_logoImage = Image::FromFile(logoPath);
     
     // Create window
-    const int W = 420, H = 560; // Increased height for logo
+    const int W = S(420), H = S(560); // Increased height for logo
     RECT pr = {0,0,0,0};
     if (parent && IsWindow(parent)) GetWindowRect(parent, &pr);
     int px = (pr.right + pr.left) / 2;
@@ -230,7 +231,7 @@ void ShowAboutDialog(HWND parent) {
     // Create RichEdit control - fills entire area, logo will scroll with content
     HWND hEdit = CreateWindowExW(0, L"RichEdit20W", NULL,
         WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | WS_VSCROLL,
-        10, 10, W - 20, H - 80,
+        S(10), S(10), W - S(20), H - S(80),
         dlg, (HMENU)100, hi, NULL);
     
     if (!hEdit) {
@@ -304,20 +305,20 @@ void ShowAboutDialog(HWND parent) {
     SendMessageW(hEdit, EM_SCROLLCARET, 0, 0);
     
     // Create buttons at bottom (centered with gap)
-    int btnY = H - 65;  // Account for title bar and borders
-    int btnWidth = 90;
-    int btnGap = 10;
+    int btnY = H - S(65);  // Account for title bar and borders
+    int btnWidth = S(90);
+    int btnGap = S(10);
     int totalWidth = btnWidth * 2 + btnGap;
     int startX = (W - totalWidth) / 2;
     
     HWND btnLicense = CreateWindowExW(0, L"Button", L"View License",
         WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | WS_TABSTOP,
-        startX, btnY, btnWidth, 30,
+        startX, btnY, btnWidth, S(30),
         dlg, (HMENU)1001, hi, NULL);
     
     HWND btnClose = CreateWindowExW(0, L"Button", L"Close",
         WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON | WS_TABSTOP,
-        startX + btnWidth + btnGap, btnY, btnWidth, 30,
+        startX + btnWidth + btnGap, btnY, btnWidth, S(30),
         dlg, (HMENU)IDOK, hi, NULL);
     
     // Set font for buttons
@@ -358,7 +359,7 @@ void ShowLicenseDialog(HWND parent) {
     LoadLibraryW(L"Riched20.dll");
     
     // Create license window - larger to accommodate full GPL text
-    const int W = 650, H = 600;
+    const int W = S(650), H = S(600);
     RECT pr = {0,0,0,0};
     if (parent && IsWindow(parent)) GetWindowRect(parent, &pr);
     int px = (pr.right + pr.left) / 2;
@@ -423,7 +424,7 @@ void ShowLicenseDialog(HWND parent) {
     int editTop = logoHeight > 0 ? logoHeight + 20 : 10;
     HWND hEdit = CreateWindowExW(0, L"RichEdit20W", NULL,
         WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | WS_VSCROLL,
-        10, editTop, W - 20, H - editTop - 70,
+        S(10), editTop, W - S(20), H - editTop - S(70),
         dlg, (HMENU)100, hi, NULL);
     
     if (!hEdit) {
@@ -509,13 +510,13 @@ void ShowLicenseDialog(HWND parent) {
     SendMessageW(hEdit, EM_SCROLLCARET, 0, 0);
     
     // Create OK button
-    int btnWidth = 80;
+    int btnWidth = S(80);
     int btnX = (W - btnWidth) / 2;
-    int btnY = H - 61;
+    int btnY = H - S(61);
     
     HWND btnOK = CreateWindowExW(0, L"Button", L"OK",
         WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON | WS_TABSTOP,
-        btnX, btnY, btnWidth, 30,
+        btnX, btnY, btnWidth, S(30),
         dlg, (HMENU)IDOK, hi, NULL);
     
     HFONT hFont = (HFONT)GetStockObject(DEFAULT_GUI_FONT);

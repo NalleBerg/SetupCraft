@@ -1,4 +1,5 @@
 #include "mainwindow.h"
+#include "dpi.h"
 #include <commctrl.h>
 #include <shlwapi.h>
 #include <shlobj.h>
@@ -44,12 +45,14 @@ static bool s_installPathUserEdited = false; // Once user manually picks a path,
 static std::wstring s_currentInstallPath;    // Persists the install path across page switches
 static HWND s_hAboutButton = NULL; // Track About button for tooltip
 static bool s_aboutMouseTracking = false; // Track mouse for About button tooltip
+static HFONT s_hGuiFont = NULL; // Scaled GUI font for labels/edits/checkboxes
 // Mirror entry-screen tooltip tracking state
 static HWND s_currentTooltipIcon = NULL; // Which icon currently has the tooltip shown
 static bool s_mouseTracking = false; // General mouse tracking flag for tooltip
 static HTREEITEM s_lastHoveredTreeItem = NULL;
 static WNDPROC s_prevTreeProc = NULL;
 static WNDPROC s_prevWarnIconProc = NULL;
+static HFONT s_scaledFont = NULL; // Scaled default GUI font for labels/edits/checkboxes
 // Forward declarations for functions defined later
 static LRESULT CALLBACK TreeView_SubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 static std::vector<std::wstring> GetAvailableLocales();
@@ -114,6 +117,7 @@ static bool s_warningTooltipTracking = false;
 #define IDC_TB_SCRIPTS      5017
 #define IDC_TB_SAVE         5018
 #define IDC_TB_ABOUT        5019
+#define IDC_TB_DIALOGS      5080
 
 // Files dialog button IDs
 #define IDC_FILES_ADD_DIR   5020
@@ -258,8 +262,8 @@ HWND MainWindow::Create(HINSTANCE hInstance, const ProjectRow &project, const st
     // Calculate centered position on screen
     RECT rcWork;
     SystemParametersInfoW(SPI_GETWORKAREA, 0, &rcWork, 0);
-    int width = 1024;
-    int height = 691;
+    int width = S(1024);
+    int height = S(691);
     int x = rcWork.left + (rcWork.right - rcWork.left - width) / 2;
     int y = rcWork.top + (rcWork.bottom - rcWork.top - height) / 2;
     
@@ -361,11 +365,11 @@ void MainWindow::CreateMenuBar(HWND hwnd) {
 }
 
 void MainWindow::CreateToolbar(HWND hwnd, HINSTANCE hInst) {
-    const int buttonWidth = 95;  // Optimized width for toolbar buttons
-    const int buttonHeight = 40;
-    const int buttonGap = 5;
-    const int startX = 10;
-    const int startY = 5;
+    const int buttonWidth = S(85);  // Optimized width for toolbar buttons
+    const int buttonHeight = S(40);
+    const int buttonGap = S(5);
+    const int startX = S(10);
+    const int startY = S(5);
     
     int x = startX;
     
@@ -373,8 +377,8 @@ void MainWindow::CreateToolbar(HWND hwnd, HINSTANCE hInst) {
     auto itFiles = s_locale.find(L"tb_files");
     std::wstring filesText = (itFiles != s_locale.end()) ? itFiles->second : L"Files";
     CreateCustomButtonWithIcon(hwnd, IDC_TB_FILES, filesText, ButtonColor::Blue,
-        L"shell32.dll", 4, x, startY, buttonWidth, buttonHeight, hInst);
-    x += buttonWidth + buttonGap;
+        L"shell32.dll", 4, x, startY, S(75), buttonHeight, hInst);
+    x += S(75) + buttonGap;
     
     // Add Registry button
     auto itAddReg = s_locale.find(L"tb_add_registry");
@@ -387,16 +391,23 @@ void MainWindow::CreateToolbar(HWND hwnd, HINSTANCE hInst) {
     auto itAddShortcut = s_locale.find(L"tb_add_shortcut");
     std::wstring addShortcutText = (itAddShortcut != s_locale.end()) ? itAddShortcut->second : L"Shortcuts";
     CreateCustomButtonWithCompositeIcon(hwnd, IDC_TB_ADD_SHORTCUT, addShortcutText, ButtonColor::Blue,
-        L"shell32.dll", 257, L"shell32.dll", 29, x, startY, buttonWidth, buttonHeight, hInst);
-    x += buttonWidth + buttonGap;
+        L"shell32.dll", 257, L"shell32.dll", 29, x, startY, S(100), buttonHeight, hInst);
+    x += S(100) + buttonGap;
     
     // Add Dependency button (wider to fit text)
     auto itAddDep = s_locale.find(L"tb_add_dependency");
     std::wstring addDepText = (itAddDep != s_locale.end()) ? itAddDep->second : L"Dependencies";
     CreateCustomButtonWithIcon(hwnd, IDC_TB_ADD_DEPEND, addDepText, ButtonColor::Blue,
-        L"shell32.dll", 278, x, startY, 125, buttonHeight, hInst);
-    x += 125 + buttonGap;
-    
+        L"shell32.dll", 278, x, startY, S(125), buttonHeight, hInst);
+    x += S(125) + buttonGap;
+
+    // Dialogs button
+    auto itDialogs = s_locale.find(L"tb_dialogs");
+    std::wstring dialogsText = (itDialogs != s_locale.end()) ? itDialogs->second : L"Dialogs";
+    CreateCustomButtonWithIcon(hwnd, IDC_TB_DIALOGS, dialogsText, ButtonColor::Blue,
+        L"shell32.dll", 23, x, startY, buttonWidth, buttonHeight, hInst);
+    x += buttonWidth + buttonGap;
+
     // Settings button
     auto itSettings = s_locale.find(L"tb_settings");
     std::wstring settingsText = (itSettings != s_locale.end()) ? itSettings->second : L"Settings";
@@ -433,7 +444,7 @@ void MainWindow::CreateToolbar(HWND hwnd, HINSTANCE hInst) {
     x += buttonWidth + buttonGap;
     
     // About icon (static control with custom tooltip)
-    const int aboutIconSize = 32;
+    const int aboutIconSize = S(32);
     const int aboutIconY = startY + (buttonHeight - aboutIconSize) / 2;  // Center vertically with buttons
     // Create About icon using about_icon module
     s_hAboutButton = CreateAboutIconControl(hwnd, hInst, x, aboutIconY, aboutIconSize, IDC_TB_ABOUT, s_locale);
@@ -715,7 +726,8 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         if (rcChild.top > s_toolbarHeight && rcChild.bottom < rcClient.bottom - 25) {
             // Skip toolbar buttons and known handles
             int childId = GetDlgCtrlID(hChild);
-            if (childId < IDC_TB_FILES || childId > IDC_TB_ABOUT) {
+            bool isToolbarBtn = (childId >= IDC_TB_FILES && childId <= IDC_TB_ABOUT) || childId == IDC_TB_DIALOGS;
+            if (!isToolbarBtn) {
                 if (hChild != s_hTreeView && hChild != s_hListView && 
                     hChild != s_hRegTreeView && hChild != s_hRegListView &&
                     hChild != s_hPageButton1 && hChild != s_hPageButton2) {
@@ -784,79 +796,85 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         // H3 headline (direct child of main window)
         HWND hTitle = CreateWindowExW(0, L"STATIC", L"Files Management",
             WS_CHILD | WS_VISIBLE | SS_LEFT,
-            20, pageY + 15, rc.right - 40, 30,
+            S(20), pageY + S(15), rc.right - S(40), S(38),
             hwnd, (HMENU)5100, hInst, NULL); // Give it an ID for WM_CTLCOLORSTATIC
-        HFONT hTitleFont = CreateFontW(-18, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+        HFONT hTitleFont = CreateFontW(-S(24), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
             CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
         if (hTitleFont) SendMessageW(hTitle, WM_SETFONT, (WPARAM)hTitleFont, TRUE);
         
         // Add Folder button (child of main window, positioned relative to it)
         s_hPageButton1 = CreateCustomButtonWithIcon(hwnd, IDC_FILES_ADD_DIR, L"Add Folder", ButtonColor::Blue,
-            L"shell32.dll", 296, 20, s_toolbarHeight + 55, 120, 35, hInst);
+            L"shell32.dll", 296, S(20), s_toolbarHeight + S(55), S(120), S(35), hInst);
         
         // Add Files button (child of main window, positioned relative to it)
         s_hPageButton2 = CreateCustomButtonWithIcon(hwnd, IDC_FILES_ADD_FILES, L"Add Files", ButtonColor::Blue,
-            L"shell32.dll", 71, 150, s_toolbarHeight + 55, 120, 35, hInst);
+            L"shell32.dll", 71, S(150), s_toolbarHeight + S(55), S(120), S(35), hInst);
         
         // Remove button (for removing selected items)
         HWND hRemoveBtn = CreateCustomButtonWithIcon(hwnd, IDC_FILES_REMOVE, L"Remove", ButtonColor::Red,
-            L"shell32.dll", 234, 20, s_toolbarHeight + 100, 250, 35, hInst);
+            L"shell32.dll", 234, S(20), s_toolbarHeight + S(100), S(250), S(35), hInst);
         
         // Project name label and field
         HWND hProjectLabel = CreateWindowExW(0, L"STATIC", L"Project name:",
             WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
-            290, pageY + 55, 100, 22,
+            S(290), pageY + S(55), S(100), S(22),
             hwnd, NULL, hInst, NULL);
+        if (s_scaledFont) SendMessageW(hProjectLabel, WM_SETFONT, (WPARAM)s_scaledFont, TRUE);
         
         // Set programmatic flag to prevent EN_CHANGE from marking as manually edited
         s_updatingProjectNameProgrammatically = true;
         HWND hProjectEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", s_currentProject.name.c_str(),
             WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL,
-            395, pageY + 55, rc.right - 460, 22,
+            S(395), pageY + S(55), rc.right - S(460), S(22),
             hwnd, (HMENU)IDC_PROJECT_NAME, hInst, NULL);
+        if (s_scaledFont) SendMessageW(hProjectEdit, WM_SETFONT, (WPARAM)s_scaledFont, TRUE);
         s_updatingProjectNameProgrammatically = false;
         
         // Install folder label and field (aligned with project name field)
         HWND hInstallLabel = CreateWindowExW(0, L"STATIC", L"Install folder:",
             WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
-            290, pageY + 82, 100, 22,
+            S(290), pageY + S(82), S(100), S(22),
             hwnd, NULL, hInst, NULL);
+        if (s_scaledFont) SendMessageW(hInstallLabel, WM_SETFONT, (WPARAM)s_scaledFont, TRUE);
         
         std::wstring defaultPath = s_currentInstallPath.empty()
             ? L"C:\\Program Files\\" + s_currentProject.name
             : s_currentInstallPath;
         HWND hInstallEdit = CreateWindowExW(0, L"STATIC", defaultPath.c_str(),
             WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
-            395, pageY + 82, rc.right - 460, 22,
+            S(395), pageY + S(82), rc.right - S(460), S(22),
             hwnd, (HMENU)IDC_INSTALL_FOLDER, hInst, NULL);
+        if (s_scaledFont) SendMessageW(hInstallEdit, WM_SETFONT, (WPARAM)s_scaledFont, TRUE);
         
         // Browse button for install folder (aligned with install folder field)
         CreateCustomButtonWithIcon(hwnd, IDC_BROWSE_INSTALL_DIR, L"...", ButtonColor::Blue,
-            L"shell32.dll", 4, rc.right - 55, s_toolbarHeight + 82, 35, 22, hInst);
+            L"shell32.dll", 4, rc.right - S(55), s_toolbarHeight + S(82), S(35), S(22), hInst);
 
         // Ask-at-install checkbox below install folder
         HWND hAskChk = CreateWindowExW(0, L"BUTTON", L"Ask end user at install (Per-user / All-users)",
             WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
-            395, pageY + 110, 360, 22,
+            S(395), pageY + S(110), S(360), S(22),
             hwnd, (HMENU)IDC_ASK_AT_INSTALL, hInst, NULL);
         // Reflect current state
+        if (s_scaledFont) SendMessageW(hAskChk, WM_SETFONT, (WPARAM)s_scaledFont, TRUE);
         SendMessageW(hAskChk, BM_SETCHECK, s_askAtInstallEnabled ? BST_CHECKED : BST_UNCHECKED, 0);
         
         // Calculate split pane dimensions (TreeView 30%, ListView 70%)
-        int viewTop = 150;  // Moved down to make room for Remove button
-        int viewHeight = pageHeight - 160;
-        int treeWidth = (int)((rc.right - 50) * 0.3);
-        int listWidth = (rc.right - 50) - treeWidth - 5; // 5px gap
+        int viewTop = S(150);  // Moved down to make room for Remove button
+        int viewHeight = pageHeight - S(160);
+        int treeWidth = (int)((rc.right - S(50)) * 0.3);
+        int listWidth = (rc.right - S(50)) - treeWidth - S(5); // 5px gap
         
         // TreeView on the left (folder hierarchy) - child of main window to receive notifications
         s_hTreeView = CreateWindowExW(WS_EX_CLIENTEDGE, WC_TREEVIEW, NULL,
             WS_CHILD | WS_VISIBLE | WS_BORDER | TVS_HASLINES | TVS_HASBUTTONS | TVS_LINESATROOT | TVS_SHOWSELALWAYS | TVS_CHECKBOXES | TVS_EDITLABELS,
-            20, s_toolbarHeight + viewTop, treeWidth, viewHeight,
+            S(20), s_toolbarHeight + viewTop, treeWidth, viewHeight,
             hwnd, (HMENU)102, hInst, NULL);
         
         // Set indent width to make hierarchy more visible
-        TreeView_SetIndent(s_hTreeView, 19);
+        TreeView_SetIndent(s_hTreeView, S(19));
+        if (s_scaledFont) SendMessageW(s_hTreeView, WM_SETFONT, (WPARAM)s_scaledFont, TRUE);
         
         // Create image list for folder icons
         HIMAGELIST hImageList = ImageList_Create(16, 16, ILC_COLOR32 | ILC_MASK, 2, 2);
@@ -913,8 +931,10 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         // ListView on the right (current folder contents - files only) - child of main window
         s_hListView = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEW, NULL,
             WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_SHAREIMAGELISTS | WS_BORDER,
-            20 + treeWidth + 5, s_toolbarHeight + viewTop, listWidth, viewHeight,
+            S(20) + treeWidth + S(5), s_toolbarHeight + viewTop, listWidth, viewHeight,
             hwnd, (HMENU)100, hInst, NULL);
+        if (s_scaledFont) SendMessageW(s_hListView, WM_SETFONT, (WPARAM)s_scaledFont, TRUE);
+        { HWND hLvHdr = ListView_GetHeader(s_hListView); if (hLvHdr && s_scaledFont) SendMessageW(hLvHdr, WM_SETFONT, (WPARAM)s_scaledFont, TRUE); }
         
         // Get system image list for file icons
         SHFILEINFOW sfi = {};
@@ -1076,28 +1096,29 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         // H3 headline
         HWND hTitle = CreateWindowExW(0, L"STATIC", regTitle.c_str(),
             WS_CHILD | WS_VISIBLE | SS_LEFT,
-            20, pageY + 15, rc.right - 40, 30,
+            S(20), pageY + S(15), rc.right - S(40), S(38),
             hwnd, (HMENU)5100, hInst, NULL);
-        HFONT hTitleFont = CreateFontW(-18, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+        HFONT hTitleFont = CreateFontW(-S(24), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
             CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
         if (hTitleFont) SendMessageW(hTitle, WM_SETFONT, (WPARAM)hTitleFont, TRUE);
         
-        int currentY = pageY + 55;
+        int currentY = pageY + S(55);
         
         // Checkbox for "Register in Windows Installed Programs"
         HWND hCheckbox = CreateWindowExW(0, L"BUTTON", regRegister.c_str(),
             WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
-            20, currentY, 400, 25,
+            S(20), currentY, S(400), S(25),
             hwnd, (HMENU)IDC_REG_CHECKBOX, hInst, NULL);
+        if (s_scaledFont) SendMessageW(hCheckbox, WM_SETFONT, (WPARAM)s_scaledFont, TRUE);
         SendMessageW(hCheckbox, BM_SETCHECK, s_registerInWindows ? BST_CHECKED : BST_UNCHECKED, 0);
-        currentY += 35;
+        currentY += S(35);
         
         // Layout: Icon + Buttons on left, Fields on right
         // Icon preview area (48x48 static control with border)
         HWND hIconPreview = CreateWindowExW(WS_EX_CLIENTEDGE, L"STATIC", L"",
             WS_CHILD | WS_VISIBLE | SS_ICON | SS_CENTERIMAGE,
-            20, currentY, 48, 48,
+            S(20), currentY, S(48), S(48),
             hwnd, (HMENU)IDC_REG_ICON_PREVIEW, hInst, NULL);
         
         // Load default generic icon from shell32.dll (icon #2 - generic file icon)
@@ -1110,7 +1131,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         
         // Add Icon button (with shell32.dll icon #127)
         s_hPageButton1 = CreateCustomButtonWithIcon(hwnd, IDC_REG_ADD_ICON, addIcon.c_str(), ButtonColor::Blue,
-            L"shell32.dll", 127, 80, currentY, 120, 30, hInst);
+            L"shell32.dll", 127, S(80), currentY, S(120), S(30), hInst);
         
         // Add tooltip for Add Icon button
         if (s_hTooltip) {
@@ -1128,68 +1149,75 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         std::wstring showRegkeyText = (itShowRegkey != s_locale.end()) ? itShowRegkey->second : L"Show Regkey";
         
         CreateCustomButtonWithIcon(hwnd, IDC_REG_SHOW_REGKEY, showRegkeyText.c_str(), ButtonColor::Blue,
-            L"shell32.dll", 268, 80, currentY + 35, 120, 30, hInst);
+            L"shell32.dll", 268, S(80), currentY + S(35), S(120), S(30), hInst);
         
         // Display Name field (right side, aligned with icon)
-        CreateWindowExW(0, L"STATIC", displayName.c_str(),
+        { HWND hLbl5101 = CreateWindowExW(0, L"STATIC", displayName.c_str(),
             WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
-            220, currentY, 100, 22,
+            S(220), currentY, S(100), S(22),
             hwnd, (HMENU)5101, hInst, NULL);
+          if (s_scaledFont && hLbl5101) SendMessageW(hLbl5101, WM_SETFONT, (WPARAM)s_scaledFont, TRUE); }
         
         HWND hDisplayNameEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", s_currentProject.name.c_str(),
             WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL,
-            325, currentY, 300, 22,
+            S(325), currentY, S(300), S(22),
             hwnd, (HMENU)IDC_REG_DISPLAY_NAME, hInst, NULL);
-        currentY += 27;
+        if (s_scaledFont && hDisplayNameEdit) SendMessageW(hDisplayNameEdit, WM_SETFONT, (WPARAM)s_scaledFont, TRUE);
+        currentY += S(27);
         
         // Version field
-        CreateWindowExW(0, L"STATIC", versionText.c_str(),
+        { HWND hLbl5102 = CreateWindowExW(0, L"STATIC", versionText.c_str(),
             WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
-            220, currentY, 100, 22,
+            S(220), currentY, S(100), S(22),
             hwnd, (HMENU)5102, hInst, NULL);
+          if (s_scaledFont && hLbl5102) SendMessageW(hLbl5102, WM_SETFONT, (WPARAM)s_scaledFont, TRUE); }
         
         HWND hVersionEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", s_currentProject.version.c_str(),
             WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL,
-            325, currentY, 300, 22,
+            S(325), currentY, S(300), S(22),
             hwnd, (HMENU)IDC_REG_VERSION, hInst, NULL);
-        currentY += 27;
+        if (s_scaledFont && hVersionEdit) SendMessageW(hVersionEdit, WM_SETFONT, (WPARAM)s_scaledFont, TRUE);
+        currentY += S(27);
         
         // Publisher field
-        CreateWindowExW(0, L"STATIC", publisherText.c_str(),
+        { HWND hLbl5103 = CreateWindowExW(0, L"STATIC", publisherText.c_str(),
             WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
-            220, currentY, 100, 22,
+            S(220), currentY, S(100), S(22),
             hwnd, (HMENU)5103, hInst, NULL);
+          if (s_scaledFont && hLbl5103) SendMessageW(hLbl5103, WM_SETFONT, (WPARAM)s_scaledFont, TRUE); }
         
         HWND hPublisherEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", s_appPublisher.c_str(),
             WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL,
-            325, currentY, 300, 22,
+            S(325), currentY, S(300), S(22),
             hwnd, (HMENU)IDC_REG_PUBLISHER, hInst, NULL);
-        currentY += 40;
+        if (s_scaledFont && hPublisherEdit) SendMessageW(hPublisherEdit, WM_SETFONT, (WPARAM)s_scaledFont, TRUE);
+        currentY += S(40);
         
         // Divider line
         CreateWindowExW(0, L"STATIC", L"",
             WS_CHILD | WS_VISIBLE | SS_ETCHEDHORZ,
-            20, currentY, rc.right - 40, 2,
+            S(20), currentY, rc.right - S(40), 2,
             hwnd, (HMENU)5104, hInst, NULL);
-        currentY += 20;
+        currentY += S(20);
         
         // Custom Registry Entries section with warning icon and backup button
-        CreateWindowExW(0, L"STATIC", L"Custom Registry Entries",
+        { HWND hLbl5105 = CreateWindowExW(0, L"STATIC", L"Custom Registry Entries",
             WS_CHILD | WS_VISIBLE | SS_LEFT,
-            20, currentY, 300, 20,
+            S(20), currentY, S(300), S(20),
             hwnd, (HMENU)5105, hInst, NULL);
+          if (s_scaledFont && hLbl5105) SendMessageW(hLbl5105, WM_SETFONT, (WPARAM)s_scaledFont, TRUE); }
         
         // Backup Registry button (icon 238 from shell32.dll) - Create Restore Point
         auto itBackup = s_locale.find(L"reg_backup");
         std::wstring backupText = (itBackup != s_locale.end()) ? itBackup->second : L"Create Restore Point";
         
         CreateCustomButtonWithIcon(hwnd, IDC_REG_BACKUP, backupText.c_str(), ButtonColor::Green,
-            L"shell32.dll", 238, rc.right - 190, currentY, 170, 40, hInst);
+            L"shell32.dll", 238, rc.right - S(190), currentY, S(170), S(40), hInst);
         
         // Warning icon (imageres.dll icon 244) - positioned just to left of backup button
         HWND hWarningIcon = CreateWindowExW(0, L"STATIC", L"",
             WS_CHILD | WS_VISIBLE | SS_ICON | SS_CENTERIMAGE | SS_NOTIFY,
-            rc.right - 230, currentY + 4, 32, 32,
+            rc.right - S(230), currentY + S(4), S(32), S(32),
             hwnd, (HMENU)IDC_REG_WARNING_ICON, hInst, NULL);
         
         // Load and set warning icon from imageres.dll
@@ -1197,7 +1225,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         HMODULE hImageres = LoadLibraryW(L"imageres.dll");
         if (hImageres) {
             // Try loading with LoadImageW for better size control
-            hWarnIcon = (HICON)LoadImageW(hImageres, MAKEINTRESOURCEW(244), IMAGE_ICON, 24, 24, LR_DEFAULTCOLOR);
+            hWarnIcon = (HICON)LoadImageW(hImageres, MAKEINTRESOURCEW(244), IMAGE_ICON, S(24), S(24), LR_DEFAULTCOLOR);
             if (!hWarnIcon) {
                 // Fallback to LoadIconW
                 hWarnIcon = LoadIconW(hImageres, MAKEINTRESOURCEW(244));
@@ -1215,18 +1243,19 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         // Subclass the warning icon so we can get per-control WM_MOUSELEAVE
         s_prevWarnIconProc = (WNDPROC)SetWindowLongPtrW(hWarningIcon, GWLP_WNDPROC, (LONG_PTR)WarningIcon_SubclassProc);
         
-        currentY += 48;
+        currentY += S(48);
         
         // Split pane: TreeView (left 40%) + ListView (right 60%)
-        int treeWidth = (int)((rc.right - 40) * 0.4);
-        int listWidth = (rc.right - 40) - treeWidth - 10;
-        int paneHeight = rc.bottom - currentY - 90; // Space for bottom buttons
+        int treeWidth = (int)((rc.right - S(40)) * 0.4);
+        int listWidth = (rc.right - S(40)) - treeWidth - S(10);
+        int paneHeight = rc.bottom - currentY - S(90); // Space for bottom buttons
         
         // TreeView for registry hive structure with horizontal scrolling
         s_hRegTreeView = CreateWindowExW(WS_EX_CLIENTEDGE, WC_TREEVIEW, L"",
             WS_CHILD | WS_VISIBLE | WS_BORDER | TVS_HASLINES | TVS_HASBUTTONS | TVS_LINESATROOT | TVS_SHOWSELALWAYS | WS_VSCROLL | WS_HSCROLL,
-            20, currentY, treeWidth, paneHeight,
+            S(20), currentY, treeWidth, paneHeight,
             hwnd, (HMENU)IDC_REG_TREEVIEW, hInst, NULL);
+        if (s_scaledFont) SendMessageW(s_hRegTreeView, WM_SETFONT, (WPARAM)s_scaledFont, TRUE);
         
         // Populate TreeView with template registry structure
         CreateTemplateRegistryTree(s_hRegTreeView, s_currentProject.name, s_appPublisher, 
@@ -1235,8 +1264,10 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         // ListView for registry entries with horizontal scrolling
         s_hRegListView = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEW, L"",
             WS_CHILD | WS_VISIBLE | WS_BORDER | LVS_REPORT | LVS_SINGLESEL | WS_VSCROLL | WS_HSCROLL,
-            30 + treeWidth, currentY, listWidth, paneHeight,
+            S(30) + treeWidth, currentY, listWidth, paneHeight,
             hwnd, (HMENU)IDC_REG_LISTVIEW, hInst, NULL);
+        if (s_scaledFont) SendMessageW(s_hRegListView, WM_SETFONT, (WPARAM)s_scaledFont, TRUE);
+        { HWND hRegLvHdr = ListView_GetHeader(s_hRegListView); if (hRegLvHdr && s_scaledFont) SendMessageW(hRegLvHdr, WM_SETFONT, (WPARAM)s_scaledFont, TRUE); }
         
         // Set extended ListView styles
         ListView_SetExtendedListViewStyle(s_hRegListView, LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
@@ -1267,20 +1298,20 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         lvc.cx = (int)(listWidth * 0.40);
         ListView_InsertColumn(s_hRegListView, 2, &lvc);
         
-        currentY += paneHeight + 10;
+        currentY += paneHeight + S(10);
         
         // Buttons: Add Key, Add Value, Edit, Delete
         s_hPageButton2 = CreateCustomButtonWithIcon(hwnd, IDC_REG_ADD_KEY, addKeyText.c_str(), ButtonColor::Blue,
-            L"shell32.dll", 4, 20, currentY, 110, 35, hInst);
+            L"shell32.dll", 4, S(20), currentY, S(110), S(35), hInst);
         
         CreateCustomButtonWithIcon(hwnd, IDC_REG_ADD_VALUE, addValueText.c_str(), ButtonColor::Blue,
-            L"shell32.dll", 70, 140, currentY, 110, 35, hInst);
+            L"shell32.dll", 70, S(140), currentY, S(110), S(35), hInst);
         
         CreateCustomButtonWithIcon(hwnd, IDC_REG_EDIT, editText.c_str(), ButtonColor::Blue,
-            L"shell32.dll", 269, 260, currentY, 110, 35, hInst);
+            L"shell32.dll", 269, S(260), currentY, S(110), S(35), hInst);
         
         CreateCustomButtonWithIcon(hwnd, IDC_REG_REMOVE, removeText.c_str(), ButtonColor::Red,
-            L"shell32.dll", 234, 380, currentY, 110, 35, hInst);
+            L"shell32.dll", 234, S(380), currentY, S(110), S(35), hInst);
         
         // Create tooltip for warning icon - removed (using custom tooltip instead)
         
@@ -1297,16 +1328,16 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         
         HWND hTitle = CreateWindowExW(0, L"STATIC", L"Shortcuts",
             WS_CHILD | WS_VISIBLE | SS_LEFT,
-            20, 20, rc.right - 40, 30,
+            S(20), S(20), rc.right - S(40), S(38),
             s_hCurrentPage, NULL, hInst, NULL);
-        HFONT hTitleFont = CreateFontW(-18, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+        HFONT hTitleFont = CreateFontW(-S(24), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
             CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
         if (hTitleFont) SendMessageW(hTitle, WM_SETFONT, (WPARAM)hTitleFont, TRUE);
         
         CreateWindowExW(0, L"STATIC", L"Shortcuts configuration to be implemented",
             WS_CHILD | WS_VISIBLE | SS_LEFT,
-            20, 60, rc.right - 40, 20,
+            S(20), S(60), rc.right - S(40), S(20),
             s_hCurrentPage, NULL, hInst, NULL);
         break;
     }
@@ -1321,20 +1352,43 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         
         HWND hTitle = CreateWindowExW(0, L"STATIC", L"Dependencies",
             WS_CHILD | WS_VISIBLE | SS_LEFT,
-            20, 20, rc.right - 40, 30,
+            S(20), S(20), rc.right - S(40), S(38),
             s_hCurrentPage, NULL, hInst, NULL);
-        HFONT hTitleFont = CreateFontW(-18, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+        HFONT hTitleFont = CreateFontW(-S(24), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
             CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
         if (hTitleFont) SendMessageW(hTitle, WM_SETFONT, (WPARAM)hTitleFont, TRUE);
         
         CreateWindowExW(0, L"STATIC", L"Dependencies management to be implemented",
             WS_CHILD | WS_VISIBLE | SS_LEFT,
-            20, 60, rc.right - 40, 20,
+            S(20), S(60), rc.right - S(40), S(20),
             s_hCurrentPage, NULL, hInst, NULL);
         break;
     }
-    case 4: // Settings page
+    case 4: // Dialogs page
+    {
+        s_hCurrentPage = CreateWindowExW(
+            0, L"STATIC", L"",
+            WS_CHILD | WS_VISIBLE,
+            0, pageY, rc.right, pageHeight,
+            hwnd, NULL, hInst, NULL);
+
+        HWND hTitle = CreateWindowExW(0, L"STATIC", L"Custom Dialogs",
+            WS_CHILD | WS_VISIBLE | SS_LEFT,
+            S(20), S(20), rc.right - S(40), S(38),
+            s_hCurrentPage, NULL, hInst, NULL);
+        HFONT hTitleFont = CreateFontW(-S(24), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+        if (hTitleFont) SendMessageW(hTitle, WM_SETFONT, (WPARAM)hTitleFont, TRUE);
+
+        CreateWindowExW(0, L"STATIC", L"Custom installer dialogs (welcome, license, finish, etc.) to be implemented",
+            WS_CHILD | WS_VISIBLE | SS_LEFT,
+            S(20), S(60), rc.right - S(40), S(20),
+            s_hCurrentPage, NULL, hInst, NULL);
+        break;
+    }
+    case 5: // Settings page
     {
         // Create container for page content
         s_hCurrentPage = CreateWindowExW(
@@ -1345,20 +1399,20 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         
         HWND hTitle = CreateWindowExW(0, L"STATIC", L"Installer Settings",
             WS_CHILD | WS_VISIBLE | SS_LEFT,
-            20, 20, rc.right - 40, 30,
+            S(20), S(20), rc.right - S(40), S(38),
             s_hCurrentPage, NULL, hInst, NULL);
-        HFONT hTitleFont = CreateFontW(-18, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+        HFONT hTitleFont = CreateFontW(-S(24), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
             CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
         if (hTitleFont) SendMessageW(hTitle, WM_SETFONT, (WPARAM)hTitleFont, TRUE);
         
         CreateWindowExW(0, L"STATIC", L"Settings (License, OS requirements, etc.) to be implemented",
             WS_CHILD | WS_VISIBLE | SS_LEFT,
-            20, 60, rc.right - 40, 20,
+            S(20), S(60), rc.right - S(40), S(20),
             s_hCurrentPage, NULL, hInst, NULL);
         break;
     }
-    case 5: // Build page
+    case 6: // Build page
     {
         // Create container for page content
         s_hCurrentPage = CreateWindowExW(
@@ -1369,20 +1423,20 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         
         HWND hTitle = CreateWindowExW(0, L"STATIC", L"Build Installer",
             WS_CHILD | WS_VISIBLE | SS_LEFT,
-            20, 20, rc.right - 40, 30,
+            S(20), S(20), rc.right - S(40), S(38),
             s_hCurrentPage, NULL, hInst, NULL);
-        HFONT hTitleFont = CreateFontW(-18, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+        HFONT hTitleFont = CreateFontW(-S(24), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
             CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
         if (hTitleFont) SendMessageW(hTitle, WM_SETFONT, (WPARAM)hTitleFont, TRUE);
         
         CreateWindowExW(0, L"STATIC", L"Build/compile functionality to be implemented",
             WS_CHILD | WS_VISIBLE | SS_LEFT,
-            20, 60, rc.right - 40, 20,
+            S(20), S(60), rc.right - S(40), S(20),
             s_hCurrentPage, NULL, hInst, NULL);
         break;
     }
-    case 6: // Test page
+    case 7: // Test page
     {
         // Create container for page content
         s_hCurrentPage = CreateWindowExW(
@@ -1393,20 +1447,20 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         
         HWND hTitle = CreateWindowExW(0, L"STATIC", L"Test Installer",
             WS_CHILD | WS_VISIBLE | SS_LEFT,
-            20, 20, rc.right - 40, 30,
+            S(20), S(20), rc.right - S(40), S(38),
             s_hCurrentPage, NULL, hInst, NULL);
-        HFONT hTitleFont = CreateFontW(-18, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+        HFONT hTitleFont = CreateFontW(-S(24), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
             CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
         if (hTitleFont) SendMessageW(hTitle, WM_SETFONT, (WPARAM)hTitleFont, TRUE);
         
         CreateWindowExW(0, L"STATIC", L"Test functionality to be implemented",
             WS_CHILD | WS_VISIBLE | SS_LEFT,
-            20, 60, rc.right - 40, 20,
+            S(20), S(60), rc.right - S(40), S(20),
             s_hCurrentPage, NULL, hInst, NULL);
         break;
     }
-    case 7: // Scripts page
+    case 8: // Scripts page
     {
         // Create container for page content
         s_hCurrentPage = CreateWindowExW(
@@ -1417,16 +1471,16 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         
         HWND hTitle = CreateWindowExW(0, L"STATIC", L"Run Scripts",
             WS_CHILD | WS_VISIBLE | SS_LEFT,
-            20, 20, rc.right - 40, 30,
+            S(20), S(20), rc.right - S(40), S(38),
             s_hCurrentPage, NULL, hInst, NULL);
-        HFONT hTitleFont = CreateFontW(-18, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+        HFONT hTitleFont = CreateFontW(-S(24), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
             CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
         if (hTitleFont) SendMessageW(hTitle, WM_SETFONT, (WPARAM)hTitleFont, TRUE);
         
         CreateWindowExW(0, L"STATIC", L"Configure scripts and executables to run before/after installation",
             WS_CHILD | WS_VISIBLE | SS_LEFT,
-            20, 60, rc.right - 40, 20,
+            S(20), S(60), rc.right - S(40), S(20),
             s_hCurrentPage, NULL, hInst, NULL);
         break;
     }
@@ -1743,6 +1797,7 @@ void MainWindow::CreateStatusBar(HWND hwnd, HINSTANCE hInst) {
                               L"  |  Version: " + s_currentProject.version +
                               L"  |  Directory: " + s_currentProject.directory;
     SendMessageW(s_hStatus, SB_SETTEXT, 0, (LPARAM)statusText.c_str());
+    if (s_scaledFont) SendMessageW(s_hStatus, WM_SETFONT, (WPARAM)s_scaledFont, TRUE);
 }
 
 void MainWindow::SwitchTab(HWND hwnd, int tabIndex) {
@@ -1938,7 +1993,7 @@ LRESULT CALLBACK RegKeyDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
         LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
         if (dis->CtlID == IDC_REGKEY_DLG_CLOSE || dis->CtlID == IDC_REGKEY_DLG_NAVIGATE || dis->CtlID == IDC_REGKEY_DLG_COPY) {
             ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
-            HFONT hFont = CreateFontW(-12, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+            HFONT hFont = CreateFontW(-S(12), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
                 DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                 CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
             LRESULT result = DrawCustomButton(dis, color, hFont);
@@ -2194,7 +2249,7 @@ LRESULT CALLBACK AddValueDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
         if (dis->CtlID == IDC_ADDVAL_OK || dis->CtlID == IDC_ADDVAL_CANCEL) {
             ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
-            HFONT hFont = CreateFontW(-12, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+            HFONT hFont = CreateFontW(-S(12), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
                 DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                 CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
             LRESULT result = DrawCustomButton(dis, color, hFont);
@@ -2330,7 +2385,7 @@ LRESULT CALLBACK AddKeyDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
         LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
         if (dis->CtlID == IDC_ADDKEY_OK || dis->CtlID == IDC_ADDKEY_CANCEL) {
             ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
-            HFONT hFont = CreateFontW(-12, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+            HFONT hFont = CreateFontW(-S(12), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
                 DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                 CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
             LRESULT result = DrawCustomButton(dis, color, hFont);
@@ -2380,6 +2435,20 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             FindClose(hFind);
         }
         
+        s_toolbarHeight = S(50);
+        // Create scaled body font from system NONCLIENTMETRICS so it is correct for any DPI
+        if (!s_scaledFont) {
+            NONCLIENTMETRICSW ncm = {};
+            ncm.cbSize = sizeof(ncm);
+            SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+            // Bump 20 % larger than the system default for better readability
+            if (ncm.lfMessageFont.lfHeight < 0)
+                ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
+            ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+            ncm.lfMessageFont.lfCharSet = DEFAULT_CHARSET;
+            s_scaledFont = CreateFontIndirectW(&ncm.lfMessageFont);
+        }
+        s_hGuiFont = s_scaledFont; // alias so WM_CTLCOLORSTATIC drawing also uses it
         CreateMenuBar(hwnd);
         CreateToolbar(hwnd, hInst);
         CreateStatusBar(hwnd, hInst);
@@ -2672,21 +2741,25 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         case IDC_TB_ADD_DEPEND:
             SwitchPage(hwnd, 3);
             return 0;
-            
-        case IDC_TB_SETTINGS:
+
+        case IDC_TB_DIALOGS:
             SwitchPage(hwnd, 4);
             return 0;
             
-        case IDC_TB_BUILD:
+        case IDC_TB_SETTINGS:
             SwitchPage(hwnd, 5);
             return 0;
             
-        case IDC_TB_TEST:
+        case IDC_TB_BUILD:
             SwitchPage(hwnd, 6);
             return 0;
             
-        case IDC_TB_SCRIPTS:
+        case IDC_TB_TEST:
             SwitchPage(hwnd, 7);
+            return 0;
+            
+        case IDC_TB_SCRIPTS:
+            SwitchPage(hwnd, 8);
             return 0;
             
         case IDC_TB_SAVE:
@@ -4362,6 +4435,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         // Make static controls have white background like the window
         HDC hdc = (HDC)wParam;
         HWND hControl = (HWND)lParam;
+        if (s_hGuiFont) SelectObject(hdc, s_hGuiFont);
         
         // Special handling for install folder - dark blue text
         if (GetDlgCtrlID(hControl) == IDC_INSTALL_FOLDER) {
@@ -4371,6 +4445,12 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         }
         
         SetBkMode(hdc, TRANSPARENT);
+        return (LRESULT)GetSysColorBrush(COLOR_WINDOW);
+    }
+    
+    case WM_CTLCOLOREDIT: {
+        HDC hdc = (HDC)wParam;
+        if (s_hGuiFont) SelectObject(hdc, s_hGuiFont);
         return (LRESULT)GetSysColorBrush(COLOR_WINDOW);
     }
     
@@ -4410,12 +4490,12 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
         // Handle custom button drawing for toolbar buttons and page buttons
         // Note: IDC_TB_ABOUT is now a static icon, not a button, so exclude it
-        if ((dis->CtlID >= IDC_TB_FILES && dis->CtlID <= IDC_TB_SAVE) ||
+        if ((dis->CtlID >= IDC_TB_FILES && dis->CtlID <= IDC_TB_SAVE) || dis->CtlID == IDC_TB_DIALOGS ||
             (dis->CtlID >= IDC_FILES_ADD_DIR && dis->CtlID <= IDC_FILES_REMOVE) ||
             (dis->CtlID >= IDC_REG_CHECKBOX && dis->CtlID <= IDC_REG_BACKUP)) {
             ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
-            // Create bold font for buttons (reduced from -14 to -12 for smaller buttons)
-            HFONT hFont = CreateFontW(-12, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+            // Create bold font for buttons (scaled for DPI)
+            HFONT hFont = CreateFontW(-S(12), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
                 DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                 CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
             LRESULT result = DrawCustomButton(dis, color, hFont);

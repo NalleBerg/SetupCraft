@@ -1,4 +1,5 @@
 #include "tooltip.h"
+#include "dpi.h"
 #include <fstream>
 #include <sstream>
 #include <algorithm>
@@ -158,16 +159,16 @@ static LRESULT CALLBACK TooltipWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
                 RECT textRc = { 10, 10, rc.right - 10, rc.bottom - 10 };
                 DrawTextW(hdc, s.c_str(), -1, &textRc, DT_LEFT | DT_TOP | DT_WORDBREAK | DT_NOPREFIX);
             } else {
-                RECT textRc = { 10, 0, rc.right - 10, rc.bottom };
+                RECT textRc = { S(10), 0, rc.right - S(10), rc.bottom };
                 DrawTextW(hdc, s.c_str(), -1, &textRc, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
             }
         } else {
             // Multilingual tooltip - two columns, up to 10 rows per column
-            const int startX = 10;
-            const int startY = 10;
-            const int rowHeight = 22;
-            const int leftTextColX = 80;   // left column text start
-            const int rightTextColX = 430; // right column text start (760px total / 2 = 380, +50 for code)
+            const int startX = S(10);
+            const int startY = S(10);
+            const int rowHeight = S(22);
+            const int leftTextColX = S(80);   // left column text start
+            const int rightTextColX = S(430); // right column text start
 
             // Cap entries shown to 20 (10 per column)
             int totalEntries = (int)g_currentEntries.size();
@@ -235,6 +236,7 @@ bool InitTooltipSystem(HINSTANCE hInstance) {
         SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
         ncm.lfMessageFont.lfWeight = FW_BOLD;   // bold for all tooltips
         ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+        ncm.lfMessageFont.lfCharSet = DEFAULT_CHARSET; // allow GDI font substitution for non-Latin scripts
         g_tooltipFont = CreateFontIndirectW(&ncm.lfMessageFont);
     }
     
@@ -288,21 +290,21 @@ void ShowMultilingualTooltip(const std::vector<TooltipEntry>& entries, int x, in
 
         if (isMultiline) {
             // Multiline: wrap at 480px, measure actual height needed
-            int maxAllowed = 480;
+            int maxAllowed = S(480);
             RECT calcRc = { 0, 0, maxAllowed, 0 };
             DrawTextW(hdc, s.c_str(), -1, &calcRc, DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX);
-            tooltipWidth  = maxAllowed + 20;  // +20 padding
-            tooltipHeight = (calcRc.bottom - calcRc.top) + 20;
+            tooltipWidth  = maxAllowed + S(20);  // +padding
+            tooltipHeight = (calcRc.bottom - calcRc.top) + S(20);
         } else {
             // Single line: measure exact width, add generous padding so window-DC
             // rendering never needs to wrap.
             SIZE sz = {0};
             GetTextExtentPoint32W(hdc, s.c_str(), (int)s.size(), &sz);
-            int naturalWidth = sz.cx + 32;  // 16px each side
-            int maxAllowed = 500;
+            int naturalWidth = sz.cx + S(32);  // 16px each side
+            int maxAllowed = S(500);
             tooltipWidth  = (naturalWidth < maxAllowed) ? naturalWidth : maxAllowed;
-            if (tooltipWidth < 80) tooltipWidth = 80;
-            tooltipHeight = lineHeight + 20;
+            if (tooltipWidth < S(80)) tooltipWidth = S(80);
+            tooltipHeight = lineHeight + S(20);
         }
 
         if (hOldFont) SelectObject(hdc, hOldFont);
@@ -312,9 +314,9 @@ void ShowMultilingualTooltip(const std::vector<TooltipEntry>& entries, int x, in
         int totalEntries = (int)g_currentEntries.size();
         if (totalEntries > 20) totalEntries = 20; // cap display
         int rows = totalEntries <= 10 ? totalEntries : 10;
-        // 760px: each column gets ~330px for text (code ~50px + gap + text ~330px)
-        tooltipWidth = 760;
-        tooltipHeight = rows * 22 + 30;
+        // 760px logical: each column gets ~330px for text (code ~50px + gap + text ~330px)
+        tooltipWidth = S(760);
+        tooltipHeight = rows * S(22) + S(30);
     }
     
     // For simple tooltips, also clamp X to parent window right edge so the

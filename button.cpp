@@ -1,4 +1,5 @@
 #include "button.h"
+#include "dpi.h"
 #include <commctrl.h>
 
 #pragma comment(lib, "comctl32.lib")
@@ -280,7 +281,7 @@ BOOL DrawCustomButton(LPDRAWITEMSTRUCT dis, ButtonColor color, HFONT hFont) {
         wcscat(dllPath, iconDll);
         
         // Extract icon from DLL using PrivateExtractIconsW for transparent background
-        UINT extracted = PrivateExtractIconsW(dllPath, iconIndex, 20, 20, &hIcon, NULL, 1, 0);
+        UINT extracted = PrivateExtractIconsW(dllPath, iconIndex, S(20), S(20), &hIcon, NULL, 1, 0);
         if (extracted == 0 || !hIcon) {
             // Fallback to ExtractIconW if PrivateExtractIconsW fails
             hIcon = ExtractIconW(NULL, dllPath, iconIndex);
@@ -331,8 +332,8 @@ BOOL DrawCustomButton(LPDRAWITEMSTRUCT dis, ButtonColor color, HFONT hFont) {
     
     if (hIcon) {
         // Draw icon + text
-        int iconSize = 20;
-        int iconX = rc.left + 10;
+        int iconSize = S(20);
+        int iconX = rc.left + S(10);
         int iconY = rc.top + (rc.bottom - rc.top - iconSize) / 2;
         
         DrawIconEx(hdc, iconX, iconY, hIcon, iconSize, iconSize, 0, NULL, DI_NORMAL);
@@ -345,10 +346,10 @@ BOOL DrawCustomButton(LPDRAWITEMSTRUCT dis, ButtonColor color, HFONT hFont) {
         if (iconDll2 && iconIndex2 > 0) {
             HMODULE hIconDll2 = LoadLibraryExW(iconDll2, NULL, LOAD_LIBRARY_AS_DATAFILE);
             if (hIconDll2) {
-                HICON hIcon2 = (HICON)LoadImageW(hIconDll2, MAKEINTRESOURCEW(iconIndex2), IMAGE_ICON, 20, 20, 0);
+                HICON hIcon2 = (HICON)LoadImageW(hIconDll2, MAKEINTRESOURCEW(iconIndex2), IMAGE_ICON, S(20), S(20), 0);
                 if (hIcon2) {
                     // Draw overlay on top of base icon at full size
-                    DrawIconEx(hdc, iconX, iconY, hIcon2, 20, 20, 0, NULL, DI_NORMAL);
+                    DrawIconEx(hdc, iconX, iconY, hIcon2, S(20), S(20), 0, NULL, DI_NORMAL);
                     DestroyIcon(hIcon2);
                 }
                 FreeLibrary(hIconDll2);
@@ -358,7 +359,7 @@ BOOL DrawCustomButton(LPDRAWITEMSTRUCT dis, ButtonColor color, HFONT hFont) {
         // Draw text in dark blue
         SetTextColor(hdc, RGB(7, 50, 116));
         RECT textRect = rc;
-        textRect.left += iconSize + 15;
+        textRect.left += iconSize + S(15);
         DrawTextW(hdc, displayText, -1, &textRect, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
     } else {
         // No icon - draw text centered

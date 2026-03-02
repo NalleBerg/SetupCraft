@@ -10,6 +10,8 @@ file(REMOVE_RECURSE
   "CMakeFiles/SkeletonApp.dir/ctrlw.cpp.obj.d"
   "CMakeFiles/SkeletonApp.dir/db.cpp.obj"
   "CMakeFiles/SkeletonApp.dir/db.cpp.obj.d"
+  "CMakeFiles/SkeletonApp.dir/dpi.cpp.obj"
+  "CMakeFiles/SkeletonApp.dir/dpi.cpp.obj.d"
   "CMakeFiles/SkeletonApp.dir/languages.cpp.obj"
   "CMakeFiles/SkeletonApp.dir/languages.cpp.obj.d"
   "CMakeFiles/SkeletonApp.dir/main.cpp.obj"

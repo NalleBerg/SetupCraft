@@ -17,6 +17,7 @@
 #include "mainwindow.h"
 #include "about.h"
 #include "tooltip.h"
+#include "dpi.h"
 
 // IDs
 #ifndef IDC_LANG_COMBO
@@ -849,27 +850,27 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
         // Language combo (show friendly/native names; store index as item data)
         // Center the combo with a globe icon to its left
-        const int comboWidth = 260;
-        const int iconSize = 30; // slightly bigger than dropdown height
-        const int iconComboGap = 8;
+        const int comboWidth = S(260);
+        const int iconSize = S(30); // slightly bigger than dropdown height
+        const int iconComboGap = S(8);
         const int totalWidth = iconSize + iconComboGap + comboWidth;
-        const int clientWidth = 420 - 16; // approximate client area
+        const int clientWidth = S(530); // approximate client area at 96 DPI
         const int startX = (clientWidth - totalWidth) / 2;
         const int iconLeft = startX;
         const int comboLeft = iconLeft + iconSize + iconComboGap;
         // compute dropdown height to try to show all locales (cap to avoid huge lists)
         int itemCount = (int)g_availableLocales.size();
-        int itemHeight = 20; // approx per-item height in pixels
+        int itemHeight = S(20); // approx per-item height in pixels
         int dropHeight = itemCount * itemHeight + 6;
         if (dropHeight > 400) dropHeight = 400;
         HWND hCombo = CreateWindowW(L"COMBOBOX", NULL,
             WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST,
-            comboLeft, 10, comboWidth, dropHeight,
+            comboLeft, S(13), comboWidth, dropHeight,
             hwnd, (HMENU)IDC_LANG_COMBO, hInst, NULL);
 
         // create and apply a GUI font that supports Cyrillic (Segoe UI)
         if (!g_guiFont) {
-            g_guiFont = CreateFontW(-12, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,  // Reduced from -14 to -12 for smaller toolbar buttons
+            g_guiFont = CreateFontW(-S(12), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,  // Scaled for DPI
                                     DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                                     CLEARTYPE_QUALITY, VARIABLE_PITCH | FF_SWISS, L"Segoe UI");
         }
@@ -877,7 +878,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
         // Create font for tooltip
         if (!g_tooltipFont) {
-            g_tooltipFont = CreateFontW(-14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+            g_tooltipFont = CreateFontW(-S(14), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                                         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                                         CLEARTYPE_QUALITY, VARIABLE_PITCH | FF_SWISS, L"Segoe UI");
         }
@@ -887,7 +888,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             WS_EX_TRANSPARENT,
             L"STATIC", NULL,
             WS_CHILD | WS_VISIBLE | SS_ICON | SS_CENTERIMAGE | SS_NOTIFY,
-            iconLeft, 8, iconSize, iconSize,
+            iconLeft, S(10), iconSize, iconSize,
             hwnd, (HMENU)IDC_GLOBE_ICON, hInst, NULL);
         
         // Load planet icon from shell32.dll using PrivateExtractIconsW for transparent background
@@ -912,15 +913,15 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         InitTooltipSystem(hInst);
 
         // Add info icon to the right of language combo for About dialog
-        const int aboutIconSize = 24;
-        const int aboutIconGap = 8;
+        const int aboutIconSize = S(24);
+        const int aboutIconGap = S(8);
         const int aboutIconLeft = comboLeft + comboWidth + aboutIconGap;
         
         HWND hAboutIcon = CreateWindowExW(
             WS_EX_TRANSPARENT,  // Allow mouse events to pass through to parent
             L"STATIC", NULL,
             WS_CHILD | WS_VISIBLE | SS_ICON | SS_CENTERIMAGE,
-            aboutIconLeft, 12, aboutIconSize, aboutIconSize,
+            aboutIconLeft, S(15), aboutIconSize, aboutIconSize,
             hwnd, (HMENU)IDC_ABOUT_ICON, hInst, NULL);
         
         // Load info icon from shell32.dll (icon #221 is information/about icon)
@@ -1007,12 +1008,12 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         }
 
         // Create buttons in 2x2 grid: New/Open on top, Delete/Exit on bottom
-        const int buttonWidth = 180;
-        const int buttonHeight = 30;
-        const int buttonGapH = 10;  // horizontal gap
-        const int buttonGapV = 10;  // vertical gap
+        const int buttonWidth = S(234);
+        const int buttonHeight = S(39);
+        const int buttonGapH = S(13);  // horizontal gap
+        const int buttonGapV = S(13);  // vertical gap
         const int buttonsStartX = (clientWidth - (2 * buttonWidth + buttonGapH)) / 2;
-        const int row1Y = 55;
+        const int row1Y = S(72);
         const int row2Y = row1Y + buttonHeight + buttonGapV;
         
         // Row 1, Column 1: New Project button
@@ -1373,6 +1374,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 }
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR pCmdLine, int nCmdShow) {
+    // Declare DPI awareness before any window creation so Windows uses logical pixels
+    // and does not bitmap-scale the app (prevents blurry rendering on HiDPI displays)
+    SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_SYSTEM_AWARE);
+    { UINT sysDpi = GetDpiForSystem(); g_dpiScale = (sysDpi > 0) ? sysDpi / 96.0f : 1.0f; }
+
     // Initialize database
     DB::InitDb();
 
@@ -1404,11 +1410,11 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR pCmdLine, int nCmdShow
 
     // Calculate centered position for entry window
     int x, y;
-    GetCenteredPosition(NULL, 420, 180, x, y);
+    GetCenteredPosition(NULL, S(546), S(234), x, y);
     
     HWND hwnd = CreateWindowExW(0, CLASS_NAME, L"Skeleton App",
         WS_OVERLAPPEDWINDOW & ~WS_MAXIMIZEBOX & ~WS_THICKFRAME,
-        x, y, 420, 180,
+        x, y, S(546), S(234),
         NULL, NULL, hInstance, NULL);
 
     if (!hwnd) return 0;

@@ -256,6 +256,30 @@ db.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/db.cpp.s
 .PHONY : db.cpp.s
 
+dpi.obj: dpi.cpp.obj
+.PHONY : dpi.obj
+
+# target to build an object file
+dpi.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/dpi.cpp.obj
+.PHONY : dpi.cpp.obj
+
+dpi.i: dpi.cpp.i
+.PHONY : dpi.i
+
+# target to preprocess a source file
+dpi.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/dpi.cpp.i
+.PHONY : dpi.cpp.i
+
+dpi.s: dpi.cpp.s
+.PHONY : dpi.s
+
+# target to generate assembly for a file
+dpi.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/dpi.cpp.s
+.PHONY : dpi.cpp.s
+
 languages.obj: languages.cpp.obj
 .PHONY : languages.obj
 
@@ -401,6 +425,9 @@ help:
 	@echo ... db.obj
 	@echo ... db.i
 	@echo ... db.s
+	@echo ... dpi.obj
+	@echo ... dpi.i
+	@echo ... dpi.s
 	@echo ... languages.obj
 	@echo ... languages.i
 	@echo ... languages.s

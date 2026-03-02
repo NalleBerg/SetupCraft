@@ -297,6 +297,7 @@ CMakeFiles/SkeletonApp.dir/about.cpp.obj: \
  C:/mingw64/x86_64-w64-mingw32/include/winsvc.h \
  C:/mingw64/x86_64-w64-mingw32/include/mcx.h \
  C:/mingw64/x86_64-w64-mingw32/include/imm.h \
+ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\dpi.h \
  C:/mingw64/x86_64-w64-mingw32/include/richedit.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/string \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/requires_hosted.h \

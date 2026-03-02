@@ -2,6 +2,20 @@
 <h3 style="text-align: center;">&nbsp;</h3>
 <p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 02 March 2026<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
 
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.02.10</span></h3>
+<p><strong>DPI scaling, font fixes, and toolbar layout (02.03.2026, 10:24):</strong></p>
+<ul>
+<li><strong>Body font properly applied:</strong> <code>s_scaledFont</code> was declared but never initialized — the guard <code>if (s_scaledFont)</code> was always false so labels, edits, checkboxes, TreeViews and ListViews all fell back to the tiny unscaled default system font. Fixed by initializing <code>s_scaledFont</code> in <code>WM_CREATE</code> via <code>SPI_GETNONCLIENTMETRICS</code> (<code>lfMessageFont</code>, scaled 120% for readability). <code>s_hGuiFont</code> aliased to the same handle so <code>WM_CTLCOLORSTATIC</code>/<code>WM_CTLCOLOREDIT</code> drawing also uses it.</li>
+<li><strong>Page title font enlarged:</strong> All page title <code>STATIC</code> controls (<em>Files Management</em>, <em>Registry</em>, <em>Shortcuts</em>, <em>Dependencies</em>, <em>Custom Dialogs</em>, <em>Installer Settings</em>, <em>Build Installer</em>, <em>Test Installer</em>, <em>Run Scripts</em>) increased from <code>-S(18)</code> to <code>-S(24)</code> bold and control height raised from <code>S(30)</code> to <code>S(38)</code> so text is no longer clipped.</li>
+<li><strong>Files page fonts applied:</strong> <code>s_scaledFont</code> set on Project Name label/edit, Install Folder label/edit, «Ask end user» checkbox, ListView, and ListView header.</li>
+<li><strong>Registry page fonts applied:</strong> <code>s_scaledFont</code> set on checkbox (previous code had stale <code>s_hGuiFont</code> reference — fixed), Display Name / Version / Publisher labels and edits, «Custom Registry Entries» label, TreeView, ListView, and ListView header.</li>
+<li><strong>Files TreeView corruption repaired:</strong> A previous partial replacement had merged a comment fragment onto a code line producing invalid C++: <code>TRUE); for folder icons</code>. Corrected to split the comment onto its own line.</li>
+<li><strong>Toolbar layout:</strong> Files button narrowed to <code>S(75)</code> (from <code>S(85)</code>) and Shortcuts button widened to <code>S(100)</code> (from <code>S(85)</code>) so the Shortcuts label is no longer cramped.</li>
+<li><strong>Tooltip DPI scaling:</strong> All hardcoded pixel constants in <code>tooltip.cpp</code> wrapped in <code>S()</code> — multilingual tooltip width <code>760&rarr;S(760)</code>, column positions <code>leftTextColX 80&rarr;S(80)</code> / <code>rightTextColX 430&rarr;S(430)</code>, row height <code>22&rarr;S(22)</code>, padding and single-tooltip sizes all DPI-aware.</li>
+</ul>
+
+<h3 style="text-align: center;">&nbsp;</h3>
+
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.02.08</span></h3>
 <p><strong>Publisher path, About tooltip fix, and DB registry CRUD (02.03.2026, 08:59):</strong></p>
 <ul>
