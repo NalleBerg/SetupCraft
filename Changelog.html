@@ -1,6 +1,20 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 01 March 2026<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 02 March 2026<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.02.08</span></h3>
+<p><strong>Publisher path, About tooltip fix, and DB registry CRUD (02.03.2026, 08:59):</strong></p>
+<ul>
+<li><strong>Publisher field persists across page switches:</strong> Added <code>EN_CHANGE</code> handler for <code>IDC_REG_PUBLISHER</code> that saves to the <code>s_appPublisher</code> static — the field no longer clears when navigating away from the Registry page and back.</li>
+<li><strong>Install path auto-updates with Publisher:</strong> Typing a publisher name now automatically updates the default install path to <code>C:\Program Files\{Publisher}\{AppName}</code>. If the user has manually browsed to a custom path, the auto-update is suppressed (<code>s_installPathUserEdited</code> flag). The computed path persists in <code>s_currentInstallPath</code> across page switches.</li>
+<li><strong>About tooltip hides on mouse-out (fixed):</strong> Restored <code>SS_NOTIFY</code> on the About icon and reinstated its subclass (<code>AboutIcon_SubclassProc</code>). The subclass calls <code>TrackMouseEvent(TME_LEAVE, hwndTrack=control)</code> on <code>WM_MOUSEMOVE</code> and unconditionally calls <code>HideTooltip()</code> on <code>WM_MOUSELEAVE</code>, matching the canonical tooltip API pattern. The parent <code>WM_MOUSELEAVE</code> now guards with <code>GetCursorPos</code> to avoid hiding the tooltip when the mouse enters the child icon.</li>
+<li><strong>About dialog only opens on icon click:</strong> The parent <code>WM_LBUTTONDOWN</code> handler now performs a rect-check on <code>s_hAboutButton</code> before calling <code>ShowAboutDialog</code> — dialog no longer fires on clicks elsewhere in the window.</li>
+<li><strong>DB: ProjectRow expanded:</strong> <code>ProjectRow</code> struct and all SELECT queries now include the three previously-missing columns: <code>register_in_windows</code>, <code>app_icon_path</code>, <code>app_publisher</code>.</li>
+<li><strong>DB: UpdateProject added:</strong> New <code>UpdateProject(const ProjectRow&amp;)</code> function performs a full UPDATE of all project fields and auto-stamps <code>last_updated</code>.</li>
+<li><strong>DB: Registry entry CRUD added:</strong> New functions <code>InsertRegistryEntry</code>, <code>GetRegistryEntriesForProject</code>, and <code>DeleteRegistryEntriesForProject</code> provide full create/read/delete support for custom registry entries via the new <code>RegistryEntryRow</code> struct.</li>
+</ul>
+
+<h3 style="text-align: center;">&nbsp;</h3>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.01.10</span></h3>
 <p><strong>Tooltip font, encoding and multiline fixes (01.03.2026, 10:14):</strong></p>

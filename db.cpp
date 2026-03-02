@@ -285,7 +285,7 @@ std::vector<ProjectRow> DB::ListProjects() {
     int flags = 0x00000002 /*SQLITE_OPEN_READWRITE*/ | 0x00000004 /*SQLITE_OPEN_CREATE*/;
     if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return out;
 
-    const char *sql = "SELECT id, name, directory, description, lang, version, created, last_updated FROM projects ORDER BY last_updated DESC;";
+    const char *sql = "SELECT id, name, directory, description, lang, version, created, last_updated, register_in_windows, app_icon_path, app_publisher FROM projects ORDER BY last_updated DESC;";
     void *stmt = NULL;
     if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return out; }
     while (p_step(stmt) == 100 /*SQLITE_ROW*/) {
@@ -298,6 +298,8 @@ std::vector<ProjectRow> DB::ListProjects() {
         const unsigned char *t4 = p_col_text(stmt, 5);
         const unsigned char *t5 = p_col_text(stmt, 6);
         const unsigned char *t6 = p_col_text(stmt, 7);
+        const unsigned char *t7 = p_col_text(stmt, 9);
+        const unsigned char *t8 = p_col_text(stmt, 10);
         r.name = Utf8ToW(t0 ? (const char*)t0 : "");
         r.directory = Utf8ToW(t1 ? (const char*)t1 : "");
         r.description = Utf8ToW(t2 ? (const char*)t2 : "");
@@ -305,6 +307,9 @@ std::vector<ProjectRow> DB::ListProjects() {
         r.version = Utf8ToW(t4 ? (const char*)t4 : "");
         r.created = t5 ? atoll((const char*)t5) : 0;
         r.last_updated = t6 ? atoll((const char*)t6) : 0;
+        r.register_in_windows = (int)p_col_int64(stmt, 8);
+        r.app_icon_path = Utf8ToW(t7 ? (const char*)t7 : "");
+        r.app_publisher = Utf8ToW(t8 ? (const char*)t8 : "");
         out.push_back(r);
     }
     if (p_finalize) p_finalize(stmt);
@@ -319,7 +324,7 @@ bool DB::GetProject(int id, ProjectRow &outProject) {
     int flags = 0x00000002 /*SQLITE_OPEN_READWRITE*/ | 0x00000004 /*SQLITE_OPEN_CREATE*/;
     if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return false;
 
-    const char *sql = "SELECT id, name, directory, description, lang, version, created, last_updated FROM projects WHERE id = ?;";
+    const char *sql = "SELECT id, name, directory, description, lang, version, created, last_updated, register_in_windows, app_icon_path, app_publisher FROM projects WHERE id = ?;";
     void *stmt = NULL;
     if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return false; }
     
@@ -337,6 +342,8 @@ bool DB::GetProject(int id, ProjectRow &outProject) {
         const unsigned char *t4 = p_col_text(stmt, 5);
         const unsigned char *t5 = p_col_text(stmt, 6);
         const unsigned char *t6 = p_col_text(stmt, 7);
+        const unsigned char *t7 = p_col_text(stmt, 9);
+        const unsigned char *t8 = p_col_text(stmt, 10);
         outProject.name = Utf8ToW(t0 ? (const char*)t0 : "");
         outProject.directory = Utf8ToW(t1 ? (const char*)t1 : "");
         outProject.description = Utf8ToW(t2 ? (const char*)t2 : "");
@@ -344,6 +351,9 @@ bool DB::GetProject(int id, ProjectRow &outProject) {
         outProject.version = Utf8ToW(t4 ? (const char*)t4 : "");
         outProject.created = t5 ? atoll((const char*)t5) : 0;
         outProject.last_updated = t6 ? atoll((const char*)t6) : 0;
+        outProject.register_in_windows = (int)p_col_int64(stmt, 8);
+        outProject.app_icon_path = Utf8ToW(t7 ? (const char*)t7 : "");
+        outProject.app_publisher = Utf8ToW(t8 ? (const char*)t8 : "");
         found = true;
     }
     if (p_finalize) p_finalize(stmt);
@@ -396,4 +406,128 @@ bool DB::SetSetting(const std::wstring &key, const std::wstring &value) {
     if (p_finalize) p_finalize(stmt);
     p_close(db);
     return true;
+}
+
+bool DB::UpdateProject(const ProjectRow &project) {
+    std::wstring dbPath = GetAppDataDbPath();
+    std::string dbPathUtf8 = WToUtf8(dbPath);
+    void *db = NULL;
+    int flags = 0x00000002 /*SQLITE_OPEN_READWRITE*/ | 0x00000004 /*SQLITE_OPEN_CREATE*/;
+    if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return false;
+
+    const char *sql = "UPDATE projects SET name=?, directory=?, description=?, lang=?, version=?, last_updated=?, register_in_windows=?, app_icon_path=?, app_publisher=? WHERE id=?;";
+    void *stmt = NULL;
+    if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return false; }
+
+    std::string sName   = WToUtf8(project.name);
+    std::string sDir    = WToUtf8(project.directory);
+    std::string sDesc   = WToUtf8(project.description);
+    std::string sLang   = WToUtf8(project.lang);
+    std::string sVer    = WToUtf8(project.version);
+    std::string sIcon   = WToUtf8(project.app_icon_path);
+    std::string sPub    = WToUtf8(project.app_publisher);
+    std::string sReg    = std::to_string(project.register_in_windows);
+    std::ostringstream os; os << (long long)time(NULL); std::string sNow = os.str();
+    std::string sId     = std::to_string(project.id);
+
+    if (p_bind_text) p_bind_text(stmt, 1,  sName.c_str(),  -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 2,  sDir.c_str(),   -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 3,  sDesc.c_str(),  -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 4,  sLang.c_str(),  -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 5,  sVer.c_str(),   -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 6,  sNow.c_str(),   -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 7,  sReg.c_str(),   -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 8,  sIcon.c_str(),  -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 9,  sPub.c_str(),   -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 10, sId.c_str(),    -1, NULL);
+
+    int rc2 = p_step(stmt); (void)rc2;
+    if (p_finalize) p_finalize(stmt);
+    p_close(db);
+    return true;
+}
+
+bool DB::DeleteRegistryEntriesForProject(int projectId) {
+    std::wstring dbPath = GetAppDataDbPath();
+    std::string dbPathUtf8 = WToUtf8(dbPath);
+    void *db = NULL;
+    int flags = 0x00000002 | 0x00000004;
+    if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return false;
+
+    const char *sql = "DELETE FROM registry_entries WHERE project_id = ?;";
+    void *stmt = NULL;
+    if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return false; }
+    std::string sId = std::to_string(projectId);
+    if (p_bind_text) p_bind_text(stmt, 1, sId.c_str(), -1, NULL);
+    p_step(stmt);
+    if (p_finalize) p_finalize(stmt);
+    p_close(db);
+    return true;
+}
+
+bool DB::InsertRegistryEntry(int projectId, const std::wstring &hive, const std::wstring &path,
+                              const std::wstring &name, const std::wstring &type, const std::wstring &data) {
+    std::wstring dbPath = GetAppDataDbPath();
+    std::string dbPathUtf8 = WToUtf8(dbPath);
+    void *db = NULL;
+    int flags = 0x00000002 | 0x00000004;
+    if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return false;
+
+    const char *sql = "INSERT INTO registry_entries (project_id, hive, path, name, type, data) VALUES (?, ?, ?, ?, ?, ?);";
+    void *stmt = NULL;
+    if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return false; }
+
+    std::string sId   = std::to_string(projectId);
+    std::string sHive = WToUtf8(hive);
+    std::string sPath = WToUtf8(path);
+    std::string sName = WToUtf8(name);
+    std::string sType = WToUtf8(type);
+    std::string sData = WToUtf8(data);
+
+    if (p_bind_text) p_bind_text(stmt, 1, sId.c_str(),   -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 2, sHive.c_str(), -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 3, sPath.c_str(), -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 4, sName.c_str(), -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 5, sType.c_str(), -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 6, sData.c_str(), -1, NULL);
+
+    int rc2 = p_step(stmt); (void)rc2;
+    if (p_finalize) p_finalize(stmt);
+    p_close(db);
+    return true;
+}
+
+std::vector<RegistryEntryRow> DB::GetRegistryEntriesForProject(int projectId) {
+    std::vector<RegistryEntryRow> out;
+    std::wstring dbPath = GetAppDataDbPath();
+    std::string dbPathUtf8 = WToUtf8(dbPath);
+    void *db = NULL;
+    int flags = 0x00000002 | 0x00000004;
+    if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return out;
+
+    const char *sql = "SELECT id, hive, path, name, type, data FROM registry_entries WHERE project_id = ? ORDER BY id ASC;";
+    void *stmt = NULL;
+    if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return out; }
+    std::string sId = std::to_string(projectId);
+    if (p_bind_text) p_bind_text(stmt, 1, sId.c_str(), -1, NULL);
+
+    while (p_step(stmt) == 100 /*SQLITE_ROW*/) {
+        RegistryEntryRow r;
+        r.id         = (int)p_col_int64(stmt, 0);
+        r.project_id = projectId;
+        const unsigned char *c1 = p_col_text(stmt, 1);
+        const unsigned char *c2 = p_col_text(stmt, 2);
+        const unsigned char *c3 = p_col_text(stmt, 3);
+        const unsigned char *c4 = p_col_text(stmt, 4);
+        const unsigned char *c5 = p_col_text(stmt, 5);
+        r.hive = Utf8ToW(c1 ? (const char*)c1 : "");
+        r.path = Utf8ToW(c2 ? (const char*)c2 : "");
+        r.name = Utf8ToW(c3 ? (const char*)c3 : "");
+        r.type = Utf8ToW(c4 ? (const char*)c4 : "");
+        r.data = Utf8ToW(c5 ? (const char*)c5 : "");
+        out.push_back(r);
+    }
+    if (p_finalize) p_finalize(stmt);
+    p_close(db);
+    return out;
 }

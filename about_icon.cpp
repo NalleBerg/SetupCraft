@@ -45,10 +45,9 @@ static LRESULT CALLBACK AboutIcon_SubclassProc(HWND hwnd, UINT msg, WPARAM wPara
         break;
     }
     case WM_MOUSELEAVE: {
-        if (IsTooltipVisible() && s_currentTooltipIcon == hwnd) {
-            HideTooltip();
-            s_currentTooltipIcon = NULL;
-        }
+        // Unconditional hide — API §9: do not rely on complex state checks here
+        HideTooltip();
+        s_currentTooltipIcon = NULL;
         s_mouseTracking = false;
         break;
     }
@@ -66,11 +65,11 @@ static LRESULT CALLBACK AboutIcon_SubclassProc(HWND hwnd, UINT msg, WPARAM wPara
 
 HWND CreateAboutIconControl(HWND parent, HINSTANCE hInst, int x, int y, int size, int id,
     const std::map<std::wstring, std::wstring>& locale) {
-    // Create static control (receive mouse messages so it can track leave)
+    // SS_NOTIFY is required so the control receives mouse messages (§3 of tooltip API).
     s_aboutIcon = CreateWindowExW(
         0,
         L"STATIC", NULL,
-        WS_CHILD | WS_VISIBLE | SS_ICON | SS_CENTERIMAGE,
+        WS_CHILD | WS_VISIBLE | SS_ICON | SS_CENTERIMAGE | SS_NOTIFY,
         x, y, size, size,
         parent, (HMENU)(INT_PTR)id, hInst, NULL);
 
@@ -85,11 +84,11 @@ HWND CreateAboutIconControl(HWND parent, HINSTANCE hInst, int x, int y, int size
         SendMessageW(s_aboutIcon, STM_SETICON, (WPARAM)hAboutIconImage, 0);
     }
 
-    // store parent and locale pointer for subclass
+    // store parent and locale pointer
     s_parentWnd = parent;
     s_localePtr = &locale;
 
-    // Subclass the static so we can receive mouse leave for the control
+    // Subclass the control so it receives mouse messages (§4 of tooltip API).
     s_prevAboutProc = (WNDPROC)SetWindowLongPtrW(s_aboutIcon, GWLP_WNDPROC, (LONG_PTR)AboutIcon_SubclassProc);
 
     return s_aboutIcon;

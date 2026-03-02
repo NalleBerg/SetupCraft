@@ -40,6 +40,8 @@ static HTREEITEM s_rightClickedItem = NULL; // Track which TreeView item was rig
 static int s_rightClickedRegIndex = -1; // Track which ListView item was right-clicked
 static bool s_projectNameManuallySet = false; // Track if user manually edited project name
 static bool s_updatingProjectNameProgrammatically = false; // Prevent EN_CHANGE during programmatic updates
+static bool s_installPathUserEdited = false; // Once user manually picks a path, stop auto-updating it
+static std::wstring s_currentInstallPath;    // Persists the install path across page switches
 static HWND s_hAboutButton = NULL; // Track About button for tooltip
 static bool s_aboutMouseTracking = false; // Track mouse for About button tooltip
 // Mirror entry-screen tooltip tracking state
@@ -303,6 +305,8 @@ HWND MainWindow::CreateNew(HINSTANCE hInstance, const std::map<std::wstring, std
     s_isNewUnsavedProject = true;
     s_hasUnsavedChanges = false;
     s_projectNameManuallySet = false; // Reset for new project
+    s_installPathUserEdited = false;  // Reset for new project
+    s_currentInstallPath.clear();     // Reset for new project
     
     return Create(hInstance, tempProject, locale);
 }
@@ -819,7 +823,9 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
             290, pageY + 82, 100, 22,
             hwnd, NULL, hInst, NULL);
         
-        std::wstring defaultPath = L"C:\\Program Files\\" + s_currentProject.name;
+        std::wstring defaultPath = s_currentInstallPath.empty()
+            ? L"C:\\Program Files\\" + s_currentProject.name
+            : s_currentInstallPath;
         HWND hInstallEdit = CreateWindowExW(0, L"STATIC", defaultPath.c_str(),
             WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
             395, pageY + 82, rc.right - 460, 22,
@@ -2585,6 +2591,49 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         int wmId = LOWORD(wParam);
         int wmEvent = HIWORD(wParam);
         
+        // Handle registry page field changes — persist values in statics so they
+        // survive page switches (pages are destroyed/recreated on switch)
+        if (wmId == IDC_REG_PUBLISHER && wmEvent == EN_CHANGE) {
+            wchar_t buf[512];
+            GetDlgItemTextW(hwnd, IDC_REG_PUBLISHER, buf, 512);
+            s_appPublisher = buf;
+
+            // Auto-update install path unless user has manually chosen one
+            if (!s_installPathUserEdited) {
+                // Derive app folder name from the current stored install path
+                std::wstring base = s_currentInstallPath.empty()
+                    ? s_currentProject.name
+                    : s_currentInstallPath.substr(s_currentInstallPath.find_last_of(L"\\/") + 1);
+                if (base.empty()) base = s_currentProject.name;
+
+                if (!s_appPublisher.empty())
+                    s_currentInstallPath = L"C:\\Program Files\\" + s_appPublisher + L"\\" + base;
+                else
+                    s_currentInstallPath = L"C:\\Program Files\\" + base;
+
+                // If Files page is live, update it immediately
+                HWND hPathCtrl = GetDlgItem(hwnd, IDC_INSTALL_FOLDER);
+                if (hPathCtrl)
+                    SetWindowTextW(hPathCtrl, s_currentInstallPath.c_str());
+            }
+
+            MarkAsModified();
+            return 0;
+        }
+
+        if (wmId == IDC_REG_VERSION && wmEvent == EN_CHANGE) {
+            wchar_t buf[128];
+            GetDlgItemTextW(hwnd, IDC_REG_VERSION, buf, 128);
+            s_currentProject.version = buf;
+            // Update status bar version display
+            std::wstring sb = L"Project: " + s_currentProject.name
+                + L" | Version: " + s_currentProject.version
+                + L" | Directory: " + s_currentProject.directory;
+            SetWindowTextW(s_hStatus, sb.c_str());
+            MarkAsModified();
+            return 0;
+        }
+
         // Handle project name changes
         if (wmId == IDC_PROJECT_NAME && wmEvent == EN_CHANGE) {
             // Mark as manually set if this is a user edit (not programmatic)
@@ -3072,6 +3121,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                     
                     // Update edit control
                     SetWindowTextW(hEdit, newPath.c_str());
+                    s_installPathUserEdited = true; // User manually chose a path
+                    s_currentInstallPath = newPath;  // Keep static in sync
                 }
                 CoTaskMemFree(pidl);
             }
@@ -4542,81 +4593,27 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
     }
     
     case WM_LBUTTONDOWN: {
-        // Forward to about icon module (handles clicks on icon)
-        AboutIcon_OnLButtonDown(hwnd, wParam, lParam);
-        // Hide tooltip when clicking anywhere else
+        // Show About dialog only when click is on the About icon
+        POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+        if (s_hAboutButton) {
+            RECT rcIcon;
+            GetWindowRect(s_hAboutButton, &rcIcon);
+            ScreenToClient(hwnd, (LPPOINT)&rcIcon.left);
+            ScreenToClient(hwnd, (LPPOINT)&rcIcon.right);
+            if (PtInRect(&rcIcon, pt)) {
+                ShowAboutDialog(hwnd);
+                return 0;
+            }
+        }
+        // Hide any visible tooltip on any other click
         HideTooltip();
         s_aboutMouseTracking = false;
         break;
     }
     
-    case WM_MOUSEMOVE: {
-        POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
-        bool overAboutIcon = false;
-        RECT rcIcon;
-        
-        // Check if mouse is over About button (in toolbar)
-        if (s_hAboutButton) {
-            GetWindowRect(s_hAboutButton, &rcIcon);
-            ScreenToClient(hwnd, (LPPOINT)&rcIcon.left);
-            ScreenToClient(hwnd, (LPPOINT)&rcIcon.right);
-            
-            if (PtInRect(&rcIcon, pt)) {
-                overAboutIcon = true;
-                
-                if (!IsTooltipVisible()) {
-                    auto it = s_locale.find(L"about_setupcraft");
-                    std::wstring tooltipText = (it != s_locale.end()) ? it->second : L"About SetupCraft";
-
-                    std::vector<std::pair<std::wstring, std::wstring>> simpleEntry;
-                    simpleEntry.push_back({L"", tooltipText});
-
-                    POINT ptIcon = { rcIcon.left, rcIcon.bottom + 5 };
-                    ClientToScreen(hwnd, &ptIcon);
-                    ShowMultilingualTooltip(simpleEntry, ptIcon.x, ptIcon.y, hwnd);
-                    s_currentTooltipIcon = s_hAboutButton;
-                }
-            }
-        }
-        
-        if (overAboutIcon) {
-            // Track mouse to detect when it leaves
-            if (!s_aboutMouseTracking) {
-                TRACKMOUSEEVENT tme = { 0 };
-                tme.cbSize = sizeof(TRACKMOUSEEVENT);
-                tme.dwFlags = TME_LEAVE;
-                tme.hwndTrack = hwnd;
-                TrackMouseEvent(&tme);
-                s_aboutMouseTracking = true;
-                s_mouseTracking = true;
-            }
-        } else {
-            // Hide tooltip if mouse is not over About button
-            if (IsTooltipVisible()) {
-                HideTooltip();
-                s_currentTooltipIcon = NULL;
-                s_mouseTracking = false;
-            }
-            s_aboutMouseTracking = false;
-        }
-        
-        // Check if mouse is over warning icon
-        if (s_currentPageIndex == 1) { // Registry page
-            HWND hWarnIcon = GetDlgItem(hwnd, IDC_REG_WARNING_ICON);
-            
-            if (hWarnIcon) {
-                RECT rcIcon;
-                GetWindowRect(hWarnIcon, &rcIcon);
-                ScreenToClient(hwnd, (LPPOINT)&rcIcon.left);
-                ScreenToClient(hwnd, (LPPOINT)&rcIcon.right);
-                
-                // Warning icon is handled by its subclass (shows/hides tooltip there).
-            }
-            return 0;
-        }
-
+    case WM_MOUSEMOVE:
+        // About-icon tooltip is handled entirely by AboutIcon_SubclassProc.
         return 0;
-    }
     
     case WM_ACTIVATE:
         // Hide tooltip when window loses focus
@@ -4634,16 +4631,24 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         break;
     
     case WM_MOUSELEAVE:
-        // Hide any visible multilingual tooltip shown for the warning icon
-        s_warningTooltipTracking = false;
-        if (IsTooltipVisible()) {
-            HideTooltip();
+        // Guard: only hide if cursor is not still over the about icon (§9 of tooltip API).
+        {
+            POINT ptCursor;
+            GetCursorPos(&ptCursor);
+            bool overIcon = false;
+            if (s_hAboutButton) {
+                RECT rc;
+                GetWindowRect(s_hAboutButton, &rc);
+                if (PtInRect(&rc, ptCursor)) overIcon = true;
+            }
+            if (!overIcon) {
+                HideTooltip();
+                s_currentTooltipIcon = NULL;
+            }
         }
-        // Hide About button tooltip
         s_aboutMouseTracking = false;
         s_mouseTracking = false;
-        s_currentTooltipIcon = NULL;
-        HideTooltip();
+        s_warningTooltipTracking = false;
         return 0;
     
     case WM_DESTROY:
