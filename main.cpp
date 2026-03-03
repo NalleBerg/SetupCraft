@@ -386,16 +386,18 @@ LRESULT CALLBACK NewProjectDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lP
             GetDlgItemTextW(hDlg, IDC_NEW_PROJ_VERSION, version, 64);
             
             // Validate required fields
+            auto itValCap = g_locale.find(L"validation_error");
+            std::wstring valCap = (itValCap != g_locale.end()) ? itValCap->second : L"Validation Error";
             if (wcslen(name) == 0) {
                 auto itErrNoName = g_locale.find(L"new_proj_err_no_name");
                 std::wstring errNoNameText = (itErrNoName != g_locale.end()) ? itErrNoName->second : L"Please enter a project name";
-                MessageBoxW(hDlg, errNoNameText.c_str(), L"Validation Error", MB_OK | MB_ICONWARNING);
+                MessageBoxW(hDlg, errNoNameText.c_str(), valCap.c_str(), MB_OK | MB_ICONWARNING);
                 return 0;
             }
             if (wcslen(dir) == 0) {
                 auto itErrNoDir = g_locale.find(L"new_proj_err_no_dir");
                 std::wstring errNoDirText = (itErrNoDir != g_locale.end()) ? itErrNoDir->second : L"Please select a source directory";
-                MessageBoxW(hDlg, errNoDirText.c_str(), L"Validation Error", MB_OK | MB_ICONWARNING);
+                MessageBoxW(hDlg, errNoDirText.c_str(), valCap.c_str(), MB_OK | MB_ICONWARNING);
                 return 0;
             }
             
@@ -404,7 +406,7 @@ LRESULT CALLBACK NewProjectDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lP
             if (attrs == INVALID_FILE_ATTRIBUTES || !(attrs & FILE_ATTRIBUTE_DIRECTORY)) {
                 auto itErrInvalidDir = g_locale.find(L"new_proj_err_invalid_dir");
                 std::wstring errInvalidDirText = (itErrInvalidDir != g_locale.end()) ? itErrInvalidDir->second : L"The selected directory does not exist";
-                MessageBoxW(hDlg, errInvalidDirText.c_str(), L"Validation Error", MB_OK | MB_ICONWARNING);
+                MessageBoxW(hDlg, errInvalidDirText.c_str(), valCap.c_str(), MB_OK | MB_ICONWARNING);
                 return 0;
             }
             
@@ -437,7 +439,9 @@ LRESULT CALLBACK NewProjectDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lP
             } else {
                 auto itErrDb = g_locale.find(L"new_proj_err_db");
                 std::wstring errDbText = (itErrDb != g_locale.end()) ? itErrDb->second : L"Failed to create project in database";
-                MessageBoxW(hDlg, errDbText.c_str(), L"Error", MB_OK | MB_ICONERROR);
+                auto itErrCap = g_locale.find(L"error");
+                std::wstring errCap = (itErrCap != g_locale.end()) ? itErrCap->second : L"Error";
+                MessageBoxW(hDlg, errDbText.c_str(), errCap.c_str(), MB_OK | MB_ICONERROR);
             }
             
             return 0;
@@ -572,12 +576,19 @@ LRESULT CALLBACK DeleteProjectDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM
                 int projId = (int)item.lParam;
                 
                 // Show confirmation dialog
-                int result = MessageBoxW(hDlg, L"Are you sure you want to delete this project?", 
-                    L"Confirm Delete", MB_YESNO | MB_ICONWARNING);
+                auto itDelMsg = g_locale.find(L"confirm_delete_project");
+                std::wstring delMsg = (itDelMsg != g_locale.end()) ? itDelMsg->second : L"Are you sure you want to delete this project?";
+                auto itDelCap = g_locale.find(L"confirm_delete_title");
+                std::wstring delCap = (itDelCap != g_locale.end()) ? itDelCap->second : L"Confirm Delete";
+                int result = MessageBoxW(hDlg, delMsg.c_str(), delCap.c_str(), MB_YESNO | MB_ICONWARNING);
                 
                 if (result == IDYES) {
                     // TODO: Actually delete the project from database
-                    MessageBoxW(hDlg, L"Project deletion not yet implemented", L"Info", MB_OK);
+                    auto itNotImpl = g_locale.find(L"delete_not_implemented");
+                    std::wstring notImpl = (itNotImpl != g_locale.end()) ? itNotImpl->second : L"Project deletion is not yet implemented";
+                    auto itInfoCap = g_locale.find(L"info");
+                    std::wstring infoCap = (itInfoCap != g_locale.end()) ? itInfoCap->second : L"Info";
+                    MessageBoxW(hDlg, notImpl.c_str(), infoCap.c_str(), MB_OK);
                 }
                 
                 // Return to main window
@@ -585,7 +596,11 @@ LRESULT CALLBACK DeleteProjectDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM
                 if (hParent) EnableWindow(hParent, TRUE);
                 DestroyWindow(hDlg);
             } else {
-                MessageBoxW(hDlg, L"Please select a project", L"Info", MB_OK | MB_ICONINFORMATION);
+                auto itSelMsg = g_locale.find(L"select_project_first");
+                std::wstring selMsg = (itSelMsg != g_locale.end()) ? itSelMsg->second : L"Please select a project";
+                auto itInfoCap = g_locale.find(L"info");
+                std::wstring infoCap = (itInfoCap != g_locale.end()) ? itInfoCap->second : L"Info";
+                MessageBoxW(hDlg, selMsg.c_str(), infoCap.c_str(), MB_OK | MB_ICONINFORMATION);
             }
             return 0;
         }
@@ -764,7 +779,11 @@ LRESULT CALLBACK OpenProjectDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM l
                 
                 DestroyWindow(hDlg);
             } else {
-                MessageBoxW(hDlg, L"Please select a project", L"Info", MB_OK | MB_ICONINFORMATION);
+                auto itSelMsg = g_locale.find(L"select_project_first");
+                std::wstring selMsg = (itSelMsg != g_locale.end()) ? itSelMsg->second : L"Please select a project";
+                auto itInfoCap = g_locale.find(L"info");
+                std::wstring infoCap = (itInfoCap != g_locale.end()) ? itInfoCap->second : L"Info";
+                MessageBoxW(hDlg, selMsg.c_str(), infoCap.c_str(), MB_OK | MB_ICONINFORMATION);
             }
             return 0;
         }

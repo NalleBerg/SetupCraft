@@ -24,26 +24,33 @@ LRESULT CALLBACK QuitDialogProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lPara
             
             HWND hText = CreateWindowExW(0, L"STATIC", message.c_str(),
                 WS_CHILD | WS_VISIBLE | SS_CENTER,
-                20, 20, 360, 40,
+                20, 25, 380, 50,
                 hDlg, NULL, hInst, NULL);
             
-            // Set font for static text
-            HFONT hFont = CreateFontW(-14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-                DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+            // Use system font (same size as main window labels)
+            HFONT hFont = NULL;
+            {
+                NONCLIENTMETRICSW ncm = {};
+                ncm.cbSize = sizeof(ncm);
+                SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+                if (ncm.lfMessageFont.lfHeight < 0)
+                    ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
+                ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+                hFont = CreateFontIndirectW(&ncm.lfMessageFont);
+            }
             if (hFont) SendMessageW(hText, WM_SETFONT, (WPARAM)hFont, TRUE);
             
             // Create Yes button
             auto itYes = pLocale->find(L"yes");
             std::wstring yesText = (itYes != pLocale->end()) ? itYes->second : L"Yes";
             CreateCustomButtonWithIcon(hDlg, IDYES, yesText, ButtonColor::Green,
-                L"shell32.dll", 112, 80, 80, 100, 30, hInst);
+                L"shell32.dll", 112, 80, 108, 110, 34, hInst);
             
             // Create No button
             auto itNo = pLocale->find(L"no");
             std::wstring noText = (itNo != pLocale->end()) ? itNo->second : L"No";
             CreateCustomButtonWithIcon(hDlg, IDNO, noText, ButtonColor::Red,
-                L"shell32.dll", 131, 220, 80, 100, 30, hInst);
+                L"shell32.dll", 131, 230, 108, 110, 34, hInst);
         }
         
         return 0;
@@ -64,17 +71,16 @@ LRESULT CALLBACK QuitDialogProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lPara
         LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
         if (dis->CtlID == IDYES || dis->CtlID == IDNO) {
             ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
-            std::map<std::wstring, std::wstring>* pLocale = 
-                (std::map<std::wstring, std::wstring>*)GetWindowLongPtr(hDlg, GWLP_USERDATA);
-            if (pLocale) {
-                // Get font from parent or create default
-                HFONT hFont = CreateFontW(-14, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
-                    DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                    CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
-                LRESULT result = DrawCustomButton(dis, color, hFont);
-                if (hFont) DeleteObject(hFont);
-                return result;
-            }
+            NONCLIENTMETRICSW ncm = {}; ncm.cbSize = sizeof(ncm);
+            SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+            if (ncm.lfMessageFont.lfHeight < 0)
+                ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
+            ncm.lfMessageFont.lfWeight = FW_BOLD;
+            ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+            HFONT hFont = CreateFontIndirectW(&ncm.lfMessageFont);
+            LRESULT result = DrawCustomButton(dis, color, hFont);
+            if (hFont) DeleteObject(hFont);
+            return result;
         }
         break;
     }
@@ -130,7 +136,7 @@ bool ShowQuitDialog(HWND hwndParent, const std::map<std::wstring, std::wstring>&
         SystemParametersInfoW(SPI_GETWORKAREA, 0, &rcParent, 0);
     }
     
-    int width = 400, height = 160;
+    int width = 420, height = 205;
     int x = rcParent.left + (rcParent.right - rcParent.left - width) / 2;
     int y = rcParent.top + (rcParent.bottom - rcParent.top - height) / 2;
     
@@ -146,6 +152,9 @@ bool ShowQuitDialog(HWND hwndParent, const std::map<std::wstring, std::wstring>&
     std::map<std::wstring, std::wstring>* pLocaleCopy = 
         new std::map<std::wstring, std::wstring>(locale);
     
+    // Reset result to safe default before showing dialog
+    g_quitDialogResult = false;
+    
     HWND hDlg = CreateWindowExW(
         WS_EX_DLGMODALFRAME | WS_EX_TOPMOST,
         L"QuitDialogClass",
@@ -160,8 +169,11 @@ bool ShowQuitDialog(HWND hwndParent, const std::map<std::wstring, std::wstring>&
         ShowWindow(hDlg, SW_SHOW);
         
         // Message loop for modal behavior
-        MSG msg;
-        while (GetMessageW(&msg, NULL, 0, 0)) {
+        MSG msg = {};
+        while (IsWindow(hDlg)) {
+            BOOL bRet = GetMessageW(&msg, NULL, 0, 0);
+            if (bRet == 0) { PostQuitMessage((int)msg.wParam); break; } // WM_QUIT: re-post and exit
+            if (bRet == -1) break; // error
             if (!IsWindow(hDlg)) break;
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
@@ -205,32 +217,44 @@ LRESULT CALLBACK UnsavedChangesDialogProc(HWND hDlg, UINT msg, WPARAM wParam, LP
             
             HWND hText = CreateWindowExW(0, L"STATIC", message.c_str(),
                 WS_CHILD | WS_VISIBLE | SS_CENTER,
-                20, 20, 460, 40,
+                15, 23, 590, 65,
                 hDlg, NULL, hInst, NULL);
             
-            // Set font for static text
-            HFONT hFont = CreateFontW(-14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-                DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+            // Use system font (same size as main window labels)
+            HFONT hFont = NULL;
+            {
+                NONCLIENTMETRICSW ncm = {};
+                ncm.cbSize = sizeof(ncm);
+                SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+                if (ncm.lfMessageFont.lfHeight < 0)
+                    ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
+                ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+                hFont = CreateFontIndirectW(&ncm.lfMessageFont);
+            }
             if (hFont) SendMessageW(hText, WM_SETFONT, (WPARAM)hFont, TRUE);
             
-            // Create Save button
+            // 3 buttons: Save(160) + gap(20) + Don'tSave(230) + gap(20) + Cancel(160) + margins(15 each) = 620
+            const int bY = 110, bH = 34, gX = 20;
+            const int bW0 = 160, bW1 = 230, bW2 = 160;
+            const int bX0 = 15, bX1 = bX0+bW0+gX, bX2 = bX1+bW1+gX;
+
+            // Save button
             auto itSave = pLocale->find(L"save");
             std::wstring saveText = (itSave != pLocale->end()) ? itSave->second : L"Save";
             CreateCustomButtonWithIcon(hDlg, 1, saveText, ButtonColor::Green,
-                L"shell32.dll", 258, 30, 80, 110, 30, hInst);
+                L"shell32.dll", 258, bX0, bY, bW0, bH, hInst);
             
-            // Create Don't Save button
+            // Don't Save button
             auto itDontSave = pLocale->find(L"dont_save");
             std::wstring dontSaveText = (itDontSave != pLocale->end()) ? itDontSave->second : L"Don't Save";
-            CreateCustomButtonWithIcon(hDlg, 2, dontSaveText, ButtonColor::Blue,
-                L"shell32.dll", 240, 195, 80, 110, 30, hInst);
+            CreateCustomButtonWithIcon(hDlg, 3, dontSaveText, ButtonColor::Blue,
+                L"shell32.dll", 240, bX1, bY, bW1, bH, hInst);
             
-            // Create Cancel button
+            // Cancel button
             auto itCancel = pLocale->find(L"cancel");
             std::wstring cancelText = (itCancel != pLocale->end()) ? itCancel->second : L"Cancel";
             CreateCustomButtonWithIcon(hDlg, IDCANCEL, cancelText, ButtonColor::Red,
-                L"shell32.dll", 131, 360, 80, 110, 30, hInst);
+                L"shell32.dll", 131, bX2, bY, bW2, bH, hInst);
         }
         
         return 0;
@@ -242,7 +266,7 @@ LRESULT CALLBACK UnsavedChangesDialogProc(HWND hDlg, UINT msg, WPARAM wParam, LP
             DestroyWindow(hDlg);
             return 0;
         }
-        if (LOWORD(wParam) == 2) {  // Don't Save
+        if (LOWORD(wParam) == 3) {  // Don't Save
             g_unsavedChangesDialogResult = 2;
             DestroyWindow(hDlg);
             return 0;
@@ -259,13 +283,23 @@ LRESULT CALLBACK UnsavedChangesDialogProc(HWND hDlg, UINT msg, WPARAM wParam, LP
         DestroyWindow(hDlg);
         return 0;
         
+    case WM_CTLCOLORSTATIC: {
+        HDC hdcStatic = (HDC)wParam;
+        SetBkMode(hdcStatic, TRANSPARENT);
+        return (LRESULT)GetStockObject(NULL_BRUSH);
+    }
+
     case WM_DRAWITEM: {
         LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
-        if (dis->CtlID == 1 || dis->CtlID == 2 || dis->CtlID == IDCANCEL) {
+        if (dis->CtlID == 1 || dis->CtlID == 3 || dis->CtlID == IDCANCEL) {
             ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
-            HFONT hFont = CreateFontW(-12, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
-                DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+            NONCLIENTMETRICSW ncm = {}; ncm.cbSize = sizeof(ncm);
+            SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+            if (ncm.lfMessageFont.lfHeight < 0)
+                ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
+            ncm.lfMessageFont.lfWeight = FW_BOLD;
+            ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+            HFONT hFont = CreateFontIndirectW(&ncm.lfMessageFont);
             LRESULT result = DrawCustomButton(dis, color, hFont);
             if (hFont) DeleteObject(hFont);
             return result;
@@ -305,7 +339,7 @@ int ShowUnsavedChangesDialog(HWND hwndParent, const std::map<std::wstring, std::
         SystemParametersInfoW(SPI_GETWORKAREA, 0, &rcParent, 0);
     }
     
-    int width = 500, height = 160;
+    int width = 620, height = 205;
     int x = rcParent.left + (rcParent.right - rcParent.left - width) / 2;
     int y = rcParent.top + (rcParent.bottom - rcParent.top - height) / 2;
     
@@ -321,6 +355,9 @@ int ShowUnsavedChangesDialog(HWND hwndParent, const std::map<std::wstring, std::
     std::map<std::wstring, std::wstring>* pLocaleCopy = 
         new std::map<std::wstring, std::wstring>(locale);
     
+    // Reset result to safe default before showing dialog
+    g_unsavedChangesDialogResult = 0;
+    
     HWND hDlg = CreateWindowExW(
         WS_EX_DLGMODALFRAME | WS_EX_TOPMOST,
         L"UnsavedChangesDialogClass",
@@ -335,8 +372,11 @@ int ShowUnsavedChangesDialog(HWND hwndParent, const std::map<std::wstring, std::
         ShowWindow(hDlg, SW_SHOW);
         
         // Message loop for modal behavior
-        MSG msg;
-        while (GetMessageW(&msg, NULL, 0, 0)) {
+        MSG msg = {};
+        while (IsWindow(hDlg)) {
+            BOOL bRet = GetMessageW(&msg, NULL, 0, 0);
+            if (bRet == 0) { PostQuitMessage((int)msg.wParam); break; } // WM_QUIT: re-post and exit
+            if (bRet == -1) break; // error
             if (!IsWindow(hDlg)) break;
             TranslateMessage(&msg);
             DispatchMessageW(&msg);

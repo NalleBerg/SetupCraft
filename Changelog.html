@@ -1,6 +1,27 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 02 March 2026<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 03 March 2026<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.03.10</span></h3>
+<p><strong>Unsaved Changes dialog taller (03.03.2026, 10:16):</strong></p>
+<ul>
+<li><strong>Dialog height increased:</strong> The "Unsaved Changes" confirmation dialog (Save / Don't Save / Cancel) was 200&nbsp;px tall, leaving buttons a little cramped. Increased to 205&nbsp;px so there is more breathing room between the message text and the button row.</li>
+</ul>
+
+<h3 style="text-align: center;">&nbsp;</h3>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.03.08</span></h3>
+<p><strong>Two-row toolbar with 11 buttons and Components page (03.03.2026, 08:32):</strong></p>
+<ul>
+<li><strong>Two-row toolbar:</strong> All 11 toolbar buttons now laid out in two compact rows (<code>S(31)px</code> height each, total <code>S(78)px</code>) inside the existing toolbar band. Row 1 holds the 6 navigation pages (Files, Components, Registry, Shortcuts, Dependencies, Dialogs); Row 2 holds the 5 action pages (Settings, Build, Test, Scripts, Save). The About &laquo;i&raquo; icon is centered vertically across both rows at the right end.</li>
+<li><strong>Components button added:</strong> New <code>IDC_TB_COMPONENTS (5081)</code> toolbar button in Row 1 switches to the new Components page (page index 9). Uses <code>shell32.dll</code> icon #278 to match Dependencies visually.</li>
+<li><strong>Build button wider:</strong> Build button increased to <code>S(108)</code> wide so &laquo;Build (F7)&raquo; text is no longer truncated at any DPI.</li>
+<li><strong>Components stub page:</strong> <code>SwitchPage</code> case 9 creates the Components page frame with bold <code>S(24)</code> title and placeholder text, ready for full implementation.</li>
+<li><strong>i18n: tb_dialogs &amp; tb_components:</strong> Both keys added to all 20 locale files with native translations (Danish, German, Greek, English, Spanish, French, Icelandic, Italian, Dutch, Norwegian, Polish, Portuguese, Romansh, Romanian, Ukrainian).</li>
+<li><strong>WM_COMMAND / WM_DRAWITEM / isToolbarBtn:</strong> All three dispatch&nbsp;points updated to recognize the new <code>IDC_TB_COMPONENTS</code> control ID so it draws and handles clicks correctly.</li>
+</ul>
+
+<h3 style="text-align: center;">&nbsp;</h3>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.02.10</span></h3>
 <p><strong>DPI scaling, font fixes, and toolbar layout (02.03.2026, 10:24):</strong></p>

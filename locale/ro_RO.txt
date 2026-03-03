@@ -1,4 +1,4 @@
-app_name=SetupCraft
+﻿app_name=SetupCraft
 search_btn=🔍 Căutare
 select_language=Selectați limba pentru proiectul dvs.
 about_setupcraft=Despre SetupCraft
@@ -27,6 +27,8 @@ tb_build=Build (F7)
 tb_test=Test (F5)
 tb_scripts=Scripts
 tb_save=Salvare
+tb_dialogs=Dialoguri
+tb_components=Componente
 
 # Toolbar tooltips
 tt_files=Manage files and folders to include in the installer

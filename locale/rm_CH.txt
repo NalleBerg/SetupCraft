@@ -1,4 +1,4 @@
-app_name=SetupCraft
+﻿app_name=SetupCraft
 search_btn=🔍 Cercar
 select_language=Tscherna la lingua per tes project
 about_setupcraft=Davart SetupCraft
@@ -27,6 +27,8 @@ tb_build=Build (F7)
 tb_test=Test (F5)
 tb_scripts=Scripts
 tb_save=Salvar
+tb_dialogs=Dialogs
+tb_components=Components
 
 # Toolbar tooltips
 tt_files=Manage files and folders to include in the installer

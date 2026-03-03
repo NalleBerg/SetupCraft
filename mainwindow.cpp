@@ -58,6 +58,22 @@ static LRESULT CALLBACK TreeView_SubclassProc(HWND hwnd, UINT msg, WPARAM wParam
 static std::vector<std::wstring> GetAvailableLocales();
 static LRESULT CALLBACK WarningIcon_SubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
+// Returns the full path to Program Files as reported by Windows (localized, e.g. "C:\Programfiler").
+// This handles all Windows languages automatically.
+static std::wstring GetProgramFilesPath() {
+    wchar_t path[MAX_PATH] = {};
+    if (SHGetSpecialFolderPathW(NULL, path, CSIDL_PROGRAM_FILES, FALSE))
+        return std::wstring(path);
+    return L"C:\\Program Files"; // safe fallback
+}
+
+// Returns just the folder name component (e.g. "Programfiler" on Norwegian Windows).
+static std::wstring GetProgramFilesFolderName() {
+    std::wstring full = GetProgramFilesPath();
+    size_t pos = full.find_last_of(L"\\/");
+    return (pos != std::wstring::npos) ? full.substr(pos + 1) : full;
+}
+
 // Store files added to virtual folders (keyed by HTREEITEM)
 struct VirtualFolderFile {
     std::wstring sourcePath;
@@ -118,6 +134,8 @@ static bool s_warningTooltipTracking = false;
 #define IDC_TB_SAVE         5018
 #define IDC_TB_ABOUT        5019
 #define IDC_TB_DIALOGS      5080
+#define IDC_TB_COMPONENTS   5081
+#define IDC_TB_EXIT         5082
 
 // Files dialog button IDs
 #define IDC_FILES_ADD_DIR   5020
@@ -233,6 +251,9 @@ static LRESULT CALLBACK WarningIcon_SubclassProc(HWND hwnd, UINT msg, WPARAM wPa
 }
 
 HWND MainWindow::Create(HINSTANCE hInstance, const ProjectRow &project, const std::map<std::wstring, std::wstring> &locale) {
+    // Reset state so opening any project (new or existing) starts clean
+    s_hasUnsavedChanges = false;
+    s_isNewUnsavedProject = false;
     s_currentProject = project;
     s_locale = locale;
     
@@ -365,89 +386,97 @@ void MainWindow::CreateMenuBar(HWND hwnd) {
 }
 
 void MainWindow::CreateToolbar(HWND hwnd, HINSTANCE hInst) {
-    const int buttonWidth = S(85);  // Optimized width for toolbar buttons
-    const int buttonHeight = S(40);
-    const int buttonGap = S(5);
-    const int startX = S(10);
-    const int startY = S(5);
-    
-    int x = startX;
-    
-    // Files button (opens file structure dialog)
+    // Two-row layout: row1 = navigation pages, row2 = action pages
+    const int btnH   = S(31);  // button height for each row
+    const int gap    = S(4);   // gap between buttons
+    const int row1Y  = S(5);               // top of row 1
+    const int row2Y  = S(5) + btnH + S(4); // top of row 2  (= S(40))
+
+    // --- ROW 1: navigation pages ---
+    int x = S(10);
+
     auto itFiles = s_locale.find(L"tb_files");
     std::wstring filesText = (itFiles != s_locale.end()) ? itFiles->second : L"Files";
     CreateCustomButtonWithIcon(hwnd, IDC_TB_FILES, filesText, ButtonColor::Blue,
-        L"shell32.dll", 4, x, startY, S(75), buttonHeight, hInst);
-    x += S(75) + buttonGap;
-    
-    // Add Registry button
+        L"shell32.dll", 4, x, row1Y, S(80), btnH, hInst);
+    x += S(80) + gap;
+
+    auto itComp = s_locale.find(L"tb_components");
+    std::wstring compText = (itComp != s_locale.end()) ? itComp->second : L"Components";
+    CreateCustomButtonWithIcon(hwnd, IDC_TB_COMPONENTS, compText, ButtonColor::Blue,
+        L"shell32.dll", 278, x, row1Y, S(118), btnH, hInst);
+    x += S(118) + gap;
+
     auto itAddReg = s_locale.find(L"tb_add_registry");
     std::wstring addRegText = (itAddReg != s_locale.end()) ? itAddReg->second : L"Registry";
     CreateCustomButtonWithIcon(hwnd, IDC_TB_ADD_REGISTRY, addRegText, ButtonColor::Blue,
-        L"shell32.dll", 166, x, startY, buttonWidth, buttonHeight, hInst);
-    x += buttonWidth + buttonGap;
-    
-    // Add Shortcut button (composite icon: 257 with 29 overlay)
+        L"shell32.dll", 166, x, row1Y, S(80), btnH, hInst);
+    x += S(80) + gap;
+
     auto itAddShortcut = s_locale.find(L"tb_add_shortcut");
     std::wstring addShortcutText = (itAddShortcut != s_locale.end()) ? itAddShortcut->second : L"Shortcuts";
     CreateCustomButtonWithCompositeIcon(hwnd, IDC_TB_ADD_SHORTCUT, addShortcutText, ButtonColor::Blue,
-        L"shell32.dll", 257, L"shell32.dll", 29, x, startY, S(100), buttonHeight, hInst);
-    x += S(100) + buttonGap;
-    
-    // Add Dependency button (wider to fit text)
+        L"shell32.dll", 257, L"shell32.dll", 29, x, row1Y, S(93), btnH, hInst);
+    x += S(93) + gap;
+
     auto itAddDep = s_locale.find(L"tb_add_dependency");
     std::wstring addDepText = (itAddDep != s_locale.end()) ? itAddDep->second : L"Dependencies";
     CreateCustomButtonWithIcon(hwnd, IDC_TB_ADD_DEPEND, addDepText, ButtonColor::Blue,
-        L"shell32.dll", 278, x, startY, S(125), buttonHeight, hInst);
-    x += S(125) + buttonGap;
+        L"shell32.dll", 278, x, row1Y, S(124), btnH, hInst);
+    x += S(124) + gap;
 
-    // Dialogs button
     auto itDialogs = s_locale.find(L"tb_dialogs");
     std::wstring dialogsText = (itDialogs != s_locale.end()) ? itDialogs->second : L"Dialogs";
     CreateCustomButtonWithIcon(hwnd, IDC_TB_DIALOGS, dialogsText, ButtonColor::Blue,
-        L"shell32.dll", 23, x, startY, buttonWidth, buttonHeight, hInst);
-    x += buttonWidth + buttonGap;
+        L"shell32.dll", 23, x, row1Y, S(80), btnH, hInst);
+    int row1EndX = x + S(80);
 
-    // Settings button
+    // --- ROW 2: action pages ---
+    x = S(10);
+
     auto itSettings = s_locale.find(L"tb_settings");
     std::wstring settingsText = (itSettings != s_locale.end()) ? itSettings->second : L"Settings";
     CreateCustomButtonWithIcon(hwnd, IDC_TB_SETTINGS, settingsText, ButtonColor::Blue,
-        L"shell32.dll", 314, x, startY, buttonWidth, buttonHeight, hInst);
-    x += buttonWidth + buttonGap;
-    
-    // Build button
+        L"shell32.dll", 314, x, row2Y, S(83), btnH, hInst);
+    x += S(83) + gap;
+
     auto itBuild = s_locale.find(L"tb_build");
     std::wstring buildText = (itBuild != s_locale.end()) ? itBuild->second : L"Build (F7)";
     CreateCustomButtonWithIcon(hwnd, IDC_TB_BUILD, buildText, ButtonColor::Green,
-        L"shell32.dll", 80, x, startY, buttonWidth, buttonHeight, hInst);
-    x += buttonWidth + buttonGap;
-    
-    // Test button
+        L"shell32.dll", 80, x, row2Y, S(108), btnH, hInst);
+    x += S(108) + gap;
+
     auto itTest = s_locale.find(L"tb_test");
     std::wstring testText = (itTest != s_locale.end()) ? itTest->second : L"Test (F5)";
     CreateCustomButtonWithIcon(hwnd, IDC_TB_TEST, testText, ButtonColor::Blue,
-        L"shell32.dll", 138, x, startY, buttonWidth, buttonHeight, hInst);
-    x += buttonWidth + buttonGap;
-    
-    // Scripts button
+        L"shell32.dll", 138, x, row2Y, S(90), btnH, hInst);
+    x += S(90) + gap;
+
     auto itScripts = s_locale.find(L"tb_scripts");
     std::wstring scriptsText = (itScripts != s_locale.end()) ? itScripts->second : L"Scripts";
     CreateCustomButtonWithIcon(hwnd, IDC_TB_SCRIPTS, scriptsText, ButtonColor::Blue,
-        L"shell32.dll", 310, x, startY, buttonWidth, buttonHeight, hInst);
-    x += buttonWidth + buttonGap;
-    
-    // Save button
+        L"shell32.dll", 310, x, row2Y, S(83), btnH, hInst);
+    x += S(83) + gap;
+
     auto itSave = s_locale.find(L"tb_save");
     std::wstring saveText = (itSave != s_locale.end()) ? itSave->second : L"Save";
     CreateCustomButtonWithIcon(hwnd, IDC_TB_SAVE, saveText, ButtonColor::Green,
-        L"shell32.dll", 258, x, startY, buttonWidth, buttonHeight, hInst);  // Icon #258 is floppy disk save icon
-    x += buttonWidth + buttonGap;
-    
-    // About icon (static control with custom tooltip)
-    const int aboutIconSize = S(32);
-    const int aboutIconY = startY + (buttonHeight - aboutIconSize) / 2;  // Center vertically with buttons
-    // Create About icon using about_icon module
-    s_hAboutButton = CreateAboutIconControl(hwnd, hInst, x, aboutIconY, aboutIconSize, IDC_TB_ABOUT, s_locale);
+        L"shell32.dll", 258, x, row2Y, S(83), btnH, hInst);
+    x += S(83) + gap;
+
+    auto itExitTb = s_locale.find(L"exit");
+    std::wstring exitTbText = (itExitTb != s_locale.end()) ? itExitTb->second : L"Exit";
+    CreateCustomButtonWithIcon(hwnd, IDC_TB_EXIT, exitTbText, ButtonColor::Red,
+        L"shell32.dll", 27, x, row2Y, S(83), btnH, hInst);
+    int row2EndX = x + S(83);
+
+    // About icon — flush right, centered vertically across both rows
+    const int aboutIconSize = S(36);
+    RECT rcToolbar;
+    GetClientRect(hwnd, &rcToolbar);
+    const int aboutIconX = rcToolbar.right - aboutIconSize - S(10);
+    const int aboutIconY = (s_toolbarHeight - aboutIconSize) / 2;
+    s_hAboutButton = CreateAboutIconControl(hwnd, hInst, aboutIconX, aboutIconY, aboutIconSize, IDC_TB_ABOUT, s_locale);
 }
 
 // Helper function to clean up registry TreeView items (free lParam memory)
@@ -726,7 +755,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         if (rcChild.top > s_toolbarHeight && rcChild.bottom < rcClient.bottom - 25) {
             // Skip toolbar buttons and known handles
             int childId = GetDlgCtrlID(hChild);
-            bool isToolbarBtn = (childId >= IDC_TB_FILES && childId <= IDC_TB_ABOUT) || childId == IDC_TB_DIALOGS;
+            bool isToolbarBtn = (childId >= IDC_TB_FILES && childId <= IDC_TB_ABOUT) || childId == IDC_TB_DIALOGS || childId == IDC_TB_COMPONENTS || childId == IDC_TB_EXIT;
             if (!isToolbarBtn) {
                 if (hChild != s_hTreeView && hChild != s_hListView && 
                     hChild != s_hRegTreeView && hChild != s_hRegListView &&
@@ -794,7 +823,9 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
     case 0: // Files page - no page container, all controls are direct children of main window
     {
         // H3 headline (direct child of main window)
-        HWND hTitle = CreateWindowExW(0, L"STATIC", L"Files Management",
+        auto itFilesMgmt = s_locale.find(L"files_management");
+        std::wstring filesMgmtText = (itFilesMgmt != s_locale.end()) ? itFilesMgmt->second : L"Files Management";
+        HWND hTitle = CreateWindowExW(0, L"STATIC", filesMgmtText.c_str(),
             WS_CHILD | WS_VISIBLE | SS_LEFT,
             S(20), pageY + S(15), rc.right - S(40), S(38),
             hwnd, (HMENU)5100, hInst, NULL); // Give it an ID for WM_CTLCOLORSTATIC
@@ -804,19 +835,27 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         if (hTitleFont) SendMessageW(hTitle, WM_SETFONT, (WPARAM)hTitleFont, TRUE);
         
         // Add Folder button (child of main window, positioned relative to it)
-        s_hPageButton1 = CreateCustomButtonWithIcon(hwnd, IDC_FILES_ADD_DIR, L"Add Folder", ButtonColor::Blue,
+        auto itAddFolder = s_locale.find(L"files_add_folder");
+        std::wstring addFolderText = (itAddFolder != s_locale.end()) ? itAddFolder->second : L"Add Folder";
+        s_hPageButton1 = CreateCustomButtonWithIcon(hwnd, IDC_FILES_ADD_DIR, addFolderText, ButtonColor::Blue,
             L"shell32.dll", 296, S(20), s_toolbarHeight + S(55), S(120), S(35), hInst);
         
         // Add Files button (child of main window, positioned relative to it)
-        s_hPageButton2 = CreateCustomButtonWithIcon(hwnd, IDC_FILES_ADD_FILES, L"Add Files", ButtonColor::Blue,
+        auto itAddFiles = s_locale.find(L"files_add_files");
+        std::wstring addFilesText = (itAddFiles != s_locale.end()) ? itAddFiles->second : L"Add Files";
+        s_hPageButton2 = CreateCustomButtonWithIcon(hwnd, IDC_FILES_ADD_FILES, addFilesText, ButtonColor::Blue,
             L"shell32.dll", 71, S(150), s_toolbarHeight + S(55), S(120), S(35), hInst);
         
         // Remove button (for removing selected items)
-        HWND hRemoveBtn = CreateCustomButtonWithIcon(hwnd, IDC_FILES_REMOVE, L"Remove", ButtonColor::Red,
+        auto itRemove = s_locale.find(L"files_remove");
+        std::wstring removeText = (itRemove != s_locale.end()) ? itRemove->second : L"Remove";
+        HWND hRemoveBtn = CreateCustomButtonWithIcon(hwnd, IDC_FILES_REMOVE, removeText, ButtonColor::Red,
             L"shell32.dll", 234, S(20), s_toolbarHeight + S(100), S(250), S(35), hInst);
         
         // Project name label and field
-        HWND hProjectLabel = CreateWindowExW(0, L"STATIC", L"Project name:",
+        auto itProjName = s_locale.find(L"files_project_name");
+        std::wstring projNameText = (itProjName != s_locale.end()) ? itProjName->second : L"Project name:";
+        HWND hProjectLabel = CreateWindowExW(0, L"STATIC", projNameText.c_str(),
             WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
             S(290), pageY + S(55), S(100), S(22),
             hwnd, NULL, hInst, NULL);
@@ -832,14 +871,16 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         s_updatingProjectNameProgrammatically = false;
         
         // Install folder label and field (aligned with project name field)
-        HWND hInstallLabel = CreateWindowExW(0, L"STATIC", L"Install folder:",
+        auto itInstFld = s_locale.find(L"files_install_folder");
+        std::wstring instFldText = (itInstFld != s_locale.end()) ? itInstFld->second : L"Install folder:";
+        HWND hInstallLabel = CreateWindowExW(0, L"STATIC", instFldText.c_str(),
             WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
             S(290), pageY + S(82), S(100), S(22),
             hwnd, NULL, hInst, NULL);
         if (s_scaledFont) SendMessageW(hInstallLabel, WM_SETFONT, (WPARAM)s_scaledFont, TRUE);
         
         std::wstring defaultPath = s_currentInstallPath.empty()
-            ? L"C:\\Program Files\\" + s_currentProject.name
+            ? GetProgramFilesPath() + L"\\" + s_currentProject.name
             : s_currentInstallPath;
         HWND hInstallEdit = CreateWindowExW(0, L"STATIC", defaultPath.c_str(),
             WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
@@ -852,7 +893,9 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
             L"shell32.dll", 4, rc.right - S(55), s_toolbarHeight + S(82), S(35), S(22), hInst);
 
         // Ask-at-install checkbox below install folder
-        HWND hAskChk = CreateWindowExW(0, L"BUTTON", L"Ask end user at install (Per-user / All-users)",
+        auto itAskUser = s_locale.find(L"files_ask_user_install");
+        std::wstring askUserText = (itAskUser != s_locale.end()) ? itAskUser->second : L"Ask end user at install (Per-user / All-users)";
+        HWND hAskChk = CreateWindowExW(0, L"BUTTON", askUserText.c_str(),
             WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
             S(395), pageY + S(110), S(360), S(22),
             hwnd, (HMENU)IDC_ASK_AT_INSTALL, hInst, NULL);
@@ -955,11 +998,11 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         col.pszText = (LPWSTR)L"Destination";
         ListView_InsertColumn(s_hListView, 1, &col);
         
-        // Always create "Program Files" root node
-        std::wstring defaultInstallPath = L"C:\\Program Files\\" + s_currentProject.name;
+        // Always create "Program Files" root node (use Windows-localized name)
+        std::wstring defaultInstallPath = GetProgramFilesPath() + L"\\" + s_currentProject.name;
         std::wstring installPathCopy = defaultInstallPath;
         size_t lastSlash = installPathCopy.find_last_of(L"\\/");
-        std::wstring parentPath = L"Program Files";
+        std::wstring parentPath = GetProgramFilesFolderName();
         if (lastSlash != std::wstring::npos) {
             std::wstring temp = installPathCopy.substr(0, lastSlash);
             size_t secondLastSlash = temp.find_last_of(L"\\/");
@@ -1201,7 +1244,9 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         currentY += S(20);
         
         // Custom Registry Entries section with warning icon and backup button
-        { HWND hLbl5105 = CreateWindowExW(0, L"STATIC", L"Custom Registry Entries",
+        auto itCustReg = s_locale.find(L"custom_registry_entries");
+        std::wstring custRegText = (itCustReg != s_locale.end()) ? itCustReg->second : L"Custom Registry Entries";
+        { HWND hLbl5105 = CreateWindowExW(0, L"STATIC", custRegText.c_str(),
             WS_CHILD | WS_VISIBLE | SS_LEFT,
             S(20), currentY, S(300), S(20),
             hwnd, (HMENU)5105, hInst, NULL);
@@ -1484,6 +1529,31 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
             s_hCurrentPage, NULL, hInst, NULL);
         break;
     }
+    case 9: // Components page
+    {
+        s_hCurrentPage = CreateWindowExW(
+            0, L"STATIC", L"",
+            WS_CHILD | WS_VISIBLE,
+            0, pageY, rc.right, pageHeight,
+            hwnd, NULL, hInst, NULL);
+
+        auto itCompTitle = s_locale.find(L"tb_components");
+        std::wstring compTitle = (itCompTitle != s_locale.end()) ? itCompTitle->second : L"Components";
+        HWND hTitle = CreateWindowExW(0, L"STATIC", compTitle.c_str(),
+            WS_CHILD | WS_VISIBLE | SS_LEFT,
+            S(20), S(20), rc.right - S(40), S(38),
+            s_hCurrentPage, NULL, hInst, NULL);
+        HFONT hTitleFont = CreateFontW(-S(24), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+        if (hTitleFont) SendMessageW(hTitle, WM_SETFONT, (WPARAM)hTitleFont, TRUE);
+
+        CreateWindowExW(0, L"STATIC", L"Define installable components (e.g. optional modules, plugins)",
+            WS_CHILD | WS_VISIBLE | SS_LEFT,
+            S(20), S(60), rc.right - S(40), S(20),
+            s_hCurrentPage, NULL, hInst, NULL);
+        break;
+    }
     }
 }
 
@@ -1555,7 +1625,7 @@ void MainWindow::PopulateTreeView(HWND hTree, const std::wstring &rootPath, cons
                 parentPath = parentPath.substr(secondLastSlash + 1);
             }
         } else {
-            parentPath = L"Program Files";
+            parentPath = GetProgramFilesFolderName();
         }
         hParent = AddTreeNode(hTree, TVI_ROOT, parentPath, L"");
         s_hProgramFilesRoot = hParent;
@@ -1666,7 +1736,7 @@ void MainWindow::UpdateInstallPathFromTree(HWND hwnd) {
         TreeView_GetItem(s_hTreeView, &item);
         
         // Update install folder field
-        std::wstring newInstallPath = L"C:\\Program Files\\" + std::wstring(folderName);
+        std::wstring newInstallPath = GetProgramFilesPath() + L"\\" + std::wstring(folderName);
         SetDlgItemTextW(hwnd, IDC_INSTALL_FOLDER, newInstallPath.c_str());
         
         // Also update project name if this is a new project and user hasn't manually edited it
@@ -1682,7 +1752,7 @@ void MainWindow::UpdateInstallPathFromTree(HWND hwnd) {
         }
     } else {
         // No folders under Program Files, set to default
-        std::wstring defaultPath = L"C:\\Program Files\\New Project";
+        std::wstring defaultPath = GetProgramFilesPath() + L"\\New Project";
         SetDlgItemTextW(hwnd, IDC_INSTALL_FOLDER, defaultPath.c_str());
     }
 }
@@ -2435,7 +2505,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             FindClose(hFind);
         }
         
-        s_toolbarHeight = S(50);
+        s_toolbarHeight = S(78); // two button rows: S(5)+S(31)+S(4)+S(31)+S(7)
         // Create scaled body font from system NONCLIENTMETRICS so it is correct for any DPI
         if (!s_scaledFont) {
             NONCLIENTMETRICSW ncm = {};
@@ -2454,6 +2524,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         CreateStatusBar(hwnd, hInst);
         // Initialize with Files page
         SwitchPage(hwnd, 0);
+        // Clear any spurious modified flags triggered during control initialization
+        s_hasUnsavedChanges = false;
         return 0;
     }
     
@@ -2470,6 +2542,14 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         
         if (s_hStatus) {
             SendMessageW(s_hStatus, WM_SIZE, 0, 0);
+        }
+        
+        // Reposition About icon to stay at far right of toolbar
+        if (s_hAboutButton) {
+            const int iconSize = S(36);
+            const int iconX = rc.right - iconSize - S(10);
+            const int iconY = (s_toolbarHeight - iconSize) / 2;
+            SetWindowPos(s_hAboutButton, NULL, iconX, iconY, 0, 0, SWP_NOZORDER | SWP_NOSIZE);
         }
         return 0;
     }
@@ -2495,7 +2575,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 // If editing the first folder under Program Files, always update install path
                 if (isFirstChild) {
                     std::wstring folderName = ptvdi->item.pszText;
-                    std::wstring newInstallPath = L"C:\\Program Files\\" + folderName;
+                    std::wstring newInstallPath = GetProgramFilesPath() + L"\\" + folderName;
                     SetDlgItemTextW(hwnd, IDC_INSTALL_FOLDER, newInstallPath.c_str());
                     
                     // Also update project name if this is a new project and user hasn't manually edited it
@@ -2676,9 +2756,9 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 if (base.empty()) base = s_currentProject.name;
 
                 if (!s_appPublisher.empty())
-                    s_currentInstallPath = L"C:\\Program Files\\" + s_appPublisher + L"\\" + base;
+                    s_currentInstallPath = GetProgramFilesPath() + L"\\" + s_appPublisher + L"\\" + base;
                 else
-                    s_currentInstallPath = L"C:\\Program Files\\" + base;
+                    s_currentInstallPath = GetProgramFilesPath() + L"\\" + base;
 
                 // If Files page is live, update it immediately
                 HWND hPathCtrl = GetDlgItem(hwnd, IDC_INSTALL_FOLDER);
@@ -2761,9 +2841,17 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         case IDC_TB_SCRIPTS:
             SwitchPage(hwnd, 8);
             return 0;
+
+        case IDC_TB_COMPONENTS:
+            SwitchPage(hwnd, 9);
+            return 0;
             
         case IDC_TB_SAVE:
             // TODO: Implement save functionality
+            return 0;
+
+        case IDC_TB_EXIT:
+            SendMessageW(hwnd, WM_CLOSE, 0, 0);
             return 0;
             
         case IDC_TB_ABOUT:
@@ -4118,21 +4206,24 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             return 0;
             
         case IDM_FILE_CLOSE: {
-            // Check for unsaved changes
             if (s_hasUnsavedChanges) {
                 int result = ShowUnsavedChangesDialog(hwnd, s_locale);
                 if (result == 0) {
-                    // Cancel - don't close
+                    // Cancel
                     return 0;
                 } else if (result == 1) {
-                    // Save - TODO: implement save functionality
+                    // Save - TODO: implement save
                     MessageBoxW(hwnd, L"Save functionality to be implemented", L"Save", MB_OK | MB_ICONINFORMATION);
                     return 0;
                 }
-                // result == 2: Don't Save - proceed with close
+                // result == 3: Don't Save — fall through to return to entry screen
+            } else {
+                // No unsaved changes — simple close confirmation
+                if (!ShowQuitDialog(hwnd, s_locale)) {
+                    return 0;
+                }
             }
-            
-            // Close project and return to entry screen
+            // Return to entry screen
             HWND entryWindow = FindWindowW(L"SetupCraft_EntryScreen", NULL);
             if (entryWindow) {
                 ShowWindow(entryWindow, SW_SHOW);
@@ -4468,18 +4559,29 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             return 0;
         }
         
-        // Handle Ctrl+W to close project
+        // Handle Ctrl+W to close project (same as Close Project menu)
         if (IsCtrlWPressed(msg, wParam)) {
-            if (ShowQuitDialog(hwnd, s_locale)) {
-                DestroyWindow(hwnd);
-            }
+            SendMessageW(hwnd, WM_COMMAND, IDM_FILE_CLOSE, 0);
             return 0;
         }
         break;
     }
     
     case WM_CLOSE: {
-        // Show quit dialog
+        if (s_hasUnsavedChanges) {
+            int result = ShowUnsavedChangesDialog(hwnd, s_locale);
+            if (result == 0) {
+                // Cancel
+                return 0;
+            } else if (result == 1) {
+                // Save - TODO
+                MessageBoxW(hwnd, L"Save functionality to be implemented", L"Save", MB_OK | MB_ICONINFORMATION);
+                return 0;
+            }
+            // result == 3 (Don't Save) — exit
+            DestroyWindow(hwnd);
+            return 0;
+        }
         if (ShowQuitDialog(hwnd, s_locale)) {
             DestroyWindow(hwnd);
         }
@@ -4490,7 +4592,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
         // Handle custom button drawing for toolbar buttons and page buttons
         // Note: IDC_TB_ABOUT is now a static icon, not a button, so exclude it
-        if ((dis->CtlID >= IDC_TB_FILES && dis->CtlID <= IDC_TB_SAVE) || dis->CtlID == IDC_TB_DIALOGS ||
+        if ((dis->CtlID >= IDC_TB_FILES && dis->CtlID <= IDC_TB_SAVE) || dis->CtlID == IDC_TB_DIALOGS || dis->CtlID == IDC_TB_COMPONENTS || dis->CtlID == IDC_TB_EXIT ||
             (dis->CtlID >= IDC_FILES_ADD_DIR && dis->CtlID <= IDC_FILES_REMOVE) ||
             (dis->CtlID >= IDC_REG_CHECKBOX && dis->CtlID <= IDC_REG_BACKUP)) {
             ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);

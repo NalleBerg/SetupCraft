@@ -2,7 +2,7 @@
 
 An installer creation tool for making your developed packages distributable. Designed to be simple to use with a clean, native Windows interface.
 
-**Current Release:** Version 2026.03.02.10 (Published: 02.03.2026 10:24)
+**Current Release:** Version 2026.03.03.10 (Published: 03.03.2026 10:16)
 
 > Note: This project is in active development. Entry screen and main window Files management page are complete with proper page switching.
 
@@ -11,6 +11,8 @@ An installer creation tool for making your developed packages distributable. Des
 - **DPI-Aware Scaling**: Full per-monitor DPI support via `S()` helper — all pixel values, fonts, and tooltip dimensions scale correctly at any DPI (100%, 125%, 150%, 175%, 200%+)
 - **Consistent Body Font**: All labels, edits, checkboxes, TreeViews, and ListViews use a system-derived `NONCLIENTMETRICS` font at 120% scale for clear, legible text on every screen
 - **Bold Page Titles**: Each page has a prominent `S(24)` bold heading (*Files Management*, *Registry*, *Shortcuts*, etc.) so navigation context is always clear
+- **Two-Row Toolbar**: 11 buttons in two compact rows — Row 1: Files, Components, Registry, Shortcuts, Dependencies, Dialogs; Row 2: Settings, Build, Test, Scripts, Save. About «i» icon centered vertically at the right end
+- **Components Page**: Dedicated page for defining installable components (optional modules, plugins) — lets users select partial installs at setup time (e.g. updater-only vs. full suite)
 - **Files Management**: Split-pane interface with TreeView (folder hierarchy with 19px indentation) and ListView (file display) for visual file selection
 - **Registry Management**: Complete Windows Registry integration page for Add/Remove Programs registration with icon preview and registry path navigation
 - **Registry Backup System**: "Create Restore Point" button creates Windows System Restore Point before registry edits with animated spinner dialog

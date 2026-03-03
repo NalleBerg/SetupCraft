@@ -1,3 +1,5 @@
+﻿# NOTE: This is the reference (English) locale. Translations for all other locales
+# will be added once the app is stable and feature-complete.
 app_name=SetupCraft
 search_btn=🔍 Search
 select_language=Select language for your project
@@ -24,6 +26,16 @@ dont_save=Don't Save
 yes=Yes
 no=No
 
+# General dialog captions
+error=Error
+info=Info
+validation_error=Validation Error
+
+# Delete project
+confirm_delete_project=Are you sure you want to delete this project?
+delete_not_implemented=Project deletion is not yet implemented
+select_project_first=Please select a project
+
 # Toolbar buttons
 tb_files=Files
 tb_add_registry=Registry
@@ -35,6 +47,9 @@ tb_test=Test (F5)
 tb_scripts=Scripts
 tb_save=Save
 tb_about=About
+tb_dialogs=Dialogs
+tb_components=Components
+tb_exit=Exit
 
 # Toolbar tooltips
 tt_files=Manage files and folders to include in the installer
@@ -46,9 +61,22 @@ tt_build=Compile the installer package
 tt_test=Test the compiled installer
 tt_scripts=Configure scripts to run before/after installation
 tt_save=Save project changes
- 
+tt_exit=Exit SetupCraft
+
 # Ask-at-install tooltip
 ask_at_install_tooltip=Installer will ask the end user whether to install for current user or all users; files will go to AppData or ProgramData accordingly.
+# Files page
+files_management=Files Management
+files_add_folder=Add Folder
+files_add_files=Add Files
+files_remove=Remove
+files_project_name=Project name:
+files_install_folder=Install folder:
+files_ask_user_install=Ask end user at install (Per-user / All-users)
+
+# Registry page section header
+custom_registry_entries=Custom Registry Entries
+
 # New Project Dialog
 new_project_title=Create New Project
 new_proj_name_label=Project Name:
