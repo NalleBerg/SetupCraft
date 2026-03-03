@@ -3,9 +3,13 @@
 <p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 03 March 2026<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.03.10</span></h3>
-<p><strong>Unsaved Changes dialog taller (03.03.2026, 10:16):</strong></p>
+<p><strong>Process exit fix, registry dialog fonts &amp; layout (03.03.2026, 10:52):</strong></p>
 <ul>
-<li><strong>Dialog height increased:</strong> The "Unsaved Changes" confirmation dialog (Save / Don't Save / Cancel) was 200&nbsp;px tall, leaving buttons a little cramped. Increased to 205&nbsp;px so there is more breathing room between the message text and the button row.</li>
+<li><strong>Unsaved Changes dialog taller:</strong> Height increased from 200&nbsp;px to 205&nbsp;px so the button row is no longer cramped.</li>
+<li><strong>App now exits cleanly:</strong> Clicking &laquo;Don't Save&raquo; or confirming exit from the main window previously left the process alive in Task Manager. Fixed by having <code>WM_CLOSE</code> also destroy the hidden entry-screen window after destroying the main window, which triggers its <code>WM_DESTROY</code> → <code>PostQuitMessage</code> and terminates the process properly. All exit paths (X button, Exit toolbar button, Alt+F4, Ctrl+W → Don't Save) are covered.</li>
+<li><strong>Registry Key & Value dialogs — system font:</strong> Both <code>AddKeyDialogProc</code> and <code>AddValueDialogProc</code> now apply the OS <code>NONCLIENTMETRICS</code> message font (120&nbsp;% scaled, ClearType) to every child control via <code>EnumChildWindows</code> + <code>WM_SETFONT</code>, matching the font used by all other UI elements. Button drawing also switched from hardcoded Segoe&nbsp;UI 12&nbsp;pt to the same NONCLIENTMETRICS bold font. Font handle stored as a window property and freed in <code>WM_DESTROY</code>.</li>
+<li><strong>Registry Key & Value dialogs — Cancel button no longer truncated:</strong> Cancel button width increased (120 → 145-150&nbsp;px) and OK/Cancel buttons made slightly taller (35 → 38&nbsp;px).</li>
+<li><strong>Registry Key & Value dialogs — wider and taller:</strong> AddValue dialog grown from 520×230 to 680×315&nbsp;px; AddKey from 520×150 to 580×210&nbsp;px. Label column widened to 155&nbsp;px; edits and combobox widened to 460&nbsp;px. <code>CB_SETDROPPEDWIDTH(460)</code> applied to the Type combobox so the dropdown list is wide enough to show the full text of all REG_* type descriptions without truncation.</li>
 </ul>
 
 <h3 style="text-align: center;">&nbsp;</h3>

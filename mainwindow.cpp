@@ -2201,21 +2201,21 @@ LRESULT CALLBACK AddValueDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         // Value Name label and edit
         CreateWindowExW(0, L"STATIC", pData->nameText.c_str(),
             WS_CHILD | WS_VISIBLE | SS_LEFT,
-            20, y, 120, 20, hwnd, NULL, hInst, NULL);
+            20, y, 145, 24, hwnd, NULL, hInst, NULL);
         HWND hNameEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", pData->valueName.c_str(),
             WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL,
-            150, y, 330, 22, hwnd, (HMENU)IDC_ADDVAL_NAME, hInst, NULL);
+            175, y, 360, 24, hwnd, (HMENU)IDC_ADDVAL_NAME, hInst, NULL);
         // Ensure the edit control text is set (explicit prefill for edit mode)
         SetDlgItemTextW(hwnd, IDC_ADDVAL_NAME, pData->valueName.c_str());
-        y += 35;
+        y += 40;
         
         // Type label and combobox
         CreateWindowExW(0, L"STATIC", pData->typeText.c_str(),
             WS_CHILD | WS_VISIBLE | SS_LEFT,
-            20, y, 120, 20, hwnd, NULL, hInst, NULL);
+            20, y, 145, 24, hwnd, NULL, hInst, NULL);
         HWND hCombo = CreateWindowExW(WS_EX_CLIENTEDGE, L"COMBOBOX", L"",
             WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
-            150, y, 330, 200, hwnd, (HMENU)IDC_ADDVAL_TYPE, hInst, NULL);
+            175, y, 360, 200, hwnd, (HMENU)IDC_ADDVAL_TYPE, hInst, NULL);
         
         // Populate type combobox - all Windows Registry types with descriptions
         SendMessageW(hCombo, CB_ADDSTRING, 0, (LPARAM)L"REG_SZ - Text string value");
@@ -2236,25 +2236,43 @@ LRESULT CALLBACK AddValueDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             else if (pData->valueType == L"REG_EXPAND_SZ") typeIndex = 5;
         }
         SendMessageW(hCombo, CB_SETCURSEL, typeIndex, 0);
-        y += 35;
+        y += 42;
         
         // Data label and edit
         CreateWindowExW(0, L"STATIC", pData->dataText.c_str(),
             WS_CHILD | WS_VISIBLE | SS_LEFT,
-            20, y, 120, 20, hwnd, NULL, hInst, NULL);
+            20, y, 155, 26, hwnd, NULL, hInst, NULL);
         CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", pData->valueData.c_str(),
             WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL,
-            150, y, 330, 22, hwnd, (HMENU)IDC_ADDVAL_DATA, hInst, NULL);
+            185, y, 460, 26, hwnd, (HMENU)IDC_ADDVAL_DATA, hInst, NULL);
         // Ensure data edit is filled (explicit prefill)
         SetDlgItemTextW(hwnd, IDC_ADDVAL_DATA, pData->valueData.c_str());
-        y += 45;
+        y += 58;
         
         // OK and Cancel buttons
         CreateCustomButtonWithIcon(hwnd, IDC_ADDVAL_OK, pData->okText.c_str(), ButtonColor::Green,
-            L"imageres.dll", 89, 150, y, 120, 35, hInst);
+            L"imageres.dll", 89, 185, y, 135, 38, hInst);
         CreateCustomButtonWithIcon(hwnd, IDC_ADDVAL_CANCEL, pData->cancelText.c_str(), ButtonColor::Red,
-            L"shell32.dll", 131, 280, y, 120, 35, hInst);
-        
+            L"shell32.dll", 131, 340, y, 150, 38, hInst);
+
+        // Apply system message font to all controls (labels, edits, combobox)
+        {
+            NONCLIENTMETRICSW ncm = {};
+            ncm.cbSize = sizeof(ncm);
+            SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+            if (ncm.lfMessageFont.lfHeight < 0)
+                ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
+            ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+            HFONT hCtrlFont = CreateFontIndirectW(&ncm.lfMessageFont);
+            if (hCtrlFont) {
+                EnumChildWindows(hwnd, [](HWND hChild, LPARAM lp) -> BOOL {
+                    SendMessageW(hChild, WM_SETFONT, (WPARAM)(HFONT)lp, TRUE);
+                    return TRUE;
+                }, (LPARAM)hCtrlFont);
+                SetPropW(hwnd, L"hCtrlFont", (HANDLE)hCtrlFont);
+            }
+        }
+
         return 0;
     }
     
@@ -2319,16 +2337,27 @@ LRESULT CALLBACK AddValueDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
         if (dis->CtlID == IDC_ADDVAL_OK || dis->CtlID == IDC_ADDVAL_CANCEL) {
             ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
-            HFONT hFont = CreateFontW(-S(12), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
-                DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+            NONCLIENTMETRICSW ncm = {};
+            ncm.cbSize = sizeof(ncm);
+            SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+            if (ncm.lfMessageFont.lfHeight < 0)
+                ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
+            ncm.lfMessageFont.lfWeight = FW_BOLD;
+            ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+            HFONT hFont = CreateFontIndirectW(&ncm.lfMessageFont);
             LRESULT result = DrawCustomButton(dis, color, hFont);
             if (hFont) DeleteObject(hFont);
             return result;
         }
         break;
     }
-    
+
+    case WM_DESTROY: {
+        HFONT hCtrlFont = (HFONT)GetPropW(hwnd, L"hCtrlFont");
+        if (hCtrlFont) { DeleteObject(hCtrlFont); RemovePropW(hwnd, L"hCtrlFont"); }
+        break;
+    }
+
     case WM_CLOSE:
         DestroyWindow(hwnd);
         return 0;
@@ -2358,25 +2387,43 @@ LRESULT CALLBACK AddKeyDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
         AddKeyDialogData* pData = (AddKeyDialogData*)cs->lpCreateParams;
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)pData);
         
-        int y = 20;
+        int y = 22;
         
         // Key Name label and edit (pre-fill with default key name)
         CreateWindowExW(0, L"STATIC", pData->nameText.c_str(),
             WS_CHILD | WS_VISIBLE | SS_LEFT,
-            20, y, 120, 20, hwnd, NULL, hInst, NULL);
+            20, y, 145, 26, hwnd, NULL, hInst, NULL);
         CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", pData->defaultKeyName.c_str(),
             WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL,
-            150, y, 330, 22, hwnd, (HMENU)IDC_ADDKEY_NAME, hInst, NULL);
+            175, y, 370, 26, hwnd, (HMENU)IDC_ADDKEY_NAME, hInst, NULL);
         // Explicitly set edit text to ensure prefill works in Edit mode
         SetDlgItemTextW(hwnd, IDC_ADDKEY_NAME, pData->defaultKeyName.c_str());
-        y += 45;
+        y += 62;
         
         // OK and Cancel buttons
         CreateCustomButtonWithIcon(hwnd, IDC_ADDKEY_OK, pData->okText.c_str(), ButtonColor::Green,
-            L"imageres.dll", 89, 150, y, 120, 35, hInst);
+            L"imageres.dll", 89, 165, y, 135, 38, hInst);
         CreateCustomButtonWithIcon(hwnd, IDC_ADDKEY_CANCEL, pData->cancelText.c_str(), ButtonColor::Red,
-            L"shell32.dll", 131, 280, y, 120, 35, hInst);
-        
+            L"shell32.dll", 131, 315, y, 150, 38, hInst);
+
+        // Apply system message font to all controls (labels, edits)
+        {
+            NONCLIENTMETRICSW ncm = {};
+            ncm.cbSize = sizeof(ncm);
+            SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+            if (ncm.lfMessageFont.lfHeight < 0)
+                ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
+            ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+            HFONT hCtrlFont = CreateFontIndirectW(&ncm.lfMessageFont);
+            if (hCtrlFont) {
+                EnumChildWindows(hwnd, [](HWND hChild, LPARAM lp) -> BOOL {
+                    SendMessageW(hChild, WM_SETFONT, (WPARAM)(HFONT)lp, TRUE);
+                    return TRUE;
+                }, (LPARAM)hCtrlFont);
+                SetPropW(hwnd, L"hCtrlFont", (HANDLE)hCtrlFont);
+            }
+        }
+
         return 0;
     }
     
@@ -2455,16 +2502,27 @@ LRESULT CALLBACK AddKeyDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
         LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
         if (dis->CtlID == IDC_ADDKEY_OK || dis->CtlID == IDC_ADDKEY_CANCEL) {
             ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
-            HFONT hFont = CreateFontW(-S(12), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
-                DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+            NONCLIENTMETRICSW ncm = {};
+            ncm.cbSize = sizeof(ncm);
+            SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+            if (ncm.lfMessageFont.lfHeight < 0)
+                ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
+            ncm.lfMessageFont.lfWeight = FW_BOLD;
+            ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+            HFONT hFont = CreateFontIndirectW(&ncm.lfMessageFont);
             LRESULT result = DrawCustomButton(dis, color, hFont);
             if (hFont) DeleteObject(hFont);
             return result;
         }
         break;
     }
-    
+
+    case WM_DESTROY: {
+        HFONT hCtrlFont = (HFONT)GetPropW(hwnd, L"hCtrlFont");
+        if (hCtrlFont) { DeleteObject(hCtrlFont); RemovePropW(hwnd, L"hCtrlFont"); }
+        break;
+    }
+
     case WM_CLOSE:
         DestroyWindow(hwnd);
         return 0;
@@ -3448,8 +3506,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             // Center dialog over main window
             RECT rcMain;
             GetWindowRect(hwnd, &rcMain);
-            int dlgWidth = 520;
-            int dlgHeight = 150;
+            int dlgWidth = 580;
+            int dlgHeight = 210;
             int dlgX = rcMain.left + ((rcMain.right - rcMain.left) - dlgWidth) / 2;
             int dlgY = rcMain.top + ((rcMain.bottom - rcMain.top) - dlgHeight) / 2;
             
@@ -3560,8 +3618,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             // Center dialog over main window
             RECT rcMain;
             GetWindowRect(hwnd, &rcMain);
-            int dlgWidth = 520;
-            int dlgHeight = 230;
+            int dlgWidth = 680;
+            int dlgHeight = 315;
             int dlgX = rcMain.left + ((rcMain.right - rcMain.left) - dlgWidth) / 2;
             int dlgY = rcMain.top + ((rcMain.bottom - rcMain.top) - dlgHeight) / 2;
             
@@ -4578,12 +4636,17 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 MessageBoxW(hwnd, L"Save functionality to be implemented", L"Save", MB_OK | MB_ICONINFORMATION);
                 return 0;
             }
-            // result == 3 (Don't Save) — exit
-            DestroyWindow(hwnd);
-            return 0;
+            // result == 2 (Don't Save) — exit the whole app
+        } else {
+            if (!ShowQuitDialog(hwnd, s_locale)) {
+                return 0;
+            }
         }
-        if (ShowQuitDialog(hwnd, s_locale)) {
-            DestroyWindow(hwnd);
+        // Destroy main window then terminate the process cleanly via entry screen
+        DestroyWindow(hwnd);
+        {
+            HWND hEntry = FindWindowW(L"SetupCraft_EntryScreen", NULL);
+            if (hEntry) DestroyWindow(hEntry); // triggers entry screen WM_DESTROY → PostQuitMessage
         }
         return 0;
     }
