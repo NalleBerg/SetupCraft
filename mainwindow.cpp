@@ -410,14 +410,14 @@ void MainWindow::CreateToolbar(HWND hwnd, HINSTANCE hInst) {
     auto itAddReg = s_locale.find(L"tb_add_registry");
     std::wstring addRegText = (itAddReg != s_locale.end()) ? itAddReg->second : L"Registry";
     CreateCustomButtonWithIcon(hwnd, IDC_TB_ADD_REGISTRY, addRegText, ButtonColor::Blue,
-        L"shell32.dll", 166, x, row1Y, S(80), btnH, hInst);
-    x += S(80) + gap;
+        L"shell32.dll", 166, x, row1Y, S(100), btnH, hInst);
+    x += S(100) + gap;
 
     auto itAddShortcut = s_locale.find(L"tb_add_shortcut");
     std::wstring addShortcutText = (itAddShortcut != s_locale.end()) ? itAddShortcut->second : L"Shortcuts";
     CreateCustomButtonWithCompositeIcon(hwnd, IDC_TB_ADD_SHORTCUT, addShortcutText, ButtonColor::Blue,
-        L"shell32.dll", 257, L"shell32.dll", 29, x, row1Y, S(93), btnH, hInst);
-    x += S(93) + gap;
+        L"shell32.dll", 257, L"shell32.dll", 29, x, row1Y, S(108), btnH, hInst);
+    x += S(108) + gap;
 
     auto itAddDep = s_locale.find(L"tb_add_dependency");
     std::wstring addDepText = (itAddDep != s_locale.end()) ? itAddDep->second : L"Dependencies";
@@ -428,8 +428,8 @@ void MainWindow::CreateToolbar(HWND hwnd, HINSTANCE hInst) {
     auto itDialogs = s_locale.find(L"tb_dialogs");
     std::wstring dialogsText = (itDialogs != s_locale.end()) ? itDialogs->second : L"Dialogs";
     CreateCustomButtonWithIcon(hwnd, IDC_TB_DIALOGS, dialogsText, ButtonColor::Blue,
-        L"shell32.dll", 23, x, row1Y, S(80), btnH, hInst);
-    int row1EndX = x + S(80);
+        L"shell32.dll", 23, x, row1Y, S(100), btnH, hInst);
+    int row1EndX = x + S(100);
 
     // --- ROW 2: action pages ---
     x = S(10);
@@ -437,8 +437,8 @@ void MainWindow::CreateToolbar(HWND hwnd, HINSTANCE hInst) {
     auto itSettings = s_locale.find(L"tb_settings");
     std::wstring settingsText = (itSettings != s_locale.end()) ? itSettings->second : L"Settings";
     CreateCustomButtonWithIcon(hwnd, IDC_TB_SETTINGS, settingsText, ButtonColor::Blue,
-        L"shell32.dll", 314, x, row2Y, S(83), btnH, hInst);
-    x += S(83) + gap;
+        L"shell32.dll", 314, x, row2Y, S(100), btnH, hInst);
+    x += S(100) + gap;
 
     auto itBuild = s_locale.find(L"tb_build");
     std::wstring buildText = (itBuild != s_locale.end()) ? itBuild->second : L"Build (F7)";
@@ -1970,26 +1970,44 @@ LRESULT CALLBACK RegKeyDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
         // Create label
         CreateWindowExW(0, L"STATIC", pData->labelText.c_str(),
             WS_CHILD | WS_VISIBLE | SS_LEFT,
-            20, 20, 560, 20,
+            20, 20, 600, 22,
             hwnd, NULL, hInst, NULL);
         
         // Create registry path EDIT control (read-only, multiline for full path visibility)
         HWND hEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", pData->regPath.c_str(),
             WS_CHILD | WS_VISIBLE | ES_LEFT | ES_READONLY | ES_MULTILINE | ES_AUTOHSCROLL | WS_VSCROLL,
-            20, 50, 560, 60,
+            20, 52, 600, 60,
             hwnd, (HMENU)IDC_REGKEY_DLG_EDIT, hInst, NULL);
         
         // Create "Take me there" button with icon 267
         CreateCustomButtonWithIcon(hwnd, IDC_REGKEY_DLG_NAVIGATE, pData->navigateText.c_str(), ButtonColor::Blue,
-            L"shell32.dll", 267, 20, 130, 140, 35, hInst);
+            L"shell32.dll", 267, 20, 145, 270, 38, hInst);
         
-        // Create "Copy" button with icon 64 (centered)
+        // Create "Copy" button with icon 64
         CreateCustomButtonWithIcon(hwnd, IDC_REGKEY_DLG_COPY, pData->copyText.c_str(), ButtonColor::Blue,
-            L"shell32.dll", 64, 230, 130, 140, 35, hInst);
+            L"shell32.dll", 64, 305, 145, 150, 38, hInst);
         
         // Create "Close" button with icon 300
         CreateCustomButtonWithIcon(hwnd, IDC_REGKEY_DLG_CLOSE, pData->closeText.c_str(), ButtonColor::Blue,
-            L"shell32.dll", 300, 440, 130, 140, 35, hInst);
+            L"shell32.dll", 300, 470, 145, 150, 38, hInst);
+
+        // Apply system message font to all controls
+        {
+            NONCLIENTMETRICSW ncm = {};
+            ncm.cbSize = sizeof(ncm);
+            SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+            if (ncm.lfMessageFont.lfHeight < 0)
+                ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
+            ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+            HFONT hCtrlFont = CreateFontIndirectW(&ncm.lfMessageFont);
+            if (hCtrlFont) {
+                EnumChildWindows(hwnd, [](HWND hChild, LPARAM lp) -> BOOL {
+                    SendMessageW(hChild, WM_SETFONT, (WPARAM)(HFONT)lp, TRUE);
+                    return TRUE;
+                }, (LPARAM)hCtrlFont);
+                SetPropW(hwnd, L"hCtrlFont", (HANDLE)hCtrlFont);
+            }
+        }
         
         return 0;
     }
@@ -2063,9 +2081,14 @@ LRESULT CALLBACK RegKeyDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
         LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
         if (dis->CtlID == IDC_REGKEY_DLG_CLOSE || dis->CtlID == IDC_REGKEY_DLG_NAVIGATE || dis->CtlID == IDC_REGKEY_DLG_COPY) {
             ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
-            HFONT hFont = CreateFontW(-S(12), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
-                DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+            NONCLIENTMETRICSW ncm = {};
+            ncm.cbSize = sizeof(ncm);
+            SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+            if (ncm.lfMessageFont.lfHeight < 0)
+                ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
+            ncm.lfMessageFont.lfWeight = FW_BOLD;
+            ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+            HFONT hFont = CreateFontIndirectW(&ncm.lfMessageFont);
             LRESULT result = DrawCustomButton(dis, color, hFont);
             if (hFont) DeleteObject(hFont);
             return result;
@@ -2100,9 +2123,12 @@ LRESULT CALLBACK RegKeyDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
         s_hRegKeyDialog = NULL;
         return 0;
     
-    case WM_DESTROY:
+    case WM_DESTROY: {
+        HFONT hCtrlFont = (HFONT)GetPropW(hwnd, L"hCtrlFont");
+        if (hCtrlFont) { DeleteObject(hCtrlFont); RemovePropW(hwnd, L"hCtrlFont"); }
         s_hRegKeyDialog = NULL;
         return 0;
+    }
     }
     
     return DefWindowProcW(hwnd, msg, wParam, lParam);
@@ -2201,21 +2227,21 @@ LRESULT CALLBACK AddValueDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         // Value Name label and edit
         CreateWindowExW(0, L"STATIC", pData->nameText.c_str(),
             WS_CHILD | WS_VISIBLE | SS_LEFT,
-            20, y, 145, 24, hwnd, NULL, hInst, NULL);
+            20, y, 145, 28, hwnd, NULL, hInst, NULL);
         HWND hNameEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", pData->valueName.c_str(),
             WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL,
-            175, y, 360, 24, hwnd, (HMENU)IDC_ADDVAL_NAME, hInst, NULL);
+            175, y, 460, 28, hwnd, (HMENU)IDC_ADDVAL_NAME, hInst, NULL);
         // Ensure the edit control text is set (explicit prefill for edit mode)
         SetDlgItemTextW(hwnd, IDC_ADDVAL_NAME, pData->valueName.c_str());
-        y += 40;
+        y += 44;
         
         // Type label and combobox
         CreateWindowExW(0, L"STATIC", pData->typeText.c_str(),
             WS_CHILD | WS_VISIBLE | SS_LEFT,
-            20, y, 145, 24, hwnd, NULL, hInst, NULL);
+            20, y, 145, 28, hwnd, NULL, hInst, NULL);
         HWND hCombo = CreateWindowExW(WS_EX_CLIENTEDGE, L"COMBOBOX", L"",
             WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
-            175, y, 360, 200, hwnd, (HMENU)IDC_ADDVAL_TYPE, hInst, NULL);
+            175, y, 460, 200, hwnd, (HMENU)IDC_ADDVAL_TYPE, hInst, NULL);
         
         // Populate type combobox - all Windows Registry types with descriptions
         SendMessageW(hCombo, CB_ADDSTRING, 0, (LPARAM)L"REG_SZ - Text string value");
@@ -2236,18 +2262,18 @@ LRESULT CALLBACK AddValueDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             else if (pData->valueType == L"REG_EXPAND_SZ") typeIndex = 5;
         }
         SendMessageW(hCombo, CB_SETCURSEL, typeIndex, 0);
-        y += 42;
+        y += 46;
         
         // Data label and edit
         CreateWindowExW(0, L"STATIC", pData->dataText.c_str(),
             WS_CHILD | WS_VISIBLE | SS_LEFT,
-            20, y, 155, 26, hwnd, NULL, hInst, NULL);
+            20, y, 155, 28, hwnd, NULL, hInst, NULL);
         CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", pData->valueData.c_str(),
             WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL,
-            185, y, 460, 26, hwnd, (HMENU)IDC_ADDVAL_DATA, hInst, NULL);
+            185, y, 460, 28, hwnd, (HMENU)IDC_ADDVAL_DATA, hInst, NULL);
         // Ensure data edit is filled (explicit prefill)
         SetDlgItemTextW(hwnd, IDC_ADDVAL_DATA, pData->valueData.c_str());
-        y += 58;
+        y += 62;
         
         // OK and Cancel buttons
         CreateCustomButtonWithIcon(hwnd, IDC_ADDVAL_OK, pData->okText.c_str(), ButtonColor::Green,
@@ -2271,6 +2297,12 @@ LRESULT CALLBACK AddValueDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 }, (LPARAM)hCtrlFont);
                 SetPropW(hwnd, L"hCtrlFont", (HANDLE)hCtrlFont);
             }
+        }
+
+        // Set dropped width AFTER font is applied so item pixel widths are correct
+        {
+            HWND hCb = GetDlgItem(hwnd, IDC_ADDVAL_TYPE);
+            if (hCb) SendMessageW(hCb, CB_SETDROPPEDWIDTH, 760, 0);
         }
 
         return 0;
@@ -2392,13 +2424,13 @@ LRESULT CALLBACK AddKeyDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
         // Key Name label and edit (pre-fill with default key name)
         CreateWindowExW(0, L"STATIC", pData->nameText.c_str(),
             WS_CHILD | WS_VISIBLE | SS_LEFT,
-            20, y, 145, 26, hwnd, NULL, hInst, NULL);
+            20, y, 145, 30, hwnd, NULL, hInst, NULL);
         CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", pData->defaultKeyName.c_str(),
             WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL,
-            175, y, 370, 26, hwnd, (HMENU)IDC_ADDKEY_NAME, hInst, NULL);
+            175, y, 370, 30, hwnd, (HMENU)IDC_ADDKEY_NAME, hInst, NULL);
         // Explicitly set edit text to ensure prefill works in Edit mode
         SetDlgItemTextW(hwnd, IDC_ADDKEY_NAME, pData->defaultKeyName.c_str());
-        y += 62;
+        y += 66;
         
         // OK and Cancel buttons
         CreateCustomButtonWithIcon(hwnd, IDC_ADDKEY_OK, pData->okText.c_str(), ButtonColor::Green,
@@ -3433,10 +3465,10 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             // Center dialog over main window
             RECT rcMain;
             GetWindowRect(hwnd, &rcMain);
-            int dlgWidth = 600;
-            int dlgHeight = 220;
+            int dlgWidth = 640;
+            int dlgHeight = 240;
             int dlgX = rcMain.left + (rcMain.right - rcMain.left - dlgWidth) / 2;
-            int dlgY = rcMain.top + (rcMain.bottom - rcMain.top - dlgHeight) / 2;
+            int dlgY = rcMain.top + 160;
             
             // Create modeless dialog
             s_hRegKeyDialog = CreateWindowExW(
@@ -3467,12 +3499,9 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 return 0;
             }
             
-            // Get locale strings (compose Add / Edit title)
+            // Get locale strings
             auto itTitleAddKey = s_locale.find(L"reg_add_key_title");
-            auto itTitleEditKey = s_locale.find(L"reg_edit_key_title");
-            std::wstring addKeyTitle = (itTitleAddKey != s_locale.end()) ? itTitleAddKey->second : L"Add Registry Key";
-            std::wstring editKeyTitle = (itTitleEditKey != s_locale.end()) ? itTitleEditKey->second : L"Edit Registry Key";
-            std::wstring title = addKeyTitle + L" / " + editKeyTitle;
+            std::wstring title = (itTitleAddKey != s_locale.end()) ? itTitleAddKey->second : L"Add Registry Key";
             
             auto itName = s_locale.find(L"reg_add_key_name");
             std::wstring nameLabel = (itName != s_locale.end()) ? itName->second : L"Key Name:";
@@ -3572,12 +3601,9 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 return 0;
             }
             
-            // Get locale strings (compose Add / Edit title)
+            // Get locale strings
             auto itTitleAdd = s_locale.find(L"reg_add_value_title");
-            auto itTitleEdit = s_locale.find(L"reg_edit_value_title");
-            std::wstring addTitle = (itTitleAdd != s_locale.end()) ? itTitleAdd->second : L"Add Registry Value";
-            std::wstring editTitle = (itTitleEdit != s_locale.end()) ? itTitleEdit->second : L"Edit Registry Value";
-            std::wstring title = addTitle + L" / " + editTitle;
+            std::wstring title = (itTitleAdd != s_locale.end()) ? itTitleAdd->second : L"Add Registry Value";
             
             auto itName = s_locale.find(L"reg_add_value_name");
             std::wstring nameLabel = (itName != s_locale.end()) ? itName->second : L"Value Name:";
@@ -3827,8 +3853,10 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 L"Creating system restore point...\r\nThis may take a few moments.\r\nPlease wait.";
             
             // Create spinner dialog
+            auto itSpinnerTitle = s_locale.find(L"spinner_title");
+            std::wstring spinnerTitle = (itSpinnerTitle != s_locale.end()) ? itSpinnerTitle->second : L"Please Wait";
             SpinnerDialog* spinner = new SpinnerDialog(hwnd);
-            spinner->Show(spinnerText);
+            spinner->Show(spinnerText, spinnerTitle);
             
             // Create restore point using PowerShell
             // Use ShellExecuteW with "runas" to request admin if needed
@@ -3843,16 +3871,12 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             
             if (ShellExecuteExW(&sei)) {
                 if (sei.hProcess) {
-                    // Wait briefly for UAC prompt to appear and become foreground
+                    // Allow the UAC consent process to take the foreground
+                    AllowSetForegroundWindow(ASFW_ANY);
+
+                    // Wait briefly for UAC prompt to appear
                     Sleep(500);
-                    
-                    // Enumerate all windows to find and bring UAC to front
-                    HWND hUAC = FindWindowW(NULL, L"User Account Control");
-                    if (hUAC) {
-                        SetForegroundWindow(hUAC);
-                    }
-                    
-                    // Wait for process to complete with message pump (timeout 30 seconds)
+
                     DWORD startTime = GetTickCount();
                     DWORD timeout = 30000;
                     DWORD waitResult = WAIT_TIMEOUT;
@@ -3981,13 +4005,13 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 
             RECT rcParent;
             GetWindowRect(hwnd, &rcParent);
-            int dlgX = rcParent.left + (rcParent.right - rcParent.left - 520) / 2;
-            int dlgY = rcParent.top + (rcParent.bottom - rcParent.top - 160) / 2;
+            int dlgX = rcParent.left + (rcParent.right - rcParent.left - 580) / 2;
+            int dlgY = rcParent.top + (rcParent.bottom - rcParent.top - 210) / 2;
 
             HWND hDialog = CreateWindowExW(WS_EX_DLGMODALFRAME | WS_EX_TOPMOST,
                 L"AddKeyDialog", title.c_str(),
                 WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
-                dlgX, dlgY, 520, 160, hwnd, NULL, hInst, &data);
+                dlgX, dlgY, 580, 210, hwnd, NULL, hInst, &data);
             
             if (hDialog) {
                 EnableWindow(hwnd, FALSE);
@@ -4081,7 +4105,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             // Create dialog window
             HWND hDialog = CreateWindowExW(WS_EX_DLGMODALFRAME | WS_EX_TOPMOST, L"AddValueDialog",
                 title.c_str(), WS_POPUP | WS_CAPTION | WS_SYSMENU,
-                CW_USEDEFAULT, CW_USEDEFAULT, 520, 250, hwnd, NULL, hInst, &dialogData);
+                CW_USEDEFAULT, CW_USEDEFAULT, 680, 315, hwnd, NULL, hInst, &dialogData);
             
             if (hDialog) {
                 // Center dialog

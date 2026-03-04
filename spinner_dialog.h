@@ -23,9 +23,10 @@ public:
     // Destructor - automatically hides and cleans up
     ~SpinnerDialog();
     
-    // Show the spinner dialog with custom message
-    // text: Message to display below the icon (e.g., "Querying winget, please wait...")
-    void Show(const std::wstring& text);
+    // Show the spinner dialog with custom message and optional title
+    // text: Message to display below the icon
+    // title: Dialog title bar text (defaults to "Please Wait")
+    void Show(const std::wstring& text, const std::wstring& title = L"Please Wait");
     
     // Hide the spinner dialog
     void Hide();
@@ -47,6 +48,9 @@ private:
     HWND m_hTextCtrl;
     int m_spinnerFrame;
     bool m_visible;
+    std::wstring m_title;
+    HFONT m_hTextFont;
+    HFONT m_hSpinnerFont;
     
     // Window procedure
     static LRESULT CALLBACK DialogProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);

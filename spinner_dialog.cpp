@@ -11,6 +11,9 @@ SpinnerDialog::SpinnerDialog(HWND hParent)
     , m_hTextCtrl(NULL)
     , m_spinnerFrame(0)
     , m_visible(false)
+    , m_title(L"Please Wait")
+    , m_hTextFont(NULL)
+    , m_hSpinnerFont(NULL)
 {
 }
 
@@ -40,11 +43,11 @@ void SpinnerDialog::CreateDialogWindow() {
     
     // Create dialog window
     m_hDialog = CreateWindowExW(
-        WS_EX_DLGMODALFRAME | WS_EX_TOPMOST,
+        WS_EX_DLGMODALFRAME,
         L"SpinnerDialogClass",
-        L"Please Wait",
+        m_title.c_str(),
         WS_POPUP | WS_CAPTION,
-        0, 0, 400, 250,
+        0, 0, 400, 460,
         m_hParent, NULL, hInstance, NULL
     );
     
@@ -71,42 +74,49 @@ void SpinnerDialog::CreateDialogWindow() {
         x = (GetSystemMetrics(SM_CXSCREEN) - dialogWidth) / 2;
         y = (GetSystemMetrics(SM_CYSCREEN) - dialogHeight) / 2;
     }
-    SetWindowPos(m_hDialog, HWND_TOPMOST, x, y, 0, 0, SWP_NOSIZE);
+    SetWindowPos(m_hDialog, HWND_TOP, x, y, 0, 0, SWP_NOSIZE);
     
     // Add icon
     HICON hIcon = LoadIcon(NULL, IDI_INFORMATION);
     if (hIcon) {
-        HWND hIconCtrl = CreateWindowExW(0, L"STATIC", NULL, 
+        HWND hIconCtrl = CreateWindowExW(0, L"STATIC", NULL,
             WS_CHILD | WS_VISIBLE | SS_ICON | SS_CENTERIMAGE,
-            150, 20, 100, 100, m_hDialog, NULL, hInstance, NULL);
+            150, 20, 100, 80, m_hDialog, NULL, hInstance, NULL);
         SendMessageW(hIconCtrl, STM_SETICON, (WPARAM)hIcon, 0);
     }
     
-    // Add text label with increased height for 3 lines
-    m_hTextCtrl = CreateWindowExW(0, L"STATIC", L"Please wait...", 
-        WS_CHILD | WS_VISIBLE | SS_CENTER, 
-        20, 110, 360, 60, m_hDialog, NULL, hInstance, NULL);
-    
-    HFONT hTextFont = CreateFontW(14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
-    SendMessageW(m_hTextCtrl, WM_SETFONT, (WPARAM)hTextFont, TRUE);
-    
-    // Add spinner - moved up to prevent truncation
-    m_hSpinnerCtrl = CreateWindowExW(0, L"STATIC", L"◐", 
+    // Build system message font for text label
+    NONCLIENTMETRICSW ncm = {};
+    ncm.cbSize = sizeof(ncm);
+    SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+    if (ncm.lfMessageFont.lfHeight < 0)
+        ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
+    ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+    m_hTextFont = CreateFontIndirectW(&ncm.lfMessageFont);
+
+    // Add text label - tall enough for 5 lines
+    m_hTextCtrl = CreateWindowExW(0, L"STATIC", L"Please wait...",
         WS_CHILD | WS_VISIBLE | SS_CENTER,
-        150, 175, 100, 60, m_hDialog, NULL, hInstance, NULL);
+        20, 112, 360, 200, m_hDialog, NULL, hInstance, NULL);
+    if (m_hTextFont)
+        SendMessageW(m_hTextCtrl, WM_SETFONT, (WPARAM)m_hTextFont, TRUE);
     
-    HFONT hSpinnerFont = CreateFontW(50, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+    // spinner midway between text-bottom (312) and client-bottom (~430): y = (312+430)/2 - 34 = 337
+    m_hSpinnerCtrl = CreateWindowExW(0, L"STATIC", L"\u25D0",
+        WS_CHILD | WS_VISIBLE | SS_CENTER,
+        150, 337, 100, 68, m_hDialog, NULL, hInstance, NULL);
+    m_hSpinnerFont = CreateFontW(-52, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
         CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
-    SendMessageW(m_hSpinnerCtrl, WM_SETFONT, (WPARAM)hSpinnerFont, TRUE);
+    if (m_hSpinnerFont)
+        SendMessageW(m_hSpinnerCtrl, WM_SETFONT, (WPARAM)m_hSpinnerFont, TRUE);
     
     // Start timer
     SetTimer(m_hDialog, 1, 60, NULL);
 }
 
-void SpinnerDialog::Show(const std::wstring& text) {
+void SpinnerDialog::Show(const std::wstring& text, const std::wstring& title) {
+    m_title = title;
     CreateDialogWindow();
     if (!m_hDialog) return;
     
@@ -135,6 +145,8 @@ void SpinnerDialog::Hide() {
         m_hSpinnerCtrl = NULL;
         m_hTextCtrl = NULL;
     }
+    if (m_hTextFont)    { DeleteObject(m_hTextFont);    m_hTextFont    = NULL; }
+    if (m_hSpinnerFont) { DeleteObject(m_hSpinnerFont); m_hSpinnerFont = NULL; }
     m_visible = false;
 }
 

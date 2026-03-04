@@ -1,6 +1,33 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 03 March 2026<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 04 March 2026<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.04.09</span></h3>
+<p><strong>Open Project dialog overhaul (04.03.2026, 09:58):</strong></p>
+<ul>
+<li><strong>System font applied:</strong> <code>NONCLIENTMETRICS</code> message font (120&nbsp;% scaled, ClearType) applied to all controls including the ListView and its header via <code>EnumChildWindows</code>+<code>WM_SETFONT</code>.</li>
+<li><strong>Bold Name column &mdash; leak fixed:</strong> Previously a new <code>HFONT</code> was created on every <code>NM_CUSTOMDRAW</code> subitem paint with no <code>DeleteObject</code>. Bold font is now created once in <code>WM_CREATE</code>, stored as window property <code>«BoldFont»</code>, reused by both the custom-draw handler and <code>DrawCustomButton</code>, and freed in <code>WM_DESTROY</code>.</li>
+<li><strong>Buttons enlarged:</strong> OK and Cancel height raised from 30&nbsp;px to 38&nbsp;px; Cancel width widened to 135&nbsp;px so the label is never clipped.</li>
+<li><strong>Dialog widened to 900&nbsp;px:</strong> ListView grown to 860&nbsp;px. Column widths: ID&nbsp;50, Name&nbsp;340, Version&nbsp;230, Last&nbsp;Updated&nbsp;235 &mdash; all content displays without truncation or a horizontal scrollbar.</li>
+<li><strong>WM_DESTROY cleanup:</strong> Both <code>CtrlFont</code> and <code>BoldFont</code> GDI handles are now deleted and their window properties removed on dialog close.</li>
+</ul>
+
+<h3 style="text-align: center;">&nbsp;</h3>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.04.09</span></h3>
+<p><strong>System/DPI-aware milestone: dialog polish, spinner overhaul &amp; UAC fix (04.03.2026, 09:39):</strong></p>
+<ul>
+<li><strong>RegKeyDialog &mdash; system font &amp; enlarged:</strong> The registry-key info dialog (<em>«Take me there»</em> panel) now applies the OS <code>NONCLIENTMETRICS</code> message font to all controls via <code>EnumChildWindows</code>+<code>WM_SETFONT</code>, matching every other dialog in the app. Labels and edit now 600&nbsp;px wide. Dialog grown to 640&times;240&nbsp;px.</li>
+<li><strong>RegKeyDialog &mdash; button widths &amp; position:</strong> «Take me there» widened to 270&nbsp;px so the full label fits at all DPI settings. «Copy» and «Close» each 150&nbsp;px. Dialog now opens at <code>rcMain.top+160</code>, keeping it below the toolbar and clear of the window controls.</li>
+<li><strong>Add/Edit Value &amp; Key dialogs &mdash; titles separated:</strong> Previously the dialog title combined Add and Edit strings (<em>«Add / Edit»</em>). Each call site now passes its own dedicated locale key so the title reads either «Add Registry Value» / «Add Registry Key» or «Edit Registry Value» / «Edit Registry Key» as appropriate.</li>
+<li><strong>Type combobox dropout width:</strong> <code>CB_SETDROPPEDWIDTH(760)</code> is now applied <em>after</em> <code>EnumChildWindows</code> sets the font so the measurement is valid. The dropdown list is wide enough to show every <code>REG_*</code> type description without truncation.</li>
+<li><strong>Toolbar buttons widened:</strong> Registry (100&nbsp;px), Shortcuts (108&nbsp;px), Dialogs (100&nbsp;px) and Settings (100&nbsp;px) toolbar buttons widened so their labels are no longer clipped at any DPI.</li>
+<li><strong>Spinner dialog overhauled:</strong> «Please Wait» dialog resized to 400&times;460&nbsp;px. Text area (5 lines, 200&nbsp;px tall) uses the OS <code>NONCLIENTMETRICS</code> font at 120&nbsp;% scale. Spinner glyph (◐◓◑◒) rendered in Segoe&nbsp;UI at &minus;52&nbsp;pt, centred below the text. Title now comes from the <code>spinner_title</code> locale key («Please Wait»). Both GDI font handles stored as class members and freed in <code>Hide()</code> to prevent leaks.</li>
+<li><strong>Spinner &mdash; UAC foreground fix:</strong> Removed <code>WS_EX_TOPMOST</code> from the spinner so the UAC elevation prompt can appear in the foreground. Replaced <code>SetWindowPos(HWND_TOPMOST)</code> with <code>HWND_TOP</code>. <code>AllowSetForegroundWindow(ASFW_ANY)</code> is called before <code>ShellExecuteExW</code> so <code>consent.exe</code> can take the foreground.</li>
+<li><strong>Spinner text &mdash; elevation hint:</strong> The registry-backup spinner message now contains a fifth line («Elevation required - check the taskbar.») to guide users who may not notice the UAC prompt behind the dialog.</li>
+</ul>
+
+<h3 style="text-align: center;">&nbsp;</h3>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.03.10</span></h3>
 <p><strong>Process exit fix, registry dialog fonts &amp; layout (03.03.2026, 10:52):</strong></p>

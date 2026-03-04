@@ -680,7 +680,7 @@ LRESULT CALLBACK OpenProjectDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM l
         // Create a ListView to show projects as a table
         HWND hList = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEW, NULL,
             WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_SINGLESEL | WS_BORDER,
-            10, 10, 560, 300,
+            10, 10, 860, 300,
             hDlg, (HMENU)IDC_PROJECT_LIST, hInst, NULL);
         
         ListView_SetExtendedListViewStyle(hList, LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
@@ -705,15 +705,15 @@ LRESULT CALLBACK OpenProjectDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM l
         col.pszText = (LPWSTR)colIdText.c_str();
         ListView_InsertColumn(hList, 0, &col);
         
-        col.cx = 200;
+        col.cx = 340;
         col.pszText = (LPWSTR)colNameText.c_str();
         ListView_InsertColumn(hList, 1, &col);
         
-        col.cx = 120;
+        col.cx = 230;
         col.pszText = (LPWSTR)colVersionText.c_str();
         ListView_InsertColumn(hList, 2, &col);
         
-        col.cx = 140;
+        col.cx = 235;
         col.pszText = (LPWSTR)colLastUpdatedText.c_str();
         ListView_InsertColumn(hList, 3, &col);
         
@@ -748,12 +748,31 @@ LRESULT CALLBACK OpenProjectDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM l
         auto itOk = g_locale.find(L"ok");
         std::wstring okText = (itOk != g_locale.end()) ? itOk->second : L"OK";
         CreateCustomButtonWithIcon(hDlg, IDOK, okText, ButtonColor::Blue,
-            L"imageres.dll", 89, 480, 320, 100, 30, hInst);
+            L"imageres.dll", 89, 760, 322, 110, 38, hInst);
         
         auto itCancel = g_locale.find(L"cancel");
         std::wstring cancelText = (itCancel != g_locale.end()) ? itCancel->second : L"Cancel";
         CreateCustomButtonWithIcon(hDlg, IDCANCEL, cancelText, ButtonColor::Red,
-            L"shell32.dll", 131, 350, 320, 120, 30, hInst);
+            L"shell32.dll", 131, 615, 322, 135, 38, hInst);
+        
+        // Apply system font to all controls
+        NONCLIENTMETRICSW ncm = {};
+        ncm.cbSize = sizeof(ncm);
+        SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+        ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2);
+        ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+        HFONT hCtrlFont = CreateFontIndirectW(&ncm.lfMessageFont);
+        SetPropW(hDlg, L"CtrlFont", hCtrlFont);
+        EnumChildWindows(hDlg, [](HWND hChild, LPARAM lp) -> BOOL {
+            SendMessageW(hChild, WM_SETFONT, (WPARAM)(HFONT)lp, TRUE);
+            return TRUE;
+        }, (LPARAM)hCtrlFont);
+        HWND hListCtrl = GetDlgItem(hDlg, IDC_PROJECT_LIST);
+        HWND hHeader = ListView_GetHeader(hListCtrl);
+        if (hHeader) SendMessageW(hHeader, WM_SETFONT, (WPARAM)hCtrlFont, TRUE);
+        ncm.lfMessageFont.lfWeight = FW_BOLD;
+        HFONT hBoldFont = CreateFontIndirectW(&ncm.lfMessageFont);
+        SetPropW(hDlg, L"BoldFont", hBoldFont);
         
         return 0;
     }
@@ -809,17 +828,10 @@ LRESULT CALLBACK OpenProjectDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM l
                     return CDRF_NOTIFYSUBITEMDRAW;
                 }
                 else if (cd->nmcd.dwDrawStage == (CDDS_ITEMPREPAINT | CDDS_SUBITEM)) {
-                    // Make column 1 (Name) bold
+                    // Make column 1 (Name) bold using the cached bold font
                     if (cd->iSubItem == 1) {
-                        if (g_guiFont) {
-                            LOGFONTW lf = {};
-                            GetObjectW(g_guiFont, sizeof(LOGFONTW), &lf);
-                            lf.lfWeight = FW_BOLD;
-                            HFONT hBoldFont = CreateFontIndirectW(&lf);
-                            SelectObject(cd->nmcd.hdc, hBoldFont);
-                            // Note: Font will leak, but for simplicity we'll allow it
-                            // In production, should cache and manage fonts properly
-                        }
+                        HFONT hBold = (HFONT)GetPropW(hDlg, L"BoldFont");
+                        if (hBold) SelectObject(cd->nmcd.hdc, hBold);
                     }
                     return CDRF_NEWFONT;
                 }
@@ -830,18 +842,22 @@ LRESULT CALLBACK OpenProjectDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM l
     case WM_DRAWITEM: {
         LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
         if (dis->CtlID == IDOK || dis->CtlID == IDCANCEL) {
-            // Get stored color from GWLP_USERDATA
             ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
-            return DrawCustomButton(dis, color, g_guiFont);
+            HFONT hBold = (HFONT)GetPropW(hDlg, L"BoldFont");
+            return DrawCustomButton(dis, color, hBold ? hBold : g_guiFont);
         }
         break;
     }
     case WM_CLOSE:
         DestroyWindow(hDlg);
         return 0;
-    case WM_DESTROY:
-        // Don't call PostQuitMessage - just let the dialog close and return to main window
+    case WM_DESTROY: {
+        HFONT hCtrlFont = (HFONT)GetPropW(hDlg, L"CtrlFont");
+        if (hCtrlFont) { RemovePropW(hDlg, L"CtrlFont"); DeleteObject(hCtrlFont); }
+        HFONT hBoldFont = (HFONT)GetPropW(hDlg, L"BoldFont");
+        if (hBoldFont) { RemovePropW(hDlg, L"BoldFont"); DeleteObject(hBoldFont); }
         return 0;
+    }
     }
     return DefWindowProcW(hDlg, msg, wParam, lParam);
 }
@@ -1153,14 +1169,14 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             
             // Calculate centered position
             int x, y;
-            GetCenteredPosition(hwnd, 600, 400, x, y);
+            GetCenteredPosition(hwnd, 900, 420, x, y);
             
             HWND hDlg = CreateWindowExW(
                 WS_EX_DLGMODALFRAME | WS_EX_WINDOWEDGE,
                 L"OpenProjectDlgClass",
                 title.c_str(),
                 WS_POPUP | WS_CAPTION | WS_SYSMENU,
-                x, y, 600, 400,
+                x, y, 900, 420,
                 hwnd, NULL, hInst, NULL);
             
             if (hDlg) {
