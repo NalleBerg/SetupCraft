@@ -2,6 +2,25 @@
 <h3 style="text-align: center;">&nbsp;</h3>
 <p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 04 March 2026<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
 
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.04.12</span></h3>
+<p><strong>Components page &mdash; full implementation (04.03.2026, 12:05):</strong></p>
+<ul>
+<li><strong>Components page activated:</strong> The former stub (case&nbsp;9) is replaced with a fully functional page. All controls are direct children of the main window (same pattern as the Registry page) so <code>WM_DRAWITEM</code> reaches them without an intermediate container.</li>
+<li><strong>Enable checkbox:</strong> An <code>IDC_COMP_ENABLE</code> checkbox controls whether component-based installation is active. When unchecked (default) the project installs as one complete package and all action controls are greyed out. The flag is persisted immediately via <code>UpdateProject</code>.</li>
+<li><strong>Action buttons:</strong> <em>Add Folder</em>, <em>Add File</em>, <em>Edit</em>, and <em>Remove</em> buttons are styled custom buttons (blue/red) that become enabled only when the checkbox is ticked.</li>
+<li><strong>Add Folder / Add File &mdash; modal dialog:</strong> A new <code>CompEditDlgProc</code> dialog lets the developer enter a display name, description, required flag, source path (Browse&hellip; opens <code>SHBrowseForFolderW</code> for folders or <code>GetOpenFileNameW</code> for files), and destination path. Display name and destination are auto-filled from the picked path leaf when left blank.</li>
+<li><strong>Edit component:</strong> Selecting a row and clicking Edit (or double-clicking the row) reopens the same dialog pre-filled with existing values. Changes are saved via <code>UpdateComponent</code>.</li>
+<li><strong>Remove component:</strong> Confirmation MessageBox before calling <code>DeleteComponent(id)</code> and reloading the page.</li>
+<li><strong>ListView &mdash; 6 columns:</strong> Name, Description, Required, Type (Folder/File), Source Path, Destination Path. Loaded from the database on every page switch.</li>
+<li><strong>Database &mdash; components table:</strong> New <code>components</code> table with columns <code>id</code>, <code>project_id</code>, <code>display_name</code>, <code>description</code>, <code>is_required</code>, <code>source_type</code>, <code>source_path</code>, <code>dest_path</code>. Created by <code>InitDb</code> (<code>CREATE TABLE IF NOT EXISTS</code>) so existing databases are upgraded automatically.</li>
+<li><strong>Database &mdash; use_components column:</strong> <code>ALTER TABLE projects ADD COLUMN use_components INTEGER DEFAULT 0</code> migration runs at startup. <code>ProjectRow</code> extended with the new field; <code>ListProjects</code>, <code>GetProject</code>, and <code>UpdateProject</code> all updated.</li>
+<li><strong>i18n &mdash; 27 new keys:</strong> All page labels, column headers, dialog field labels, button captions, hint text, confirmation messages, and type strings (<code>comp_*</code>) added to <code>en_GB.txt</code>. Other locale files will show English until translated.</li>
+<li><strong>WM_DRAWITEM guard extended:</strong> The range <code>IDC_COMP_ADD_FOLDER&ndash;IDC_COMP_REMOVE</code> added so all four page buttons draw with the custom button renderer.</li>
+<li><strong>SwitchPage cleanup:</strong> <code>s_hCompListView</code> is explicitly destroyed and nulled, and <code>s_components</code> cleared, whenever the page is switched away from.</li>
+</ul>
+
+<h3 style="text-align: center;">&nbsp;</h3>
+
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.04.09</span></h3>
 <p><strong>Open Project dialog overhaul (04.03.2026, 09:58):</strong></p>
 <ul>
