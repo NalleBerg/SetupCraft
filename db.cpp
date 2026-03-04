@@ -108,6 +108,7 @@ bool DB::InitDb() {
     const char *createSettings = "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);";
     const char *createRegistry = "CREATE TABLE IF NOT EXISTS registry_entries (id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER NOT NULL, hive TEXT NOT NULL, path TEXT NOT NULL, name TEXT NOT NULL, type TEXT NOT NULL, data TEXT, FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);";
     const char *createFiles = "CREATE TABLE IF NOT EXISTS files (id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER NOT NULL, source_path TEXT NOT NULL, destination_path TEXT NOT NULL, FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);";
+    const char *createComponents = "CREATE TABLE IF NOT EXISTS components (id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER NOT NULL, display_name TEXT NOT NULL DEFAULT '', description TEXT DEFAULT '', is_required INTEGER DEFAULT 0, source_type TEXT DEFAULT 'folder', source_path TEXT DEFAULT '', dest_path TEXT DEFAULT '', FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);";
     char *errmsg = NULL;
     if (p_exec(db, createProjects, NULL, NULL, &errmsg) != 0) {
         // ignore
@@ -121,6 +122,9 @@ bool DB::InitDb() {
     if (p_exec(db, createFiles, NULL, NULL, &errmsg) != 0) {
         // ignore
     }
+    if (p_exec(db, createComponents, NULL, NULL, &errmsg) != 0) {
+        // ignore
+    }
     
     // Migrate existing projects table to add new columns if they don't exist
     p_exec(db, "ALTER TABLE projects ADD COLUMN register_in_windows INTEGER DEFAULT 1;", NULL, NULL, &errmsg);
@@ -128,6 +132,8 @@ bool DB::InitDb() {
     p_exec(db, "ALTER TABLE projects ADD COLUMN app_publisher TEXT;", NULL, NULL, &errmsg);
     // Add install_scope column to files table to store per-file or per-folder install scope (PerUser/AllUsers/AskAtInstall)
     p_exec(db, "ALTER TABLE files ADD COLUMN install_scope TEXT DEFAULT '';", NULL, NULL, &errmsg);
+    // Add use_components column to projects table
+    p_exec(db, "ALTER TABLE projects ADD COLUMN use_components INTEGER DEFAULT 0;", NULL, NULL, &errmsg);
     
     // Check if projects table is empty, if so add SetupCraft project
     const char *countSql = "SELECT COUNT(*) FROM projects;";
@@ -285,7 +291,7 @@ std::vector<ProjectRow> DB::ListProjects() {
     int flags = 0x00000002 /*SQLITE_OPEN_READWRITE*/ | 0x00000004 /*SQLITE_OPEN_CREATE*/;
     if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return out;
 
-    const char *sql = "SELECT id, name, directory, description, lang, version, created, last_updated, register_in_windows, app_icon_path, app_publisher FROM projects ORDER BY last_updated DESC;";
+    const char *sql = "SELECT id, name, directory, description, lang, version, created, last_updated, register_in_windows, app_icon_path, app_publisher, use_components FROM projects ORDER BY last_updated DESC;";
     void *stmt = NULL;
     if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return out; }
     while (p_step(stmt) == 100 /*SQLITE_ROW*/) {
@@ -310,6 +316,7 @@ std::vector<ProjectRow> DB::ListProjects() {
         r.register_in_windows = (int)p_col_int64(stmt, 8);
         r.app_icon_path = Utf8ToW(t7 ? (const char*)t7 : "");
         r.app_publisher = Utf8ToW(t8 ? (const char*)t8 : "");
+        r.use_components = (int)p_col_int64(stmt, 11);
         out.push_back(r);
     }
     if (p_finalize) p_finalize(stmt);
@@ -324,7 +331,7 @@ bool DB::GetProject(int id, ProjectRow &outProject) {
     int flags = 0x00000002 /*SQLITE_OPEN_READWRITE*/ | 0x00000004 /*SQLITE_OPEN_CREATE*/;
     if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return false;
 
-    const char *sql = "SELECT id, name, directory, description, lang, version, created, last_updated, register_in_windows, app_icon_path, app_publisher FROM projects WHERE id = ?;";
+    const char *sql = "SELECT id, name, directory, description, lang, version, created, last_updated, register_in_windows, app_icon_path, app_publisher, use_components FROM projects WHERE id = ?;";
     void *stmt = NULL;
     if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return false; }
     
@@ -354,6 +361,7 @@ bool DB::GetProject(int id, ProjectRow &outProject) {
         outProject.register_in_windows = (int)p_col_int64(stmt, 8);
         outProject.app_icon_path = Utf8ToW(t7 ? (const char*)t7 : "");
         outProject.app_publisher = Utf8ToW(t8 ? (const char*)t8 : "");
+        outProject.use_components = (int)p_col_int64(stmt, 11);
         found = true;
     }
     if (p_finalize) p_finalize(stmt);
@@ -415,7 +423,7 @@ bool DB::UpdateProject(const ProjectRow &project) {
     int flags = 0x00000002 /*SQLITE_OPEN_READWRITE*/ | 0x00000004 /*SQLITE_OPEN_CREATE*/;
     if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return false;
 
-    const char *sql = "UPDATE projects SET name=?, directory=?, description=?, lang=?, version=?, last_updated=?, register_in_windows=?, app_icon_path=?, app_publisher=? WHERE id=?;";
+    const char *sql = "UPDATE projects SET name=?, directory=?, description=?, lang=?, version=?, last_updated=?, register_in_windows=?, app_icon_path=?, app_publisher=?, use_components=? WHERE id=?;";
     void *stmt = NULL;
     if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return false; }
 
@@ -427,6 +435,7 @@ bool DB::UpdateProject(const ProjectRow &project) {
     std::string sIcon   = WToUtf8(project.app_icon_path);
     std::string sPub    = WToUtf8(project.app_publisher);
     std::string sReg    = std::to_string(project.register_in_windows);
+    std::string sUseComp = std::to_string(project.use_components);
     std::ostringstream os; os << (long long)time(NULL); std::string sNow = os.str();
     std::string sId     = std::to_string(project.id);
 
@@ -439,7 +448,8 @@ bool DB::UpdateProject(const ProjectRow &project) {
     if (p_bind_text) p_bind_text(stmt, 7,  sReg.c_str(),   -1, NULL);
     if (p_bind_text) p_bind_text(stmt, 8,  sIcon.c_str(),  -1, NULL);
     if (p_bind_text) p_bind_text(stmt, 9,  sPub.c_str(),   -1, NULL);
-    if (p_bind_text) p_bind_text(stmt, 10, sId.c_str(),    -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 10, sUseComp.c_str(), -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 11, sId.c_str(),    -1, NULL);
 
     int rc2 = p_step(stmt); (void)rc2;
     if (p_finalize) p_finalize(stmt);
@@ -530,4 +540,138 @@ std::vector<RegistryEntryRow> DB::GetRegistryEntriesForProject(int projectId) {
     if (p_finalize) p_finalize(stmt);
     p_close(db);
     return out;
+}
+
+// ─── Component persistence ───────────────────────────────────────────────────
+
+bool DB::InsertComponent(const ComponentRow &comp) {
+    std::wstring dbPath = GetAppDataDbPath();
+    std::string dbPathUtf8 = WToUtf8(dbPath);
+    void *db = NULL;
+    int flags = 0x00000002 | 0x00000004;
+    if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return false;
+
+    const char *sql = "INSERT INTO components (project_id, display_name, description, is_required, source_type, source_path, dest_path) VALUES (?,?,?,?,?,?,?);";
+    void *stmt = NULL;
+    if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return false; }
+    std::string sProjId  = std::to_string(comp.project_id);
+    std::string sName    = WToUtf8(comp.display_name);
+    std::string sDesc    = WToUtf8(comp.description);
+    std::string sReq     = std::to_string(comp.is_required);
+    std::string sType    = WToUtf8(comp.source_type);
+    std::string sSrc     = WToUtf8(comp.source_path);
+    std::string sDst     = WToUtf8(comp.dest_path);
+    if (p_bind_text) p_bind_text(stmt, 1, sProjId.c_str(), -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 2, sName.c_str(),   -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 3, sDesc.c_str(),   -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 4, sReq.c_str(),    -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 5, sType.c_str(),   -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 6, sSrc.c_str(),    -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 7, sDst.c_str(),    -1, NULL);
+    int rc = p_step(stmt); (void)rc;
+    if (p_finalize) p_finalize(stmt);
+    p_close(db);
+    return true;
+}
+
+bool DB::UpdateComponent(const ComponentRow &comp) {
+    std::wstring dbPath = GetAppDataDbPath();
+    std::string dbPathUtf8 = WToUtf8(dbPath);
+    void *db = NULL;
+    int flags = 0x00000002 | 0x00000004;
+    if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return false;
+
+    const char *sql = "UPDATE components SET display_name=?, description=?, is_required=?, source_type=?, source_path=?, dest_path=? WHERE id=?;";
+    void *stmt = NULL;
+    if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return false; }
+    std::string sName = WToUtf8(comp.display_name);
+    std::string sDesc = WToUtf8(comp.description);
+    std::string sReq  = std::to_string(comp.is_required);
+    std::string sType = WToUtf8(comp.source_type);
+    std::string sSrc  = WToUtf8(comp.source_path);
+    std::string sDst  = WToUtf8(comp.dest_path);
+    std::string sId   = std::to_string(comp.id);
+    if (p_bind_text) p_bind_text(stmt, 1, sName.c_str(), -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 2, sDesc.c_str(), -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 3, sReq.c_str(),  -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 4, sType.c_str(), -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 5, sSrc.c_str(),  -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 6, sDst.c_str(),  -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 7, sId.c_str(),   -1, NULL);
+    int rc = p_step(stmt); (void)rc;
+    if (p_finalize) p_finalize(stmt);
+    p_close(db);
+    return true;
+}
+
+std::vector<ComponentRow> DB::GetComponentsForProject(int projectId) {
+    std::vector<ComponentRow> out;
+    std::wstring dbPath = GetAppDataDbPath();
+    std::string dbPathUtf8 = WToUtf8(dbPath);
+    void *db = NULL;
+    int flags = 0x00000002 | 0x00000004;
+    if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return out;
+
+    const char *sql = "SELECT id, display_name, description, is_required, source_type, source_path, dest_path FROM components WHERE project_id=? ORDER BY id ASC;";
+    void *stmt = NULL;
+    if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return out; }
+    std::string sProjId = std::to_string(projectId);
+    if (p_bind_text) p_bind_text(stmt, 1, sProjId.c_str(), -1, NULL);
+
+    while (p_step(stmt) == 100 /*SQLITE_ROW*/) {
+        ComponentRow r;
+        r.id         = (int)p_col_int64(stmt, 0);
+        r.project_id = projectId;
+        const unsigned char *c1 = p_col_text(stmt, 1);
+        const unsigned char *c2 = p_col_text(stmt, 2);
+        r.is_required  = (int)p_col_int64(stmt, 3);
+        const unsigned char *c4 = p_col_text(stmt, 4);
+        const unsigned char *c5 = p_col_text(stmt, 5);
+        const unsigned char *c6 = p_col_text(stmt, 6);
+        r.display_name = Utf8ToW(c1 ? (const char*)c1 : "");
+        r.description  = Utf8ToW(c2 ? (const char*)c2 : "");
+        r.source_type  = Utf8ToW(c4 ? (const char*)c4 : "");
+        r.source_path  = Utf8ToW(c5 ? (const char*)c5 : "");
+        r.dest_path    = Utf8ToW(c6 ? (const char*)c6 : "");
+        out.push_back(r);
+    }
+    if (p_finalize) p_finalize(stmt);
+    p_close(db);
+    return out;
+}
+
+bool DB::DeleteComponentsForProject(int projectId) {
+    std::wstring dbPath = GetAppDataDbPath();
+    std::string dbPathUtf8 = WToUtf8(dbPath);
+    void *db = NULL;
+    int flags = 0x00000002 | 0x00000004;
+    if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return false;
+
+    const char *sql = "DELETE FROM components WHERE project_id=?;";
+    void *stmt = NULL;
+    if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return false; }
+    std::string sProjId = std::to_string(projectId);
+    if (p_bind_text) p_bind_text(stmt, 1, sProjId.c_str(), -1, NULL);
+    p_step(stmt);
+    if (p_finalize) p_finalize(stmt);
+    p_close(db);
+    return true;
+}
+
+bool DB::DeleteComponent(int id) {
+    std::wstring dbPath = GetAppDataDbPath();
+    std::string dbPathUtf8 = WToUtf8(dbPath);
+    void *db = NULL;
+    int flags = 0x00000002 | 0x00000004;
+    if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return false;
+
+    const char *sql = "DELETE FROM components WHERE id=?;";
+    void *stmt = NULL;
+    if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return false; }
+    std::string sId = std::to_string(id);
+    if (p_bind_text) p_bind_text(stmt, 1, sId.c_str(), -1, NULL);
+    p_step(stmt);
+    if (p_finalize) p_finalize(stmt);
+    p_close(db);
+    return true;
 }

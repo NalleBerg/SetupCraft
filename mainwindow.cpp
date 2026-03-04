@@ -102,6 +102,10 @@ static HWND s_hRegKeyDialog = NULL;
 static bool s_navigateToRegKey = false;
 static bool s_warningTooltipTracking = false;
 
+// Components page state
+static HWND s_hCompListView = NULL;
+static std::vector<ComponentRow> s_components;
+
 // Command and control IDs
 #define IDM_EDIT_REDO       4012
 #define IDM_BUILD_COMPILE   4021
@@ -136,6 +140,24 @@ static bool s_warningTooltipTracking = false;
 #define IDC_TB_DIALOGS      5080
 #define IDC_TB_COMPONENTS   5081
 #define IDC_TB_EXIT         5082
+
+// Components page control IDs
+#define IDC_COMP_ENABLE       5060
+#define IDC_COMP_LISTVIEW     5061
+#define IDC_COMP_ADD_FOLDER   5062
+#define IDC_COMP_ADD_FILE     5063
+#define IDC_COMP_EDIT         5064
+#define IDC_COMP_REMOVE       5065
+
+// Components edit dialog control IDs (scoped to CompEditDlg window)
+#define IDC_COMPDLG_NAME     301
+#define IDC_COMPDLG_DESC     302
+#define IDC_COMPDLG_REQUIRED 303
+#define IDC_COMPDLG_SRC      304
+#define IDC_COMPDLG_BROWSE   305
+#define IDC_COMPDLG_DST      306
+#define IDC_COMPDLG_OK       307
+#define IDC_COMPDLG_CANCEL   308
 
 // Files dialog button IDs
 #define IDC_FILES_ADD_DIR   5020
@@ -729,6 +751,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         IDC_REG_CHECKBOX, IDC_REG_ICON_PREVIEW, IDC_REG_ADD_ICON, IDC_REG_DISPLAY_NAME,
         IDC_REG_VERSION, IDC_REG_PUBLISHER, IDC_REG_ADD_KEY, IDC_REG_ADD_VALUE, IDC_REG_EDIT, IDC_REG_REMOVE, IDC_REG_BACKUP,
         IDC_REG_SHOW_REGKEY, IDC_REG_WARNING_ICON, IDC_REG_TREEVIEW, IDC_REG_LISTVIEW,
+        IDC_COMP_ENABLE, IDC_COMP_LISTVIEW, IDC_COMP_ADD_FOLDER, IDC_COMP_ADD_FILE, IDC_COMP_EDIT, IDC_COMP_REMOVE,
         5100, 5101, 5102, 5103, 5104, 5105, 5106, 5107, 5108, 5109, 5110 // Labels and other static controls
     };
     
@@ -759,6 +782,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
             if (!isToolbarBtn) {
                 if (hChild != s_hTreeView && hChild != s_hListView && 
                     hChild != s_hRegTreeView && hChild != s_hRegListView &&
+                    hChild != s_hCompListView &&
                     hChild != s_hPageButton1 && hChild != s_hPageButton2) {
                     DestroyWindow(hChild);
                 }
@@ -797,6 +821,13 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
     s_hProgramFilesRoot = NULL;
     s_hRegTreeView = NULL;
     s_hRegListView = NULL;
+    
+    // Destroy Components page ListView
+    if (s_hCompListView && IsWindow(s_hCompListView)) {
+        DestroyWindow(s_hCompListView);
+    }
+    s_hCompListView = NULL;
+    s_components.clear();
     
     // Clear registry values map
     s_registryValues.clear();
@@ -1529,29 +1560,145 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
             s_hCurrentPage, NULL, hInst, NULL);
         break;
     }
-    case 9: // Components page
+    case 9: // Components page - direct children of hwnd (no container)
     {
-        s_hCurrentPage = CreateWindowExW(
-            0, L"STATIC", L"",
-            WS_CHILD | WS_VISIBLE,
-            0, pageY, rc.right, pageHeight,
-            hwnd, NULL, hInst, NULL);
-
-        auto itCompTitle = s_locale.find(L"tb_components");
+        // Title
+        auto itCompTitle = s_locale.find(L"comp_page_title");
         std::wstring compTitle = (itCompTitle != s_locale.end()) ? itCompTitle->second : L"Components";
-        HWND hTitle = CreateWindowExW(0, L"STATIC", compTitle.c_str(),
+        HWND hCompTitle = CreateWindowExW(0, L"STATIC", compTitle.c_str(),
             WS_CHILD | WS_VISIBLE | SS_LEFT,
-            S(20), S(20), rc.right - S(40), S(38),
-            s_hCurrentPage, NULL, hInst, NULL);
-        HFONT hTitleFont = CreateFontW(-S(24), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+            S(20), pageY + S(15), rc.right - S(40), S(38),
+            hwnd, NULL, hInst, NULL);
+        HFONT hCompTitleFont = CreateFontW(-S(24), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
             CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
-        if (hTitleFont) SendMessageW(hTitle, WM_SETFONT, (WPARAM)hTitleFont, TRUE);
+        if (hCompTitleFont) SendMessageW(hCompTitle, WM_SETFONT, (WPARAM)hCompTitleFont, TRUE);
 
-        CreateWindowExW(0, L"STATIC", L"Define installable components (e.g. optional modules, plugins)",
+        // Enable-components checkbox
+        auto itEnable = s_locale.find(L"comp_enable");
+        std::wstring enableText = (itEnable != s_locale.end()) ? itEnable->second : L"Use component-based installation";
+        HWND hCompEnable = CreateWindowExW(0, L"BUTTON", enableText.c_str(),
+            WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
+            S(20), pageY + S(60), rc.right - S(40), S(28),
+            hwnd, (HMENU)IDC_COMP_ENABLE, hInst, NULL);
+        if (s_currentProject.use_components)
+            SendMessageW(hCompEnable, BM_SETCHECK, BST_CHECKED, 0);
+
+        // Hint label
+        auto itHint = s_locale.find(L"comp_enable_hint");
+        std::wstring hintText = (itHint != s_locale.end()) ? itHint->second : L"When unchecked, all files are installed as one complete package.";
+        HWND hHintLabel = CreateWindowExW(0, L"STATIC", hintText.c_str(),
             WS_CHILD | WS_VISIBLE | SS_LEFT,
-            S(20), S(60), rc.right - S(40), S(20),
-            s_hCurrentPage, NULL, hInst, NULL);
+            S(20), pageY + S(94), rc.right - S(40), S(22),
+            hwnd, NULL, hInst, NULL);
+
+        // Separator
+        CreateWindowExW(0, L"STATIC", L"",
+            WS_CHILD | WS_VISIBLE | SS_ETCHEDHORZ,
+            S(20), pageY + S(124), rc.right - S(40), S(2),
+            hwnd, NULL, hInst, NULL);
+
+        // Button row: Add Folder, Add File, Edit, Remove
+        auto itAddFolder = s_locale.find(L"comp_add_folder");
+        std::wstring addFolderTxt = (itAddFolder != s_locale.end()) ? itAddFolder->second : L"Add Folder";
+        auto itAddFile = s_locale.find(L"comp_add_file");
+        std::wstring addFileTxt = (itAddFile != s_locale.end()) ? itAddFile->second : L"Add File";
+        auto itEditBtn = s_locale.find(L"comp_edit");
+        std::wstring editTxt = (itEditBtn != s_locale.end()) ? itEditBtn->second : L"Edit";
+        auto itRemoveBtn = s_locale.find(L"comp_remove");
+        std::wstring removeTxt = (itRemoveBtn != s_locale.end()) ? itRemoveBtn->second : L"Remove";
+
+        CreateCustomButtonWithIcon(hwnd, IDC_COMP_ADD_FOLDER, addFolderTxt.c_str(), ButtonColor::Blue,
+            L"shell32.dll", 3, S(20), pageY + S(134), S(130), S(34), hInst);
+        CreateCustomButtonWithIcon(hwnd, IDC_COMP_ADD_FILE, addFileTxt.c_str(), ButtonColor::Blue,
+            L"imageres.dll", 2, S(160), pageY + S(134), S(120), S(34), hInst);
+        CreateCustomButtonWithIcon(hwnd, IDC_COMP_EDIT, editTxt.c_str(), ButtonColor::Blue,
+            L"imageres.dll", 109, S(290), pageY + S(134), S(100), S(34), hInst);
+        CreateCustomButtonWithIcon(hwnd, IDC_COMP_REMOVE, removeTxt.c_str(), ButtonColor::Red,
+            L"shell32.dll", 131, S(400), pageY + S(134), S(110), S(34), hInst);
+
+        // ListView
+        s_hCompListView = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEW, L"",
+            WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_SHOWSELALWAYS | WS_BORDER,
+            S(20), pageY + S(178), rc.right - S(40), pageHeight - S(185),
+            hwnd, (HMENU)IDC_COMP_LISTVIEW, hInst, NULL);
+        ListView_SetExtendedListViewStyle(s_hCompListView,
+            LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES | LVS_EX_INFOTIP);
+
+        // Columns
+        auto compLocStr = [&](const wchar_t *key, const wchar_t *fallback) -> std::wstring {
+            auto itC = s_locale.find(key);
+            return (itC != s_locale.end()) ? itC->second : fallback;
+        };
+        LVCOLUMNW col = {};
+        col.mask = LVCF_TEXT | LVCF_WIDTH;
+        int colIdx = 0;
+        std::wstring cName = compLocStr(L"comp_col_name", L"Name");
+        std::wstring cDesc = compLocStr(L"comp_col_desc", L"Description");
+        std::wstring cReq  = compLocStr(L"comp_col_required", L"Required");
+        std::wstring cType = compLocStr(L"comp_col_type", L"Type");
+        std::wstring cPath = compLocStr(L"comp_col_path", L"Source Path");
+        std::wstring cDest = compLocStr(L"comp_col_dest", L"Destination Path");
+        col.pszText = (LPWSTR)cName.c_str(); col.cx = S(185); ListView_InsertColumn(s_hCompListView, colIdx++, &col);
+        col.pszText = (LPWSTR)cDesc.c_str(); col.cx = S(220); ListView_InsertColumn(s_hCompListView, colIdx++, &col);
+        col.pszText = (LPWSTR)cReq.c_str();  col.cx = S(78);  ListView_InsertColumn(s_hCompListView, colIdx++, &col);
+        col.pszText = (LPWSTR)cType.c_str(); col.cx = S(70);  ListView_InsertColumn(s_hCompListView, colIdx++, &col);
+        col.pszText = (LPWSTR)cPath.c_str(); col.cx = S(210); ListView_InsertColumn(s_hCompListView, colIdx++, &col);
+        col.pszText = (LPWSTR)cDest.c_str(); col.cx = S(210); ListView_InsertColumn(s_hCompListView, colIdx++, &col);
+
+        // Load components from DB
+        if (s_currentProject.id > 0) {
+            s_components = DB::GetComponentsForProject(s_currentProject.id);
+        } else {
+            s_components.clear();
+        }
+        // Populate ListView
+        for (int ci = 0; ci < (int)s_components.size(); ++ci) {
+            const ComponentRow &cmp = s_components[ci];
+            LVITEMW lvi = {};
+            lvi.mask = LVIF_TEXT;
+            lvi.iItem = ci;
+            lvi.iSubItem = 0;
+            lvi.pszText = (LPWSTR)cmp.display_name.c_str();
+            ListView_InsertItem(s_hCompListView, &lvi);
+            ListView_SetItemText(s_hCompListView, ci, 1, (LPWSTR)cmp.description.c_str());
+            auto itYes = s_locale.find(cmp.is_required ? L"yes" : L"no");
+            std::wstring reqStr = (itYes != s_locale.end()) ? itYes->second : (cmp.is_required ? L"Yes" : L"No");
+            ListView_SetItemText(s_hCompListView, ci, 2, (LPWSTR)reqStr.c_str());
+            auto itType2 = s_locale.find(cmp.source_type == L"folder" ? L"comp_type_folder" : L"comp_type_file");
+            std::wstring typeStr = (itType2 != s_locale.end()) ? itType2->second : cmp.source_type;
+            ListView_SetItemText(s_hCompListView, ci, 3, (LPWSTR)typeStr.c_str());
+            ListView_SetItemText(s_hCompListView, ci, 4, (LPWSTR)cmp.source_path.c_str());
+            ListView_SetItemText(s_hCompListView, ci, 5, (LPWSTR)cmp.dest_path.c_str());
+        }
+
+        // Apply system message font to non-button controls
+        {
+            NONCLIENTMETRICSW ncm = {};
+            ncm.cbSize = sizeof(ncm);
+            SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+            if (ncm.lfMessageFont.lfHeight < 0)
+                ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
+            ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+            HFONT hCtrlFont = CreateFontIndirectW(&ncm.lfMessageFont);
+            if (hCtrlFont) {
+                SendMessageW(hCompEnable, WM_SETFONT, (WPARAM)hCtrlFont, TRUE);
+                SendMessageW(hHintLabel, WM_SETFONT, (WPARAM)hCtrlFont, TRUE);
+                SendMessageW(s_hCompListView, WM_SETFONT, (WPARAM)hCtrlFont, TRUE);
+                HFONT hOld = (HFONT)GetPropW(hwnd, L"hCompCtrlFont");
+                if (hOld) DeleteObject(hOld);
+                SetPropW(hwnd, L"hCompCtrlFont", (HANDLE)hCtrlFont);
+            }
+        }
+
+        // Grey out action controls if components are not enabled
+        bool compEnabled = (s_currentProject.use_components != 0);
+        EnableWindow(GetDlgItem(hwnd, IDC_COMP_ADD_FOLDER), compEnabled ? TRUE : FALSE);
+        EnableWindow(GetDlgItem(hwnd, IDC_COMP_ADD_FILE),   compEnabled ? TRUE : FALSE);
+        EnableWindow(GetDlgItem(hwnd, IDC_COMP_EDIT),       compEnabled ? TRUE : FALSE);
+        EnableWindow(GetDlgItem(hwnd, IDC_COMP_REMOVE),     compEnabled ? TRUE : FALSE);
+        EnableWindow(s_hCompListView,                        compEnabled ? TRUE : FALSE);
+
         break;
     }
     }
@@ -2563,6 +2710,231 @@ LRESULT CALLBACK AddKeyDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
     return DefWindowProcW(hwnd, msg, wParam, lParam);
 }
 
+// ─── Component Edit Dialog ────────────────────────────────────────────────────
+
+struct CompDlgData {
+    // Input (pre-fill)
+    std::wstring initName;
+    std::wstring initDesc;
+    int initRequired = 0;
+    std::wstring initSourceType; // L"folder" or L"file"
+    std::wstring initSourcePath;
+    std::wstring initDestPath;
+    // Locale strings
+    std::wstring titleText;
+    std::wstring nameLabel;
+    std::wstring descLabel;
+    std::wstring requiredLabel;
+    std::wstring sourceLabel;
+    std::wstring destLabel;
+    std::wstring browseText;
+    std::wstring okText;
+    std::wstring cancelText;
+    // Output
+    bool okClicked = false;
+    std::wstring outName;
+    std::wstring outDesc;
+    int outRequired = 0;
+    std::wstring outSourcePath;
+    std::wstring outDestPath;
+};
+
+LRESULT CALLBACK CompEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+    case WM_CREATE: {
+        CREATESTRUCTW *cs = (CREATESTRUCTW *)lParam;
+        HINSTANCE hInst = cs->hInstance;
+        CompDlgData *pData = (CompDlgData *)cs->lpCreateParams;
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)pData);
+
+        int y = 20;
+        int labelW = 150, editX = 175, editW = 380;
+
+        // Display Name
+        CreateWindowExW(0, L"STATIC", pData->nameLabel.c_str(),
+            WS_CHILD | WS_VISIBLE | SS_LEFT,
+            20, y, labelW, 24, hwnd, NULL, hInst, NULL);
+        CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", pData->initName.c_str(),
+            WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL,
+            editX, y, editW, 28, hwnd, (HMENU)IDC_COMPDLG_NAME, hInst, NULL);
+        y += 38;
+
+        // Description
+        CreateWindowExW(0, L"STATIC", pData->descLabel.c_str(),
+            WS_CHILD | WS_VISIBLE | SS_LEFT,
+            20, y, labelW, 24, hwnd, NULL, hInst, NULL);
+        CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", pData->initDesc.c_str(),
+            WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL,
+            editX, y, editW, 28, hwnd, (HMENU)IDC_COMPDLG_DESC, hInst, NULL);
+        y += 38;
+
+        // Required checkbox
+        HWND hReq = CreateWindowExW(0, L"BUTTON", pData->requiredLabel.c_str(),
+            WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
+            editX, y, editW, 26, hwnd, (HMENU)IDC_COMPDLG_REQUIRED, hInst, NULL);
+        if (pData->initRequired) SendMessageW(hReq, BM_SETCHECK, BST_CHECKED, 0);
+        y += 36;
+
+        // Source Path
+        CreateWindowExW(0, L"STATIC", pData->sourceLabel.c_str(),
+            WS_CHILD | WS_VISIBLE | SS_LEFT,
+            20, y, labelW, 24, hwnd, NULL, hInst, NULL);
+        CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", pData->initSourcePath.c_str(),
+            WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL | ES_READONLY,
+            editX, y, editW - 85, 28, hwnd, (HMENU)IDC_COMPDLG_SRC, hInst, NULL);
+        CreateWindowExW(0, L"BUTTON", pData->browseText.c_str(),
+            WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+            editX + editW - 80, y, 78, 28, hwnd, (HMENU)IDC_COMPDLG_BROWSE, hInst, NULL);
+        y += 38;
+
+        // Destination Path
+        CreateWindowExW(0, L"STATIC", pData->destLabel.c_str(),
+            WS_CHILD | WS_VISIBLE | SS_LEFT,
+            20, y, labelW, 24, hwnd, NULL, hInst, NULL);
+        CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", pData->initDestPath.c_str(),
+            WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL,
+            editX, y, editW, 28, hwnd, (HMENU)IDC_COMPDLG_DST, hInst, NULL);
+        y += 48;
+
+        // OK / Cancel
+        CreateCustomButtonWithIcon(hwnd, IDC_COMPDLG_OK, pData->okText.c_str(), ButtonColor::Green,
+            L"imageres.dll", 89, 175, y, 140, 38, hInst);
+        CreateCustomButtonWithIcon(hwnd, IDC_COMPDLG_CANCEL, pData->cancelText.c_str(), ButtonColor::Red,
+            L"shell32.dll", 131, 330, y, 150, 38, hInst);
+
+        // Apply system font
+        {
+            NONCLIENTMETRICSW ncm = {};
+            ncm.cbSize = sizeof(ncm);
+            SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+            if (ncm.lfMessageFont.lfHeight < 0)
+                ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
+            ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+            HFONT hCtrlFont = CreateFontIndirectW(&ncm.lfMessageFont);
+            if (hCtrlFont) {
+                EnumChildWindows(hwnd, [](HWND hChild, LPARAM lp) -> BOOL {
+                    SendMessageW(hChild, WM_SETFONT, (WPARAM)(HFONT)lp, TRUE);
+                    return TRUE;
+                }, (LPARAM)hCtrlFont);
+                SetPropW(hwnd, L"hCtrlFont", (HANDLE)hCtrlFont);
+            }
+        }
+        return 0;
+    }
+
+    case WM_COMMAND: {
+        int wmId = LOWORD(wParam);
+        CompDlgData *pData = (CompDlgData *)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+        if (!pData) break;
+
+        if (wmId == IDC_COMPDLG_BROWSE) {
+            // Browse for folder or file depending on source_type
+            if (pData->initSourceType == L"folder") {
+                BROWSEINFOW bi = {};
+                bi.hwndOwner = hwnd;
+                bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_USENEWUI;
+                LPITEMIDLIST pidl = SHBrowseForFolderW(&bi);
+                if (pidl) {
+                    wchar_t folderPath[MAX_PATH];
+                    if (SHGetPathFromIDListW(pidl, folderPath)) {
+                        SetDlgItemTextW(hwnd, IDC_COMPDLG_SRC, folderPath);
+                        // Auto-fill dest if empty
+                        wchar_t dstBuf[MAX_PATH];
+                        GetDlgItemTextW(hwnd, IDC_COMPDLG_DST, dstBuf, MAX_PATH);
+                        if (wcslen(dstBuf) == 0) {
+                            const wchar_t *leaf = wcsrchr(folderPath, L'\\');
+                            SetDlgItemTextW(hwnd, IDC_COMPDLG_DST, leaf ? leaf + 1 : folderPath);
+                        }
+                        // Auto-fill display name if empty
+                        wchar_t nameBuf[256];
+                        GetDlgItemTextW(hwnd, IDC_COMPDLG_NAME, nameBuf, 256);
+                        if (wcslen(nameBuf) == 0) {
+                            const wchar_t *leaf2 = wcsrchr(folderPath, L'\\');
+                            SetDlgItemTextW(hwnd, IDC_COMPDLG_NAME, leaf2 ? leaf2 + 1 : folderPath);
+                        }
+                    }
+                    CoTaskMemFree(pidl);
+                }
+            } else {
+                // File picker
+                wchar_t filePath[MAX_PATH] = {};
+                OPENFILENAMEW ofn = {};
+                ofn.lStructSize = sizeof(ofn);
+                ofn.hwndOwner = hwnd;
+                ofn.lpstrFile = filePath;
+                ofn.nMaxFile = MAX_PATH;
+                ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+                if (GetOpenFileNameW(&ofn)) {
+                    SetDlgItemTextW(hwnd, IDC_COMPDLG_SRC, filePath);
+                    wchar_t dstBuf[MAX_PATH];
+                    GetDlgItemTextW(hwnd, IDC_COMPDLG_DST, dstBuf, MAX_PATH);
+                    if (wcslen(dstBuf) == 0) {
+                        const wchar_t *leaf = wcsrchr(filePath, L'\\');
+                        SetDlgItemTextW(hwnd, IDC_COMPDLG_DST, leaf ? leaf + 1 : filePath);
+                    }
+                    wchar_t nameBuf[256];
+                    GetDlgItemTextW(hwnd, IDC_COMPDLG_NAME, nameBuf, 256);
+                    if (wcslen(nameBuf) == 0) {
+                        const wchar_t *leaf2 = wcsrchr(filePath, L'\\');
+                        SetDlgItemTextW(hwnd, IDC_COMPDLG_NAME, leaf2 ? leaf2 + 1 : filePath);
+                    }
+                }
+            }
+            return 0;
+        }
+
+        if (wmId == IDC_COMPDLG_OK) {
+            wchar_t buf[512];
+            GetDlgItemTextW(hwnd, IDC_COMPDLG_NAME, buf, 512); pData->outName = buf;
+            GetDlgItemTextW(hwnd, IDC_COMPDLG_DESC, buf, 512); pData->outDesc = buf;
+            pData->outRequired = (SendDlgItemMessageW(hwnd, IDC_COMPDLG_REQUIRED, BM_GETCHECK, 0, 0) == BST_CHECKED) ? 1 : 0;
+            GetDlgItemTextW(hwnd, IDC_COMPDLG_SRC, buf, 512); pData->outSourcePath = buf;
+            GetDlgItemTextW(hwnd, IDC_COMPDLG_DST, buf, 512); pData->outDestPath = buf;
+            pData->okClicked = true;
+            DestroyWindow(hwnd);
+            return 0;
+        }
+
+        if (wmId == IDC_COMPDLG_CANCEL || wmId == IDCANCEL) {
+            pData->okClicked = false;
+            DestroyWindow(hwnd);
+            return 0;
+        }
+        break;
+    }
+
+    case WM_DRAWITEM: {
+        LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
+        if (dis->CtlID == IDC_COMPDLG_OK || dis->CtlID == IDC_COMPDLG_CANCEL) {
+            ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
+            NONCLIENTMETRICSW ncm = {};
+            ncm.cbSize = sizeof(ncm);
+            SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+            if (ncm.lfMessageFont.lfHeight < 0)
+                ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
+            ncm.lfMessageFont.lfWeight = FW_BOLD;
+            ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+            HFONT hFont = CreateFontIndirectW(&ncm.lfMessageFont);
+            LRESULT result = DrawCustomButton(dis, color, hFont);
+            if (hFont) DeleteObject(hFont);
+            return result;
+        }
+        break;
+    }
+
+    case WM_DESTROY: {
+        HFONT hCtrlFont = (HFONT)GetPropW(hwnd, L"hCtrlFont");
+        if (hCtrlFont) { DeleteObject(hCtrlFont); RemovePropW(hwnd, L"hCtrlFont"); }
+        break;
+    }
+
+    case WM_CLOSE:
+        DestroyWindow(hwnd);
+        return 0;
+    }
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
 LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
     case WM_CREATE: {
@@ -2820,6 +3192,12 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         if (nmhdr->idFrom == IDC_REG_LISTVIEW && nmhdr->code == NM_DBLCLK) {
             // Route to Edit Value handler
             SendMessageW(hwnd, WM_COMMAND, IDM_REG_EDIT_VALUE, 0);
+            return 0;
+        }
+
+        // Handle double-click on Components ListView -> edit component
+        if (nmhdr->idFrom == IDC_COMP_LISTVIEW && nmhdr->code == NM_DBLCLK) {
+            SendMessageW(hwnd, WM_COMMAND, IDC_COMP_EDIT, 0);
             return 0;
         }
 
@@ -4252,7 +4630,166 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             return 0;
         }
             
-        // Menu items
+        // Components page handlers
+        case IDC_COMP_ENABLE: {
+            if (s_currentProject.id <= 0) return 0;
+            HWND hChk = GetDlgItem(hwnd, IDC_COMP_ENABLE);
+            int checked = (hChk && SendMessageW(hChk, BM_GETCHECK, 0, 0) == BST_CHECKED) ? 1 : 0;
+            s_currentProject.use_components = checked;
+            DB::UpdateProject(s_currentProject);
+            EnableWindow(GetDlgItem(hwnd, IDC_COMP_ADD_FOLDER), checked ? TRUE : FALSE);
+            EnableWindow(GetDlgItem(hwnd, IDC_COMP_ADD_FILE),   checked ? TRUE : FALSE);
+            EnableWindow(GetDlgItem(hwnd, IDC_COMP_EDIT),       checked ? TRUE : FALSE);
+            EnableWindow(GetDlgItem(hwnd, IDC_COMP_REMOVE),     checked ? TRUE : FALSE);
+            if (s_hCompListView) EnableWindow(s_hCompListView, checked ? TRUE : FALSE);
+            return 0;
+        }
+
+        case IDC_COMP_ADD_FOLDER:
+        case IDC_COMP_ADD_FILE: {
+            if (s_currentProject.id <= 0) return 0;
+            const bool isFolder = (wmId == IDC_COMP_ADD_FOLDER);
+            auto lstrC = [&](const wchar_t *key, const wchar_t *fb) -> std::wstring {
+                auto itC = s_locale.find(key); return (itC != s_locale.end()) ? itC->second : fb;
+            };
+            CompDlgData dlgData;
+            dlgData.initSourceType = isFolder ? L"folder" : L"file";
+            dlgData.titleText     = lstrC(L"comp_add_title", L"Add Component");
+            dlgData.nameLabel     = lstrC(L"comp_name_label", L"Display Name:");
+            dlgData.descLabel     = lstrC(L"comp_desc_label", L"Description:");
+            dlgData.requiredLabel = lstrC(L"comp_required_label", L"Required (always installed)");
+            dlgData.sourceLabel   = lstrC(L"comp_source_label", L"Source Path:");
+            dlgData.destLabel     = lstrC(L"comp_dest_label", L"Destination Path:");
+            dlgData.browseText    = lstrC(L"comp_browse", L"Browse...");
+            dlgData.okText        = lstrC(L"ok", L"OK");
+            dlgData.cancelText    = lstrC(L"cancel", L"Cancel");
+
+            WNDCLASSEXW wcComp = {};
+            wcComp.cbSize = sizeof(wcComp);
+            if (!GetClassInfoExW(GetModuleHandleW(NULL), L"CompEditDialog", &wcComp)) {
+                wcComp.lpfnWndProc = CompEditDlgProc;
+                wcComp.hInstance = GetModuleHandleW(NULL);
+                wcComp.lpszClassName = L"CompEditDialog";
+                wcComp.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
+                wcComp.hCursor = LoadCursor(NULL, IDC_ARROW);
+                RegisterClassExW(&wcComp);
+            }
+            RECT rcMain; GetWindowRect(hwnd, &rcMain);
+            int dlgW = 600, dlgH = 340;
+            HWND hDlg = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+                L"CompEditDialog", dlgData.titleText.c_str(),
+                WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
+                rcMain.left + ((rcMain.right - rcMain.left) - dlgW) / 2,
+                rcMain.top  + ((rcMain.bottom - rcMain.top) - dlgH) / 2,
+                dlgW, dlgH, hwnd, NULL, GetModuleHandleW(NULL), &dlgData);
+            MSG msgComp;
+            while (GetMessageW(&msgComp, NULL, 0, 0) > 0) {
+                if (!IsWindow(hDlg)) break;
+                TranslateMessage(&msgComp); DispatchMessageW(&msgComp);
+            }
+            if (dlgData.okClicked) {
+                ComponentRow comp;
+                comp.project_id   = s_currentProject.id;
+                comp.display_name = dlgData.outName;
+                comp.description  = dlgData.outDesc;
+                comp.is_required  = dlgData.outRequired;
+                comp.source_type  = dlgData.initSourceType;
+                comp.source_path  = dlgData.outSourcePath;
+                comp.dest_path    = dlgData.outDestPath;
+                DB::InsertComponent(comp);
+                SwitchPage(hwnd, 9);
+                MarkAsModified();
+            }
+            return 0;
+        }
+
+        case IDC_COMP_EDIT: {
+            if (!s_hCompListView || !IsWindow(s_hCompListView)) return 0;
+            int selIdx = ListView_GetNextItem(s_hCompListView, -1, LVNI_SELECTED);
+            if (selIdx < 0 || selIdx >= (int)s_components.size()) {
+                auto itNoSel = s_locale.find(L"comp_no_selection");
+                std::wstring noSelMsg = (itNoSel != s_locale.end()) ? itNoSel->second : L"Please select a component first.";
+                MessageBoxW(hwnd, noSelMsg.c_str(), L"", MB_OK | MB_ICONINFORMATION);
+                return 0;
+            }
+            const ComponentRow &cmp = s_components[selIdx];
+            auto lstrE = [&](const wchar_t *key, const wchar_t *fb) -> std::wstring {
+                auto itE = s_locale.find(key); return (itE != s_locale.end()) ? itE->second : fb;
+            };
+            CompDlgData dlgData2;
+            dlgData2.initName       = cmp.display_name;
+            dlgData2.initDesc       = cmp.description;
+            dlgData2.initRequired   = cmp.is_required;
+            dlgData2.initSourceType = cmp.source_type;
+            dlgData2.initSourcePath = cmp.source_path;
+            dlgData2.initDestPath   = cmp.dest_path;
+            dlgData2.titleText     = lstrE(L"comp_edit_title", L"Edit Component");
+            dlgData2.nameLabel     = lstrE(L"comp_name_label", L"Display Name:");
+            dlgData2.descLabel     = lstrE(L"comp_desc_label", L"Description:");
+            dlgData2.requiredLabel = lstrE(L"comp_required_label", L"Required (always installed)");
+            dlgData2.sourceLabel   = lstrE(L"comp_source_label", L"Source Path:");
+            dlgData2.destLabel     = lstrE(L"comp_dest_label", L"Destination Path:");
+            dlgData2.browseText    = lstrE(L"comp_browse", L"Browse...");
+            dlgData2.okText        = lstrE(L"ok", L"OK");
+            dlgData2.cancelText    = lstrE(L"cancel", L"Cancel");
+
+            WNDCLASSEXW wcComp2 = {};
+            wcComp2.cbSize = sizeof(wcComp2);
+            if (!GetClassInfoExW(GetModuleHandleW(NULL), L"CompEditDialog", &wcComp2)) {
+                wcComp2.lpfnWndProc = CompEditDlgProc;
+                wcComp2.hInstance = GetModuleHandleW(NULL);
+                wcComp2.lpszClassName = L"CompEditDialog";
+                wcComp2.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
+                wcComp2.hCursor = LoadCursor(NULL, IDC_ARROW);
+                RegisterClassExW(&wcComp2);
+            }
+            RECT rcMain2; GetWindowRect(hwnd, &rcMain2);
+            int dlgW2 = 600, dlgH2 = 340;
+            HWND hDlg2 = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+                L"CompEditDialog", dlgData2.titleText.c_str(),
+                WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
+                rcMain2.left + ((rcMain2.right - rcMain2.left) - dlgW2) / 2,
+                rcMain2.top  + ((rcMain2.bottom - rcMain2.top) - dlgH2) / 2,
+                dlgW2, dlgH2, hwnd, NULL, GetModuleHandleW(NULL), &dlgData2);
+            MSG msgComp2;
+            while (GetMessageW(&msgComp2, NULL, 0, 0) > 0) {
+                if (!IsWindow(hDlg2)) break;
+                TranslateMessage(&msgComp2); DispatchMessageW(&msgComp2);
+            }
+            if (dlgData2.okClicked) {
+                ComponentRow updated = cmp;
+                updated.display_name = dlgData2.outName;
+                updated.description  = dlgData2.outDesc;
+                updated.is_required  = dlgData2.outRequired;
+                updated.source_path  = dlgData2.outSourcePath;
+                updated.dest_path    = dlgData2.outDestPath;
+                DB::UpdateComponent(updated);
+                SwitchPage(hwnd, 9);
+                MarkAsModified();
+            }
+            return 0;
+        }
+
+        case IDC_COMP_REMOVE: {
+            if (!s_hCompListView || !IsWindow(s_hCompListView)) return 0;
+            int selIdx = ListView_GetNextItem(s_hCompListView, -1, LVNI_SELECTED);
+            if (selIdx < 0 || selIdx >= (int)s_components.size()) {
+                auto itNoSel = s_locale.find(L"comp_no_selection");
+                std::wstring noSelMsg = (itNoSel != s_locale.end()) ? itNoSel->second : L"Please select a component first.";
+                MessageBoxW(hwnd, noSelMsg.c_str(), L"", MB_OK | MB_ICONINFORMATION);
+                return 0;
+            }
+            auto itCnf = s_locale.find(L"comp_confirm_remove");
+            std::wstring cnfMsg = (itCnf != s_locale.end()) ? itCnf->second : L"Remove selected component?";
+            if (MessageBoxW(hwnd, cnfMsg.c_str(), L"", MB_YESNO | MB_ICONQUESTION) == IDYES) {
+                DB::DeleteComponent(s_components[selIdx].id);
+                SwitchPage(hwnd, 9);
+                MarkAsModified();
+            }
+            return 0;
+        }
+
+        // Menu commands
         case IDM_FILE_NEW: {
             HINSTANCE hInst = (HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE);
             MainWindow::CreateNew(hInst, s_locale);
@@ -4681,7 +5218,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         // Note: IDC_TB_ABOUT is now a static icon, not a button, so exclude it
         if ((dis->CtlID >= IDC_TB_FILES && dis->CtlID <= IDC_TB_SAVE) || dis->CtlID == IDC_TB_DIALOGS || dis->CtlID == IDC_TB_COMPONENTS || dis->CtlID == IDC_TB_EXIT ||
             (dis->CtlID >= IDC_FILES_ADD_DIR && dis->CtlID <= IDC_FILES_REMOVE) ||
-            (dis->CtlID >= IDC_REG_CHECKBOX && dis->CtlID <= IDC_REG_BACKUP)) {
+            (dis->CtlID >= IDC_REG_CHECKBOX && dis->CtlID <= IDC_REG_BACKUP) ||
+            (dis->CtlID >= IDC_COMP_ADD_FOLDER && dis->CtlID <= IDC_COMP_REMOVE)) {
             ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
             // Create bold font for buttons (scaled for DPI)
             HFONT hFont = CreateFontW(-S(12), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,

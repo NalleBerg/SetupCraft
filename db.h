@@ -14,6 +14,7 @@ struct ProjectRow {
     int register_in_windows = 1;  // 1 = yes, 0 = no
     std::wstring app_icon_path;
     std::wstring app_publisher;
+    int use_components = 0;  // 0 = full package, 1 = component-based
 };
 
 struct RegistryEntryRow {
@@ -24,6 +25,17 @@ struct RegistryEntryRow {
     std::wstring name;
     std::wstring type;
     std::wstring data;
+};
+
+struct ComponentRow {
+    int id = 0;
+    int project_id = 0;
+    std::wstring display_name;
+    std::wstring description;
+    int is_required = 0;           // 1 = always installed, 0 = optional
+    std::wstring source_type;      // L"folder" or L"file"
+    std::wstring source_path;
+    std::wstring dest_path;
 };
 
 namespace DB {
@@ -41,4 +53,10 @@ namespace DB {
     bool InsertRegistryEntry(int projectId, const std::wstring &hive, const std::wstring &path, const std::wstring &name, const std::wstring &type, const std::wstring &data);
     std::vector<RegistryEntryRow> GetRegistryEntriesForProject(int projectId);
     bool DeleteRegistryEntriesForProject(int projectId);
+    // Component persistence
+    bool InsertComponent(const ComponentRow &comp);
+    bool UpdateComponent(const ComponentRow &comp);
+    std::vector<ComponentRow> GetComponentsForProject(int projectId);
+    bool DeleteComponentsForProject(int projectId);
+    bool DeleteComponent(int id);
 }

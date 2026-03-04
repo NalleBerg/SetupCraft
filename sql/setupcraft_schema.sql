@@ -14,7 +14,8 @@ CREATE TABLE IF NOT EXISTS projects (
     last_updated INTEGER, -- Unix epoch seconds
     register_in_windows INTEGER DEFAULT 1,
     app_icon_path TEXT,
-    app_publisher TEXT
+    app_publisher TEXT,
+    use_components INTEGER DEFAULT 0  -- 0 = full package, 1 = component-based installation
 );
 
 CREATE TABLE IF NOT EXISTS registry_entries (
@@ -33,6 +34,19 @@ CREATE TABLE IF NOT EXISTS files (
     project_id INTEGER NOT NULL,
     source_path TEXT NOT NULL,
     destination_path TEXT NOT NULL,
+    install_scope TEXT DEFAULT '',
+    FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS components (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL,
+    display_name TEXT NOT NULL DEFAULT '',   -- Developer-set name shown to end user
+    description TEXT DEFAULT '',
+    is_required INTEGER DEFAULT 0,           -- 1 = always installed, 0 = optional
+    source_type TEXT DEFAULT 'folder',       -- 'folder' or 'file'
+    source_path TEXT DEFAULT '',
+    dest_path TEXT DEFAULT '',
     FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
 );
 
