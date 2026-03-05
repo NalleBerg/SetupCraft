@@ -52,7 +52,8 @@ static bool s_mouseTracking = false; // General mouse tracking flag for tooltip
 static HTREEITEM s_lastHoveredTreeItem = NULL;
 static WNDPROC s_prevTreeProc = NULL;
 static WNDPROC s_prevWarnIconProc = NULL;
-static HFONT s_scaledFont = NULL; // Scaled default GUI font for labels/edits/checkboxes
+static HFONT s_scaledFont = NULL;     // Scaled default GUI font for labels/edits/checkboxes
+static HFONT s_hPageTitleFont = NULL; // Larger bold system font used for all page headlines (i18n-safe, NONCLIENTMETRICS-based)
 // Forward declarations for functions defined later
 static LRESULT CALLBACK TreeView_SubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 static std::vector<std::wstring> GetAvailableLocales();
@@ -105,6 +106,7 @@ static bool s_warningTooltipTracking = false;
 // Components page state
 static HWND s_hCompListView = NULL;
 static std::vector<ComponentRow> s_components;
+static bool s_filesPageHasContent = false; // tracks whether Files page has any files/folders
 
 // Command and control IDs
 #define IDM_EDIT_REDO       4012
@@ -276,8 +278,17 @@ HWND MainWindow::Create(HINSTANCE hInstance, const ProjectRow &project, const st
     // Reset state so opening any project (new or existing) starts clean
     s_hasUnsavedChanges = false;
     s_isNewUnsavedProject = false;
+    s_askAtInstallEnabled = false;
     s_currentProject = project;
     s_locale = locale;
+
+    // Restore ask-at-install preference for this project
+    if (project.id > 0) {
+        std::wstring val;
+        std::wstring key = L"ask_at_install_" + std::to_wstring(project.id);
+        if (DB::GetSetting(key, val))
+            s_askAtInstallEnabled = (val == L"1");
+    }
     
     // Load application icon from resource
     HICON hIcon = LoadIconW(hInstance, MAKEINTRESOURCEW(1));
@@ -360,6 +371,31 @@ HWND MainWindow::CreateNew(HINSTANCE hInstance, const std::map<std::wstring, std
 
 void MainWindow::MarkAsModified() {
     s_hasUnsavedChanges = true;
+    if (s_hStatus && IsWindow(s_hStatus)) InvalidateRect(s_hStatus, NULL, TRUE);
+}
+
+// Recomputes whether the Files page has content and enables/disables the Components toolbar button.
+// When the Files tree is active we check it directly; when destroyed we rely on the last known state.
+void MainWindow::UpdateComponentsButtonState(HWND hwnd) {
+    HWND hTree = s_hTreeView;
+    if (hTree && IsWindow(hTree)) {
+        // Files page is currently shown — recompute from actual tree state
+        s_filesPageHasContent = !s_virtualFolderFiles.empty();
+        if (!s_filesPageHasContent) {
+            HTREEITEM roots[] = { s_hProgramFilesRoot, s_hProgramDataRoot,
+                                  s_hAppDataRoot,      s_hAskAtInstallRoot };
+            for (HTREEITEM hRoot : roots) {
+                if (hRoot && TreeView_GetChild(hTree, hRoot)) {
+                    s_filesPageHasContent = true;
+                    break;
+                }
+            }
+        }
+    }
+    // When the tree is not active s_filesPageHasContent retains the value set before
+    // the page was switched away, which is correct.
+    HWND hBtn = GetDlgItem(hwnd, IDC_TB_COMPONENTS);
+    if (hBtn) EnableWindow(hBtn, s_filesPageHasContent ? TRUE : FALSE);
 }
 
 void MainWindow::MarkAsSaved() {
@@ -427,6 +463,8 @@ void MainWindow::CreateToolbar(HWND hwnd, HINSTANCE hInst) {
     std::wstring compText = (itComp != s_locale.end()) ? itComp->second : L"Components";
     CreateCustomButtonWithIcon(hwnd, IDC_TB_COMPONENTS, compText, ButtonColor::Blue,
         L"shell32.dll", 278, x, row1Y, S(118), btnH, hInst);
+    // Disabled until the Files page has at least one file or folder
+    EnableWindow(GetDlgItem(hwnd, IDC_TB_COMPONENTS), s_filesPageHasContent ? TRUE : FALSE);
     x += S(118) + gap;
 
     auto itAddReg = s_locale.find(L"tb_add_registry");
@@ -462,11 +500,11 @@ void MainWindow::CreateToolbar(HWND hwnd, HINSTANCE hInst) {
         L"shell32.dll", 314, x, row2Y, S(100), btnH, hInst);
     x += S(100) + gap;
 
-    auto itBuild = s_locale.find(L"tb_build");
-    std::wstring buildText = (itBuild != s_locale.end()) ? itBuild->second : L"Build (F7)";
-    CreateCustomButtonWithIcon(hwnd, IDC_TB_BUILD, buildText, ButtonColor::Green,
-        L"shell32.dll", 80, x, row2Y, S(108), btnH, hInst);
-    x += S(108) + gap;
+    auto itScripts = s_locale.find(L"tb_scripts");
+    std::wstring scriptsText = (itScripts != s_locale.end()) ? itScripts->second : L"Scripts";
+    CreateCustomButtonWithIcon(hwnd, IDC_TB_SCRIPTS, scriptsText, ButtonColor::Blue,
+        L"shell32.dll", 310, x, row2Y, S(83), btnH, hInst);
+    x += S(83) + gap;
 
     auto itTest = s_locale.find(L"tb_test");
     std::wstring testText = (itTest != s_locale.end()) ? itTest->second : L"Test (F5)";
@@ -474,11 +512,11 @@ void MainWindow::CreateToolbar(HWND hwnd, HINSTANCE hInst) {
         L"shell32.dll", 138, x, row2Y, S(90), btnH, hInst);
     x += S(90) + gap;
 
-    auto itScripts = s_locale.find(L"tb_scripts");
-    std::wstring scriptsText = (itScripts != s_locale.end()) ? itScripts->second : L"Scripts";
-    CreateCustomButtonWithIcon(hwnd, IDC_TB_SCRIPTS, scriptsText, ButtonColor::Blue,
-        L"shell32.dll", 310, x, row2Y, S(83), btnH, hInst);
-    x += S(83) + gap;
+    auto itBuild = s_locale.find(L"tb_build");
+    std::wstring buildText = (itBuild != s_locale.end()) ? itBuild->second : L"Build (F7)";
+    CreateCustomButtonWithIcon(hwnd, IDC_TB_BUILD, buildText, ButtonColor::Green,
+        L"shell32.dll", 80, x, row2Y, S(108), btnH, hInst);
+    x += S(108) + gap;
 
     auto itSave = s_locale.find(L"tb_save");
     std::wstring saveText = (itSave != s_locale.end()) ? itSave->second : L"Save";
@@ -860,10 +898,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
             WS_CHILD | WS_VISIBLE | SS_LEFT,
             S(20), pageY + S(15), rc.right - S(40), S(38),
             hwnd, (HMENU)5100, hInst, NULL); // Give it an ID for WM_CTLCOLORSTATIC
-        HFONT hTitleFont = CreateFontW(-S(24), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
-            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
-        if (hTitleFont) SendMessageW(hTitle, WM_SETFONT, (WPARAM)hTitleFont, TRUE);
+        if (s_hPageTitleFont) SendMessageW(hTitle, WM_SETFONT, (WPARAM)s_hPageTitleFont, TRUE);
         
         // Add Folder button (child of main window, positioned relative to it)
         auto itAddFolder = s_locale.find(L"files_add_folder");
@@ -942,7 +977,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         
         // TreeView on the left (folder hierarchy) - child of main window to receive notifications
         s_hTreeView = CreateWindowExW(WS_EX_CLIENTEDGE, WC_TREEVIEW, NULL,
-            WS_CHILD | WS_VISIBLE | WS_BORDER | TVS_HASLINES | TVS_HASBUTTONS | TVS_LINESATROOT | TVS_SHOWSELALWAYS | TVS_CHECKBOXES | TVS_EDITLABELS,
+            WS_CHILD | WS_VISIBLE | WS_BORDER | TVS_HASLINES | TVS_HASBUTTONS | TVS_LINESATROOT | TVS_SHOWSELALWAYS | TVS_EDITLABELS,
             S(20), s_toolbarHeight + viewTop, treeWidth, viewHeight,
             hwnd, (HMENU)102, hInst, NULL);
         
@@ -951,13 +986,13 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         if (s_scaledFont) SendMessageW(s_hTreeView, WM_SETFONT, (WPARAM)s_scaledFont, TRUE);
         
         // Create image list for folder icons
-        HIMAGELIST hImageList = ImageList_Create(16, 16, ILC_COLOR32 | ILC_MASK, 2, 2);
+        HIMAGELIST hImageList = ImageList_Create(32, 32, ILC_COLOR32 | ILC_MASK, 2, 2);
         if (hImageList) {
             // Load folder icons from shell32.dll
             HMODULE hShell32 = LoadLibraryW(L"shell32.dll");
             if (hShell32) {
-                HICON hFolderClosed = (HICON)LoadImageW(hShell32, MAKEINTRESOURCEW(4), IMAGE_ICON, 16, 16, 0);
-                HICON hFolderOpen = (HICON)LoadImageW(hShell32, MAKEINTRESOURCEW(5), IMAGE_ICON, 16, 16, 0);
+                HICON hFolderClosed = (HICON)LoadImageW(hShell32, MAKEINTRESOURCEW(4), IMAGE_ICON, 32, 32, 0);
+                HICON hFolderOpen = (HICON)LoadImageW(hShell32, MAKEINTRESOURCEW(5), IMAGE_ICON, 32, 32, 0);
                 if (hFolderClosed) ImageList_AddIcon(hImageList, hFolderClosed);
                 if (hFolderOpen) ImageList_AddIcon(hImageList, hFolderOpen);
                 // Create a small badge icon (solid blue circle) programmatically
@@ -965,20 +1000,20 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
                 {
                     // Create 32-bit DIB section for icon
                     HDC hdc = GetDC(NULL);
-                    HBITMAP hBmp = CreateCompatibleBitmap(hdc, 16, 16);
+                    HBITMAP hBmp = CreateCompatibleBitmap(hdc, 32, 32);
                     HDC hMem = CreateCompatibleDC(hdc);
                     HBITMAP hOld = (HBITMAP)SelectObject(hMem, hBmp);
                     // Fill transparent background
-                    BLENDFUNCTION bf = {0};
                     HBRUSH hBrush = CreateSolidBrush(RGB(0,0,0));
-                    RECT rc = {0,0,16,16};
+                    RECT rc = {0,0,32,32};
                     FillRect(hMem, &rc, (HBRUSH)GetStockObject(NULL_BRUSH));
-                    // Draw a small blue filled circle
+                    // Draw a blue filled circle scaled to 32x32
                     HBRUSH hCircle = CreateSolidBrush(RGB(65,105,225));
                     HBRUSH hOldBrush = (HBRUSH)SelectObject(hMem, hCircle);
-                    Ellipse(hMem, 3, 3, 13, 13);
+                    Ellipse(hMem, 6, 6, 26, 26);
                     SelectObject(hMem, hOldBrush);
                     DeleteObject(hCircle);
+                    DeleteObject(hBrush);
 
                     ICONINFO ii = {};
                     ii.fIcon = TRUE;
@@ -1000,6 +1035,8 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
                 FreeLibrary(hShell32);
             }
             TreeView_SetImageList(s_hTreeView, hImageList, TVSIL_NORMAL);
+            // Ensure rows are tall enough for 32x32 icons
+            TreeView_SetItemHeight(s_hTreeView, 34);
         }
         
         // ListView on the right (current folder contents - files only) - child of main window
@@ -1042,26 +1079,10 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
             }
         }
         s_hProgramFilesRoot = AddTreeNode(s_hTreeView, TVI_ROOT, parentPath, L"");
-        // Root items are system roots - remove deletion checkboxes from them
-        if (s_hProgramFilesRoot) {
-            TVITEMW tv = {};
-            tv.hItem = s_hProgramFilesRoot;
-            tv.mask = TVIF_STATE;
-            tv.stateMask = TVIS_STATEIMAGEMASK;
-            tv.state = 0;
-            TreeView_SetItem(s_hTreeView, &tv);
-        }
         // If AskAtInstall mode enabled, create the special virtual root; otherwise create ProgramData and AppData
         if (s_askAtInstallEnabled) {
             s_hAskAtInstallRoot = AddTreeNode(s_hTreeView, TVI_ROOT, L"AskAtInstall", L"");
             if (s_hAskAtInstallRoot) {
-                // Remove checkbox state for system-like root
-                TVITEMW tv4 = {};
-                tv4.hItem = s_hAskAtInstallRoot;
-                tv4.mask = TVIF_STATE;
-                tv4.stateMask = TVIS_STATEIMAGEMASK;
-                tv4.state = 0;
-                TreeView_SetItem(s_hTreeView, &tv4);
                 // Assign badge icon (last image index)
                 TVITEMW itImg = {};
                 itImg.hItem = s_hAskAtInstallRoot;
@@ -1076,46 +1097,14 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
             if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_COMMON_APPDATA, NULL, 0, szPath))) {
                 std::wstring pdPath = szPath;
                     s_hProgramDataRoot = AddTreeNode(s_hTreeView, TVI_ROOT, L"ProgramData", pdPath);
-                    if (s_hProgramDataRoot) {
-                        TVITEMW tv2 = {};
-                        tv2.hItem = s_hProgramDataRoot;
-                        tv2.mask = TVIF_STATE;
-                        tv2.stateMask = TVIS_STATEIMAGEMASK;
-                        tv2.state = 0;
-                        TreeView_SetItem(s_hTreeView, &tv2);
-                    }
             } else {
                 s_hProgramDataRoot = AddTreeNode(s_hTreeView, TVI_ROOT, L"ProgramData", L"C:\\ProgramData");
-                if (s_hProgramDataRoot) {
-                    TVITEMW tv2 = {};
-                    tv2.hItem = s_hProgramDataRoot;
-                    tv2.mask = TVIF_STATE;
-                    tv2.stateMask = TVIS_STATEIMAGEMASK;
-                    tv2.state = 0;
-                    TreeView_SetItem(s_hTreeView, &tv2);
-                }
             }
             if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_APPDATA, NULL, 0, szPath))) {
                 std::wstring appdataPath = szPath;
                 s_hAppDataRoot = AddTreeNode(s_hTreeView, TVI_ROOT, L"AppData (Roaming)", appdataPath);
-                if (s_hAppDataRoot) {
-                    TVITEMW tv3 = {};
-                    tv3.hItem = s_hAppDataRoot;
-                    tv3.mask = TVIF_STATE;
-                    tv3.stateMask = TVIS_STATEIMAGEMASK;
-                    tv3.state = 0;
-                    TreeView_SetItem(s_hTreeView, &tv3);
-                }
             } else {
                 s_hAppDataRoot = AddTreeNode(s_hTreeView, TVI_ROOT, L"AppData (Roaming)", L"%APPDATA%");
-                if (s_hAppDataRoot) {
-                    TVITEMW tv3 = {};
-                    tv3.hItem = s_hAppDataRoot;
-                    tv3.mask = TVIF_STATE;
-                    tv3.stateMask = TVIS_STATEIMAGEMASK;
-                    tv3.state = 0;
-                    TreeView_SetItem(s_hTreeView, &tv3);
-                }
             }
         }
         TreeView_Expand(s_hTreeView, s_hProgramFilesRoot, TVE_EXPAND);
@@ -1129,6 +1118,8 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
             s_prevTreeProc = (WNDPROC)SetWindowLongPtrW(s_hTreeView, GWLP_WNDPROC, (LONG_PTR)TreeView_SubclassProc);
         }
         
+        // Sync Components button enabled state to match current tree content
+        UpdateComponentsButtonState(hwnd);
         break;
     }
     case 1: // Registry page
@@ -1172,10 +1163,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
             WS_CHILD | WS_VISIBLE | SS_LEFT,
             S(20), pageY + S(15), rc.right - S(40), S(38),
             hwnd, (HMENU)5100, hInst, NULL);
-        HFONT hTitleFont = CreateFontW(-S(24), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
-            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
-        if (hTitleFont) SendMessageW(hTitle, WM_SETFONT, (WPARAM)hTitleFont, TRUE);
+        if (s_hPageTitleFont) SendMessageW(hTitle, WM_SETFONT, (WPARAM)s_hPageTitleFont, TRUE);
         
         int currentY = pageY + S(55);
         
@@ -1406,10 +1394,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
             WS_CHILD | WS_VISIBLE | SS_LEFT,
             S(20), S(20), rc.right - S(40), S(38),
             s_hCurrentPage, NULL, hInst, NULL);
-        HFONT hTitleFont = CreateFontW(-S(24), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
-            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
-        if (hTitleFont) SendMessageW(hTitle, WM_SETFONT, (WPARAM)hTitleFont, TRUE);
+        if (s_hPageTitleFont) SendMessageW(hTitle, WM_SETFONT, (WPARAM)s_hPageTitleFont, TRUE);
         
         CreateWindowExW(0, L"STATIC", L"Shortcuts configuration to be implemented",
             WS_CHILD | WS_VISIBLE | SS_LEFT,
@@ -1430,10 +1415,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
             WS_CHILD | WS_VISIBLE | SS_LEFT,
             S(20), S(20), rc.right - S(40), S(38),
             s_hCurrentPage, NULL, hInst, NULL);
-        HFONT hTitleFont = CreateFontW(-S(24), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
-            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
-        if (hTitleFont) SendMessageW(hTitle, WM_SETFONT, (WPARAM)hTitleFont, TRUE);
+        if (s_hPageTitleFont) SendMessageW(hTitle, WM_SETFONT, (WPARAM)s_hPageTitleFont, TRUE);
         
         CreateWindowExW(0, L"STATIC", L"Dependencies management to be implemented",
             WS_CHILD | WS_VISIBLE | SS_LEFT,
@@ -1453,10 +1435,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
             WS_CHILD | WS_VISIBLE | SS_LEFT,
             S(20), S(20), rc.right - S(40), S(38),
             s_hCurrentPage, NULL, hInst, NULL);
-        HFONT hTitleFont = CreateFontW(-S(24), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
-            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
-        if (hTitleFont) SendMessageW(hTitle, WM_SETFONT, (WPARAM)hTitleFont, TRUE);
+        if (s_hPageTitleFont) SendMessageW(hTitle, WM_SETFONT, (WPARAM)s_hPageTitleFont, TRUE);
 
         CreateWindowExW(0, L"STATIC", L"Custom installer dialogs (welcome, license, finish, etc.) to be implemented",
             WS_CHILD | WS_VISIBLE | SS_LEFT,
@@ -1477,10 +1456,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
             WS_CHILD | WS_VISIBLE | SS_LEFT,
             S(20), S(20), rc.right - S(40), S(38),
             s_hCurrentPage, NULL, hInst, NULL);
-        HFONT hTitleFont = CreateFontW(-S(24), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
-            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
-        if (hTitleFont) SendMessageW(hTitle, WM_SETFONT, (WPARAM)hTitleFont, TRUE);
+        if (s_hPageTitleFont) SendMessageW(hTitle, WM_SETFONT, (WPARAM)s_hPageTitleFont, TRUE);
         
         CreateWindowExW(0, L"STATIC", L"Settings (License, OS requirements, etc.) to be implemented",
             WS_CHILD | WS_VISIBLE | SS_LEFT,
@@ -1501,10 +1477,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
             WS_CHILD | WS_VISIBLE | SS_LEFT,
             S(20), S(20), rc.right - S(40), S(38),
             s_hCurrentPage, NULL, hInst, NULL);
-        HFONT hTitleFont = CreateFontW(-S(24), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
-            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
-        if (hTitleFont) SendMessageW(hTitle, WM_SETFONT, (WPARAM)hTitleFont, TRUE);
+        if (s_hPageTitleFont) SendMessageW(hTitle, WM_SETFONT, (WPARAM)s_hPageTitleFont, TRUE);
         
         CreateWindowExW(0, L"STATIC", L"Build/compile functionality to be implemented",
             WS_CHILD | WS_VISIBLE | SS_LEFT,
@@ -1525,10 +1498,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
             WS_CHILD | WS_VISIBLE | SS_LEFT,
             S(20), S(20), rc.right - S(40), S(38),
             s_hCurrentPage, NULL, hInst, NULL);
-        HFONT hTitleFont = CreateFontW(-S(24), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
-            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
-        if (hTitleFont) SendMessageW(hTitle, WM_SETFONT, (WPARAM)hTitleFont, TRUE);
+        if (s_hPageTitleFont) SendMessageW(hTitle, WM_SETFONT, (WPARAM)s_hPageTitleFont, TRUE);
         
         CreateWindowExW(0, L"STATIC", L"Test functionality to be implemented",
             WS_CHILD | WS_VISIBLE | SS_LEFT,
@@ -1549,10 +1519,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
             WS_CHILD | WS_VISIBLE | SS_LEFT,
             S(20), S(20), rc.right - S(40), S(38),
             s_hCurrentPage, NULL, hInst, NULL);
-        HFONT hTitleFont = CreateFontW(-S(24), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
-            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
-        if (hTitleFont) SendMessageW(hTitle, WM_SETFONT, (WPARAM)hTitleFont, TRUE);
+        if (s_hPageTitleFont) SendMessageW(hTitle, WM_SETFONT, (WPARAM)s_hPageTitleFont, TRUE);
         
         CreateWindowExW(0, L"STATIC", L"Configure scripts and executables to run before/after installation",
             WS_CHILD | WS_VISIBLE | SS_LEFT,
@@ -1569,10 +1536,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
             WS_CHILD | WS_VISIBLE | SS_LEFT,
             S(20), pageY + S(15), rc.right - S(40), S(38),
             hwnd, NULL, hInst, NULL);
-        HFONT hCompTitleFont = CreateFontW(-S(24), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
-            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
-        if (hCompTitleFont) SendMessageW(hCompTitle, WM_SETFONT, (WPARAM)hCompTitleFont, TRUE);
+        if (s_hPageTitleFont) SendMessageW(hCompTitle, WM_SETFONT, (WPARAM)s_hPageTitleFont, TRUE);
 
         // Enable-components checkbox
         auto itEnable = s_locale.find(L"comp_enable");
@@ -2008,12 +1972,23 @@ void MainWindow::CreateStatusBar(HWND hwnd, HINSTANCE hInst) {
         hInst,
         NULL
     );
-    
-    // Set status bar text with project info
-    std::wstring statusText = L"Project: " + s_currentProject.name + 
+
+    // Split into two parts: project info (left) + save indicator (right)
+    RECT rcClient;
+    GetClientRect(hwnd, &rcClient);
+    int indW = S(120);
+    int parts[2] = { rcClient.right - indW, -1 };
+    SendMessageW(s_hStatus, SB_SETPARTS, 2, (LPARAM)parts);
+
+    // Part 0: project info text
+    std::wstring statusText = L"Project: " + s_currentProject.name +
                               L"  |  Version: " + s_currentProject.version +
                               L"  |  Directory: " + s_currentProject.directory;
     SendMessageW(s_hStatus, SB_SETTEXT, 0, (LPARAM)statusText.c_str());
+
+    // Part 1: owner-draw save indicator (starts as Saved since project was just loaded)
+    SendMessageW(s_hStatus, SB_SETTEXT, (WPARAM)(1 | SBT_OWNERDRAW), (LPARAM)0);
+
     if (s_scaledFont) SendMessageW(s_hStatus, WM_SETFONT, (WPARAM)s_scaledFont, TRUE);
 }
 
@@ -2719,14 +2694,12 @@ struct CompDlgData {
     int initRequired = 0;
     std::wstring initSourceType; // L"folder" or L"file"
     std::wstring initSourcePath;
-    std::wstring initDestPath;
     // Locale strings
     std::wstring titleText;
     std::wstring nameLabel;
     std::wstring descLabel;
     std::wstring requiredLabel;
     std::wstring sourceLabel;
-    std::wstring destLabel;
     std::wstring browseText;
     std::wstring okText;
     std::wstring cancelText;
@@ -2736,7 +2709,6 @@ struct CompDlgData {
     std::wstring outDesc;
     int outRequired = 0;
     std::wstring outSourcePath;
-    std::wstring outDestPath;
 };
 
 LRESULT CALLBACK CompEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -2785,15 +2757,6 @@ LRESULT CALLBACK CompEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
         CreateWindowExW(0, L"BUTTON", pData->browseText.c_str(),
             WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
             editX + editW - 80, y, 78, 28, hwnd, (HMENU)IDC_COMPDLG_BROWSE, hInst, NULL);
-        y += 38;
-
-        // Destination Path
-        CreateWindowExW(0, L"STATIC", pData->destLabel.c_str(),
-            WS_CHILD | WS_VISIBLE | SS_LEFT,
-            20, y, labelW, 24, hwnd, NULL, hInst, NULL);
-        CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", pData->initDestPath.c_str(),
-            WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL,
-            editX, y, editW, 28, hwnd, (HMENU)IDC_COMPDLG_DST, hInst, NULL);
         y += 48;
 
         // OK / Cancel
@@ -2838,13 +2801,6 @@ LRESULT CALLBACK CompEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
                     wchar_t folderPath[MAX_PATH];
                     if (SHGetPathFromIDListW(pidl, folderPath)) {
                         SetDlgItemTextW(hwnd, IDC_COMPDLG_SRC, folderPath);
-                        // Auto-fill dest if empty
-                        wchar_t dstBuf[MAX_PATH];
-                        GetDlgItemTextW(hwnd, IDC_COMPDLG_DST, dstBuf, MAX_PATH);
-                        if (wcslen(dstBuf) == 0) {
-                            const wchar_t *leaf = wcsrchr(folderPath, L'\\');
-                            SetDlgItemTextW(hwnd, IDC_COMPDLG_DST, leaf ? leaf + 1 : folderPath);
-                        }
                         // Auto-fill display name if empty
                         wchar_t nameBuf[256];
                         GetDlgItemTextW(hwnd, IDC_COMPDLG_NAME, nameBuf, 256);
@@ -2866,12 +2822,6 @@ LRESULT CALLBACK CompEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
                 ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
                 if (GetOpenFileNameW(&ofn)) {
                     SetDlgItemTextW(hwnd, IDC_COMPDLG_SRC, filePath);
-                    wchar_t dstBuf[MAX_PATH];
-                    GetDlgItemTextW(hwnd, IDC_COMPDLG_DST, dstBuf, MAX_PATH);
-                    if (wcslen(dstBuf) == 0) {
-                        const wchar_t *leaf = wcsrchr(filePath, L'\\');
-                        SetDlgItemTextW(hwnd, IDC_COMPDLG_DST, leaf ? leaf + 1 : filePath);
-                    }
                     wchar_t nameBuf[256];
                     GetDlgItemTextW(hwnd, IDC_COMPDLG_NAME, nameBuf, 256);
                     if (wcslen(nameBuf) == 0) {
@@ -2889,7 +2839,6 @@ LRESULT CALLBACK CompEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
             GetDlgItemTextW(hwnd, IDC_COMPDLG_DESC, buf, 512); pData->outDesc = buf;
             pData->outRequired = (SendDlgItemMessageW(hwnd, IDC_COMPDLG_REQUIRED, BM_GETCHECK, 0, 0) == BST_CHECKED) ? 1 : 0;
             GetDlgItemTextW(hwnd, IDC_COMPDLG_SRC, buf, 512); pData->outSourcePath = buf;
-            GetDlgItemTextW(hwnd, IDC_COMPDLG_DST, buf, 512); pData->outDestPath = buf;
             pData->okClicked = true;
             DestroyWindow(hwnd);
             return 0;
@@ -2980,6 +2929,20 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             ncm.lfMessageFont.lfCharSet = DEFAULT_CHARSET;
             s_scaledFont = CreateFontIndirectW(&ncm.lfMessageFont);
         }
+        // Page headline font: same system font family, ~150 % of body size, semi-bold.
+        // Using NONCLIENTMETRICS keeps it i18n-safe (correct glyph coverage on every locale).
+        if (!s_hPageTitleFont) {
+            NONCLIENTMETRICSW ncm = {};
+            ncm.cbSize = sizeof(ncm);
+            SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+            LOGFONTW lf = ncm.lfMessageFont; // start from the system UI font
+            if (lf.lfHeight < 0)
+                lf.lfHeight = (LONG)(lf.lfHeight * 1.5f); // ~150 % body size
+            lf.lfWeight  = FW_SEMIBOLD;
+            lf.lfQuality = CLEARTYPE_QUALITY;
+            lf.lfCharSet = DEFAULT_CHARSET;
+            s_hPageTitleFont = CreateFontIndirectW(&lf);
+        }
         s_hGuiFont = s_scaledFont; // alias so WM_CTLCOLORSTATIC drawing also uses it
         CreateMenuBar(hwnd);
         CreateToolbar(hwnd, hInst);
@@ -3004,6 +2967,13 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         
         if (s_hStatus) {
             SendMessageW(s_hStatus, WM_SIZE, 0, 0);
+            // Re-calculate part widths after resize
+            RECT rcStatus;
+            GetClientRect(s_hStatus, &rcStatus);
+            int indW = S(120);
+            int parts[2] = { rcStatus.right - indW, -1 };
+            SendMessageW(s_hStatus, SB_SETPARTS, 2, (LPARAM)parts);
+            SendMessageW(s_hStatus, SB_SETTEXT, (WPARAM)(1 | SBT_OWNERDRAW), (LPARAM)0);
         }
         
         // Reposition About icon to stay at far right of toolbar
@@ -3315,7 +3285,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             return 0;
             
         case IDC_TB_SAVE:
-            // TODO: Implement save functionality
+            SendMessageW(hwnd, WM_COMMAND, MAKEWPARAM(IDM_FILE_SAVE, 0), 0);
             return 0;
 
         case IDC_TB_EXIT:
@@ -3387,6 +3357,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                     }
                     
                     MarkAsModified();
+                    UpdateComponentsButtonState(hwnd);
                 }
                 CoTaskMemFree(pidl);
             }
@@ -3604,6 +3575,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 }
                 
                 MarkAsModified();
+                UpdateComponentsButtonState(hwnd);
             }
             return 0;
         }
@@ -3623,6 +3595,15 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             
             // Check if ListView has focus or has selected items
             if (hFocus == s_hListView || (s_hListView && IsWindow(s_hListView) && ListView_GetSelectedCount(s_hListView) > 0)) {
+                int selCount = ListView_GetSelectedCount(s_hListView);
+                if (selCount > 0) {
+                    std::wstring msg = L"Remove " + std::to_wstring(selCount) +
+                        (selCount == 1 ? L" selected file?" : L" selected files?");
+                    if (MessageBoxW(hwnd, msg.c_str(), L"Confirm Remove",
+                            MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) != IDYES) {
+                        return 0;
+                    }
+                }
                 // Remove all selected items from ListView
                 int count = ListView_GetItemCount(s_hListView);
                 for (int i = count - 1; i >= 0; i--) {
@@ -3639,76 +3620,66 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                         removedSomething = true;
                     }
                 }
-                if (removedSomething) return 0;
+                if (removedSomething) {
+                    UpdateComponentsButtonState(hwnd);
+                    return 0;
+                }
             }
             
-            // Check TreeView for checked items
+            // Remove selected item from TreeView (skips system roots)
             if (s_hTreeView && IsWindow(s_hTreeView)) {
-                // Function to recursively remove checked items
-                std::function<void(HTREEITEM)> RemoveCheckedItems;
-                RemoveCheckedItems = [&](HTREEITEM hItem) {
-                    while (hItem) {
-                        HTREEITEM hNext = TreeView_GetNextSibling(s_hTreeView, hItem);
-                        
-                        // Check children first
-                        HTREEITEM hChild = TreeView_GetChild(s_hTreeView, hItem);
-                        if (hChild) {
-                            RemoveCheckedItems(hChild);
-                        }
-                        
-                                // We'll collect checked items first to avoid deleting while iterating
-                                hItem = hNext;
+                HTREEITEM hSel = TreeView_GetSelection(s_hTreeView);
+                if (hSel &&
+                    hSel != s_hProgramFilesRoot && hSel != s_hProgramDataRoot &&
+                    hSel != s_hAppDataRoot      && hSel != s_hAskAtInstallRoot) {
+
+                    // Confirm if the node has children
+                    bool shouldDelete = true;
+                    wchar_t folderName[256] = {};
+                    TVITEMW tvItem = {};
+                    tvItem.mask = TVIF_TEXT;
+                    tvItem.hItem = hSel;
+                    tvItem.pszText = folderName;
+                    tvItem.cchTextMax = 256;
+                    TreeView_GetItem(s_hTreeView, &tvItem);
+                    if (TreeView_GetChild(s_hTreeView, hSel)) {
+                        std::wstring msg = L"'" + std::wstring(folderName) +
+                            L"' contains sub-folders.\n\nDelete it and all its contents?";
+                        shouldDelete = (MessageBoxW(hwnd, msg.c_str(), L"Confirm Remove",
+                            MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) == IDYES);
+                    } else {
+                        std::wstring msg = L"Remove '" + std::wstring(folderName) + L"'?";
+                        shouldDelete = (MessageBoxW(hwnd, msg.c_str(), L"Confirm Remove",
+                            MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) == IDYES);
                     }
-                        };
 
-                        // Collect all checked items starting from root(s)
-                        std::vector<HTREEITEM> toDelete;
-                        std::function<void(HTREEITEM)> CollectChecked = [&](HTREEITEM hItem) {
-                            while (hItem) {
-                                HTREEITEM hNext = TreeView_GetNextSibling(s_hTreeView, hItem);
-                                HTREEITEM hChild = TreeView_GetChild(s_hTreeView, hItem);
-                                if (hChild) CollectChecked(hChild);
-                                // Skip protected system roots
-                                if (hItem != s_hProgramFilesRoot && hItem != s_hProgramDataRoot && hItem != s_hAppDataRoot && hItem != s_hAskAtInstallRoot) {
-                                    if (TreeView_GetCheckState(s_hTreeView, hItem)) {
-                                        toDelete.push_back(hItem);
-                                    }
-                                }
-                                hItem = hNext;
+                    if (shouldDelete) {
+                        // Recursively clean up virtual folder files
+                        std::function<void(HTREEITEM)> CleanupVF = [&](HTREEITEM hItem) {
+                            s_virtualFolderFiles.erase(hItem);
+                            HTREEITEM hChild = TreeView_GetChild(s_hTreeView, hItem);
+                            while (hChild) {
+                                CleanupVF(hChild);
+                                hChild = TreeView_GetNextSibling(s_hTreeView, hChild);
                             }
                         };
+                        CleanupVF(hSel);
 
-                        HTREEITEM hRoot = TreeView_GetRoot(s_hTreeView);
-                        if (hRoot) CollectChecked(hRoot);
-
-                        for (HTREEITEM hDel : toDelete) {
-                            TVITEMW item = {};
-                            item.mask = TVIF_PARAM;
-                            item.hItem = hDel;
-                            TreeView_GetItem(s_hTreeView, &item);
-                            if (item.lParam) {
-                                wchar_t* path = (wchar_t*)item.lParam;
-                                free(path);
-                            }
-                            // Remove any virtual folder file entries associated with this item
-                            auto itvf = s_virtualFolderFiles.find(hDel);
-                            if (itvf != s_virtualFolderFiles.end()) s_virtualFolderFiles.erase(itvf);
-                            TreeView_DeleteItem(s_hTreeView, hDel);
-                            removedSomething = true;
-                        }
-
-                        if (removedSomething) {
-                            // Clear ListView since folders were removed
-                            if (s_hListView && IsWindow(s_hListView)) {
-                                ListView_DeleteAllItems(s_hListView);
-                            }
-                            return 0;
-                        }
+                        HTREEITEM hParent = TreeView_GetParent(s_hTreeView, hSel);
+                        bool wasUnderProgramFiles = (hParent == s_hProgramFilesRoot);
+                        TreeView_DeleteItem(s_hTreeView, hSel);
+                        if (s_hListView && IsWindow(s_hListView))
+                            ListView_DeleteAllItems(s_hListView);
+                        UpdateComponentsButtonState(hwnd);
+                        MarkAsModified();
+                        if (wasUnderProgramFiles) UpdateInstallPathFromTree(hwnd);
+                        return 0;
+                    }
+                    return 0;
+                }
             }
-            
-            MessageBoxW(hwnd, L"Please select items to remove:\n\n" 
-                        L"- In ListView: Click/Ctrl+Click files to select\n"
-                        L"- In TreeView: Check folders to remove", 
+
+            MessageBoxW(hwnd, L"Select a folder or file to remove first.",
                         L"Remove", MB_OK | MB_ICONINFORMATION);
             return 0;
         }
@@ -4659,7 +4630,6 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             dlgData.descLabel     = lstrC(L"comp_desc_label", L"Description:");
             dlgData.requiredLabel = lstrC(L"comp_required_label", L"Required (always installed)");
             dlgData.sourceLabel   = lstrC(L"comp_source_label", L"Source Path:");
-            dlgData.destLabel     = lstrC(L"comp_dest_label", L"Destination Path:");
             dlgData.browseText    = lstrC(L"comp_browse", L"Browse...");
             dlgData.okText        = lstrC(L"ok", L"OK");
             dlgData.cancelText    = lstrC(L"cancel", L"Cancel");
@@ -4675,7 +4645,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 RegisterClassExW(&wcComp);
             }
             RECT rcMain; GetWindowRect(hwnd, &rcMain);
-            int dlgW = 600, dlgH = 340;
+            int dlgW = 600, dlgH = 300;
             HWND hDlg = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
                 L"CompEditDialog", dlgData.titleText.c_str(),
                 WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
@@ -4695,7 +4665,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 comp.is_required  = dlgData.outRequired;
                 comp.source_type  = dlgData.initSourceType;
                 comp.source_path  = dlgData.outSourcePath;
-                comp.dest_path    = dlgData.outDestPath;
+                comp.dest_path    = L"";
                 DB::InsertComponent(comp);
                 SwitchPage(hwnd, 9);
                 MarkAsModified();
@@ -4722,13 +4692,11 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             dlgData2.initRequired   = cmp.is_required;
             dlgData2.initSourceType = cmp.source_type;
             dlgData2.initSourcePath = cmp.source_path;
-            dlgData2.initDestPath   = cmp.dest_path;
             dlgData2.titleText     = lstrE(L"comp_edit_title", L"Edit Component");
             dlgData2.nameLabel     = lstrE(L"comp_name_label", L"Display Name:");
             dlgData2.descLabel     = lstrE(L"comp_desc_label", L"Description:");
             dlgData2.requiredLabel = lstrE(L"comp_required_label", L"Required (always installed)");
             dlgData2.sourceLabel   = lstrE(L"comp_source_label", L"Source Path:");
-            dlgData2.destLabel     = lstrE(L"comp_dest_label", L"Destination Path:");
             dlgData2.browseText    = lstrE(L"comp_browse", L"Browse...");
             dlgData2.okText        = lstrE(L"ok", L"OK");
             dlgData2.cancelText    = lstrE(L"cancel", L"Cancel");
@@ -4744,7 +4712,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 RegisterClassExW(&wcComp2);
             }
             RECT rcMain2; GetWindowRect(hwnd, &rcMain2);
-            int dlgW2 = 600, dlgH2 = 340;
+            int dlgW2 = 600, dlgH2 = 300;
             HWND hDlg2 = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
                 L"CompEditDialog", dlgData2.titleText.c_str(),
                 WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
@@ -4762,7 +4730,6 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 updated.description  = dlgData2.outDesc;
                 updated.is_required  = dlgData2.outRequired;
                 updated.source_path  = dlgData2.outSourcePath;
-                updated.dest_path    = dlgData2.outDestPath;
                 DB::UpdateComponent(updated);
                 SwitchPage(hwnd, 9);
                 MarkAsModified();
@@ -4815,8 +4782,12 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 }
             }
 
+            // Persist ask-at-install preference
+            DB::SetSetting(L"ask_at_install_" + std::to_wstring(s_currentProject.id),
+                           s_askAtInstallEnabled ? L"1" : L"0");
+
             s_hasUnsavedChanges = false;
-            MessageBoxW(hwnd, L"Project saved.", L"Save", MB_OK | MB_ICONINFORMATION);
+            if (s_hStatus && IsWindow(s_hStatus)) InvalidateRect(s_hStatus, NULL, TRUE);
             return 0;
         }
             
@@ -4831,20 +4802,21 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                     // Cancel
                     return 0;
                 } else if (result == 1) {
-                    // Save - TODO: implement save
-                    MessageBoxW(hwnd, L"Save functionality to be implemented", L"Save", MB_OK | MB_ICONINFORMATION);
-                    return 0;
+                    // Save then close
+                    SendMessageW(hwnd, WM_COMMAND, MAKEWPARAM(IDM_FILE_SAVE, 0), 0);
+                    // fall through to return to entry screen
                 }
                 // result == 3: Don't Save — fall through to return to entry screen
             } else {
                 // No unsaved changes — simple close confirmation
-                if (!ShowQuitDialog(hwnd, s_locale)) {
+                if (!ShowCloseProjectDialog(hwnd, s_locale)) {
                     return 0;
                 }
             }
             // Return to entry screen
             HWND entryWindow = FindWindowW(L"SetupCraft_EntryScreen", NULL);
             if (entryWindow) {
+                EnableWindow(entryWindow, TRUE);  // was disabled when project opened
                 ShowWindow(entryWindow, SW_SHOW);
                 SetForegroundWindow(entryWindow);
             }
@@ -4906,6 +4878,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             
             s_rightClickedItem = NULL; // Clear the tracked item
             MarkAsModified();
+            UpdateComponentsButtonState(hwnd);
             return 0;
         }
         
@@ -4956,6 +4929,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                     
                     TreeView_DeleteItem(s_hTreeView, s_rightClickedItem);
                     MarkAsModified();
+                    UpdateComponentsButtonState(hwnd);
                     
                     // Update install path if folder was deleted from Program Files root
                     if (wasUnderProgramFiles) {
@@ -5145,7 +5119,11 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         // Make static controls have white background like the window
         HDC hdc = (HDC)wParam;
         HWND hControl = (HWND)lParam;
-        if (s_hGuiFont) SelectObject(hdc, s_hGuiFont);
+        if (GetDlgCtrlID(hControl) == 5100) {
+            if (s_hPageTitleFont) SelectObject(hdc, s_hPageTitleFont);
+        } else {
+            if (s_hGuiFont) SelectObject(hdc, s_hGuiFont);
+        }
         
         // Special handling for install folder - dark blue text
         if (GetDlgCtrlID(hControl) == IDC_INSTALL_FOLDER) {
@@ -5193,11 +5171,11 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 // Cancel
                 return 0;
             } else if (result == 1) {
-                // Save - TODO
-                MessageBoxW(hwnd, L"Save functionality to be implemented", L"Save", MB_OK | MB_ICONINFORMATION);
-                return 0;
+                // Save then exit
+                SendMessageW(hwnd, WM_COMMAND, MAKEWPARAM(IDM_FILE_SAVE, 0), 0);
+                // fall through to destroy
             }
-            // result == 2 (Don't Save) — exit the whole app
+            // result == 2 (Don't Save) — exit without saving
         } else {
             if (!ShowQuitDialog(hwnd, s_locale)) {
                 return 0;
@@ -5214,6 +5192,22 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
     
     case WM_DRAWITEM: {
         LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
+        // Draw the save indicator part of the status bar
+        if (dis->CtlID == IDC_STATUS_BAR && (int)dis->itemID == 1) {
+            bool saved = !s_hasUnsavedChanges;
+            // Fill with normal status bar background
+            HBRUSH hBr = GetSysColorBrush(COLOR_3DFACE);
+            FillRect(dis->hDC, &dis->rcItem, hBr);
+            SetBkMode(dis->hDC, TRANSPARENT);
+            // Colored text only
+            SetTextColor(dis->hDC, saved ? RGB(30, 150, 70) : RGB(190, 40, 30));
+            const wchar_t *label = saved ? L"\u2714  Saved" : L"\u25CF  Unsaved";
+            if (s_hGuiFont) SelectObject(dis->hDC, s_hGuiFont);
+            DrawTextW(dis->hDC, label, -1, const_cast<RECT*>(&dis->rcItem),
+                      DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+            return TRUE;
+        }
+
         // Handle custom button drawing for toolbar buttons and page buttons
         // Note: IDC_TB_ABOUT is now a static icon, not a button, so exclude it
         if ((dis->CtlID >= IDC_TB_FILES && dis->CtlID <= IDC_TB_SAVE) || dis->CtlID == IDC_TB_DIALOGS || dis->CtlID == IDC_TB_COMPONENTS || dis->CtlID == IDC_TB_EXIT ||

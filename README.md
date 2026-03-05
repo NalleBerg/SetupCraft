@@ -2,7 +2,7 @@
 
 An installer creation tool for making your developed packages distributable. Designed to be simple to use with a clean, native Windows interface.
 
-**Current Release:** Version 2026.03.04.12 (Published: 04.03.2026 12:05)
+**Current Release:** Version 2026.03.05.09 (Published: 05.03.2026 09:33)
 
 > Note: This project is in active development. Entry screen and main window Files management page are complete with proper page switching.
 
@@ -10,10 +10,14 @@ An installer creation tool for making your developed packages distributable. Des
 
 - **DPI-Aware Scaling**: Full per-monitor DPI support via `S()` helper — all pixel values, fonts, and tooltip dimensions scale correctly at any DPI (100%, 125%, 150%, 175%, 200%+)
 - **Consistent Body Font**: All labels, edits, checkboxes, TreeViews, and ListViews use a system-derived `NONCLIENTMETRICS` font at 120% scale for clear, legible text on every screen
-- **Bold Page Titles**: Each page has a prominent `S(24)` bold heading (*Files Management*, *Registry*, *Shortcuts*, etc.) so navigation context is always clear
+- **Bold Page Titles**: Each page has a prominent semi-bold heading rendered with a dedicated `s_hPageTitleFont` (150% NONCLIENTMETRICS) — correctly applied via `WM_CTLCOLORSTATIC` ID check so the body-font override no longer clobbers it
 - **Two-Row Toolbar**: 11 buttons in two compact rows — Row 1: Files, Components, Registry, Shortcuts, Dependencies, Dialogs; Row 2: Settings, Build, Test, Scripts, Save. About «i» icon centered vertically at the right end
 - **Components Page**: Full component-based installation page — enable/disable toggle, Add Folder/Add File/Edit/Remove actions, tabular ListView (6 columns), modal edit dialog with auto-fill, DB-backed persistence. Default OFF so projects install as one package unless the developer opts in
-- **Files Management**: Split-pane interface with TreeView (folder hierarchy with 19px indentation) and ListView (file display) for visual file selection
+- **Components Button Auto-Enable**: Toolbar Components button is grayed out until at least one file/folder exists on the Files page
+- **Files Management**: Split-pane interface with TreeView (32×32 folder icons, 34 px row height) and ListView for visual file selection. Remove confirms before deleting — leaf nodes and file selections both prompt
+- **Selection-Based Remove**: TreeView uses plain blue selection highlight (no checkboxes). Remove deletes the selected item with a per-item or recursive confirmation dialog
+- **Saved/Unsaved Indicator**: Owner-drawn right section of the status bar shows green ✔ Saved or red ● Unsaved, updating instantly on every change and on save
+- **Persistent Ask-at-Install**: "Ask end user at install" checkbox state stored per-project via `DB::SetSetting` and restored on project open
 - **Registry Management**: Complete Windows Registry integration page for Add/Remove Programs registration with icon preview and registry path navigation
 - **Registry Backup System**: "Create Restore Point" button creates Windows System Restore Point before registry edits with animated spinner dialog
 - **Registry Warning Tooltip**: Custom tooltip with light yellow background matching globe icon style, explains risks and recommends restore point creation
@@ -34,16 +38,15 @@ An installer creation tool for making your developed packages distributable. Des
 - **Install Path Display**: Read-only dark blue install path display that reflects actual folder structure
 - **Context Menus**: Right-click options for creating and removing folders with confirmation dialogs
 - **Add Folder/Files**: Buttons to add existing folders or individual files with automatic folder structure creation
-- **Multi-Select Support**: Ctrl/Shift selection in ListView for files, checkboxes in TreeView for folders
-- **Remove Functionality**: Delete individual or multiple files/folders with proper memory cleanup and virtual folder cleanup
 - **File Type Icons**: System icons for all file types (exe, dll, txt, md, png, etc.) with transparent backgrounds
 - **Multilingual Support**: 20 languages with native translations (Norwegian, English, Greek, Spanish, German, French, Italian, Dutch, and more)
 - **SQLite Database**: Project configurations stored in `%APPDATA%\SetupCraft\SetupCraft.db`
 - **Native Windows UI**: Clean interface using Windows system icons and native styling
 - **Project Management**: Create, open, and delete installation projects
 - **Intuitive Design**: Globe icon with multilingual tooltip showing all available languages
-- **Professional Quit System**: Confirmation dialog with Yes/No buttons - triggered by Exit button, X button, or Ctrl+W keyboard shortcut
-- **Unsaved Changes Warning**: Custom 3-button dialog (Save/Don't Save/Cancel) warns before closing projects with unsaved changes
+- **Professional Quit System**: Confirmation dialog with Yes/No buttons - triggered by Exit button, X button, or Ctrl+W keyboard shortcut. Close Project shows a dedicated "Do you want to close this project?" dialog (i18n-ready)
+- **Unsaved Changes Warning**: Custom 3-button dialog (Save/Don't Save/Cancel) warns before closing projects with unsaved changes — Save branch now actually saves
+- **Entry Screen Restored Correctly**: Returning to the entry screen after closing a project re-enables it (was frozen/non-interactive)
 - **About Icon Functionality**: Clickable About (i) icons on both entry screen and main window with tooltip support - WM_LBUTTONDOWN handler for reliable click detection
 - **Keyboard Shortcuts**: Ctrl+W for quick exit with confirmation, F7 for Build, F5 for Test
 

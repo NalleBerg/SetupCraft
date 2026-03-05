@@ -188,6 +188,16 @@ bool ShowQuitDialog(HWND hwndParent, const std::map<std::wstring, std::wstring>&
     return g_quitDialogResult;
 }
 
+bool ShowCloseProjectDialog(HWND hwndParent, const std::map<std::wstring, std::wstring>& locale) {
+    // Reuse the quit dialog but with close-project specific strings
+    std::map<std::wstring, std::wstring> patched = locale;
+    auto itTitle = locale.find(L"close_project_title");
+    auto itMsg   = locale.find(L"close_project_message");
+    patched[L"quit_title"]   = (itTitle != locale.end()) ? itTitle->second : L"Close Project";
+    patched[L"quit_message"] = (itMsg   != locale.end()) ? itMsg->second   : L"Do you want to close this project?";
+    return ShowQuitDialog(hwndParent, patched);
+}
+
 bool IsCtrlWPressed(UINT msg, WPARAM wParam) {
     if (msg == WM_KEYDOWN && wParam == 'W') {
         return (GetKeyState(VK_CONTROL) & 0x8000) != 0;

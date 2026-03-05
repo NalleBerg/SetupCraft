@@ -31,6 +31,7 @@ private:
     static void PopulateTreeView(HWND hTree, const std::wstring &rootPath, const std::wstring &installPath);
     static void PopulateListView(HWND hList, const std::wstring &folderPath);
     static void UpdateInstallPathFromTree(HWND hwnd);
+    static void UpdateComponentsButtonState(HWND hwnd);
     static HTREEITEM AddTreeNode(HWND hTree, HTREEITEM hParent, const std::wstring &text, const std::wstring &fullPath);
     static void AddTreeNodeRecursive(HWND hTree, HTREEITEM hParent, const std::wstring &folderPath);
     

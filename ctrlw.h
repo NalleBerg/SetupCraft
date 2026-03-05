@@ -8,6 +8,7 @@
 // Show a quit confirmation dialog
 // Returns true if user confirms quit, false otherwise
 bool ShowQuitDialog(HWND hwndParent, const std::map<std::wstring, std::wstring>& locale);
+bool ShowCloseProjectDialog(HWND hwndParent, const std::map<std::wstring, std::wstring>& locale);
 
 // Show unsaved changes dialog
 // Returns: 0 = Cancel, 1 = Save, 2 = Don't Save

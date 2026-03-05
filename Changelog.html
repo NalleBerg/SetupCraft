@@ -1,8 +1,23 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 04 March 2026<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 05 March 2026<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
 
-<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.04.12</span></h3>
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.05.09</span></h3>
+<p><strong>UX polish, bug fixes &amp; persistence improvements (05.03.2026, 09:33):</strong></p>
+<ul>
+<li><strong>TreeView checkboxes removed:</strong> <code>TVS_CHECKBOXES</code> style and all seven <code>TVIS_STATEIMAGEMASK</code> root-clearing blocks removed. Selection is now plain blue highlight. Remove button deletes the selected item and asks for confirmation on every delete — leaf nodes show &laquo;Remove &lsquo;name&rsquo;?&raquo; and branch nodes show &laquo;contains sub-folders — delete and all contents?&raquo;. ListView file removal also prompts &laquo;Remove N selected file(s)?&raquo; before deleting.</li>
+<li><strong>Page headline font fixed:</strong> <code>WM_CTLCOLORSTATIC</code> was unconditionally selecting the body font for all statics, overriding the larger semi-bold title font set via <code>WM_SETFONT</code>. Fixed by checking <code>GetDlgCtrlID == 5100</code> and selecting <code>s_hPageTitleFont</code> for title controls only.</li>
+<li><strong>Save button actually saves:</strong> <code>IDC_TB_SAVE</code> toolbar handler was a <code>// TODO</code> stub with <code>return 0</code>. It now forwards to <code>IDM_FILE_SAVE</code> which persists all virtual folder files to the database.</li>
+<li><strong>Unsaved-changes dialog Save branch fixed:</strong> The &laquo;Save&raquo; choice in both <code>WM_CLOSE</code> and <code>IDM_FILE_CLOSE</code> unsaved-changes dialogs was another <code>// TODO</code> stub that returned without saving. Both now call <code>IDM_FILE_SAVE</code> and then continue to close/exit.</li>
+<li><strong>Saved / Unsaved status bar indicator:</strong> The status bar is split into two parts. The right part is owner-drawn: green &laquo;&#x2714;&nbsp;Saved&raquo; when clean, red &laquo;&#x25CF;&nbsp;Unsaved&raquo; after any change. Updates instantly on save and on every <code>MarkAsModified()</code> call. Re-calculates part widths on <code>WM_SIZE</code>. The blocking &laquo;Project saved.&raquo; <code>MessageBox</code> was removed.</li>
+<li><strong>TreeView folder icons doubled:</strong> Image list size bumped from 16&times;16 to 32&times;32. Both shell32.dll folder icons (closed/open) and the badge circle loaded/drawn at 32&times;32. <code>TreeView_SetItemHeight(34)</code> gives icons breathing room.</li>
+<li><strong>Close Project confirmation:</strong> Closing a project (no unsaved changes) now shows &laquo;Do you want to close this project?&raquo; via a new <code>ShowCloseProjectDialog</code> helper rather than the generic quit dialog. Title and message come from new <code>close_project_title</code> / <code>close_project_message</code> locale keys (added to <code>en_GB.txt</code>; other locales fall back to English until translated).</li>
+<li><strong>Entry screen freeze fixed:</strong> When a project was opened, <code>EnableWindow(entryHwnd, FALSE)</code> was called but never reversed on return — the entry screen appeared but was non-interactive. <code>EnableWindow(entryWindow, TRUE)</code> is now called before <code>ShowWindow</code> in the close path.</li>
+<li><strong>Ask-at-install checkbox persisted:</strong> The &laquo;Ask end user at install (Per-user / All-users)&raquo; checkbox state was held only in memory and lost on project close. It is now saved via <code>DB::SetSetting(L&quot;ask_at_install_&lt;id&gt;&quot;, ...)</code> on every Save and restored via <code>DB::GetSetting</code> when the project is opened.</li>
+</ul>
+
+<h3 style="text-align: center;">&nbsp;</h3>
+
 <p><strong>Components page &mdash; full implementation (04.03.2026, 12:05):</strong></p>
 <ul>
 <li><strong>Components page activated:</strong> The former stub (case&nbsp;9) is replaced with a fully functional page. All controls are direct children of the main window (same pattern as the Registry page) so <code>WM_DRAWITEM</code> reaches them without an intermediate container.</li>

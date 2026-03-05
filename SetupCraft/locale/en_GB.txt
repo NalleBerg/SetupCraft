@@ -19,6 +19,8 @@ col_last_updated=Last Updated
 
 quit_title=Exit SetupCraft
 quit_message=Are you sure you want to quit?
+close_project_title=Close Project
+close_project_message=Do you want to close this project?
 close_unsaved_title=Unsaved Changes
 close_unsaved_message=You have unsaved changes. Do you want to save before closing?
 save=Save
