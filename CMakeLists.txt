@@ -37,6 +37,8 @@ target_link_libraries(SkeletonApp
     gdiplus
     shell32
     shlwapi
+    ole32
+    uuid
 )
 
 target_compile_definitions(SkeletonApp PRIVATE UNICODE _UNICODE)

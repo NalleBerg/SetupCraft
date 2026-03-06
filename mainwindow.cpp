@@ -3,6 +3,7 @@
 #include <commctrl.h>
 #include <shlwapi.h>
 #include <shlobj.h>
+#include <shobjidl.h>
 #include <shellapi.h>
 #include <windowsx.h>
 #include <functional>
@@ -75,13 +76,14 @@ static std::wstring GetProgramFilesFolderName() {
     return (pos != std::wstring::npos) ? full.substr(pos + 1) : full;
 }
 
-// Store files added to virtual folders (keyed by HTREEITEM)
-struct VirtualFolderFile {
-    std::wstring sourcePath;
-    std::wstring destination;
-    std::wstring install_scope; // e.g., "AskAtInstall", "PerUser", "AllUsers"
-};
+// Per-node virtual-file map (keyed by live HTREEITEM; rebuilt from snapshot on restore)
 static std::map<HTREEITEM, std::vector<VirtualFolderFile>> s_virtualFolderFiles;
+
+// Recursive snapshot of the Files-page tree (persists across page switches)
+static std::vector<TreeNodeSnapshot> s_treeSnapshot_ProgramFiles;
+static std::vector<TreeNodeSnapshot> s_treeSnapshot_ProgramData;
+static std::vector<TreeNodeSnapshot> s_treeSnapshot_AppData;
+static std::vector<TreeNodeSnapshot> s_treeSnapshot_AskAtInstall;
 
 // Registry entry structure
 struct RegistryEntry {
@@ -146,8 +148,7 @@ static bool s_filesPageHasContent = false; // tracks whether Files page has any 
 // Components page control IDs
 #define IDC_COMP_ENABLE       5060
 #define IDC_COMP_LISTVIEW     5061
-#define IDC_COMP_ADD_FOLDER   5062
-#define IDC_COMP_ADD_FILE     5063
+#define IDC_COMP_ADD          5062
 #define IDC_COMP_EDIT         5064
 #define IDC_COMP_REMOVE       5065
 
@@ -279,6 +280,12 @@ HWND MainWindow::Create(HINSTANCE hInstance, const ProjectRow &project, const st
     s_hasUnsavedChanges = false;
     s_isNewUnsavedProject = false;
     s_askAtInstallEnabled = false;
+    s_treeSnapshot_ProgramFiles.clear();
+    s_treeSnapshot_ProgramData.clear();
+    s_treeSnapshot_AppData.clear();
+    s_treeSnapshot_AskAtInstall.clear();
+    s_virtualFolderFiles.clear();
+    s_filesPageHasContent = false;
     s_currentProject = project;
     s_locale = locale;
 
@@ -766,7 +773,64 @@ static void CreateTemplateRegistryTree(HWND hTreeView, const std::wstring& proje
 }
 
 
+// ---------------------------------------------------------------------------
+// Helpers: recursively snapshot / restore the Files-page TreeView so that
+// the full folder hierarchy (including virtual folders) survives page switches.
+// ---------------------------------------------------------------------------
+void MainWindow::SaveTreeSnapshot(HWND hTree, HTREEITEM hParent,
+                                  std::vector<TreeNodeSnapshot> &out)
+{
+    HTREEITEM hChild = TreeView_GetChild(hTree, hParent);
+    while (hChild) {
+        TreeNodeSnapshot snap;
+        wchar_t buf[1024] = {};
+        TVITEMW tvi = {};
+        tvi.mask      = TVIF_TEXT | TVIF_PARAM;
+        tvi.hItem     = hChild;
+        tvi.pszText   = buf;
+        tvi.cchTextMax = 1023;
+        TreeView_GetItem(hTree, &tvi);
+        snap.text     = buf;
+        snap.fullPath = tvi.lParam ? reinterpret_cast<wchar_t *>(tvi.lParam) : L"";
+        auto it = s_virtualFolderFiles.find(hChild);
+        if (it != s_virtualFolderFiles.end())
+            snap.virtualFiles = it->second;
+        SaveTreeSnapshot(hTree, hChild, snap.children);
+        out.push_back(std::move(snap));
+        hChild = TreeView_GetNextSibling(hTree, hChild);
+    }
+}
+
+void MainWindow::RestoreTreeSnapshot(HWND hTree, HTREEITEM hParent,
+                                     const std::vector<TreeNodeSnapshot> &nodes)
+{
+    for (const auto &snap : nodes) {
+        HTREEITEM hNew = AddTreeNode(hTree, hParent, snap.text, snap.fullPath);
+        if (!snap.virtualFiles.empty())
+            s_virtualFolderFiles[hNew] = snap.virtualFiles;
+        if (!snap.children.empty())
+            RestoreTreeSnapshot(hTree, hNew, snap.children);
+    }
+    // Expand the parent so the restored children are visible
+    if (!nodes.empty())
+        TreeView_Expand(hTree, hParent, TVE_EXPAND);
+}
+// ---------------------------------------------------------------------------
+
 void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
+    // Snapshot Files page tree before tearing it down so we can restore it
+    // (including virtual folders and full hierarchy) when we return.
+    if (s_currentPageIndex == 0 && s_hTreeView && IsWindow(s_hTreeView)) {
+        s_treeSnapshot_ProgramFiles.clear();
+        s_treeSnapshot_ProgramData.clear();
+        s_treeSnapshot_AppData.clear();
+        s_treeSnapshot_AskAtInstall.clear();
+        if (s_hProgramFilesRoot) SaveTreeSnapshot(s_hTreeView, s_hProgramFilesRoot, s_treeSnapshot_ProgramFiles);
+        if (s_hProgramDataRoot)  SaveTreeSnapshot(s_hTreeView, s_hProgramDataRoot,  s_treeSnapshot_ProgramData);
+        if (s_hAppDataRoot)      SaveTreeSnapshot(s_hTreeView, s_hAppDataRoot,       s_treeSnapshot_AppData);
+        if (s_hAskAtInstallRoot) SaveTreeSnapshot(s_hTreeView, s_hAskAtInstallRoot,  s_treeSnapshot_AskAtInstall);
+        UpdateComponentsButtonState(hwnd);
+    }
     // Destroy previous page content
     if (s_hCurrentPage) {
         DestroyWindow(s_hCurrentPage);
@@ -789,7 +853,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         IDC_REG_CHECKBOX, IDC_REG_ICON_PREVIEW, IDC_REG_ADD_ICON, IDC_REG_DISPLAY_NAME,
         IDC_REG_VERSION, IDC_REG_PUBLISHER, IDC_REG_ADD_KEY, IDC_REG_ADD_VALUE, IDC_REG_EDIT, IDC_REG_REMOVE, IDC_REG_BACKUP,
         IDC_REG_SHOW_REGKEY, IDC_REG_WARNING_ICON, IDC_REG_TREEVIEW, IDC_REG_LISTVIEW,
-        IDC_COMP_ENABLE, IDC_COMP_LISTVIEW, IDC_COMP_ADD_FOLDER, IDC_COMP_ADD_FILE, IDC_COMP_EDIT, IDC_COMP_REMOVE,
+        IDC_COMP_ENABLE, IDC_COMP_LISTVIEW, IDC_COMP_ADD, IDC_COMP_EDIT, IDC_COMP_REMOVE,
         5100, 5101, 5102, 5103, 5104, 5105, 5106, 5107, 5108, 5109, 5110 // Labels and other static controls
     };
     
@@ -1109,8 +1173,20 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         }
         TreeView_Expand(s_hTreeView, s_hProgramFilesRoot, TVE_EXPAND);
         
-        // Populate TreeView with source folder structure if available
-        if (!s_currentProject.directory.empty()) {
+        // Populate TreeView: restore snapshot if one exists (preserves full hierarchy
+        // + virtual folders), otherwise populate fresh from disk.
+        bool hasSnapshot = !s_treeSnapshot_ProgramFiles.empty() ||
+                           !s_treeSnapshot_ProgramData.empty()  ||
+                           !s_treeSnapshot_AppData.empty()       ||
+                           !s_treeSnapshot_AskAtInstall.empty();
+        if (hasSnapshot) {
+            // Drop stale HTREEITEM keys; restore will re-populate with fresh keys.
+            s_virtualFolderFiles.clear();
+            if (s_hProgramFilesRoot) RestoreTreeSnapshot(s_hTreeView, s_hProgramFilesRoot, s_treeSnapshot_ProgramFiles);
+            if (s_hProgramDataRoot)  RestoreTreeSnapshot(s_hTreeView, s_hProgramDataRoot,  s_treeSnapshot_ProgramData);
+            if (s_hAppDataRoot)      RestoreTreeSnapshot(s_hTreeView, s_hAppDataRoot,       s_treeSnapshot_AppData);
+            if (s_hAskAtInstallRoot) RestoreTreeSnapshot(s_hTreeView, s_hAskAtInstallRoot,  s_treeSnapshot_AskAtInstall);
+        } else if (!s_currentProject.directory.empty()) {
             PopulateTreeView(s_hTreeView, s_currentProject.directory, defaultPath);
         }
         // Subclass TreeView so we can show tooltip on hover
@@ -1118,8 +1194,21 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
             s_prevTreeProc = (WNDPROC)SetWindowLongPtrW(s_hTreeView, GWLP_WNDPROC, (LONG_PTR)TreeView_SubclassProc);
         }
         
-        // Sync Components button enabled state to match current tree content
-        UpdateComponentsButtonState(hwnd);
+        // Sync Components button: only upgrade (never downgrade) so navigating back
+        // to a temporarily-empty tree doesn't disable an already-enabled button.
+        {
+            bool treeHasContent = false;
+            if (!treeHasContent) {
+                HTREEITEM roots[] = { s_hProgramFilesRoot, s_hProgramDataRoot,
+                                      s_hAppDataRoot, s_hAskAtInstallRoot };
+                for (HTREEITEM hR : roots) {
+                    if (hR && TreeView_GetChild(s_hTreeView, hR)) { treeHasContent = true; break; }
+                }
+            }
+            if (treeHasContent) s_filesPageHasContent = true;
+            HWND hBtn = GetDlgItem(hwnd, IDC_TB_COMPONENTS);
+            if (hBtn) EnableWindow(hBtn, s_filesPageHasContent ? TRUE : FALSE);
+        }
         break;
     }
     case 1: // Registry page
@@ -1562,24 +1651,20 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
             S(20), pageY + S(124), rc.right - S(40), S(2),
             hwnd, NULL, hInst, NULL);
 
-        // Button row: Add Folder, Add File, Edit, Remove
-        auto itAddFolder = s_locale.find(L"comp_add_folder");
-        std::wstring addFolderTxt = (itAddFolder != s_locale.end()) ? itAddFolder->second : L"Add Folder";
-        auto itAddFile = s_locale.find(L"comp_add_file");
-        std::wstring addFileTxt = (itAddFile != s_locale.end()) ? itAddFile->second : L"Add File";
+        // Button row: Add Files/Folders, Edit, Remove
+        auto itAddComp = s_locale.find(L"comp_add");
+        std::wstring addCompTxt = (itAddComp != s_locale.end()) ? itAddComp->second : L"Add Files / Folders";
         auto itEditBtn = s_locale.find(L"comp_edit");
         std::wstring editTxt = (itEditBtn != s_locale.end()) ? itEditBtn->second : L"Edit";
         auto itRemoveBtn = s_locale.find(L"comp_remove");
         std::wstring removeTxt = (itRemoveBtn != s_locale.end()) ? itRemoveBtn->second : L"Remove";
 
-        CreateCustomButtonWithIcon(hwnd, IDC_COMP_ADD_FOLDER, addFolderTxt.c_str(), ButtonColor::Blue,
-            L"shell32.dll", 3, S(20), pageY + S(134), S(130), S(34), hInst);
-        CreateCustomButtonWithIcon(hwnd, IDC_COMP_ADD_FILE, addFileTxt.c_str(), ButtonColor::Blue,
-            L"imageres.dll", 2, S(160), pageY + S(134), S(120), S(34), hInst);
+        CreateCustomButtonWithIcon(hwnd, IDC_COMP_ADD, addCompTxt.c_str(), ButtonColor::Blue,
+            L"shell32.dll", 4, S(20), pageY + S(134), S(180), S(34), hInst);
         CreateCustomButtonWithIcon(hwnd, IDC_COMP_EDIT, editTxt.c_str(), ButtonColor::Blue,
-            L"imageres.dll", 109, S(290), pageY + S(134), S(100), S(34), hInst);
+            L"imageres.dll", 109, S(210), pageY + S(134), S(100), S(34), hInst);
         CreateCustomButtonWithIcon(hwnd, IDC_COMP_REMOVE, removeTxt.c_str(), ButtonColor::Red,
-            L"shell32.dll", 131, S(400), pageY + S(134), S(110), S(34), hInst);
+            L"shell32.dll", 131, S(320), pageY + S(134), S(110), S(34), hInst);
 
         // ListView
         s_hCompListView = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEW, L"",
@@ -1657,11 +1742,10 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
 
         // Grey out action controls if components are not enabled
         bool compEnabled = (s_currentProject.use_components != 0);
-        EnableWindow(GetDlgItem(hwnd, IDC_COMP_ADD_FOLDER), compEnabled ? TRUE : FALSE);
-        EnableWindow(GetDlgItem(hwnd, IDC_COMP_ADD_FILE),   compEnabled ? TRUE : FALSE);
-        EnableWindow(GetDlgItem(hwnd, IDC_COMP_EDIT),       compEnabled ? TRUE : FALSE);
-        EnableWindow(GetDlgItem(hwnd, IDC_COMP_REMOVE),     compEnabled ? TRUE : FALSE);
-        EnableWindow(s_hCompListView,                        compEnabled ? TRUE : FALSE);
+        EnableWindow(GetDlgItem(hwnd, IDC_COMP_ADD),    compEnabled ? TRUE : FALSE);
+        EnableWindow(GetDlgItem(hwnd, IDC_COMP_EDIT),   compEnabled ? TRUE : FALSE);
+        EnableWindow(GetDlgItem(hwnd, IDC_COMP_REMOVE), compEnabled ? TRUE : FALSE);
+        EnableWindow(s_hCompListView,                   compEnabled ? TRUE : FALSE);
 
         break;
     }
@@ -4608,68 +4692,77 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             int checked = (hChk && SendMessageW(hChk, BM_GETCHECK, 0, 0) == BST_CHECKED) ? 1 : 0;
             s_currentProject.use_components = checked;
             DB::UpdateProject(s_currentProject);
-            EnableWindow(GetDlgItem(hwnd, IDC_COMP_ADD_FOLDER), checked ? TRUE : FALSE);
-            EnableWindow(GetDlgItem(hwnd, IDC_COMP_ADD_FILE),   checked ? TRUE : FALSE);
-            EnableWindow(GetDlgItem(hwnd, IDC_COMP_EDIT),       checked ? TRUE : FALSE);
-            EnableWindow(GetDlgItem(hwnd, IDC_COMP_REMOVE),     checked ? TRUE : FALSE);
+            EnableWindow(GetDlgItem(hwnd, IDC_COMP_ADD),    checked ? TRUE : FALSE);
+            EnableWindow(GetDlgItem(hwnd, IDC_COMP_EDIT),   checked ? TRUE : FALSE);
+            EnableWindow(GetDlgItem(hwnd, IDC_COMP_REMOVE), checked ? TRUE : FALSE);
             if (s_hCompListView) EnableWindow(s_hCompListView, checked ? TRUE : FALSE);
             return 0;
         }
 
-        case IDC_COMP_ADD_FOLDER:
-        case IDC_COMP_ADD_FILE: {
+        case IDC_COMP_ADD: {
             if (s_currentProject.id <= 0) return 0;
-            const bool isFolder = (wmId == IDC_COMP_ADD_FOLDER);
-            auto lstrC = [&](const wchar_t *key, const wchar_t *fb) -> std::wstring {
-                auto itC = s_locale.find(key); return (itC != s_locale.end()) ? itC->second : fb;
-            };
-            CompDlgData dlgData;
-            dlgData.initSourceType = isFolder ? L"folder" : L"file";
-            dlgData.titleText     = lstrC(L"comp_add_title", L"Add Component");
-            dlgData.nameLabel     = lstrC(L"comp_name_label", L"Display Name:");
-            dlgData.descLabel     = lstrC(L"comp_desc_label", L"Description:");
-            dlgData.requiredLabel = lstrC(L"comp_required_label", L"Required (always installed)");
-            dlgData.sourceLabel   = lstrC(L"comp_source_label", L"Source Path:");
-            dlgData.browseText    = lstrC(L"comp_browse", L"Browse...");
-            dlgData.okText        = lstrC(L"ok", L"OK");
-            dlgData.cancelText    = lstrC(L"cancel", L"Cancel");
 
-            WNDCLASSEXW wcComp = {};
-            wcComp.cbSize = sizeof(wcComp);
-            if (!GetClassInfoExW(GetModuleHandleW(NULL), L"CompEditDialog", &wcComp)) {
-                wcComp.lpfnWndProc = CompEditDlgProc;
-                wcComp.hInstance = GetModuleHandleW(NULL);
-                wcComp.lpszClassName = L"CompEditDialog";
-                wcComp.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
-                wcComp.hCursor = LoadCursor(NULL, IDC_ARROW);
-                RegisterClassExW(&wcComp);
+            IFileOpenDialog *pfd = NULL;
+            HRESULT hr = CoCreateInstance(CLSID_FileOpenDialog, NULL, CLSCTX_INPROC_SERVER,
+                                          IID_PPV_ARGS(&pfd));
+            if (FAILED(hr)) return 0;
+
+            DWORD dwFlags = 0;
+            pfd->GetOptions(&dwFlags);
+            pfd->SetOptions(dwFlags | FOS_ALLOWMULTISELECT | FOS_FORCEFILESYSTEM);
+
+            auto itTitle = s_locale.find(L"comp_add_picker_title");
+            std::wstring pickerTitle = (itTitle != s_locale.end()) ? itTitle->second
+                : L"Select files or folders to add as components";
+            pfd->SetTitle(pickerTitle.c_str());
+
+            hr = pfd->Show(hwnd);
+            if (SUCCEEDED(hr)) {
+                IShellItemArray *psia = NULL;
+                hr = pfd->GetResults(&psia);
+                if (SUCCEEDED(hr)) {
+                    DWORD count = 0;
+                    psia->GetCount(&count);
+                    int added = 0;
+                    for (DWORD i = 0; i < count; i++) {
+                        IShellItem *psi = NULL;
+                        if (SUCCEEDED(psia->GetItemAt(i, &psi))) {
+                            LPWSTR pszPath = NULL;
+                            if (SUCCEEDED(psi->GetDisplayName(SIGDN_FILESYSPATH, &pszPath))) {
+                                std::wstring srcPath(pszPath);
+                                CoTaskMemFree(pszPath);
+
+                                DWORD attrs = GetFileAttributesW(srcPath.c_str());
+                                bool isFld = (attrs != INVALID_FILE_ATTRIBUTES &&
+                                             (attrs & FILE_ATTRIBUTE_DIRECTORY));
+
+                                // Auto-fill display name from path leaf
+                                std::wstring leaf = srcPath;
+                                size_t sep = leaf.find_last_of(L"\\/");
+                                if (sep != std::wstring::npos) leaf = leaf.substr(sep + 1);
+
+                                ComponentRow comp;
+                                comp.project_id   = s_currentProject.id;
+                                comp.display_name = leaf;
+                                comp.description  = L"";
+                                comp.is_required  = 0;
+                                comp.source_type  = isFld ? L"folder" : L"file";
+                                comp.source_path  = srcPath;
+                                comp.dest_path    = L"";
+                                DB::InsertComponent(comp);
+                                added++;
+                            }
+                            psi->Release();
+                        }
+                    }
+                    psia->Release();
+                    if (added > 0) {
+                        SwitchPage(hwnd, 9);
+                        MarkAsModified();
+                    }
+                }
             }
-            RECT rcMain; GetWindowRect(hwnd, &rcMain);
-            int dlgW = 600, dlgH = 300;
-            HWND hDlg = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
-                L"CompEditDialog", dlgData.titleText.c_str(),
-                WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
-                rcMain.left + ((rcMain.right - rcMain.left) - dlgW) / 2,
-                rcMain.top  + ((rcMain.bottom - rcMain.top) - dlgH) / 2,
-                dlgW, dlgH, hwnd, NULL, GetModuleHandleW(NULL), &dlgData);
-            MSG msgComp;
-            while (GetMessageW(&msgComp, NULL, 0, 0) > 0) {
-                if (!IsWindow(hDlg)) break;
-                TranslateMessage(&msgComp); DispatchMessageW(&msgComp);
-            }
-            if (dlgData.okClicked) {
-                ComponentRow comp;
-                comp.project_id   = s_currentProject.id;
-                comp.display_name = dlgData.outName;
-                comp.description  = dlgData.outDesc;
-                comp.is_required  = dlgData.outRequired;
-                comp.source_type  = dlgData.initSourceType;
-                comp.source_path  = dlgData.outSourcePath;
-                comp.dest_path    = L"";
-                DB::InsertComponent(comp);
-                SwitchPage(hwnd, 9);
-                MarkAsModified();
-            }
+            pfd->Release();
             return 0;
         }
 
@@ -5213,7 +5306,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         if ((dis->CtlID >= IDC_TB_FILES && dis->CtlID <= IDC_TB_SAVE) || dis->CtlID == IDC_TB_DIALOGS || dis->CtlID == IDC_TB_COMPONENTS || dis->CtlID == IDC_TB_EXIT ||
             (dis->CtlID >= IDC_FILES_ADD_DIR && dis->CtlID <= IDC_FILES_REMOVE) ||
             (dis->CtlID >= IDC_REG_CHECKBOX && dis->CtlID <= IDC_REG_BACKUP) ||
-            (dis->CtlID >= IDC_COMP_ADD_FOLDER && dis->CtlID <= IDC_COMP_REMOVE)) {
+            (dis->CtlID >= IDC_COMP_ADD && dis->CtlID <= IDC_COMP_REMOVE)) {
             ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
             // Create bold font for buttons (scaled for DPI)
             HFONT hFont = CreateFontW(-S(12), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,

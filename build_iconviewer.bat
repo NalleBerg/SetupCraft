@@ -2,7 +2,7 @@
 echo Building IconViewer...
 
 REM Compile IconViewer
-g++ -O2 -mwindows IconViewer.cpp -o IconViewer.exe -lcomctl32 -lshlwapi -static-libgcc -static-libstdc++
+g++ -O2 -mwindows IconViewer.cpp -o IconViewer.exe -lcomctl32 -lshlwapi -static-libgcc -static-libstdc++ -static
 
 if %ERRORLEVEL% EQU 0 (
     echo.

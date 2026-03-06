@@ -1414,6 +1414,9 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR pCmdLine, int nCmdShow
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_SYSTEM_AWARE);
     { UINT sysDpi = GetDpiForSystem(); g_dpiScale = (sysDpi > 0) ? sysDpi / 96.0f : 1.0f; }
 
+    // Initialize COM (required for IFileOpenDialog used on the Components page)
+    CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+
     // Initialize database
     DB::InitDb();
 

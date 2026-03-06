@@ -2,7 +2,7 @@
 
 An installer creation tool for making your developed packages distributable. Designed to be simple to use with a clean, native Windows interface.
 
-**Current Release:** Version 2026.03.05.09 (Published: 05.03.2026 09:33)
+**Current Release:** Version 2026.03.06.08 (Published: 06.03.2026 08:05)
 
 > Note: This project is in active development. Entry screen and main window Files management page are complete with proper page switching.
 
@@ -12,8 +12,9 @@ An installer creation tool for making your developed packages distributable. Des
 - **Consistent Body Font**: All labels, edits, checkboxes, TreeViews, and ListViews use a system-derived `NONCLIENTMETRICS` font at 120% scale for clear, legible text on every screen
 - **Bold Page Titles**: Each page has a prominent semi-bold heading rendered with a dedicated `s_hPageTitleFont` (150% NONCLIENTMETRICS) — correctly applied via `WM_CTLCOLORSTATIC` ID check so the body-font override no longer clobbers it
 - **Two-Row Toolbar**: 11 buttons in two compact rows — Row 1: Files, Components, Registry, Shortcuts, Dependencies, Dialogs; Row 2: Settings, Build, Test, Scripts, Save. About «i» icon centered vertically at the right end
-- **Components Page**: Full component-based installation page — enable/disable toggle, Add Folder/Add File/Edit/Remove actions, tabular ListView (6 columns), modal edit dialog with auto-fill, DB-backed persistence. Default OFF so projects install as one package unless the developer opts in
+- **Components Page**: Full component-based installation page — enable/disable toggle, single **Add Files / Folders** button (native `IFileOpenDialog` multi-select, auto-detects file vs folder), Edit/Remove actions, tabular ListView (6 columns), modal edit dialog with auto-fill, DB-backed persistence
 - **Components Button Auto-Enable**: Toolbar Components button is grayed out until at least one file/folder exists on the Files page
+- **Files Page Tree Persistence**: Full `TreeNodeSnapshot` recursive approach — folder hierarchy, virtual folders, and their associated files all survive page switches intact. All four tree roots (ProgramFiles, ProgramData, AppData, AskAtInstall) preserved
 - **Files Management**: Split-pane interface with TreeView (32×32 folder icons, 34 px row height) and ListView for visual file selection. Remove confirms before deleting — leaf nodes and file selections both prompt
 - **Selection-Based Remove**: TreeView uses plain blue selection highlight (no checkboxes). Remove deletes the selected item with a per-item or recursive confirmation dialog
 - **Saved/Unsaved Indicator**: Owner-drawn right section of the status bar shows green ✔ Saved or red ● Unsaved, updating instantly on every change and on save
@@ -31,7 +32,7 @@ An installer creation tool for making your developed packages distributable. Des
 - **Dynamic Version Loading**: About dialog reads Published timestamp and Version from curver.txt at runtime (no recompile needed for version changes)
 - **Take Me There Navigation**: Navigate to registry key in TreeView and automatically populate ListView with uninstall values (DisplayName, DisplayVersion, Publisher, etc.)
 - **Spinner Dialog System**: Modal loading dialog with animated multi-line text display for long-running operations
-- **Virtual Folder Support**: Create custom folder structures without physical disk paths - files persist when navigating between folders
+- **Virtual Folder Support**: Create custom folder structures without physical disk paths - files and full hierarchy persist when navigating between pages
 - **Context-Aware Operations**: Add Folder/Add Files buttons respect currently selected folder as parent/target
 - **Smart Install Path**: Auto-updates install path display when first folder under Program Files is renamed/deleted/replaced
 - **Smart Project Naming**: Automatically derives project name from first folder added, with protection against accidental overwrites

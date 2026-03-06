@@ -3,7 +3,23 @@
 #include <commctrl.h>
 #include <string>
 #include <map>
+#include <vector>
 #include "db.h"
+
+// Shared struct: file inside a virtual folder on the Files page
+struct VirtualFolderFile {
+    std::wstring sourcePath;
+    std::wstring destination;
+    std::wstring install_scope;
+};
+
+// Recursive snapshot of a single TreeView node (used to persist the Files page tree)
+struct TreeNodeSnapshot {
+    std::wstring text;
+    std::wstring fullPath;
+    std::vector<VirtualFolderFile> virtualFiles;
+    std::vector<TreeNodeSnapshot> children;
+};
 
 // Main window class
 class MainWindow {
@@ -34,6 +50,8 @@ private:
     static void UpdateComponentsButtonState(HWND hwnd);
     static HTREEITEM AddTreeNode(HWND hTree, HTREEITEM hParent, const std::wstring &text, const std::wstring &fullPath);
     static void AddTreeNodeRecursive(HWND hTree, HTREEITEM hParent, const std::wstring &folderPath);
+    static void SaveTreeSnapshot(HWND hTree, HTREEITEM hParent, std::vector<TreeNodeSnapshot> &out);
+    static void RestoreTreeSnapshot(HWND hTree, HTREEITEM hParent, const std::vector<TreeNodeSnapshot> &nodes);
     
     // Store project data
     static ProjectRow s_currentProject;

@@ -1,6 +1,18 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 05 March 2026<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 06 March 2026<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.06.08</span></h3>
+<p><strong>Files page tree persistence &amp; Components UX (06.03.2026, 08:05):</strong></p>
+<ul>
+<li><strong>Tree state fully preserved across page switches:</strong> Replaced the old flat <code>s_addedFolderPaths</code> <code>vector&lt;wstring&gt;</code> with a recursive <code>TreeNodeSnapshot</code> struct. <code>MainWindow::SaveTreeSnapshot</code> walks the live tree depth-first before it is torn down; <code>RestoreTreeSnapshot</code> rebuilds it exactly on return. Full folder hierarchies (sub-folders under sub-folders) and virtual-folder <code>VirtualFolderFile</code> entries are preserved.</li>
+<li><strong>Virtual folders survive page switches:</strong> Folders created via the &laquo;Create Folder&raquo; context menu (empty disk path) were never stored in the old flat list and disappeared on every page switch. They are now captured in the snapshot and restored with their associated files intact.</li>
+<li><strong>All four tree roots snapshotted:</strong> Program Files, ProgramData, AppData&nbsp;(Roaming) and AskAtInstall are all individually snapshotted so user-added content anywhere in the tree is preserved.</li>
+<li><strong>Components &mdash; &laquo;Add Folder&raquo; and &laquo;Add File&raquo; merged:</strong> Two separate buttons replaced by a single <strong>Add Files / Folders</strong> button (<code>IDC_COMP_ADD</code>) using the native <code>IFileOpenDialog</code> with <code>FOS_ALLOWMULTISELECT | FOS_FORCEFILESYSTEM</code>. Automatically detects whether each picked item is a file or folder; bulk-inserts all selections in one operation.</li>
+<li><strong><code>VirtualFolderFile</code> / <code>TreeNodeSnapshot</code> moved to header:</strong> Both structs declared in <code>mainwindow.h</code> so snapshot helpers are proper <code>MainWindow</code> private static methods with full access to private APIs.</li>
+</ul>
+
+<h3 style="text-align: center;">&nbsp;</h3>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.05.09</span></h3>
 <p><strong>UX polish, bug fixes &amp; persistence improvements (05.03.2026, 09:33):</strong></p>
