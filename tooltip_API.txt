@@ -327,6 +327,57 @@ API REFERENCE:
      - `WM_KILLFOCUS` (hide tooltip)
      - Parent `WM_MOUSEMOVE` checks: if pointer not over any icon, call `HideTooltip()`
 
+   *** SPECIAL CASE: TOOLTIP ON A DISABLED WINDOW ***
+   Disabled windows do NOT receive WM_MOUSEMOVE — they forward it to the parent.
+   `WindowFromPoint` skips disabled windows, so a disabled button is never the
+   direct target of mouse input. This creates two pitfalls:
+
+   PITFALL A — TrackMouseEvent on the disabled button:
+   Even if you subclass a disabled button and call TrackMouseEvent(TME_LEAVE,
+   hwndTrack=disabledBtn), the OS fires WM_MOUSELEAVE to that window immediately
+   because the window never "owns" the mouse cursor in the OS hit-test. The result
+   is a rapid show/hide blink loop: parent WM_MOUSEMOVE shows tooltip, subclass
+   WM_MOUSELEAVE immediately hides it, repeat.
+
+   PITFALL B — TrackMouseEvent on the parent for a disabled-button tooltip:
+   The parent receives WM_MOUSELEAVE when the cursor moves from the parent client
+   area into ANY enabled child, not just when leaving the disabled button area.
+
+   CORRECT PATTERN — timer callback only (no subclass, no TrackMouseEvent):
+
+   Step 1 — In parent WM_MOUSEMOVE (fires because disabled btn redirects to parent),
+   show tooltip and start a SetTimer with a CALLBACK function:
+     if (!s_compDisabledTooltipTracking) {
+         // ... build entries, call ShowMultilingualTooltip ...
+         s_compDisabledTooltipTracking = true;
+         SetTimer(hwnd, IDT_COMP_TT, 60, CompTT_TimerCallback);
+     }
+
+   Step 2 — Timer callback polls GetCursorPos every 60ms:
+     static void CALLBACK CompTT_TimerCallback(HWND hwnd, UINT, UINT_PTR id, DWORD) {
+         HWND hBtn = GetDlgItem(hwnd, IDC_TB_COMPONENTS);
+         bool over = false;
+         if (hBtn && !IsWindowEnabled(hBtn)) {
+             POINT pt; GetCursorPos(&pt);
+             RECT rc;  GetWindowRect(hBtn, &rc);
+             over = (PtInRect(&rc, pt) != FALSE);
+         }
+         if (!over) {
+             HideTooltip();
+             KillTimer(hwnd, id);
+             s_compDisabledTooltipTracking = false;
+         }
+     }
+
+   WHY callback form of SetTimer (not WM_TIMER message dispatch):
+   - SetTimer with a non-NULL callback invokes the function directly from
+     DispatchMessage, bypassing the message queue priority system.
+   - WM_TIMER with NULL callback is low-priority and can be starved when the
+     queue is busy, causing visible lag before the tooltip hides.
+   - 60ms interval gives near-instant response without wasting CPU.
+
+   DO NOT use: subclassing + TrackMouseEvent on a disabled window — causes blink loop.
+
    10) Visual look (implementation details)
    ----------------------------------------
    - Background: system info background (COLOR_INFOBK)
@@ -370,6 +421,16 @@ API REFERENCE:
    }
 
    12) Quick checklist for integrating the tooltip (so a kid can follow):
+
+   *** FIRST: IS THE HOVERED CONTROL DISABLED (EnableWindow(hwnd, FALSE))? ***
+   If YES — STOP. Do NOT follow this checklist.
+   Disabled windows never receive WM_MOUSEMOVE and WM_MOUSELEAVE fires
+   immediately when the OS skips them during hit-testing. Subclassing +
+   TrackMouseEvent on a disabled control causes a rapid show/hide blink loop.
+   Go to §9 "SPECIAL CASE: TOOLTIP ON A DISABLED WINDOW" for the correct
+   timer-callback-only pattern.
+
+   If the control is ENABLED, continue below:
    - Include `tooltip.h` and `tooltip.cpp` in your project.
    - Call `InitTooltipSystem(hInstance)` during window creation.
    - Create the hover `STATIC` icon with `SS_NOTIFY | SS_CENTERIMAGE`.
@@ -389,10 +450,29 @@ API REFERENCE:
    ------------------
    - The repo writes a `tooltip_debug.log` when the tooltip is shown/hidden.
      Use it to confirm `WM_MOUSEMOVE` and `WM_MOUSELEAVE` reach your subclass.
-   - If the tooltip does not hide:
+
+   - If the tooltip does not hide (ENABLED control):
      - Ensure `SS_NOTIFY` is set on the control.
      - Ensure `TrackMouseEvent` used `hwndTrack = control` not the parent window.
+       NOTE: This advice applies ONLY to enabled controls. DO NOT apply it to
+       disabled windows — see the disabled-window special case below.
      - Ensure no other window is covering the control and stealing mouse events.
+
+   - If the tooltip blinks (shows and immediately hides, cycling rapidly):
+     *** This is the disabled-window blink loop. ***
+     Cause: you subclassed a disabled button and called TrackMouseEvent on it.
+     The OS fires WM_MOUSELEAVE immediately to disabled windows because they
+     never own the mouse cursor in hit-testing.
+     Fix: remove the subclass and TrackMouseEvent entirely. Use the timer-callback
+     pattern from §9 "SPECIAL CASE: TOOLTIP ON A DISABLED WINDOW" instead.
+
+   - If the tooltip hides the moment the cursor moves to an ENABLED child control
+     (e.g. the cursor enters any other button on the toolbar):
+     Cause: you used TrackMouseEvent(hwndTrack=parent). The parent receives
+     WM_MOUSELEAVE when the cursor enters ANY enabled child, not just when it
+     leaves the target area.
+     Fix: use TrackMouseEvent(hwndTrack=control) for enabled controls, or the
+     timer-callback pattern from §9 for disabled controls.
 
    14) API reference summary (function signatures)
    - bool InitTooltipSystem(HINSTANCE hInstance)

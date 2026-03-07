@@ -3,6 +3,10 @@
         "/^cmd /c makeit\\.bat 2>&1$/": {
             "approve": true,
             "matchCommandLine": true
+        },
+        "/^cmd /c \"cd /d C:\\\\Users\\\\NalleBerg\\\\Documents\\\\C\\+\\+\\\\Workspace\\\\SetupCraft && makeit\\.bat 2>&1\"$/": {
+            "approve": true,
+            "matchCommandLine": true
         }
     }
 }

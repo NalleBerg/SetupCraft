@@ -67,6 +67,8 @@ tt_exit=Exit SetupCraft
 
 # Ask-at-install tooltip
 ask_at_install_tooltip=Installer will ask the end user whether to install for current user or all users; files will go to AppData or ProgramData accordingly.
+# Components disabled tooltip
+comp_disabled_tooltip=Components are not available yet.\nGo to the Files page and add at least one file or folder first.
 # Files page
 files_management=Files Management
 files_add_folder=Add Folder

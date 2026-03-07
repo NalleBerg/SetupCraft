@@ -59,6 +59,9 @@ static HFONT s_hPageTitleFont = NULL; // Larger bold system font used for all pa
 static LRESULT CALLBACK TreeView_SubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 static std::vector<std::wstring> GetAvailableLocales();
 static LRESULT CALLBACK WarningIcon_SubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+// Timer callback that polls cursor position every 60ms to hide the tooltip on
+// the disabled Components button the moment the cursor leaves its rect.
+static void CALLBACK CompTT_TimerCallback(HWND hwnd, UINT, UINT_PTR id, DWORD);
 
 // Returns the full path to Program Files as reported by Windows (localized, e.g. "C:\Programfiler").
 // This handles all Windows languages automatically.
@@ -104,7 +107,27 @@ static HWND s_hRegListView = NULL;
 static HWND s_hRegKeyDialog = NULL;
 static bool s_navigateToRegKey = false;
 static bool s_warningTooltipTracking = false;
+static bool s_compDisabledTooltipTracking = false;
+#define IDT_COMP_TT 1001  // timer id for comp-disabled tooltip hover check
 
+// Timer callback: polls every 60ms while tooltip is up and hides it the moment
+// the cursor is no longer over the disabled Components button.
+// Using the callback form of SetTimer (not WM_TIMER dispatch) so it fires
+// promptly regardless of message-queue load.
+static void CALLBACK CompTT_TimerCallback(HWND hwnd, UINT, UINT_PTR id, DWORD) {
+    HWND hBtn = GetDlgItem(hwnd, 5081); // IDC_TB_COMPONENTS — defined below the includes
+    bool over = false;
+    if (hBtn && !IsWindowEnabled(hBtn)) {
+        POINT pt; GetCursorPos(&pt);
+        RECT rc;  GetWindowRect(hBtn, &rc);
+        over = (PtInRect(&rc, pt) != FALSE);
+    }
+    if (!over) {
+        HideTooltip();
+        KillTimer(hwnd, id);
+        s_compDisabledTooltipTracking = false;
+    }
+}
 // Components page state
 static HWND s_hCompListView = NULL;
 static std::vector<ComponentRow> s_components;
@@ -457,85 +480,119 @@ void MainWindow::CreateToolbar(HWND hwnd, HINSTANCE hInst) {
     const int row1Y  = S(5);               // top of row 1
     const int row2Y  = S(5) + btnH + S(4); // top of row 2  (= S(40))
 
+    // Auto-measure toolbar button width from the label text.
+    // Mirrors button.cpp: S(10) left margin + S(20) icon + S(15) icon-to-text gap + text + S(8) right margin.
+    // Uses a bold variant of the NONCLIENTMETRICS font (matching DrawCustomButton) measured on a screen DC.
+    auto MeasureTBWidth = [&](const std::wstring& label) -> int {
+        HDC mdc = GetDC(NULL);
+        NONCLIENTMETRICSW mncm = {};
+        mncm.cbSize = sizeof(mncm);
+        SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(mncm), &mncm, 0);
+        mncm.lfMessageFont.lfHeight = MulDiv(mncm.lfMessageFont.lfHeight, 120, 100);
+        mncm.lfMessageFont.lfWeight = FW_BOLD;
+        mncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+        HFONT mf = CreateFontIndirectW(&mncm.lfMessageFont);
+        HGDIOBJ mold = SelectObject(mdc, mf);
+        SIZE msz = {};
+        GetTextExtentPoint32W(mdc, label.c_str(), (int)label.size(), &msz);
+        SelectObject(mdc, mold);
+        DeleteObject(mf);
+        ReleaseDC(NULL, mdc);
+        int w = S(10) + S(20) + S(15) + msz.cx + S(8);
+        return (w < S(55)) ? S(55) : w;
+    };
+
     // --- ROW 1: navigation pages ---
     int x = S(10);
 
     auto itFiles = s_locale.find(L"tb_files");
     std::wstring filesText = (itFiles != s_locale.end()) ? itFiles->second : L"Files";
+    int wFiles = MeasureTBWidth(filesText);
     CreateCustomButtonWithIcon(hwnd, IDC_TB_FILES, filesText, ButtonColor::Blue,
-        L"shell32.dll", 4, x, row1Y, S(80), btnH, hInst);
-    x += S(80) + gap;
+        L"shell32.dll", 4, x, row1Y, wFiles, btnH, hInst);
+    x += wFiles + gap;
 
     auto itComp = s_locale.find(L"tb_components");
     std::wstring compText = (itComp != s_locale.end()) ? itComp->second : L"Components";
+    int wComp = MeasureTBWidth(compText);
     CreateCustomButtonWithIcon(hwnd, IDC_TB_COMPONENTS, compText, ButtonColor::Blue,
-        L"shell32.dll", 278, x, row1Y, S(118), btnH, hInst);
+        L"shell32.dll", 278, x, row1Y, wComp, btnH, hInst);
     // Disabled until the Files page has at least one file or folder
     EnableWindow(GetDlgItem(hwnd, IDC_TB_COMPONENTS), s_filesPageHasContent ? TRUE : FALSE);
-    x += S(118) + gap;
+    x += wComp + gap;
 
     auto itAddReg = s_locale.find(L"tb_add_registry");
     std::wstring addRegText = (itAddReg != s_locale.end()) ? itAddReg->second : L"Registry";
+    int wReg = MeasureTBWidth(addRegText);
     CreateCustomButtonWithIcon(hwnd, IDC_TB_ADD_REGISTRY, addRegText, ButtonColor::Blue,
-        L"shell32.dll", 166, x, row1Y, S(100), btnH, hInst);
-    x += S(100) + gap;
+        L"shell32.dll", 166, x, row1Y, wReg, btnH, hInst);
+    x += wReg + gap;
 
     auto itAddShortcut = s_locale.find(L"tb_add_shortcut");
     std::wstring addShortcutText = (itAddShortcut != s_locale.end()) ? itAddShortcut->second : L"Shortcuts";
+    int wShortcut = MeasureTBWidth(addShortcutText);
     CreateCustomButtonWithCompositeIcon(hwnd, IDC_TB_ADD_SHORTCUT, addShortcutText, ButtonColor::Blue,
-        L"shell32.dll", 257, L"shell32.dll", 29, x, row1Y, S(108), btnH, hInst);
-    x += S(108) + gap;
+        L"shell32.dll", 257, L"shell32.dll", 29, x, row1Y, wShortcut, btnH, hInst);
+    x += wShortcut + gap;
 
     auto itAddDep = s_locale.find(L"tb_add_dependency");
     std::wstring addDepText = (itAddDep != s_locale.end()) ? itAddDep->second : L"Dependencies";
+    int wDep = MeasureTBWidth(addDepText);
     CreateCustomButtonWithIcon(hwnd, IDC_TB_ADD_DEPEND, addDepText, ButtonColor::Blue,
-        L"shell32.dll", 278, x, row1Y, S(124), btnH, hInst);
-    x += S(124) + gap;
+        L"shell32.dll", 278, x, row1Y, wDep, btnH, hInst);
+    x += wDep + gap;
 
     auto itDialogs = s_locale.find(L"tb_dialogs");
     std::wstring dialogsText = (itDialogs != s_locale.end()) ? itDialogs->second : L"Dialogs";
+    int wDialogs = MeasureTBWidth(dialogsText);
     CreateCustomButtonWithIcon(hwnd, IDC_TB_DIALOGS, dialogsText, ButtonColor::Blue,
-        L"shell32.dll", 23, x, row1Y, S(100), btnH, hInst);
-    int row1EndX = x + S(100);
+        L"shell32.dll", 23, x, row1Y, wDialogs, btnH, hInst);
+    int row1EndX = x + wDialogs;
 
     // --- ROW 2: action pages ---
     x = S(10);
 
     auto itSettings = s_locale.find(L"tb_settings");
     std::wstring settingsText = (itSettings != s_locale.end()) ? itSettings->second : L"Settings";
+    int wSettings = MeasureTBWidth(settingsText);
     CreateCustomButtonWithIcon(hwnd, IDC_TB_SETTINGS, settingsText, ButtonColor::Blue,
-        L"shell32.dll", 314, x, row2Y, S(100), btnH, hInst);
-    x += S(100) + gap;
+        L"shell32.dll", 314, x, row2Y, wSettings, btnH, hInst);
+    x += wSettings + gap;
 
     auto itScripts = s_locale.find(L"tb_scripts");
     std::wstring scriptsText = (itScripts != s_locale.end()) ? itScripts->second : L"Scripts";
+    int wScripts = MeasureTBWidth(scriptsText);
     CreateCustomButtonWithIcon(hwnd, IDC_TB_SCRIPTS, scriptsText, ButtonColor::Blue,
-        L"shell32.dll", 310, x, row2Y, S(83), btnH, hInst);
-    x += S(83) + gap;
+        L"shell32.dll", 310, x, row2Y, wScripts, btnH, hInst);
+    x += wScripts + gap;
 
     auto itTest = s_locale.find(L"tb_test");
     std::wstring testText = (itTest != s_locale.end()) ? itTest->second : L"Test (F5)";
+    int wTest = MeasureTBWidth(testText);
     CreateCustomButtonWithIcon(hwnd, IDC_TB_TEST, testText, ButtonColor::Blue,
-        L"shell32.dll", 138, x, row2Y, S(90), btnH, hInst);
-    x += S(90) + gap;
+        L"shell32.dll", 138, x, row2Y, wTest, btnH, hInst);
+    x += wTest + gap;
 
     auto itBuild = s_locale.find(L"tb_build");
     std::wstring buildText = (itBuild != s_locale.end()) ? itBuild->second : L"Build (F7)";
+    int wBuild = MeasureTBWidth(buildText);
     CreateCustomButtonWithIcon(hwnd, IDC_TB_BUILD, buildText, ButtonColor::Green,
-        L"shell32.dll", 80, x, row2Y, S(108), btnH, hInst);
-    x += S(108) + gap;
+        L"shell32.dll", 80, x, row2Y, wBuild, btnH, hInst);
+    x += wBuild + gap;
 
     auto itSave = s_locale.find(L"tb_save");
     std::wstring saveText = (itSave != s_locale.end()) ? itSave->second : L"Save";
+    int wSave = MeasureTBWidth(saveText);
     CreateCustomButtonWithIcon(hwnd, IDC_TB_SAVE, saveText, ButtonColor::Green,
-        L"shell32.dll", 258, x, row2Y, S(83), btnH, hInst);
-    x += S(83) + gap;
+        L"shell32.dll", 258, x, row2Y, wSave, btnH, hInst);
+    x += wSave + gap;
 
     auto itExitTb = s_locale.find(L"exit");
     std::wstring exitTbText = (itExitTb != s_locale.end()) ? itExitTb->second : L"Exit";
+    int wExit = MeasureTBWidth(exitTbText);
     CreateCustomButtonWithIcon(hwnd, IDC_TB_EXIT, exitTbText, ButtonColor::Red,
-        L"shell32.dll", 27, x, row2Y, S(83), btnH, hInst);
-    int row2EndX = x + S(83);
+        L"shell32.dll", 27, x, row2Y, wExit, btnH, hInst);
+    int row2EndX = x + wExit;
 
     // About icon — flush right, centered vertically across both rows
     const int aboutIconSize = S(36);
@@ -5609,9 +5666,47 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         break;
     }
     
-    case WM_MOUSEMOVE:
-        // About-icon tooltip is handled entirely by AboutIcon_SubclassProc.
+    case WM_MOUSEMOVE: {
+        // About-icon tooltip is handled by AboutIcon_SubclassProc.
+        // When cursor is over the disabled Components button (disabled windows
+        // forward WM_MOUSEMOVE to the parent), show tooltip and start tracking
+        // leave on the BUTTON itself — not the parent. TrackMouseEvent posts
+        // WM_MOUSELEAVE to the button's subclass proc when the cursor leaves.
+        // A timer callback runs as belt-and-suspenders in case the OS doesn't
+        // deliver WM_MOUSELEAVE to a disabled window on this system.
+        if (!s_compDisabledTooltipTracking) {
+            HWND hCompBtn = GetDlgItem(hwnd, IDC_TB_COMPONENTS);
+            if (hCompBtn && !IsWindowEnabled(hCompBtn)) {
+                POINT ptCursor;
+                GetCursorPos(&ptCursor);
+                RECT rcBtn;
+                GetWindowRect(hCompBtn, &rcBtn);
+                if (PtInRect(&rcBtn, ptCursor)) {
+                    auto it = s_locale.find(L"comp_disabled_tooltip");
+                    std::wstring txt = (it != s_locale.end()) ? it->second
+                        : L"Components are not available yet.\nAdd at least one file or folder on the Files page first.";
+                    size_t pos = 0;
+                    while ((pos = txt.find(L"\\n", pos)) != std::wstring::npos) {
+                        txt.replace(pos, 2, L"\n");
+                        pos += 1;
+                    }
+                    std::vector<TooltipEntry> entries;
+                    entries.push_back({L"", txt});
+                    ShowMultilingualTooltip(entries, ptCursor.x + 16, ptCursor.y + 20, hwnd);
+                    s_compDisabledTooltipTracking = true;
+                    // Timer callback polls every 60ms and hides tooltip when cursor leaves.
+                    // Callback form fires promptly; WM_TIMER message dispatch is unreliable
+                    // for disabled buttons (their WM_MOUSEMOVE/LEAVE go to parent, not button).
+                    SetTimer(hwnd, IDT_COMP_TT, 60, CompTT_TimerCallback);
+                }
+            }
+        }
         return 0;
+    }
+
+    case WM_TIMER:
+        // IDT_COMP_TT is handled via callback (CompTT_TimerCallback), not here.
+        break;
     
     case WM_ACTIVATE:
         // Hide tooltip when window loses focus
@@ -5619,6 +5714,10 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             HideTooltip();
             s_aboutMouseTracking = false;
             s_warningTooltipTracking = false;
+            if (s_compDisabledTooltipTracking) {
+                KillTimer(hwnd, IDT_COMP_TT);
+                s_compDisabledTooltipTracking = false;
+            }
         }
         break;
     
@@ -5626,6 +5725,10 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         // Hide tooltip when window loses keyboard focus
         HideTooltip();
         s_aboutMouseTracking = false;
+        if (s_compDisabledTooltipTracking) {
+            KillTimer(hwnd, IDT_COMP_TT);
+            s_compDisabledTooltipTracking = false;
+        }
         break;
     
     case WM_MOUSELEAVE:
@@ -5647,6 +5750,10 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         s_aboutMouseTracking = false;
         s_mouseTracking = false;
         s_warningTooltipTracking = false;
+        if (s_compDisabledTooltipTracking) {
+            KillTimer(hwnd, IDT_COMP_TT);
+            s_compDisabledTooltipTracking = false;
+        }
         return 0;
     
     case WM_DESTROY:

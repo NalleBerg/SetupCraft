@@ -289,11 +289,30 @@ void ShowMultilingualTooltip(const std::vector<TooltipEntry>& entries, int x, in
         if (lineHeight <= 0) lineHeight = 20;
 
         if (isMultiline) {
-            // Multiline: wrap at 480px, measure actual height needed
+            // Measure each line individually to find the natural width, then cap.
             int maxAllowed = S(480);
-            RECT calcRc = { 0, 0, maxAllowed, 0 };
+            int maxLineWidth = 0;
+            std::wstring rem = s;
+            size_t lineStart = 0;
+            while (true) {
+                size_t nl = rem.find(L'\n', lineStart);
+                std::wstring line = (nl == std::wstring::npos)
+                    ? rem.substr(lineStart)
+                    : rem.substr(lineStart, nl - lineStart);
+                if (!line.empty()) {
+                    SIZE lsz = {};
+                    GetTextExtentPoint32W(hdc, line.c_str(), (int)line.size(), &lsz);
+                    if (lsz.cx > maxLineWidth) maxLineWidth = lsz.cx;
+                }
+                if (nl == std::wstring::npos) break;
+                lineStart = nl + 1;
+            }
+            int naturalWidth = maxLineWidth + S(20);
+            tooltipWidth = (naturalWidth < maxAllowed) ? naturalWidth : maxAllowed;
+            if (tooltipWidth < S(80)) tooltipWidth = S(80);
+            // Re-measure height using the actual chosen width
+            RECT calcRc = { 0, 0, tooltipWidth - S(20), 0 };
             DrawTextW(hdc, s.c_str(), -1, &calcRc, DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX);
-            tooltipWidth  = maxAllowed + S(20);  // +padding
             tooltipHeight = (calcRc.bottom - calcRc.top) + S(20);
         } else {
             // Single line: measure exact width, add generous padding so window-DC

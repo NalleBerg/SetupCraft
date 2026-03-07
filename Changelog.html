@@ -1,6 +1,17 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 07 March 2026<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 07 March 2026 &mdash; v2026.03.07.11<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.07.11</span></h3>
+<p><strong>Components disabled tooltip, auto-measured toolbar buttons &amp; tight multiline tooltip sizing (07.03.2026, 11:14):</strong></p>
+<ul>
+<li><strong>Components disabled tooltip (i18n):</strong> Hovering the Components toolbar button while it is disabled (no files or folders added yet) now shows a tooltip from the <code>comp_disabled_tooltip</code> locale key &mdash; &laquo;Components are not available yet. Go to the Files page and add at least one file or folder first.&raquo; The tooltip is shown via a 60&nbsp;ms timer-callback poll (<code>CompTT_TimerCallback</code>) and hides the moment the cursor leaves the button. No subclassing and no <code>TrackMouseEvent</code> are used &mdash; a disabled window never &laquo;owns&raquo; the cursor in OS hit-testing, so both approaches cause a rapid show/hide blink loop.</li>
+<li><strong>Auto-measured toolbar button widths:</strong> All 12 toolbar buttons previously used hardcoded pixel widths (e.g. <code>S(80)</code>, <code>S(118)</code>). A new <code>MeasureTBWidth</code> lambda now measures each label at runtime using <code>GetTextExtentPoint32W</code> with the bold <code>NONCLIENTMETRICS</code> font and adds fixed padding. Button widths scale correctly for every language without touching source code.</li>
+<li><strong>Tight multiline tooltip sizing:</strong> Multiline tooltips previously always reserved the full 480&nbsp;px maximum width. The implementation now measures each line individually with <code>GetTextExtentPoint32W</code>, uses the widest line as the natural width, and only word-wraps to a narrower width when the natural width would overflow the monitor. Short messages no longer have excess whitespace.</li>
+<li><strong><code>tooltip_API.txt</code> updated:</strong> Sections &sect;9 (&ldquo;Interaction and hiding rules&rdquo;), &sect;12 (quick checklist), and &sect;13 (debugging tips) expanded with a clear &ldquo;IS THE CONTROL DISABLED?&rdquo; gate at the top of the checklist, detailed descriptions of both disabled-window pitfalls (blink loop from subclass&nbsp;+&nbsp;TrackMouseEvent; premature hide from parent TME_LEAVE), and the correct timer-callback-only pattern with explanation of why the callback form of <code>SetTimer</code> is preferred over <code>WM_TIMER</code> message dispatch.</li>
+</ul>
+
+<h3 style="text-align: center;">&nbsp;</h3>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.07.09</span></h3>
 <p><strong>Files page context menus, save-new-project flow &amp; smart project naming (07.03.2026, 09:49):</strong></p>

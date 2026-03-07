@@ -2,7 +2,7 @@
 
 An installer creation tool for making your developed packages distributable. Designed to be simple to use with a clean, native Windows interface.
 
-**Current Release:** Version 2026.03.07.09 (Published: 07.03.2026 09:49)
+**Current Release:** Version 2026.03.07.11 (Published: 07.03.2026 11:14)
 
 > Note: This project is in active development. Entry screen and main window Files management page are complete with proper page switching.
 
@@ -13,6 +13,9 @@ An installer creation tool for making your developed packages distributable. Des
 - **Bold Page Titles**: Each page has a prominent semi-bold heading rendered with a dedicated `s_hPageTitleFont` (150% NONCLIENTMETRICS) — correctly applied via `WM_CTLCOLORSTATIC` ID check so the body-font override no longer clobbers it
 - **Two-Row Toolbar**: 11 buttons in two compact rows — Row 1: Files, Components, Registry, Shortcuts, Dependencies, Dialogs; Row 2: Settings, Build, Test, Scripts, Save. About «i» icon centered vertically at the right end
 - **Components Page**: Full component-based installation page — enable/disable toggle, single **Add Files / Folders** button (native `IFileOpenDialog` multi-select, auto-detects file vs folder), Edit/Remove actions, tabular ListView (6 columns), modal edit dialog with auto-fill, DB-backed persistence
+- **Components Disabled Tooltip**: Hovering the grayed-out Components button shows an i18n tooltip ("Components are not available yet. Go to the Files page and add at least one file or folder first.") — implemented with a 60 ms timer-callback poll, no subclass or TrackMouseEvent (disabled windows cause blink loop with those approaches)
+- **Auto-Measured Toolbar Buttons**: All 12 toolbar buttons measure their label width at runtime via `GetTextExtentPoint32W` with the bold NONCLIENTMETRICS font — correct widths for every language, no hardcoded pixel values
+- **Tight Multiline Tooltip Sizing**: Multiline tooltips measure each line individually and use only as much width as the widest line requires — no more excess whitespace around short messages
 - **Components Button Auto-Enable**: Toolbar Components button is grayed out until at least one file/folder exists on the Files page
 - **Files Page Tree Persistence**: Full `TreeNodeSnapshot` recursive approach — folder hierarchy, virtual folders, and their associated files all survive page switches intact. All four tree roots (ProgramFiles, ProgramData, AppData, AskAtInstall) preserved
 - **Files Management**: Split-pane interface with TreeView (32×32 folder icons, 34 px row height) and ListView for visual file selection. Remove confirms before deleting — leaf nodes and file selections both prompt
