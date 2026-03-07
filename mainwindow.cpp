@@ -1935,7 +1935,7 @@ void MainWindow::UpdateInstallPathFromTree(HWND hwnd) {
         SetDlgItemTextW(hwnd, IDC_INSTALL_FOLDER, newInstallPath.c_str());
         
         // Also update project name if this is a new project and user hasn't manually edited it
-        if (s_isNewUnsavedProject && !s_projectNameManuallySet) {
+        if (!s_projectNameManuallySet) {
             s_currentProject.name = folderName;
             std::wstring newTitle = L"SetupCraft - " + std::wstring(folderName);
             SetWindowTextW(hwnd, newTitle.c_str());
@@ -3095,7 +3095,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                     SetDlgItemTextW(hwnd, IDC_INSTALL_FOLDER, newInstallPath.c_str());
                     
                     // Also update project name if this is a new project and user hasn't manually edited it
-                    if (s_isNewUnsavedProject && !s_projectNameManuallySet) {
+                    if (!s_projectNameManuallySet) {
                         s_currentProject.name = folderName;
                         std::wstring newTitle = L"SetupCraft - " + folderName;
                         SetWindowTextW(hwnd, newTitle.c_str());
@@ -3427,7 +3427,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                             SetDlgItemTextW(hwnd, IDC_INSTALL_FOLDER, newInstallPath.c_str());
                             
                             // Also update project name if new project and not manually set
-                            if (s_isNewUnsavedProject && !s_projectNameManuallySet) {
+                            if (!s_projectNameManuallySet) {
                                 s_currentProject.name = folderName;
                                 std::wstring title = L"SetupCraft - " + folderName;
                                 SetWindowTextW(hwnd, title.c_str());
@@ -3525,7 +3525,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                         if (hRootForAutoCreate == s_hProgramFilesRoot) {
                             std::wstring newInstallPath = L"C:\\Program Files\\" + folderName;
                             SetDlgItemTextW(hwnd, IDC_INSTALL_FOLDER, newInstallPath.c_str());
-                            if (s_isNewUnsavedProject && !s_projectNameManuallySet) {
+                            if (!s_projectNameManuallySet) {
                                 s_currentProject.name = folderName;
                                 std::wstring title = L"SetupCraft - " + folderName;
                                 SetWindowTextW(hwnd, title.c_str());
@@ -3596,7 +3596,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                         if (hRootForAutoCreate == s_hProgramFilesRoot) {
                             std::wstring newInstallPath = L"C:\\Program Files\\" + folderName;
                             SetDlgItemTextW(hwnd, IDC_INSTALL_FOLDER, newInstallPath.c_str());
-                            if (s_isNewUnsavedProject && !s_projectNameManuallySet) {
+                            if (!s_projectNameManuallySet) {
                                 s_currentProject.name = folderName;
                                 std::wstring title = L"SetupCraft - " + folderName;
                                 SetWindowTextW(hwnd, title.c_str());
@@ -4858,17 +4858,66 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             
         case IDM_FILE_SAVE:
         {
-            // Persist project files (virtual folder files) into DB, include install_scope
-            if (s_currentProject.id <= 0) {
-                MessageBoxW(hwnd, L"No project selected to save", L"Save", MB_OK | MB_ICONERROR);
-                return 0;
-            }
-            // Delete existing file rows for this project
-            if (!DB::DeleteFilesForProject(s_currentProject.id)) {
-                // Continue anyway
+            // Always read the current project name from the edit field
+            {
+                HWND hNameEdit = GetDlgItem(hwnd, IDC_PROJECT_NAME);
+                if (hNameEdit) {
+                    int len = GetWindowTextLengthW(hNameEdit);
+                    if (len > 0) {
+                        std::wstring name(len + 1, L'\0');
+                        GetWindowTextW(hNameEdit, &name[0], len + 1);
+                        name.resize(len);
+                        s_currentProject.name = name;
+                    }
+                }
             }
 
-            // Insert all virtual files
+            // New project (never saved): insert into DB, checking for duplicate names first
+            if (s_currentProject.id <= 0) {
+                // Look for an existing project with the same name
+                auto allProjects = DB::ListProjects();
+                int existingId = -1;
+                for (const auto &p : allProjects) {
+                    if (p.name == s_currentProject.name) { existingId = p.id; break; }
+                }
+
+                if (existingId > 0) {
+                    int choice = ShowDuplicateProjectDialog(hwnd, s_currentProject.name);
+                    if (choice == 0) return 0; // Cancel
+                    if (choice == 1) {
+                        // Overwrite: adopt existing project's ID (UpdateProject below will refresh all fields)
+                        s_currentProject.id = existingId;
+                    } else { // choice == 2: Rename
+                        std::wstring newName = s_currentProject.name;
+                        if (!ShowRenameProjectDialog(hwnd, newName)) return 0;
+                        s_currentProject.name = newName;
+                        // Reflect new name in the edit and title bar
+                        s_updatingProjectNameProgrammatically = true;
+                        SetDlgItemTextW(hwnd, IDC_PROJECT_NAME, newName.c_str());
+                        s_updatingProjectNameProgrammatically = false;
+                        SetWindowTextW(hwnd, (L"SetupCraft - " + newName).c_str());
+                    }
+                }
+
+                // Still no ID means we chose Rename (or there was no duplicate): insert fresh row
+                if (s_currentProject.id <= 0) {
+                    int newId = -1;
+                    if (!DB::InsertProject(s_currentProject.name, s_currentProject.directory,
+                                           s_currentProject.description, s_currentProject.lang,
+                                           s_currentProject.version, newId) || newId <= 0) {
+                        MessageBoxW(hwnd, L"Failed to create project in database.", L"Save", MB_OK | MB_ICONERROR);
+                        return 0;
+                    }
+                    s_currentProject.id = newId;
+                }
+                s_isNewUnsavedProject = false;
+            }
+
+            // Persist all project metadata (name, version, directory, etc.)
+            DB::UpdateProject(s_currentProject);
+
+            // Replace file rows for this project
+            DB::DeleteFilesForProject(s_currentProject.id);
             for (auto &pair : s_virtualFolderFiles) {
                 for (const auto &fileInfo : pair.second) {
                     DB::InsertFile(s_currentProject.id, fileInfo.sourcePath, fileInfo.destination, fileInfo.install_scope);
@@ -5186,23 +5235,78 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             ScreenToClient(s_hTreeView, &ht.pt);
             HTREEITEM hItem = TreeView_HitTest(s_hTreeView, &ht);
             
-            // Show menu if right-clicking on Program Files root or any folder node
+            // Show menu if right-clicking on any folder node
             if (hItem) {
                 s_rightClickedItem = hItem; // Remember which item was clicked
-                
-                // Create context menu
+
+                // Localized button captions
+                auto itAF = s_locale.find(L"files_add_folder");
+                std::wstring addFolderText = (itAF != s_locale.end()) ? itAF->second : L"Add Folder";
+                auto itAFi = s_locale.find(L"files_add_files");
+                std::wstring addFilesText = (itAFi != s_locale.end()) ? itAFi->second : L"Add Files";
+
                 HMENU hMenu = CreatePopupMenu();
-                AppendMenuW(hMenu, MF_STRING, IDM_TREEVIEW_ADD_FOLDER, L"Create Folder...");
-                
-                // Add "Remove folder" option if this is not the Program Files root
-                if (hItem != s_hProgramFilesRoot) {
-                    AppendMenuW(hMenu, MF_STRING, IDM_TREEVIEW_REMOVE_FOLDER, L"Remove Folder");
+                AppendMenuW(hMenu, MF_STRING, IDC_FILES_ADD_DIR,        addFolderText.c_str());
+                AppendMenuW(hMenu, MF_STRING, IDC_FILES_ADD_FILES,      addFilesText.c_str());
+                AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
+                AppendMenuW(hMenu, MF_STRING, IDM_TREEVIEW_ADD_FOLDER,  L"Create Folder...");
+
+                // "Remove" only for user nodes, never for the four system roots
+                bool isSystemRoot = (hItem == s_hProgramFilesRoot ||
+                                     hItem == s_hProgramDataRoot  ||
+                                     hItem == s_hAppDataRoot       ||
+                                     hItem == s_hAskAtInstallRoot);
+                if (!isSystemRoot) {
+                    AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
+                    AppendMenuW(hMenu, MF_STRING, IDM_TREEVIEW_REMOVE_FOLDER, L"Remove");
                 }
-                
-                // Show menu
+
                 TrackPopupMenu(hMenu, TPM_RIGHTBUTTON, xPos, yPos, 0, hwnd, NULL);
                 DestroyMenu(hMenu);
             }
+            return 0;
+        }
+
+        // Handle Files ListView context menu (right pane)
+        if (hWndContext == s_hListView && s_hListView && IsWindow(s_hListView)) {
+            int xPos = GET_X_LPARAM(lParam);
+            int yPos = GET_Y_LPARAM(lParam);
+            if (xPos == -1 && yPos == -1) {
+                POINT pt = { 20, 20 };
+                ClientToScreen(s_hListView, &pt);
+                xPos = pt.x; yPos = pt.y;
+            }
+
+            // Hit-test to select the item under the cursor
+            LVHITTESTINFO lvht = {};
+            lvht.pt = { xPos, yPos };
+            ScreenToClient(s_hListView, &lvht.pt);
+            int hitItem = ListView_HitTest(s_hListView, &lvht);
+            if (hitItem != -1) {
+                // If right-clicked item is not already selected, select only it
+                if (!(ListView_GetItemState(s_hListView, hitItem, LVIS_SELECTED) & LVIS_SELECTED)) {
+                    ListView_SetItemState(s_hListView, -1, 0, LVIS_SELECTED);
+                    ListView_SetItemState(s_hListView, hitItem, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+                }
+            }
+
+            auto itAF  = s_locale.find(L"files_add_folder");
+            std::wstring addFolderText = (itAF  != s_locale.end()) ? itAF->second  : L"Add Folder";
+            auto itAFi = s_locale.find(L"files_add_files");
+            std::wstring addFilesText  = (itAFi != s_locale.end()) ? itAFi->second : L"Add Files";
+            auto itRem = s_locale.find(L"files_remove");
+            std::wstring removeText    = (itRem != s_locale.end()) ? itRem->second  : L"Remove";
+
+            HMENU hMenu = CreatePopupMenu();
+            AppendMenuW(hMenu, MF_STRING, IDC_FILES_ADD_DIR,   addFolderText.c_str());
+            AppendMenuW(hMenu, MF_STRING, IDC_FILES_ADD_FILES, addFilesText.c_str());
+            int selCount = ListView_GetSelectedCount(s_hListView);
+            if (selCount > 0) {
+                AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
+                AppendMenuW(hMenu, MF_STRING, IDC_FILES_REMOVE, removeText.c_str());
+            }
+            TrackPopupMenu(hMenu, TPM_RIGHTBUTTON, xPos, yPos, 0, hwnd, NULL);
+            DestroyMenu(hMenu);
             return 0;
         }
         break;

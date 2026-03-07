@@ -198,6 +198,247 @@ bool ShowCloseProjectDialog(HWND hwndParent, const std::map<std::wstring, std::w
     return ShowQuitDialog(hwndParent, patched);
 }
 
+// ── Duplicate project name dialog ─────────────────────────────────────────
+// Returns: 0=Cancel  1=Overwrite  2=Rename
+static int g_dupDialogResult = 0;
+
+LRESULT CALLBACK DupDialogProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+    case WM_CREATE: {
+        CREATESTRUCTW* cs = (CREATESTRUCTW*)lParam;
+        std::wstring* pName = (std::wstring*)cs->lpCreateParams;
+        HINSTANCE hInst = cs->hInstance;
+
+        std::wstring text = L"A project named \u201c" + (pName ? *pName : L"") +
+                            L"\u201d already exists.\n\nWhat do you want to do?";
+        HWND hText = CreateWindowExW(0, L"STATIC", text.c_str(),
+            WS_CHILD | WS_VISIBLE | SS_CENTER,
+            15, 18, 570, 60, hDlg, NULL, hInst, NULL);
+        NONCLIENTMETRICSW ncm = {}; ncm.cbSize = sizeof(ncm);
+        SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+        if (ncm.lfMessageFont.lfHeight < 0)
+            ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
+        ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+        HFONT hFont = CreateFontIndirectW(&ncm.lfMessageFont);
+        if (hFont) SendMessageW(hText, WM_SETFONT, (WPARAM)hFont, TRUE);
+
+        // 3 buttons: Overwrite(Red) Rename(Blue) Cancel(Red)
+        CreateCustomButtonWithIcon(hDlg, 1, L"Overwrite", ButtonColor::Red,
+            L"shell32.dll", 240,  15, 105, 160, 34, hInst);
+        CreateCustomButtonWithIcon(hDlg, 2, L"Rename this one", ButtonColor::Blue,
+            L"shell32.dll", 296, 195, 105, 175, 34, hInst);
+        CreateCustomButtonWithIcon(hDlg, IDCANCEL, L"Cancel", ButtonColor::Red,
+            L"shell32.dll", 131, 395, 105, 140, 34, hInst);
+        return 0;
+    }
+    case WM_COMMAND:
+        if (LOWORD(wParam)==1)        { g_dupDialogResult=1; DestroyWindow(hDlg); return 0; }
+        if (LOWORD(wParam)==2)        { g_dupDialogResult=2; DestroyWindow(hDlg); return 0; }
+        if (LOWORD(wParam)==IDCANCEL) { g_dupDialogResult=0; DestroyWindow(hDlg); return 0; }
+        break;
+    case WM_DRAWITEM: {
+        LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
+        if (dis->CtlID==1 || dis->CtlID==2 || dis->CtlID==IDCANCEL) {
+            ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
+            NONCLIENTMETRICSW ncm={}; ncm.cbSize=sizeof(ncm);
+            SystemParametersInfoW(SPI_GETNONCLIENTMETRICS,sizeof(ncm),&ncm,0);
+            if (ncm.lfMessageFont.lfHeight<0)
+                ncm.lfMessageFont.lfHeight=(LONG)(ncm.lfMessageFont.lfHeight*1.2f);
+            ncm.lfMessageFont.lfWeight=FW_BOLD;
+            ncm.lfMessageFont.lfQuality=CLEARTYPE_QUALITY;
+            HFONT hF=CreateFontIndirectW(&ncm.lfMessageFont);
+            LRESULT r=DrawCustomButton(dis,color,hF);
+            if(hF) DeleteObject(hF);
+            return r;
+        }
+        break;
+    }
+    case WM_CTLCOLORSTATIC: {
+        SetBkMode((HDC)wParam, TRANSPARENT);
+        return (LRESULT)GetStockObject(NULL_BRUSH);
+    }
+    case WM_CLOSE:
+        g_dupDialogResult=0; DestroyWindow(hDlg); return 0;
+    }
+    return DefWindowProcW(hDlg, msg, wParam, lParam);
+}
+
+int ShowDuplicateProjectDialog(HWND hwndParent, const std::wstring& projectName) {
+    static bool reg = false;
+    if (!reg) {
+        WNDCLASSEXW wc={}; wc.cbSize=sizeof(wc);
+        wc.style=CS_HREDRAW|CS_VREDRAW;
+        wc.lpfnWndProc=DupDialogProc;
+        wc.hInstance=GetModuleHandle(NULL);
+        wc.hCursor=LoadCursor(NULL,IDC_ARROW);
+        wc.hbrBackground=(HBRUSH)(COLOR_WINDOW+1);
+        wc.lpszClassName=L"DupProjDialogClass";
+        RegisterClassExW(&wc); reg=true;
+    }
+    RECT rcP; GetWindowRect(hwndParent, &rcP);
+    int w=560, h=195;
+    int x=rcP.left+(rcP.right-rcP.left-w)/2;
+    int y=rcP.top+(rcP.bottom-rcP.top-h)/2;
+    RECT rcW; SystemParametersInfoW(SPI_GETWORKAREA,0,&rcW,0);
+    if(x<rcW.left) x=rcW.left; if(y<rcW.top) y=rcW.top;
+    if(x+w>rcW.right) x=rcW.right-w; if(y+h>rcW.bottom) y=rcW.bottom-h;
+
+    std::wstring* pName = new std::wstring(projectName);
+    g_dupDialogResult=0;
+    HWND hDlg = CreateWindowExW(WS_EX_DLGMODALFRAME|WS_EX_TOPMOST,
+        L"DupProjDialogClass", L"Project Already Exists",
+        WS_POPUP|WS_CAPTION|WS_SYSMENU,
+        x, y, w, h, hwndParent, NULL, GetModuleHandle(NULL), pName);
+    if (hDlg) {
+        EnableWindow(hwndParent, FALSE);
+        ShowWindow(hDlg, SW_SHOW);
+        MSG msg={};
+        while (IsWindow(hDlg)) {
+            BOOL bRet=GetMessageW(&msg,NULL,0,0);
+            if(bRet==0){PostQuitMessage((int)msg.wParam);break;}
+            if(bRet==-1||!IsWindow(hDlg)) break;
+            TranslateMessage(&msg); DispatchMessageW(&msg);
+        }
+        EnableWindow(hwndParent, TRUE);
+        SetForegroundWindow(hwndParent);
+    }
+    delete pName;
+    return g_dupDialogResult;
+}
+
+// ── Rename project input dialog ────────────────────────────────────────────
+static std::wstring g_renameResult;
+static bool        g_renameConfirmed = false;
+
+LRESULT CALLBACK RenameDialogProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+    case WM_CREATE: {
+        CREATESTRUCTW* cs = (CREATESTRUCTW*)lParam;
+        std::wstring* pName = (std::wstring*)cs->lpCreateParams;
+        HINSTANCE hInst = cs->hInstance;
+        NONCLIENTMETRICSW ncm={}; ncm.cbSize=sizeof(ncm);
+        SystemParametersInfoW(SPI_GETNONCLIENTMETRICS,sizeof(ncm),&ncm,0);
+        if (ncm.lfMessageFont.lfHeight<0)
+            ncm.lfMessageFont.lfHeight=(LONG)(ncm.lfMessageFont.lfHeight*1.2f);
+        ncm.lfMessageFont.lfQuality=CLEARTYPE_QUALITY;
+        HFONT hFont=CreateFontIndirectW(&ncm.lfMessageFont);
+
+        HWND hLbl=CreateWindowExW(0,L"STATIC",L"Enter a new project name:",
+            WS_CHILD|WS_VISIBLE|SS_LEFT,
+            15,18,370,22,hDlg,NULL,hInst,NULL);
+        if(hFont) SendMessageW(hLbl,WM_SETFONT,(WPARAM)hFont,TRUE);
+
+        HWND hEdit=CreateWindowExW(WS_EX_CLIENTEDGE,L"EDIT",
+            pName ? pName->c_str() : L"",
+            WS_CHILD|WS_VISIBLE|WS_BORDER|ES_LEFT|ES_AUTOHSCROLL,
+            15,46,370,26,hDlg,(HMENU)100,hInst,NULL);
+        if(hFont) SendMessageW(hEdit,WM_SETFONT,(WPARAM)hFont,TRUE);
+        SendMessageW(hEdit,EM_SETSEL,0,-1);
+        SetFocus(hEdit);
+
+        CreateCustomButtonWithIcon(hDlg,IDOK,L"OK",ButtonColor::Green,
+            L"shell32.dll",258, 15,90,120,32,hInst);
+        CreateCustomButtonWithIcon(hDlg,IDCANCEL,L"Cancel",ButtonColor::Red,
+            L"shell32.dll",131,155,90,120,32,hInst);
+        return 0;
+    }
+    case WM_COMMAND:
+        if (LOWORD(wParam)==IDOK) {
+            HWND hEdit=GetDlgItem(hDlg,100);
+            int len=GetWindowTextLengthW(hEdit);
+            if(len>0){
+                g_renameResult.resize(len+1);
+                GetWindowTextW(hEdit,&g_renameResult[0],len+1);
+                g_renameResult.resize(len);
+            } else {
+                g_renameResult.clear();
+            }
+            g_renameConfirmed=true;
+            DestroyWindow(hDlg); return 0;
+        }
+        if (LOWORD(wParam)==IDCANCEL) {
+            g_renameConfirmed=false; DestroyWindow(hDlg); return 0;
+        }
+        break;
+    case WM_DRAWITEM: {
+        LPDRAWITEMSTRUCT dis=(LPDRAWITEMSTRUCT)lParam;
+        if(dis->CtlID==IDOK||dis->CtlID==IDCANCEL){
+            ButtonColor color=(ButtonColor)GetWindowLongPtr(dis->hwndItem,GWLP_USERDATA);
+            NONCLIENTMETRICSW ncm={}; ncm.cbSize=sizeof(ncm);
+            SystemParametersInfoW(SPI_GETNONCLIENTMETRICS,sizeof(ncm),&ncm,0);
+            if(ncm.lfMessageFont.lfHeight<0)
+                ncm.lfMessageFont.lfHeight=(LONG)(ncm.lfMessageFont.lfHeight*1.2f);
+            ncm.lfMessageFont.lfWeight=FW_BOLD;
+            ncm.lfMessageFont.lfQuality=CLEARTYPE_QUALITY;
+            HFONT hF=CreateFontIndirectW(&ncm.lfMessageFont);
+            LRESULT r=DrawCustomButton(dis,color,hF);
+            if(hF) DeleteObject(hF);
+            return r;
+        }
+        break;
+    }
+    case WM_CTLCOLORSTATIC: {
+        SetBkMode((HDC)wParam,TRANSPARENT);
+        return (LRESULT)GetStockObject(NULL_BRUSH);
+    }
+    case WM_CTLCOLOREDIT:
+        return (LRESULT)GetSysColorBrush(COLOR_WINDOW);
+    case WM_KEYDOWN:
+        if(wParam==VK_RETURN)  { SendMessageW(hDlg,WM_COMMAND,IDOK,0);     return 0; }
+        if(wParam==VK_ESCAPE)  { SendMessageW(hDlg,WM_COMMAND,IDCANCEL,0); return 0; }
+        break;
+    case WM_CLOSE:
+        g_renameConfirmed=false; DestroyWindow(hDlg); return 0;
+    }
+    return DefWindowProcW(hDlg, msg, wParam, lParam);
+}
+
+bool ShowRenameProjectDialog(HWND hwndParent, std::wstring& inOutName) {
+    static bool reg=false;
+    if(!reg){
+        WNDCLASSEXW wc={}; wc.cbSize=sizeof(wc);
+        wc.style=CS_HREDRAW|CS_VREDRAW;
+        wc.lpfnWndProc=RenameDialogProc;
+        wc.hInstance=GetModuleHandle(NULL);
+        wc.hCursor=LoadCursor(NULL,IDC_ARROW);
+        wc.hbrBackground=(HBRUSH)(COLOR_WINDOW+1);
+        wc.lpszClassName=L"RenameProjDialogClass";
+        RegisterClassExW(&wc); reg=true;
+    }
+    RECT rcP; GetWindowRect(hwndParent,&rcP);
+    int w=410, h=175;
+    int x=rcP.left+(rcP.right-rcP.left-w)/2;
+    int y=rcP.top+(rcP.bottom-rcP.top-h)/2;
+    RECT rcW; SystemParametersInfoW(SPI_GETWORKAREA,0,&rcW,0);
+    if(x<rcW.left) x=rcW.left; if(y<rcW.top) y=rcW.top;
+    if(x+w>rcW.right) x=rcW.right-w; if(y+h>rcW.bottom) y=rcW.bottom-h;
+
+    std::wstring* pName=new std::wstring(inOutName);
+    g_renameConfirmed=false;
+    g_renameResult=inOutName;
+    HWND hDlg=CreateWindowExW(WS_EX_DLGMODALFRAME|WS_EX_TOPMOST,
+        L"RenameProjDialogClass", L"Rename Project",
+        WS_POPUP|WS_CAPTION|WS_SYSMENU,
+        x,y,w,h,hwndParent,NULL,GetModuleHandle(NULL),pName);
+    if(hDlg){
+        EnableWindow(hwndParent,FALSE);
+        ShowWindow(hDlg,SW_SHOW);
+        MSG msg={};
+        while(IsWindow(hDlg)){
+            BOOL bRet=GetMessageW(&msg,NULL,0,0);
+            if(bRet==0){PostQuitMessage((int)msg.wParam);break;}
+            if(bRet==-1||!IsWindow(hDlg)) break;
+            TranslateMessage(&msg); DispatchMessageW(&msg);
+        }
+        EnableWindow(hwndParent,TRUE);
+        SetForegroundWindow(hwndParent);
+    }
+    delete pName;
+    if(g_renameConfirmed && !g_renameResult.empty())
+        inOutName=g_renameResult;
+    return g_renameConfirmed && !g_renameResult.empty();
+}
+
 bool IsCtrlWPressed(UINT msg, WPARAM wParam) {
     if (msg == WM_KEYDOWN && wParam == 'W') {
         return (GetKeyState(VK_CONTROL) & 0x8000) != 0;

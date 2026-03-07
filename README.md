@@ -2,7 +2,7 @@
 
 An installer creation tool for making your developed packages distributable. Designed to be simple to use with a clean, native Windows interface.
 
-**Current Release:** Version 2026.03.06.08 (Published: 06.03.2026 08:05)
+**Current Release:** Version 2026.03.07.09 (Published: 07.03.2026 09:49)
 
 > Note: This project is in active development. Entry screen and main window Files management page are complete with proper page switching.
 
@@ -33,11 +33,12 @@ An installer creation tool for making your developed packages distributable. Des
 - **Take Me There Navigation**: Navigate to registry key in TreeView and automatically populate ListView with uninstall values (DisplayName, DisplayVersion, Publisher, etc.)
 - **Spinner Dialog System**: Modal loading dialog with animated multi-line text display for long-running operations
 - **Virtual Folder Support**: Create custom folder structures without physical disk paths - files and full hierarchy persist when navigating between pages
+- **Context Menus on Both Panes**: Right-click in the TreeView shows Add Folder, Add Files, Create Folder, and (for non-system nodes) Remove. Right-click in the ListView shows Add Folder, Add Files, and (when a file is selected) Remove. System roots (Program Files, ProgramData, AppData, Ask at Install) never offer Remove
+- **Duplicate Project Name Guard**: Saving a new project whose name already exists in the database raises a modal dialog — Overwrite (adopt existing record), Rename this one (inline rename dialog), or Cancel — preventing silent data loss
+- **Smart Project Naming**: Automatically derives project name from first folder added under Program Files, and keeps updating it on every rename/replace until the user manually edits the name field (no longer stops after first save)
+- **Save Always Works**: New projects with no database ID are created via `DB::InsertProject` on first save — no more "No project selected" error
 - **Context-Aware Operations**: Add Folder/Add Files buttons respect currently selected folder as parent/target
-- **Smart Install Path**: Auto-updates install path display when first folder under Program Files is renamed/deleted/replaced
-- **Smart Project Naming**: Automatically derives project name from first folder added, with protection against accidental overwrites
 - **Install Path Display**: Read-only dark blue install path display that reflects actual folder structure
-- **Context Menus**: Right-click options for creating and removing folders with confirmation dialogs
 - **Add Folder/Files**: Buttons to add existing folders or individual files with automatic folder structure creation
 - **File Type Icons**: System icons for all file types (exe, dll, txt, md, png, etc.) with transparent backgrounds
 - **Multilingual Support**: 20 languages with native translations (Norwegian, English, Greek, Spanish, German, French, Italian, Dutch, and more)

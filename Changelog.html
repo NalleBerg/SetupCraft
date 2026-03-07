@@ -1,6 +1,18 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 06 March 2026<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 07 March 2026<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.07.09</span></h3>
+<p><strong>Files page context menus, save-new-project flow &amp; smart project naming (07.03.2026, 09:49):</strong></p>
+<ul>
+<li><strong>Context menus on both panes:</strong> Right-clicking anywhere in the TreeView now shows <em>Add Folder</em>, <em>Add Files</em>, <em>Create Folder&hellip;</em>, and (for non-system nodes) <em>Remove</em>. Right-clicking anywhere in the ListView shows <em>Add Folder</em>, <em>Add Files</em>, and (when a file is selected) <em>Remove</em>. Previously neither pane had a context menu.</li>
+<li><strong>Remove blocked on system roots:</strong> The four system tree roots &mdash; Program Files, ProgramData, AppData (Roaming) and Ask&nbsp;at&nbsp;Install &mdash; never show a <em>Remove</em> option in the context menu. All user-created or user-added folders and files do.</li>
+<li><strong>Save always works for new projects:</strong> Clicking Save on a freshly created project previously raised &laquo;No project selected to save&raquo;. The <code>IDM_FILE_SAVE</code> handler now calls <code>DB::InsertProject</code> when the project has no database ID yet, then proceeds to <code>DB::UpdateProject</code> as usual. <code>s_isNewUnsavedProject</code> is cleared to <code>false</code> after the first successful insert.</li>
+<li><strong>Duplicate project name detection:</strong> When saving a new project whose name already exists in the database, a modal <code>ShowDuplicateProjectDialog</code> presents three choices: <em>Overwrite</em> (adopt the existing record&rsquo;s ID and overwrite its data), <em>Rename this one</em> (opens <code>ShowRenameProjectDialog</code> pre-filled with the current name so the user can type a new one), or <em>Cancel</em>. No silent data loss.</li>
+<li><strong>Smart project naming extended to saved projects:</strong> The auto-derive-name logic (set project name from the first folder added under Program Files) previously ran only while <code>s_isNewUnsavedProject</code> was true, so renaming or replacing that folder after the first save had no effect. The <code>s_isNewUnsavedProject</code> guard was removed from all five call sites; the behaviour is now gated solely on <code>!s_projectNameManuallySet</code>, so the name keeps updating until the user deliberately edits the name field.</li>
+</ul>
+
+<h3 style="text-align: center;">&nbsp;</h3>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.06.08</span></h3>
 <p><strong>Files page tree persistence &amp; Components UX (06.03.2026, 08:05):</strong></p>
