@@ -1,6 +1,16 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 08 March 2026 &mdash; v2026.03.08.08<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 08 March 2026 &mdash; v2026.03.08.09<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.08.09</span></h3>
+<p><strong>Close Project toolbar button &amp; per-button tooltip system (08.03.2026, 09:02):</strong></p>
+<ul>
+<li><strong>Close Project button added to toolbar:</strong> A new red <em>Close Project</em> button (<code>IDC_TB_CLOSE_PROJECT = 5083</code>) sits between Save and Exit in toolbar Row&nbsp;2. It forwards to the existing <code>IDM_FILE_CLOSE</code> handler &mdash; prompts to save if there are unsaved changes, then returns to the entry screen. Label falls back to &laquo;Close Project&raquo; if the <code>close_project</code> locale key is absent (i18n-ready). Icon: <code>shell32.dll</code> index&nbsp;131.</li>
+<li><strong>Per-button hover tooltip via <code>SetButtonTooltip()</code>:</strong> New function stores a heap-allocated tooltip string as the <code>&ldquo;TooltipText&rdquo;</code> window property on any button. <code>ButtonSubclassProc</code>&rsquo;s <code>WM_MOUSEMOVE</code> handler reads the property and calls <code>ShowMultilingualTooltip</code> on first hover; <code>WM_MOUSELEAVE</code> calls <code>HideTooltip()</code>. <code>WM_NCDESTROY</code> frees the heap copy. Any enabled toolbar button can now get a hardcoded or locale-derived tooltip with a single <code>SetButtonTooltip(hBtn, L&quot;...&quot;)</code> call after creation.</li>
+<li><strong><code>button_INTERNALS.txt</code> created:</strong> Full internal reference for the custom button system &mdash; <code>ButtonColor</code> enum, all three <code>CreateCustomButton*</code> variants, icon property scheme (<code>&ldquo;IconDLL&rdquo;</code>, <code>&ldquo;IconIndex&rdquo;</code>, <code>&ldquo;TooltipText&rdquo;</code>), <code>ButtonSubclassProc</code> hover&mdash;tooltip flow, <code>DrawCustomButton</code> draw order, toolbar row layout, verified shell32.dll icon indices, and a step-by-step guide for adding a new toolbar button. <code>API_list.txt</code> updated.</li>
+</ul>
+
+<h3 style="text-align: center;">&nbsp;</h3>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.08.08</span></h3>
 <p><strong>Files/folders now fully saved and restored across restarts &mdash; three persistence bugs fixed (08.03.2026, 08:42):</strong></p>

@@ -2,7 +2,7 @@
 
 An installer creation tool for making your developed packages distributable. Designed to be simple to use with a clean, native Windows interface.
 
-**Current Release:** Version 2026.03.08.08 (Published: 08.03.2026 08:42)
+**Current Release:** Version 2026.03.08.09 (Published: 08.03.2026 09:02)
 
 > Note: This project is in active development. Entry screen and main window Files management page are complete with proper page switching.
 
@@ -11,7 +11,7 @@ An installer creation tool for making your developed packages distributable. Des
 - **DPI-Aware Scaling**: Full per-monitor DPI support via `S()` helper — all pixel values, fonts, and tooltip dimensions scale correctly at any DPI (100%, 125%, 150%, 175%, 200%+)
 - **Consistent Body Font**: All labels, edits, checkboxes, TreeViews, and ListViews use a system-derived `NONCLIENTMETRICS` font at 120% scale for clear, legible text on every screen
 - **Bold Page Titles**: Each page has a prominent semi-bold heading rendered with a dedicated `s_hPageTitleFont` (150% NONCLIENTMETRICS) — correctly applied via `WM_CTLCOLORSTATIC` ID check so the body-font override no longer clobbers it
-- **Two-Row Toolbar**: 11 buttons in two compact rows — Row 1: Files, Components, Registry, Shortcuts, Dependencies, Dialogs; Row 2: Settings, Build, Test, Scripts, Save. About «i» icon centered vertically at the right end
+- **Two-Row Toolbar**: 12 buttons in two compact rows — Row 1: Files, Components, Registry, Shortcuts, Dependencies, Dialogs; Row 2: Settings, Scripts, Test, Build, Save, Close Project, Exit. About «i» icon centered vertically at the right end
 - **Components Page**: Full component-based installation page — enable/disable toggle, single **Add Files / Folders** button (native `IFileOpenDialog` multi-select, auto-detects file vs folder), Edit/Remove actions, tabular ListView (6 columns), modal edit dialog with auto-fill, DB-backed persistence
 - **Components Disabled Tooltip**: Hovering the grayed-out Components button shows an i18n tooltip ("Components are not available yet. Go to the Files page and add at least one file or folder first.") — implemented with a 60 ms timer-callback poll, no subclass or TrackMouseEvent (disabled windows cause blink loop with those approaches)
 - **Auto-Measured Toolbar Buttons**: All 12 toolbar buttons measure their label width at runtime via `GetTextExtentPoint32W` with the bold NONCLIENTMETRICS font — correct widths for every language, no hardcoded pixel values
@@ -40,6 +40,8 @@ An installer creation tool for making your developed packages distributable. Des
 - **Duplicate Project Name Guard**: Saving a new project whose name already exists in the database raises a modal dialog — Overwrite (adopt existing record), Rename this one (inline rename dialog), or Cancel — preventing silent data loss
 - **Smart Project Naming**: Automatically derives project name from first folder added under Program Files, and keeps updating it on every rename/replace until the user manually edits the name field (no longer stops after first save)
 - **Save Always Works**: New projects with no database ID are created via `DB::InsertProject` on first save — no more "No project selected" error
+- **Close Project Button**: Red toolbar button between Save and Exit — prompts to save unsaved changes then returns to the entry screen. i18n-ready via `close_project` locale key
+- **Per-Button Hover Tooltips**: `SetButtonTooltip(hBtn, text)` registers a plain-text tooltip on any enabled toolbar button; `ButtonSubclassProc` shows it on first hover and hides on mouse-leave with no extra tracking state
 - **Full Tree Persistence Across Restarts**: `SaveTreeToDb` walks all four tree roots on every Save and writes every folder node and file to the DB `files` table. On project open a DB-rebuild path reconstructs the exact tree from those rows — no dependency on a live disk path. Three bugs fixed: tree not saved, tree not loaded from DB, `directory` field not synced
 - **`DB::GetFilesForProject()`**: New DB function returns all file/folder rows for a project; used by the load path to rebuild the Files-page tree from scratch on restart
 - **Context-Aware Operations**: Add Folder/Add Files buttons respect currently selected folder as parent/target

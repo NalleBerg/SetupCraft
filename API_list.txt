@@ -20,4 +20,11 @@
                                     SaveTreeToDb, the DB files table, DB-rebuild
                                     load path, and fixed-bug history.
 
+  button_INTERNALS.txt              Custom button & toolbar system — ButtonColor
+                                    enum, CreateCustomButton* variants, icon
+                                    property scheme, ButtonSubclassProc hover/
+                                    tooltip flow, DrawCustomButton WM_DRAWITEM
+                                    path, toolbar row layout, and step-by-step
+                                    guide for adding a new toolbar button.
+
 ================================================================================

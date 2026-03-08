@@ -167,6 +167,7 @@ static bool s_filesPageHasContent = false; // tracks whether Files page has any 
 #define IDC_TB_DIALOGS      5080
 #define IDC_TB_COMPONENTS   5081
 #define IDC_TB_EXIT         5082
+#define IDC_TB_CLOSE_PROJECT 5083
 
 // Components page control IDs
 #define IDC_COMP_ENABLE       5060
@@ -587,6 +588,14 @@ void MainWindow::CreateToolbar(HWND hwnd, HINSTANCE hInst) {
         L"shell32.dll", 258, x, row2Y, wSave, btnH, hInst);
     x += wSave + gap;
 
+    auto itCloseProj = s_locale.find(L"close_project");
+    std::wstring closeProjText = (itCloseProj != s_locale.end()) ? itCloseProj->second : L"Close Project";
+    int wCloseProj = MeasureTBWidth(closeProjText);
+    HWND hCloseProjBtn = CreateCustomButtonWithIcon(hwnd, IDC_TB_CLOSE_PROJECT, closeProjText, ButtonColor::Red,
+        L"shell32.dll", 131, x, row2Y, wCloseProj, btnH, hInst);
+    SetButtonTooltip(hCloseProjBtn, L"Close this project and return to the start screen");
+    x += wCloseProj + gap;
+
     auto itExitTb = s_locale.find(L"exit");
     std::wstring exitTbText = (itExitTb != s_locale.end()) ? itExitTb->second : L"Exit";
     int wExit = MeasureTBWidth(exitTbText);
@@ -959,7 +968,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         if (rcChild.top > s_toolbarHeight && rcChild.bottom < rcClient.bottom - 25) {
             // Skip toolbar buttons and known handles
             int childId = GetDlgCtrlID(hChild);
-            bool isToolbarBtn = (childId >= IDC_TB_FILES && childId <= IDC_TB_ABOUT) || childId == IDC_TB_DIALOGS || childId == IDC_TB_COMPONENTS || childId == IDC_TB_EXIT;
+            bool isToolbarBtn = (childId >= IDC_TB_FILES && childId <= IDC_TB_ABOUT) || childId == IDC_TB_DIALOGS || childId == IDC_TB_COMPONENTS || childId == IDC_TB_EXIT || childId == IDC_TB_CLOSE_PROJECT;
             if (!isToolbarBtn) {
                 if (hChild != s_hTreeView && hChild != s_hListView && 
                     hChild != s_hRegTreeView && hChild != s_hRegListView &&
@@ -3508,6 +3517,10 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             SendMessageW(hwnd, WM_COMMAND, MAKEWPARAM(IDM_FILE_SAVE, 0), 0);
             return 0;
 
+        case IDC_TB_CLOSE_PROJECT:
+            SendMessageW(hwnd, WM_COMMAND, MAKEWPARAM(IDM_FILE_CLOSE, 0), 0);
+            return 0;
+
         case IDC_TB_EXIT:
             SendMessageW(hwnd, WM_CLOSE, 0, 0);
             return 0;
@@ -5570,7 +5583,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 
         // Handle custom button drawing for toolbar buttons and page buttons
         // Note: IDC_TB_ABOUT is now a static icon, not a button, so exclude it
-        if ((dis->CtlID >= IDC_TB_FILES && dis->CtlID <= IDC_TB_SAVE) || dis->CtlID == IDC_TB_DIALOGS || dis->CtlID == IDC_TB_COMPONENTS || dis->CtlID == IDC_TB_EXIT ||
+        if ((dis->CtlID >= IDC_TB_FILES && dis->CtlID <= IDC_TB_SAVE) || dis->CtlID == IDC_TB_DIALOGS || dis->CtlID == IDC_TB_COMPONENTS || dis->CtlID == IDC_TB_EXIT || dis->CtlID == IDC_TB_CLOSE_PROJECT ||
             (dis->CtlID >= IDC_FILES_ADD_DIR && dis->CtlID <= IDC_FILES_REMOVE) ||
             (dis->CtlID >= IDC_REG_CHECKBOX && dis->CtlID <= IDC_REG_BACKUP) ||
             (dis->CtlID >= IDC_COMP_ADD && dis->CtlID <= IDC_COMP_REMOVE)) {

@@ -1,5 +1,6 @@
 #include "button.h"
 #include "dpi.h"
+#include "tooltip.h"
 #include <commctrl.h>
 
 #pragma comment(lib, "comctl32.lib")
@@ -151,6 +152,16 @@ void UpdateButtonText(HWND hButton, const std::wstring &text) {
     }
 }
 
+void SetButtonTooltip(HWND hButton, const wchar_t* text) {
+    if (!hButton) return;
+    wchar_t* existing = (wchar_t*)GetPropW(hButton, L"TooltipText");
+    if (existing) free(existing);
+    if (text && *text)
+        SetPropW(hButton, L"TooltipText", (HANDLE)_wcsdup(text));
+    else
+        RemovePropW(hButton, L"TooltipText");
+}
+
 LRESULT CALLBACK ButtonSubclassProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
     // Use window property to store per-button hover state
     BOOL isHovering = (BOOL)(INT_PTR)GetPropW(hwnd, L"IsHovering");
@@ -168,12 +179,21 @@ LRESULT CALLBACK ButtonSubclassProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM 
             tme.hwndTrack = hwnd;
             tme.dwHoverTime = HOVER_DEFAULT;
             TrackMouseEvent(&tme);
+
+            // Show tooltip if registered via SetButtonTooltip
+            wchar_t* tipText = (wchar_t*)GetPropW(hwnd, L"TooltipText");
+            if (tipText && !IsTooltipVisible()) {
+                RECT rc; GetWindowRect(hwnd, &rc);
+                std::vector<TooltipEntry> entries = {{ L"", std::wstring(tipText) }};
+                ShowMultilingualTooltip(entries, rc.left, rc.bottom + 4, GetParent(hwnd));
+            }
         }
         break;
     }
     case WM_MOUSELEAVE:
         SetPropW(hwnd, L"IsHovering", (HANDLE)0);
         InvalidateRect(hwnd, NULL, FALSE);
+        HideTooltip();
         break;
     case WM_LBUTTONUP:
         // Force redraw on mouse up to clear pressed state
@@ -197,6 +217,14 @@ LRESULT CALLBACK ButtonSubclassProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM 
         RemovePropW(hwnd, L"IconIndex2");
         
         RemovePropW(hwnd, L"IsHovering");
+
+        // Clean up tooltip text if allocated
+        wchar_t* tipText = (wchar_t*)GetPropW(hwnd, L"TooltipText");
+        if (tipText) {
+            free(tipText);
+            RemovePropW(hwnd, L"TooltipText");
+        }
+
         RemoveWindowSubclass(hwnd, ButtonSubclassProc, uIdSubclass);
         break;
     }

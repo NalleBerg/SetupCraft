@@ -371,4 +371,12 @@ CMakeFiles/SkeletonApp.dir/button.cpp.obj: \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/uses_allocator_args.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/tuple \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\dpi.h \
+ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\tooltip.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/vector \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_uninitialized.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_vector.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_bvector.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/vector.tcc \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/utility \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_relops.h \
  C:/mingw64/x86_64-w64-mingw32/include/commctrl.h

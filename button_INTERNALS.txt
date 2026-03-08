@@ -1,0 +1,236 @@
+================================================================================
+  SetupCraft — Button & Toolbar Internals
+================================================================================
+
+FILES:
+  button.h      Public API declarations
+  button.cpp    Implementation — creation, subclass proc, draw logic
+  mainwindow.cpp  CreateToolbar() — lays out both toolbar rows
+
+================================================================================
+1. BUTTON COLORS (enum class ButtonColor)
+================================================================================
+
+  Blue   — neutral actions; navigation row (Files, Components, Registry, …)
+  Red    — destructive / exit actions (Exit, Close Project)
+  Green  — constructive / commit actions (Save, Build)
+
+  Colors are stored as GWLP_USERDATA on the button HWND so WM_DRAWITEM can
+  retrieve them without any extra map lookup.
+
+  Color triplets (base / hover / pressed):
+    Blue   : (225,225,225) / (229,241,251) / (204,228,247)   — system-grey-ish
+    Red    : (205,92,92)   / (220,120,120) / (180,70,70)
+    Green  : (70,140,70)   / (90,160,90)   / (50,120,50)
+
+================================================================================
+2. CREATION API
+================================================================================
+
+  All three functions return the HWND of the new button and install
+  ButtonSubclassProc via SetWindowSubclass.
+
+  HWND CreateCustomButton(
+      HWND hwndParent, int id, const std::wstring& text,
+      ButtonColor color,
+      int x, int y, int width, int height, HINSTANCE hInst)
+
+      Plain text-only button. BS_OWNERDRAW | WS_CHILD | WS_VISIBLE.
+
+  HWND CreateCustomButtonWithIcon(
+      HWND hwndParent, int id, const std::wstring& text,
+      ButtonColor color,
+      const wchar_t* iconDll, int iconIndex,
+      int x, int y, int width, int height, HINSTANCE hInst)
+
+      Text + single icon. Icon is extracted from the DLL at creation time via
+      PrivateExtractIconsW (supports transparency). The DLL path and index are
+      stored as window properties "IconDLL" (malloc'd wchar_t*) and "IconIndex"
+      (cast to HANDLE) so DrawCustomButton can redraw on demand.
+
+  HWND CreateCustomButtonWithCompositeIcon(
+      HWND hwndParent, int id, const std::wstring& text,
+      ButtonColor color,
+      const wchar_t* iconDll1, int iconIndex1,
+      const wchar_t* iconDll2, int iconIndex2,
+      int x, int y, int width, int height, HINSTANCE hInst)
+
+      Text + two overlaid icons (icon2 is drawn on top of icon1).
+      Adds "IconDLL2" / "IconIndex2" properties alongside the primary set.
+
+  void UpdateButtonText(HWND hButton, const std::wstring& text)
+      Changes label and triggers InvalidateRect.
+
+================================================================================
+3. TOOLTIP SUPPORT (SetButtonTooltip)
+================================================================================
+
+  void SetButtonTooltip(HWND hButton, const wchar_t* text)
+
+      Stores a heap-allocated copy of `text` as window property "TooltipText"
+      on the button. Pass NULL or L"" to clear a previously set tooltip.
+      ButtonSubclassProc reads this property in WM_MOUSEMOVE and shows the
+      tooltip automatically (see §4).
+
+  Usage example (in CreateToolbar or anywhere after button creation):
+      HWND hBtn = CreateCustomButtonWithIcon(...);
+      SetButtonTooltip(hBtn, L"Close this project and return to the start screen");
+
+  The tooltip is shown as a simple single-line/wrapped message (no multilingual
+  columns) using the existing tooltip system (ShowMultilingualTooltip with a
+  single entry whose country-code field is empty — see tooltip_API.txt §7).
+
+  Tooltip text is stored per-button, so different buttons can have different
+  tooltips with no extra tracking state.
+
+================================================================================
+4. BUTTONSUBCLASSPROC — HOVER AND TOOLTIP FLOW
+================================================================================
+
+  Installed by all Create* functions via SetWindowSubclass.
+  State is stored entirely in window properties (no global variables):
+
+    "IsHovering"   — (HANDLE)1 / (HANDLE)0
+    "IconDLL"      — malloc'd wchar_t*  (freed in WM_NCDESTROY)
+    "IconIndex"    — cast HANDLE
+    "IconDLL2"     — malloc'd wchar_t*  (freed in WM_NCDESTROY)
+    "IconIndex2"   — cast HANDLE
+    "TooltipText"  — malloc'd wchar_t*  (freed in WM_NCDESTROY)
+
+  Message flow:
+
+  WM_MOUSEMOVE
+    • Reads "IsHovering". If already TRUE, do nothing (avoids repeat work on
+      every mouse move packet).
+    • Sets "IsHovering" = 1, calls InvalidateRect to trigger a hover repaint.
+    • Calls TrackMouseEvent(TME_LEAVE, hwndTrack=hwnd) so the OS will post
+      WM_MOUSELEAVE when the cursor exits the button rect.
+    • If "TooltipText" property is set and IsTooltipVisible() == false:
+        - Calls GetWindowRect to get screen coords of the button.
+        - Builds a single TooltipEntry with empty country code and the text.
+        - Calls ShowMultilingualTooltip(entries, rc.left, rc.bottom+4, parent).
+          (Tooltip appears just below the button.)
+
+  WM_MOUSELEAVE
+    • Clears "IsHovering", invalidates for normal-state repaint.
+    • Calls HideTooltip() unconditionally.
+
+  WM_LBUTTONUP
+    • InvalidateRect — forces redraw to clear the pressed highlight immediately.
+
+  WM_NCDESTROY
+    • Frees "IconDLL", "IconDLL2", "TooltipText" heap buffers.
+    • Removes all window properties.
+    • Calls RemoveWindowSubclass to uninstall itself cleanly.
+
+  NOTE: ButtonSubclassProc does NOT manage disabled-button tooltips.
+  Disabled windows never receive WM_MOUSEMOVE from the OS — their tooltips
+  must use the parent-WM_MOUSEMOVE + timer-callback pattern.
+  See tooltip_API.txt §9 "SPECIAL CASE: TOOLTIP ON A DISABLED WINDOW".
+
+================================================================================
+5. DRAWCUSTOMBUTTON — WM_DRAWITEM FLOW
+================================================================================
+
+  BOOL DrawCustomButton(LPDRAWITEMSTRUCT dis, ButtonColor color, HFONT hFont)
+
+  Called from the parent window's WM_DRAWITEM handler.
+  The parent passes ButtonColor retrieved from GWLP_USERDATA:
+      ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
+
+  Draw order:
+    1. Determine bgColor from color triplet + hover/pressed state.
+       Icon-only buttons (empty text) use COLOR_BTNFACE with subtle shade
+       adjustment to blend with the toolbar background.
+    2. Fill background with bgColor.
+    3. Draw 1px grey border (RGB 173,173,173) as a native-style button frame.
+    4. If "IconDLL" property present: load icon via PrivateExtractIconsW and
+       DrawIconEx at the left side of the button (16×16 scaled by DPI).
+    5. If "IconDLL2" property present: overlay second icon on same position.
+    6. Draw button text with TRANSPARENT background using hFont (bold, DPI-scaled).
+       Text is centred in the remaining horizontal space after the icon.
+
+  WM_DRAWITEM guard in mainwindow.cpp (WM_DRAWITEM handler):
+      The parent checks CtlID against known toolbar and page button ID ranges
+      before calling DrawCustomButton. When you add a new button with an ID
+      outside the ranges IDC_TB_FILES–IDC_TB_SAVE, you must add a separate
+      || dis->CtlID == IDC_TB_YOUR_BUTTON check to this guard.
+
+================================================================================
+6. TOOLBAR LAYOUT (CreateToolbar in mainwindow.cpp)
+================================================================================
+
+  Two fixed-height rows rendered as child buttons of the main HWND:
+
+  ROW 1 — Navigation (left-to-right, x accumulates with gap):
+    Files | Components | Registry | Shortcuts | Dependencies | Dialogs
+
+  ROW 2 — Actions (left-to-right):
+    Settings | Scripts | Test | Build | Save | Close Project | Exit
+
+  Flush right (absolute position): About icon (icon-only, no label)
+
+  Layout algorithm (inside CreateToolbar):
+    - btnH = S(28)  — button height, DPI-scaled
+    - gap  = S(4)   — gap between buttons, DPI-scaled
+    - x starts at S(10) for each row
+    - MeasureTBWidth(text) measures the pixel width needed for that label
+      (uses a temporary DC with the bold DPI-scaled font)
+    - x += width + gap after each button
+
+  Button labels are looked up from s_locale (e.g. s_locale[L"tb_save"]).
+  Each lookup falls back to a hardcoded English string if the key is absent.
+
+================================================================================
+7. HOW TO ADD A NEW TOOLBAR BUTTON
+================================================================================
+
+  1. Add an IDC_ define in mainwindow.cpp (in the "Toolbar button IDs" block).
+     Use the next available number above IDC_TB_CLOSE_PROJECT (5083).
+     Example: #define IDC_TB_MY_ACTION 5084
+
+  2. In CreateToolbar(), pick the row and insertion point. Add:
+       auto itKey = s_locale.find(L"locale_key");
+       std::wstring btnText = (itKey != s_locale.end()) ? itKey->second : L"My Action";
+       int wBtn = MeasureTBWidth(btnText);
+       HWND hBtn = CreateCustomButtonWithIcon(hwnd, IDC_TB_MY_ACTION, btnText,
+           ButtonColor::Blue,               // pick color
+           L"shell32.dll", ICON_INDEX,      // pick icon
+           x, rowY, wBtn, btnH, hInst);
+       // Optional tooltip for enabled buttons:
+       SetButtonTooltip(hBtn, L"Tooltip text shown on hover");
+       x += wBtn + gap;
+
+  3. Add a case in the WM_COMMAND handler (after the nearby cases):
+       case IDC_TB_MY_ACTION:
+           // ... do work or forward to IDM_... ...
+           return 0;
+
+  4. Add IDC_TB_MY_ACTION to the isToolbarBtn guard (~line 962):
+       || childId == IDC_TB_MY_ACTION
+
+  5. Add IDC_TB_MY_ACTION to the WM_DRAWITEM guard (~line 5573):
+       || dis->CtlID == IDC_TB_MY_ACTION
+
+  6. If the button can be disabled:
+       EnableWindow(GetDlgItem(hwnd, IDC_TB_MY_ACTION), FALSE/TRUE);
+       For tooltips on a disabled button, use the timer-callback pattern
+       (see tooltip_API.txt §9). Do NOT use SetButtonTooltip for disabled buttons
+       — WM_MOUSEMOVE is never delivered to disabled windows.
+
+================================================================================
+8. ICON INDICES (shell32.dll — verified at use sites in this project)
+================================================================================
+
+  27   — Close/X door (used by Exit)
+  80   — Gear/wrench (used by Build)
+  131  — Folder (used by Close Project)
+  258  — Floppy disk / Save (used by Save)
+
+  Icons are loaded via PrivateExtractIconsW with the TRANSPARENT flag, which
+  gives correct alpha on modern Windows themes. DestroyIcon is called after
+  DrawIconEx, so no HICON resources accumulate.
+
+================================================================================
+END
+================================================================================
