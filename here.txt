@@ -1,0 +1,177 @@
+========================================================================
+  SetupCraft — Session State & Where We Are
+  Written: 08.03.2026 — End of day
+========================================================================
+
+── FEATURES COMPLETE (built, working) ──────────────────────────────────
+
+ 1. Close Project toolbar button (v2026.03.08.09)
+    - IDC_TB_CLOSE_PROJECT = 5083, shell32 icon 131, red button
+    - Per-button tooltip via SetButtonTooltip() / ButtonSubclassProc
+    - Documented in button_INTERNALS.txt
+    - Released, committed, pushed.
+
+ 2. Picker last-folder memory (v2026.03.08.10)
+    - Add Folder remembers last parent directory per project.
+      DB key: "last_picker_folder_<projectId>"
+    - Add Files remembers last directory per project.
+      DB key: "last_picker_files_<projectId>"
+    - First-time Add Files defaults to %USERPROFILE% to prevent
+      Windows shell cross-contaminating the two pickers.
+    - PickerFolderCallback (SHBrowseForFolderW BFFM_SETSELECTION)
+      navigates to stored path on open.
+    - Built clean. Released in this session (v2026.03.08.10).
+
+── FEATURE IN PROGRESS (not working yet) ────────────────────────────────
+
+ 3. Drag-and-drop — TreeView folder drag and ListView file drag
+
+   CURRENT SYMPTOM (end of day):
+     After the second attempt at fixing it, neither folders nor
+     files react to drag at all. The cursor never changes and no
+     drop-target highlighting appears.
+
+   HISTORY OF ATTEMPTS:
+     Attempt 1 (original):
+       Used TVN_BEGINDRAG / LVN_BEGINDRAG + ImageList_DragEnter()
+       for a ghost image.
+       Symptom: Folder got a partial blue flicker/artifact.
+       Files did not react.
+
+     Attempt 2 (today's fix):
+       Removed all ImageList ghost code (DWM compositing makes
+       ImageList_DragEnter incompatible with modern Windows).
+       Added WM_PARENTNOTIFY to detect LMB press in child controls,
+       then tried to detect drag threshold in the parent's
+       WM_MOUSEMOVE.
+       Symptom: Nothing reacts at all now.
+
+   ROOT CAUSE ANALYSIS:
+     The fundamental problem is WHERE mouse messages are delivered:
+
+     A) Before SetCapture(hwnd) is called:
+        - LMB press lands in TreeView/ListView child window.
+        - Those child controls internally take mouse capture.
+        - Subsequent WM_MOUSEMOVE messages go to the CHILD, not
+          the parent (hwnd). So the parent's WM_MOUSEMOVE drag-
+          threshold check never runs until the cursor leaves the
+          child entirely.
+        - TVN_BEGINDRAG / LVN_BEGINDRAG fire from the child's
+          internal handling (after the child decides "this looks
+          like a drag"), but:
+            - TVS_EDITLABELS delays item selection (waits for
+              double-click timeout to know if user wants to edit).
+              This may delay or suppress TVN_BEGINDRAG.
+            - LVN_BEGINDRAG requires the ListView to internally
+              detect drag threshold too — if the hit-test isn't
+              exactly on the label area, it may not fire.
+     
+     B) WM_PARENTNOTIFY fallback (attempt 2):
+        WM_PARENTNOTIFY(WM_LBUTTONDOWN) fires on the parent, so
+        we correctly record the starting point and item. BUT the
+        threshold check is in the parent's WM_MOUSEMOVE, which
+        doesn't receive messages until hwnd has capture.
+        Chicken-and-egg: we need a drag to set capture, and we
+        need capture to detect a drag.
+
+   THE CORRECT FIX FOR TOMORROW:
+     Subclass both s_hTreeView and s_hListView.
+     Give each its own drag-detection subclass proc:
+
+       TreeViewSubclassProc:
+         WM_LBUTTONDOWN:
+           - Hit-test the click position.
+           - If on a non-root folder item: store item + screen pt
+             as "potential drag" (s_dragPotTV, s_dragPotPt).
+           - Forward to original proc (TreeView needs to select).
+         WM_MOUSEMOVE:
+           - If LMB still down AND potential drag set:
+             - Check SM_CXDRAG/SM_CYDRAG threshold.
+             - If exceeded: set s_dragSource, s_dragTreeItem,
+               call SetCapture(hwndParent).
+             - Parent now receives all WM_MOUSEMOVE until drop.
+           - Always forward to original proc.
+         WM_LBUTTONUP:
+           - Clear potential drag state.
+           - Forward to original proc.
+
+       ListViewSubclassProc: same pattern, but check that the
+         selected tree node is in s_virtualFolderFiles before
+         allowing the drag.
+
+     The main window's WM_MOUSEMOVE, WM_SETCURSOR, WM_LBUTTONUP,
+     and WM_CAPTURECHANGED handlers are then triggered correctly
+     once SetCapture(hwndParent) is called from the subclass.
+
+   IMPLEMENTATION STEPS:
+     1. In mainwindow.h:
+        - Declare static LRESULT CALLBACK TreeDragSubclassProc(...)
+        - Declare static LRESULT CALLBACK ListDragSubclassProc(...)
+
+     2. In mainwindow.cpp:
+        - After CreateWindowExW for s_hTreeView:
+            SetWindowSubclass(s_hTreeView, TreeDragSubclassProc, 1, 0)
+        - After CreateWindowExW for s_hListView:
+            SetWindowSubclass(s_hListView, ListDragSubclassProc, 1, 0)
+        - Remove WM_PARENTNOTIFY handler.
+        - Keep TVN_BEGINDRAG / LVN_BEGINDRAG handlers as secondary
+          trigger (belt and suspenders).
+
+     3. Include <commctrl.h> for SetWindowSubclass (already included).
+
+     4. BuildTreeSubclassProc and ListDragSubclassProc functions.
+
+   WHAT IS ALREADY CORRECT and can stay:
+     - CancelDrag() — clean, no image list, resets all state.
+     - WM_LBUTTONUP drop handler — correctly finds hDrop, validates,
+       moves tree nodes or virtual file entries.
+     - WM_SETCURSOR — correctly shows icon 109 / icon 300.
+     - WM_MOUSEMOVE drop-target highlight via TreeView_SelectDropTarget.
+     - IsDragDropValid() — correct rules.
+     - CloneTreeSubtree() — correct recursive move.
+     - WM_CAPTURECHANGED — now guarded against child-control capture.
+
+── REMINDER: ENTRY PAGE TOOLTIPS ───────────────────────────────────────
+
+  The entry/start page (the screen shown before any project is opened)
+  has visual elements (buttons? labels?) that need tooltip support
+  added or fixed.
+
+  Also: encoding issues on the entry page need attention.
+  (User flagged this — "fix the tooltips on the entry page visual and
+  encoding" — this has NOT been looked at yet.)
+
+  What to investigate:
+    - Which controls on the entry page currently show garbled or
+      missing text (encoding)?
+    - Which controls need tooltips and are missing them?
+    - Are locale strings being loaded correctly for the entry page?
+    - Is the entry page using the SetButtonTooltip() system already,
+      or does it have its own tooltip handling?
+
+── FILES CHANGED SINCE LAST COMMIT (v2026.03.08.09) ────────────────────
+
+  mainwindow.cpp:
+    - Add Folder handler: reads/saves "last_picker_folder_<id>"
+    - Add Files handler: reads/saves "last_picker_files_<id>",
+      USERPROFILE fallback for first use
+    - PickerFolderCallback: BFFM_SETSELECTION init
+    - Drag statics: DragSource enum, s_dragTreeItem, etc.
+    - TVN_BEGINDRAG handler in WM_NOTIFY
+    - LVN_BEGINDRAG handler in WM_NOTIFY
+    - WM_PARENTNOTIFY handler (fallback detection — needs rewrite)
+    - WM_LBUTTONUP drop handler
+    - WM_SETCURSOR cursor override during drag
+    - WM_MOUSEMOVE drag update block
+    - WM_CAPTURECHANGED guard
+    - CancelDrag(), EnsureDragCursors(), HitTestTreeView(),
+      IsDragDropValid(), CloneTreeSubtree(), IsTreeDescendant()
+
+  mainwindow.h:
+    - Public accessors: GetFilesTreeView(), GetProgramFilesRoot(),
+      GetProgramDataRoot(), GetAppDataRoot(), GetAskAtInstallRoot()
+    - AddTreeNode() moved from private to public
+
+========================================================================
+  END OF SESSION STATE
+========================================================================

@@ -1,6 +1,16 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 08 March 2026 &mdash; v2026.03.08.09<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 08 March 2026 &mdash; v2026.03.08.10<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.08.10</span></h3>
+<p><strong>Per-project picker last-folder memory &amp; drag-and-drop groundwork (08.03.2026, 10:02):</strong></p>
+<ul>
+<li><strong>Add Folder remembers last location per project:</strong> The folder browser (<code>SHBrowseForFolderW</code>) now opens at the last parent directory used for that project. The path is stored in the DB as <code>last_picker_folder_&lt;projectId&gt;</code> via <code>DB::SetSetting</code> and restored via <code>PickerFolderCallback</code> (<code>BFFM_SETSELECTION</code> on <code>BFFM_INITIALIZED</code>). Saved path is the parent of the selected folder, so repeated &ldquo;Add Folder&rdquo; calls in the same session keep returning to the same location.</li>
+<li><strong>Add Files remembers last location per project:</strong> The file open dialog (<code>GetOpenFileNameW</code>) sets <code>lpstrInitialDir</code> from DB key <code>last_picker_files_&lt;projectId&gt;</code>. Falls back to <code>%USERPROFILE%</code> on first use per project to prevent Windows shell from sharing &ldquo;last visited&rdquo; state with the folder picker. On success the directory portion (<code>fileBuffer[0..nFileOffset&minus;2]</code>) is saved back to the DB key.</li>
+<li><strong>Drag-and-drop initial infrastructure:</strong> All state variables, helper functions (<code>EnsureDragCursors</code>, <code>IsDragDropValid</code>, <code>CloneTreeSubtree</code>, <code>CancelDrag</code>), cursor loading (shell32.dll icon 109 = no-drop, icon 300 = can-drop), drop-target highlighting, and the WM_LBUTTONUP drop handler are in place. Visual ghost (ImageList drag) removed &mdash; incompatible with DWM compositing. Drag activation via subclassing TreeView and ListView is the planned fix for the next session.</li>
+</ul>
+
+<h3 style="text-align: center;">&nbsp;</h3>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.08.09</span></h3>
 <p><strong>Close Project toolbar button &amp; per-button tooltip system (08.03.2026, 09:02):</strong></p>

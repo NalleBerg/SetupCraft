@@ -34,6 +34,12 @@ public:
     // Accessors for components needed by non-member helpers
     static HTREEITEM GetAskAtInstallRoot();
     static const std::map<std::wstring, std::wstring>& GetLocale();
+    // Accessors for drag-and-drop helpers
+    static HWND     GetFilesTreeView()      { return s_hTreeView; }
+    static HTREEITEM GetProgramFilesRoot()  { return s_hProgramFilesRoot; }
+    static HTREEITEM GetProgramDataRoot()   { return s_hProgramDataRoot; }
+    static HTREEITEM GetAppDataRoot()       { return s_hAppDataRoot; }
+    static HTREEITEM AddTreeNode(HWND hTree, HTREEITEM hParent, const std::wstring &text, const std::wstring &fullPath);
     
 private:
     static void CreateMenuBar(HWND hwnd);
@@ -48,7 +54,6 @@ private:
     static void PopulateListView(HWND hList, const std::wstring &folderPath);
     static void UpdateInstallPathFromTree(HWND hwnd);
     static void UpdateComponentsButtonState(HWND hwnd);
-    static HTREEITEM AddTreeNode(HWND hTree, HTREEITEM hParent, const std::wstring &text, const std::wstring &fullPath);
     static void AddTreeNodeRecursive(HWND hTree, HTREEITEM hParent, const std::wstring &folderPath);
     static void SaveTreeSnapshot(HWND hTree, HTREEITEM hParent, std::vector<TreeNodeSnapshot> &out);
     static void RestoreTreeSnapshot(HWND hTree, HTREEITEM hParent, const std::vector<TreeNodeSnapshot> &nodes);
