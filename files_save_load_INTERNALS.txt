@@ -1,0 +1,231 @@
+================================================================================
+  SetupCraft — Files Page: Save / Load Architecture
+  (Internal reference for diagnosing and extending persistence)
+================================================================================
+
+────────────────────────────────────────────────────────────────────────────────
+1. DATA STRUCTURES
+────────────────────────────────────────────────────────────────────────────────
+
+VirtualFolderFile  (mainwindow.h)
+    std::wstring sourcePath      – absolute path on the developer's machine
+    std::wstring destination     – relative file name with leading backslash,
+                                   e.g. "\MyApp.exe"
+    std::wstring install_scope   – "" | "AskAtInstall"
+
+TreeNodeSnapshot  (mainwindow.h)
+    std::wstring text            – display label of the tree node
+    std::wstring fullPath        – the value stored in TVITEM.lParam for that node
+                                   ("" = virtual node, real path = physical folder)
+    std::vector<VirtualFolderFile> virtualFiles  – files attached to this node
+    std::vector<TreeNodeSnapshot>  children      – recursive child nodes
+
+FileRow  (db.h)
+    int         id
+    int         project_id
+    std::wstring source_path       – real disk path, or "" for virtual folders
+    std::wstring destination_path  – full virtual path from root label,
+                                     e.g. "Program Files\MyApp\sub"
+    std::wstring install_scope     – "" | "AskAtInstall" | "__folder__"
+                                     "__folder__" marks a folder node row (not a file)
+
+Static globals in mainwindow.cpp
+    s_virtualFolderFiles : map<HTREEITEM, vector<VirtualFolderFile>>
+        ↳ In-memory store.  Keyed on live HTREEITEM handles.
+          Populated ONLY for nodes where TVITEM.lParam == "" (virtual nodes).
+          Also repopulated by RestoreTreeSnapshot and the DB-rebuild path on load.
+
+    s_treeSnapshot_ProgramFiles / _ProgramData / _AppData / _AskAtInstall
+        ↳ In-memory snapshot taken when leaving page 0 (SwitchPage).
+          Survives tab switches. CLEARED on MainWindow::Create() (project open).
+
+DB tables  (db.h / db.cpp)
+    files(id, project_id, source_path, destination_path, install_scope)
+        ↳ On-disk persistent store for the full tree (folder nodes + files).
+          install_scope = "__folder__" → folder node row.
+          install_scope = "" or "AskAtInstall" → file row.
+    projects(id, …, directory, …)
+        ↳ "directory" = last known install path, synced on every Save.
+
+────────────────────────────────────────────────────────────────────────────────
+2. HOW "ADD FOLDER" WORKS  (IDC_FILES_ADD_DIR)
+────────────────────────────────────────────────────────────────────────────────
+
+User picks a folder via SHBrowseForFolder.
+  → AddTreeNode(hTree, hParent, folderName, path)      ← lParam = REAL path
+  → AddTreeNodeRecursive(hTree, hRoot, path)           ← all sub-dirs, real lParam
+  → s_currentInstallPath updated; IDC_INSTALL_FOLDER updated.
+
+These nodes have a real disk path in lParam, so they are NOT added to
+s_virtualFolderFiles.  They are captured via SaveTreeSnapshot → SaveTreeToDb
+during save (see section 4).
+
+────────────────────────────────────────────────────────────────────────────────
+3. HOW "ADD FILES" WORKS  (IDC_FILES_ADD_FILES)
+────────────────────────────────────────────────────────────────────────────────
+
+User picks files via GetOpenFileName.
+For each file, finds the target HTREEITEM (hTargetFolder).
+  folderPath = (wchar_t*)tvItem.lParam
+  if (!folderPath || wcslen(folderPath) == 0)   ← VIRTUAL node only
+      s_virtualFolderFiles[hTargetFolder].push_back(fileInfo)
+
+Files added onto a virtual folder node are stored in s_virtualFolderFiles and
+are captured by SaveTreeSnapshot → snap.virtualFiles → SaveTreeToDb → DB.
+
+REMAINING LIMITATION: Files added onto a real-path folder node (lParam != "")
+are NOT stored in s_virtualFolderFiles and will not appear in snap.virtualFiles.
+They will be missing from the DB after save.  The workaround is to add files
+only to virtual (manually-created) folders, not to folders added via "Add Folder".
+(This limitation existed before the fix and is considered a future improvement.)
+
+────────────────────────────────────────────────────────────────────────────────
+4. SAVE PROCESS  (IDM_FILE_SAVE in WndProc)
+────────────────────────────────────────────────────────────────────────────────
+
+Step 1.  Read project name from IDC_PROJECT_NAME edit → s_currentProject.name.
+Step 2.  If project.id <= 0 → DB::InsertProject (creates row, gets new id).
+Step 3.  Sync directory:
+           if Files page is live → read IDC_INSTALL_FOLDER → s_currentInstallPath
+           s_currentProject.directory = s_currentInstallPath  (if non-empty)
+Step 4.  DB::UpdateProject(s_currentProject)  (all metadata including directory).
+Step 5.  Take a fresh tree snapshot if Files page is currently shown:
+           SaveTreeSnapshot for each of the four root handles
+           → s_treeSnapshot_ProgramFiles / _ProgramData / _AppData / _AskAtInstall
+Step 6.  DB::DeleteFilesForProject(id)  (wipe old rows).
+Step 7.  SaveTreeToDb(id, s_treeSnapshot_ProgramFiles,  L"Program Files")
+         SaveTreeToDb(id, s_treeSnapshot_ProgramData,   L"ProgramData")
+         SaveTreeToDb(id, s_treeSnapshot_AppData,       L"AppData (Roaming)")
+         SaveTreeToDb(id, s_treeSnapshot_AskAtInstall,  L"AskAtInstall")
+           Each call recursively walks the snapshot nodes:
+             • Every folder node  → InsertFile(…, source_path=lParam,
+                                               destination_path="Root\...\NodeName",
+                                               install_scope="__folder__")
+             • Every virtual file → InsertFile(…, source_path=fullPath,
+                                               destination_path="Root\...\Folder\file",
+                                               install_scope="" or "AskAtInstall")
+Step 8.  DB::SetSetting("ask_at_install_<id>", "1"/"0").
+Step 9.  s_hasUnsavedChanges = false.
+
+SaveTreeToDb  (static helper in mainwindow.cpp, before SwitchPage):
+  Recursively processes a vector<TreeNodeSnapshot>.
+  parentVirtualPath starts as the root label (e.g. "Program Files").
+  For each node: myPath = parentVirtualPath + "\\" + snap.text
+    InsertFile(id, snap.fullPath, myPath, L"__folder__")
+    for each f in snap.virtualFiles:
+        InsertFile(id, f.sourcePath, myPath + f.destination, f.install_scope)
+    recurse into snap.children with myPath as new parent.
+
+────────────────────────────────────────────────────────────────────────────────
+5. LOAD PROCESS  (SwitchPage → page 0)
+────────────────────────────────────────────────────────────────────────────────
+
+On every visit to the Files tab the page HWND is destroyed and recreated.
+The four root nodes (Program Files, ProgramData, AppData (Roaming), AskAtInstall)
+are always created fresh.  Then the following priority order applies:
+
+  Priority 1 — Session snapshot (hasSnapshot == true)
+    Any of s_treeSnapshot_* is non-empty.
+    → s_virtualFolderFiles.clear()
+    → RestoreTreeSnapshot for each root
+      (re-creates HTREEITEM nodes + repopulates s_virtualFolderFiles)
+    Used during: tab switches within the same session.
+
+  Priority 2 — DB rebuild (hasSnapshot == false, project.id > 0)
+    DB::GetFilesForProject(id) returns rows.
+    Rows are sorted shallowest-first (fewest backslashes in destination_path).
+    A map<wstring, HTREEITEM> (pathToNode) tracks virtual path → live handle.
+    • install_scope == "__folder__":
+        Extract parent path and node name from destination_path.
+        AddTreeNode(hTree, parentHandle, nodeName, source_path)
+        Register new HTREEITEM in pathToNode.
+    • anything else (file row):
+        Find parent HTREEITEM via pathToNode.
+        Push VirtualFolderFile into s_virtualFolderFiles[parentHandle].
+    TreeView_Expand called on Program Files root.
+    Used during: first open after restart when project has been saved.
+
+  Priority 3 — Disk scan fallback (no snapshot, no DB rows)
+    if (!s_currentProject.directory.empty())
+        PopulateTreeView(hTree, directory, installPath)
+    Scans actual disk folders, builds real-path nodes.
+    Used during: legacy projects that predate the DB-rebuild fix, or new
+    projects that have never been saved.
+
+  Priority 4 — Empty tree
+    No snapshot, no DB rows, no directory.  Only root stubs shown.
+
+────────────────────────────────────────────────────────────────────────────────
+6. SNAPSHOT LIFETIME
+────────────────────────────────────────────────────────────────────────────────
+
+Created:   SwitchPage() when leaving page index 0.
+           Also taken inside IDM_FILE_SAVE if Files page is currently shown.
+
+Cleared:   MainWindow::Create() — every time any project is opened or a new
+           project window is created, ensuring a clean slate.
+
+Restored:  SwitchPage() when entering page index 0, if hasSnapshot == true
+           (Priority 1 in section 5).
+
+Scope:     IN-MEMORY ONLY.  Does not survive application restart.
+
+────────────────────────────────────────────────────────────────────────────────
+7. HISTORY — ROOT CAUSE OF "FILES MISSING AFTER RE-OPEN" (FIXED)
+────────────────────────────────────────────────────────────────────────────────
+
+Two independent bugs existed before the March 2026 fix:
+
+Bug A — Save didn't capture physical-folder trees  [FIXED]
+  The old save loop only iterated s_virtualFolderFiles, missing every node
+  created by "Add Folder" (real lParam path → not in s_virtualFolderFiles).
+  Fix: SaveTreeToDb walks the full snapshot including real-path nodes.
+
+Bug B — Load never read the files table  [FIXED]
+  No code queried the files table on open; the only restore paths were the
+  in-memory snapshot (dies on restart) or a disk scan (fails if directory="").
+  Fix: Priority-2 DB rebuild path added to the page-0 load logic.
+
+Bug C — directory never persisted  [FIXED]
+  s_currentProject.directory was never written back from the UI; projects where
+  the user had not set it via Settings always had directory="".
+  Fix: Save handler now reads IDC_INSTALL_FOLDER → s_currentProject.directory
+  before calling DB::UpdateProject.
+
+Remaining known limitation:
+  Files added via "Add Files" onto a real-path folder node (lParam != "") are
+  still not captured (see section 3).  This is a future improvement item.
+
+────────────────────────────────────────────────────────────────────────────────
+8. KEY FUNCTION / FILE MAP  (with approximate line numbers post-fix)
+────────────────────────────────────────────────────────────────────────────────
+
+mainwindow.h
+  VirtualFolderFile struct
+  TreeNodeSnapshot  struct
+
+mainwindow.cpp
+  static s_virtualFolderFiles      (line ~83)
+  static s_treeSnapshot_*          (lines ~86-89)
+  MainWindow::Create()             (line ~300)  – clears all state, opens project
+  SaveTreeToDb()                   (line ~877)  – NEW: recursive DB writer
+  MainWindow::SwitchPage()         (line ~900)  – snapshot on leave, restore on enter
+  MainWindow::SaveTreeSnapshot()   (line ~860)
+  MainWindow::RestoreTreeSnapshot()(line ~884)
+  IDM_FILE_SAVE handler            (line ~4965) – save path (updated)
+  IDC_FILES_ADD_DIR handler        (line ~3440) – adds real-path folder nodes
+  IDC_FILES_ADD_FILES handler      (line ~3510) – adds files, virtual-only to map
+  MainWindow::AddTreeNode()        (line ~1860)
+  MainWindow::PopulateTreeView()   (line ~1908)
+  DB rebuild path (Priority 2)     (line ~1260) – NEW: loads tree from DB on open
+
+db.h
+  FileRow struct                   – NEW
+  DB::GetFilesForProject()         – NEW declaration
+
+db.cpp
+  DB::GetFilesForProject()         – NEW: SELECT files WHERE project_id ORDER BY id
+  DB::InsertFile()                 – unchanged
+  DB::DeleteFilesForProject()      – unchanged
+
+================================================================================

@@ -1,0 +1,23 @@
+================================================================================
+  SetupCraft — Documentation Index
+================================================================================
+
+  Naming convention:
+    _API.txt        Public component interface — what to call and what it returns.
+    _INTERNALS.txt  Architectural / flow reference — how a subsystem works
+                    internally, bug history, and fix guidance.
+
+  File                              Description
+  ──────────────────────────────────────────────────────────────────────────────
+  tooltip_API.txt                   Custom multilingual tooltip system — creation,
+                                    positioning, subclassing, and locale integration.
+
+  spinner_dialog_API.txt            Modal progress/spinner dialog component — API,
+                                    thread usage, and progress callback protocol.
+
+  files_save_load_INTERNALS.txt     Files-page save/load architecture — data flow
+                                    between the TreeView, s_virtualFolderFiles,
+                                    SaveTreeToDb, the DB files table, DB-rebuild
+                                    load path, and fixed-bug history.
+
+================================================================================

@@ -874,6 +874,28 @@ void MainWindow::RestoreTreeSnapshot(HWND hTree, HTREEITEM hParent,
 }
 // ---------------------------------------------------------------------------
 
+// Recursively save all tree nodes (folder nodes + their virtual files) to the
+// DB files table.  rootPrefix is one of the four fixed root labels used as the
+// leading path component so we know which root to restore nodes under on load.
+static void SaveTreeToDb(int projectId,
+                         const std::vector<TreeNodeSnapshot> &nodes,
+                         const std::wstring &parentVirtualPath)
+{
+    for (const auto &snap : nodes) {
+        std::wstring myPath = parentVirtualPath + L"\\" + snap.text;
+        // Save the folder node itself (install_scope == L"__folder__")
+        DB::InsertFile(projectId, snap.fullPath, myPath, L"__folder__");
+        // Save any virtual files attached to this folder
+        for (const auto &f : snap.virtualFiles) {
+            // f.destination is like L"\filename.exe" (leading backslash)
+            DB::InsertFile(projectId, f.sourcePath, myPath + f.destination,
+                           f.install_scope.empty() ? L"" : f.install_scope);
+        }
+        // Recurse into children
+        SaveTreeToDb(projectId, snap.children, myPath);
+    }
+}
+
 void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
     // Snapshot Files page tree before tearing it down so we can restore it
     // (including virtual folders and full hierarchy) when we return.
@@ -1243,8 +1265,65 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
             if (s_hProgramDataRoot)  RestoreTreeSnapshot(s_hTreeView, s_hProgramDataRoot,  s_treeSnapshot_ProgramData);
             if (s_hAppDataRoot)      RestoreTreeSnapshot(s_hTreeView, s_hAppDataRoot,       s_treeSnapshot_AppData);
             if (s_hAskAtInstallRoot) RestoreTreeSnapshot(s_hTreeView, s_hAskAtInstallRoot,  s_treeSnapshot_AskAtInstall);
-        } else if (!s_currentProject.directory.empty()) {
-            PopulateTreeView(s_hTreeView, s_currentProject.directory, defaultPath);
+        } else {
+            // No session snapshot — first time this project is shown in this session.
+            // Prefer rebuilding from the persisted DB rows (works even when directory=""
+            // and survives restarts). Fall back to a disk scan if no DB rows exist.
+            bool rebuiltFromDb = false;
+            if (s_currentProject.id > 0) {
+                auto fileRows = DB::GetFilesForProject(s_currentProject.id);
+                if (!fileRows.empty()) {
+                    rebuiltFromDb = true;
+                    // Sort shallowest first so every parent node is inserted before its children.
+                    std::sort(fileRows.begin(), fileRows.end(),
+                        [](const FileRow &a, const FileRow &b) {
+                            return std::count(a.destination_path.begin(), a.destination_path.end(), L'\\')
+                                 < std::count(b.destination_path.begin(), b.destination_path.end(), L'\\');
+                        });
+                    // Map virtual path → live HTREEITEM for parent lookup.
+                    std::map<std::wstring, HTREEITEM> pathToNode;
+                    pathToNode[L"Program Files"]     = s_hProgramFilesRoot;
+                    pathToNode[L"ProgramData"]       = s_hProgramDataRoot;
+                    pathToNode[L"AppData (Roaming)"] = s_hAppDataRoot;
+                    pathToNode[L"AskAtInstall"]      = s_hAskAtInstallRoot;
+
+                    for (const auto &row : fileRows) {
+                        if (row.install_scope == L"__folder__") {
+                            size_t sep = row.destination_path.rfind(L'\\');
+                            std::wstring parentPath = (sep != std::wstring::npos)
+                                ? row.destination_path.substr(0, sep) : L"";
+                            std::wstring nodeName = (sep != std::wstring::npos)
+                                ? row.destination_path.substr(sep + 1) : row.destination_path;
+                            auto it = pathToNode.find(parentPath);
+                            if (it != pathToNode.end() && it->second) {
+                                HTREEITEM hNode = AddTreeNode(s_hTreeView, it->second,
+                                                              nodeName, row.source_path);
+                                pathToNode[row.destination_path] = hNode;
+                            }
+                        } else {
+                            // File row — attach to parent folder node.
+                            size_t sep = row.destination_path.rfind(L'\\');
+                            std::wstring parentPath = (sep != std::wstring::npos)
+                                ? row.destination_path.substr(0, sep) : L"";
+                            std::wstring fileName = (sep != std::wstring::npos)
+                                ? row.destination_path.substr(sep)
+                                : (L"\\" + row.destination_path);
+                            auto it = pathToNode.find(parentPath);
+                            if (it != pathToNode.end() && it->second) {
+                                VirtualFolderFile vf;
+                                vf.sourcePath    = row.source_path;
+                                vf.destination   = fileName;
+                                vf.install_scope = row.install_scope;
+                                s_virtualFolderFiles[it->second].push_back(vf);
+                            }
+                        }
+                    }
+                    TreeView_Expand(s_hTreeView, s_hProgramFilesRoot, TVE_EXPAND);
+                }
+            }
+            if (!rebuiltFromDb && !s_currentProject.directory.empty()) {
+                PopulateTreeView(s_hTreeView, s_currentProject.directory, defaultPath);
+            }
         }
         // Subclass TreeView so we can show tooltip on hover
         if (s_hTreeView) {
@@ -4971,15 +5050,42 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             }
 
             // Persist all project metadata (name, version, directory, etc.)
-            DB::UpdateProject(s_currentProject);
-
-            // Replace file rows for this project
-            DB::DeleteFilesForProject(s_currentProject.id);
-            for (auto &pair : s_virtualFolderFiles) {
-                for (const auto &fileInfo : pair.second) {
-                    DB::InsertFile(s_currentProject.id, fileInfo.sourcePath, fileInfo.destination, fileInfo.install_scope);
+            // Sync directory from the live install-path field if we are on the Files page.
+            if (s_currentPageIndex == 0) {
+                HWND hInstEdit = GetDlgItem(hwnd, IDC_INSTALL_FOLDER);
+                if (hInstEdit) {
+                    int len = GetWindowTextLengthW(hInstEdit);
+                    if (len > 0) {
+                        std::wstring ip(len + 1, L'\0');
+                        GetWindowTextW(hInstEdit, &ip[0], len + 1);
+                        ip.resize(len);
+                        s_currentInstallPath = ip;
+                    }
                 }
             }
+            if (!s_currentInstallPath.empty())
+                s_currentProject.directory = s_currentInstallPath;
+            DB::UpdateProject(s_currentProject);
+
+            // Ensure snapshots are current (take a fresh one if Files page is live)
+            if (s_currentPageIndex == 0 && s_hTreeView && IsWindow(s_hTreeView)) {
+                s_treeSnapshot_ProgramFiles.clear();
+                s_treeSnapshot_ProgramData.clear();
+                s_treeSnapshot_AppData.clear();
+                s_treeSnapshot_AskAtInstall.clear();
+                if (s_hProgramFilesRoot) SaveTreeSnapshot(s_hTreeView, s_hProgramFilesRoot, s_treeSnapshot_ProgramFiles);
+                if (s_hProgramDataRoot)  SaveTreeSnapshot(s_hTreeView, s_hProgramDataRoot,  s_treeSnapshot_ProgramData);
+                if (s_hAppDataRoot)      SaveTreeSnapshot(s_hTreeView, s_hAppDataRoot,       s_treeSnapshot_AppData);
+                if (s_hAskAtInstallRoot) SaveTreeSnapshot(s_hTreeView, s_hAskAtInstallRoot,  s_treeSnapshot_AskAtInstall);
+            }
+
+            // Replace file rows: walk full tree snapshots so both real-path folder
+            // nodes (added via "Add Folder") and virtual-file nodes are persisted.
+            DB::DeleteFilesForProject(s_currentProject.id);
+            SaveTreeToDb(s_currentProject.id, s_treeSnapshot_ProgramFiles,  L"Program Files");
+            SaveTreeToDb(s_currentProject.id, s_treeSnapshot_ProgramData,   L"ProgramData");
+            SaveTreeToDb(s_currentProject.id, s_treeSnapshot_AppData,       L"AppData (Roaming)");
+            SaveTreeToDb(s_currentProject.id, s_treeSnapshot_AskAtInstall,  L"AskAtInstall");
 
             // Persist ask-at-install preference
             DB::SetSetting(L"ask_at_install_" + std::to_wstring(s_currentProject.id),

@@ -38,6 +38,14 @@ struct ComponentRow {
     std::wstring dest_path;
 };
 
+struct FileRow {
+    int id = 0;
+    int project_id = 0;
+    std::wstring source_path;       // real disk path, or "" for virtual folders
+    std::wstring destination_path;  // virtual tree path, e.g. "Program Files\MyApp\sub"
+    std::wstring install_scope;     // "" | "AskAtInstall" | "__folder__"
+};
+
 namespace DB {
     bool InitDb();
     bool InsertProject(const std::wstring &name, const std::wstring &directory, const std::wstring &description, const std::wstring &lang, const std::wstring &version, int &outId);
@@ -49,6 +57,7 @@ namespace DB {
     // File persistence
     bool DeleteFilesForProject(int projectId);
     bool InsertFile(int projectId, const std::wstring &sourcePath, const std::wstring &destPath, const std::wstring &installScope);
+    std::vector<FileRow> GetFilesForProject(int projectId);
     // Registry entry persistence (relational: one project → many entries)
     bool InsertRegistryEntry(int projectId, const std::wstring &hive, const std::wstring &path, const std::wstring &name, const std::wstring &type, const std::wstring &data);
     std::vector<RegistryEntryRow> GetRegistryEntriesForProject(int projectId);

@@ -283,6 +283,37 @@ bool DB::InsertFile(int projectId, const std::wstring &sourcePath, const std::ws
     return true;
 }
 
+std::vector<FileRow> DB::GetFilesForProject(int projectId) {
+    std::vector<FileRow> out;
+    std::wstring dbPath = GetAppDataDbPath();
+    std::string dbPathUtf8 = WToUtf8(dbPath);
+    void *db = NULL;
+    int flags = 0x00000002 | 0x00000004;
+    if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return out;
+
+    const char *sql = "SELECT id, source_path, destination_path, install_scope FROM files WHERE project_id = ? ORDER BY id ASC;";
+    void *stmt = NULL;
+    if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return out; }
+    std::string sId = std::to_string(projectId);
+    if (p_bind_text) p_bind_text(stmt, 1, sId.c_str(), -1, NULL);
+
+    while (p_step(stmt) == 100 /*SQLITE_ROW*/) {
+        FileRow r;
+        r.id         = (int)p_col_int64(stmt, 0);
+        r.project_id = projectId;
+        const unsigned char *c1 = p_col_text(stmt, 1);
+        const unsigned char *c2 = p_col_text(stmt, 2);
+        const unsigned char *c3 = p_col_text(stmt, 3);
+        r.source_path      = Utf8ToW(c1 ? (const char*)c1 : "");
+        r.destination_path = Utf8ToW(c2 ? (const char*)c2 : "");
+        r.install_scope    = Utf8ToW(c3 ? (const char*)c3 : "");
+        out.push_back(r);
+    }
+    if (p_finalize) p_finalize(stmt);
+    p_close(db);
+    return out;
+}
+
 std::vector<ProjectRow> DB::ListProjects() {
     std::vector<ProjectRow> out;
     std::wstring dbPath = GetAppDataDbPath();

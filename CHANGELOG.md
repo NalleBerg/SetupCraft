@@ -2,6 +2,20 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.03.08.08] - 2026-03-08
+
+### Fixed
+- Full tree (folders + files) now saved to DB on every Save via new `SaveTreeToDb` recursive helper — previously only virtual-node files were written, physical-path folder nodes produced zero DB rows
+- Files-page tree now rebuilt from DB rows on project open (new Priority-2 DB-rebuild load path) — previously the `files` table was never queried on load, so projects with no session snapshot and no `directory` opened to a blank tree
+- `s_currentProject.directory` now synced from `IDC_INSTALL_FOLDER` before `DB::UpdateProject` on every Save — was always empty for projects that never opened the Settings page
+
+### Added
+- `FileRow` struct in `db.h` mirroring the `files` table
+- `DB::GetFilesForProject(int projectId)` in `db.cpp` — returns all file/folder rows for a project; `install_scope="__folder__"` marks folder nodes
+- `SaveTreeToDb` static helper in `mainwindow.cpp` — recursively writes complete tree snapshot to DB
+- `files_save_load_INTERNALS.txt` — internal architecture reference for the save/load subsystem
+- `API_list.txt` — documentation index with `_API` vs `_INTERNALS` naming convention
+
 ## [Unreleased] - 2026-02-23
 
 ### Added

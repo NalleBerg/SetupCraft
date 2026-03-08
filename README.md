@@ -2,7 +2,7 @@
 
 An installer creation tool for making your developed packages distributable. Designed to be simple to use with a clean, native Windows interface.
 
-**Current Release:** Version 2026.03.07.11 (Published: 07.03.2026 11:14)
+**Current Release:** Version 2026.03.08.08 (Published: 08.03.2026 08:42)
 
 > Note: This project is in active development. Entry screen and main window Files management page are complete with proper page switching.
 
@@ -40,6 +40,8 @@ An installer creation tool for making your developed packages distributable. Des
 - **Duplicate Project Name Guard**: Saving a new project whose name already exists in the database raises a modal dialog — Overwrite (adopt existing record), Rename this one (inline rename dialog), or Cancel — preventing silent data loss
 - **Smart Project Naming**: Automatically derives project name from first folder added under Program Files, and keeps updating it on every rename/replace until the user manually edits the name field (no longer stops after first save)
 - **Save Always Works**: New projects with no database ID are created via `DB::InsertProject` on first save — no more "No project selected" error
+- **Full Tree Persistence Across Restarts**: `SaveTreeToDb` walks all four tree roots on every Save and writes every folder node and file to the DB `files` table. On project open a DB-rebuild path reconstructs the exact tree from those rows — no dependency on a live disk path. Three bugs fixed: tree not saved, tree not loaded from DB, `directory` field not synced
+- **`DB::GetFilesForProject()`**: New DB function returns all file/folder rows for a project; used by the load path to rebuild the Files-page tree from scratch on restart
 - **Context-Aware Operations**: Add Folder/Add Files buttons respect currently selected folder as parent/target
 - **Install Path Display**: Read-only dark blue install path display that reflects actual folder structure
 - **Add Folder/Files**: Buttons to add existing folders or individual files with automatic folder structure creation
