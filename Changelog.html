@@ -1,6 +1,16 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 08 March 2026 &mdash; v2026.03.08.10<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 09 March 2026 &mdash; v2026.03.09.09<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.09.09</span></h3>
+<p><strong>Entry page button tooltips &amp; UTF-8 BOM encoding fix (09.03.2026, 09:29):</strong></p>
+<ul>
+<li><strong>Entry page button tooltips:</strong> All four buttons on the entry screen &mdash; New Project, Open Project, Delete Project, and Exit &mdash; now show hover tooltips via <code>SetButtonTooltip()</code>. Tooltip text is read from locale keys <code>new_project_hint</code>, <code>open_project_hint</code>, <code>delete_project_hint</code>, <code>exit_hint</code> (all added to <code>en_GB.txt</code>); falls back to a hardcoded English string if the current locale file does not define the key. Tooltips are refreshed automatically when the user switches language via the combo box (<code>CBN_SELCHANGE</code>).</li>
+<li><strong>UTF-8 BOM encoding fix in <code>LoadLocaleFile</code>:</strong> All 20 shipped locale files start with a UTF-8 BOM (<code>EF&nbsp;BB&nbsp;BF</code>). Without stripping the BOM, any locale file whose first non-blank line is a key&ndash;value pair (not a <code>#</code> comment) had its first key stored as <code>U+FEFF&thinsp;+&thinsp;keyname</code>, making every lookup for that key fail silently. <code>LoadLocaleFile</code> now strips the three BOM bytes from the first read line before parsing. The fix is transparent: files with or without BOM both load correctly.</li>
+<li><strong><code>tooltip_API.txt</code> &sect;15 &ldquo;Unicode and encoding&rdquo; added:</strong> New section documents UTF-8 BOM auto-stripping, Segoe&nbsp;UI Unicode rendering coverage (Latin extended, Cyrillic, Greek, Arabic, CJK, emoji), the rule that all locale files must be UTF-8 (ANSI/CP-1252 is not supported), and how to convert narrow C strings for tooltip use via <code>Utf8ToW()</code> / <code>MultiByteToWideChar</code>.</li>
+</ul>
+
+<h3 style="text-align: center;">&nbsp;</h3>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.08.10</span></h3>
 <p><strong>Per-project picker last-folder memory &amp; drag-and-drop groundwork (08.03.2026, 10:02):</strong></p>

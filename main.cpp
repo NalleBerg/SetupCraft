@@ -212,7 +212,19 @@ static bool LoadLocaleFile(const std::wstring &code, std::map<std::wstring, std:
     if (!f.is_open()) return false;
     out.clear();
     std::string line;
+    bool bomStripped = false;
     while (std::getline(f, line)) {
+        // Strip UTF-8 BOM (EF BB BF) from the first bytes of the file.
+        // Many editors save UTF-8 files with BOM; without stripping, the
+        // BOM becomes U+FEFF prepended to the first key, breaking lookups.
+        if (!bomStripped) {
+            bomStripped = true;
+            if (line.size() >= 3 &&
+                (unsigned char)line[0] == 0xEF &&
+                (unsigned char)line[1] == 0xBB &&
+                (unsigned char)line[2] == 0xBF)
+                line.erase(0, 3);
+        }
         if (line.empty()) continue;
         if (line[0] == '#') continue;
         auto pos = line.find('=');
@@ -1075,6 +1087,20 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         CreateCustomButtonWithIcon(hwnd, IDC_EXIT_BTN, exitText, ButtonColor::Blue,
             L"shell32.dll", 27, buttonsStartX + buttonWidth + buttonGapH, row2Y, buttonWidth, buttonHeight, hInst);
 
+        // Register hover tooltips on all four entry-page buttons.
+        // Text comes from locale; falls back to a plain English string if the
+        // current locale file does not have the key.
+        auto ApplyHint = [&](int id, const wchar_t* key, const wchar_t* fallback) {
+            HWND hBtn = GetDlgItem(hwnd, id);
+            if (!hBtn) return;
+            auto it = g_locale.find(key);
+            SetButtonTooltip(hBtn, (it != g_locale.end()) ? it->second.c_str() : fallback);
+        };
+        ApplyHint(IDC_NEW_PROJECT_BTN,    L"new_project_hint",    L"Create a new installer project");
+        ApplyHint(IDC_OPEN_PROJECT_BTN,   L"open_project_hint",   L"Open an existing project");
+        ApplyHint(IDC_DELETE_PROJECT_BTN, L"delete_project_hint", L"Delete a project from the database");
+        ApplyHint(IDC_EXIT_BTN,           L"exit_hint",           L"Exit SetupCraft");
+
         return 0;
     }
     case WM_LBUTTONDOWN: {
@@ -1241,6 +1267,18 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                         
                         // persist selection to AppData
                         WriteSavedLocale(code);
+
+                        // Refresh button tooltips to match the new language.
+                        auto RefreshHint = [&](int id, const wchar_t* key, const wchar_t* fallback) {
+                            HWND hBtn = GetDlgItem(hwnd, id);
+                            if (!hBtn) return;
+                            auto it = g_locale.find(key);
+                            SetButtonTooltip(hBtn, (it != g_locale.end()) ? it->second.c_str() : fallback);
+                        };
+                        RefreshHint(IDC_NEW_PROJECT_BTN,    L"new_project_hint",    L"Create a new installer project");
+                        RefreshHint(IDC_OPEN_PROJECT_BTN,   L"open_project_hint",   L"Open an existing project");
+                        RefreshHint(IDC_DELETE_PROJECT_BTN, L"delete_project_hint", L"Delete a project from the database");
+                        RefreshHint(IDC_EXIT_BTN,           L"exit_hint",           L"Exit SetupCraft");
                     }
                 }
             }

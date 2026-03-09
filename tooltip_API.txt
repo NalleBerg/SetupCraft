@@ -482,6 +482,43 @@ API REFERENCE:
    - bool IsTooltipVisible()
    - std::vector<TooltipEntry> BuildMultilingualEntries(const std::wstring& localeKey, const std::wstring& localeDir, const std::vector<std::wstring>& availableLocales)
 
+================================================================================
+
+   15) Unicode and encoding
+   ------------------------
+
+   Text rendering:
+   - The tooltip draws with Segoe UI (size ~14, see §10), which supports the
+     full Unicode character set via Uniscribe: Latin extended, Cyrillic,
+     Greek, Arabic, CJK, and most emoji via the Segoe UI Emoji fallback.
+   - All text passed to ShowMultilingualTooltip must be UTF-16 (std::wstring /
+     wchar_t*). There is no internal code-page conversion inside the tooltip.
+
+   Locale file encoding:
+   - Locale .txt files MUST be UTF-8 (without or WITH BOM — both are handled).
+   - UTF-8 BOM (byte sequence EF BB BF at the very start of the file) is
+     automatically stripped by LoadLocaleFile() before any line is parsed.
+     This means text editors that save UTF-8-with-BOM (e.g. Notepad, most
+     Windows editors) will work correctly without any manual editing.
+   - ANSI / CP-1252 encoded locale files are NOT supported. Any non-ASCII
+     character in an ANSI file will produce garbage text.
+   - Both LF (Unix) and CRLF (Windows) line endings are trimmed during key
+     and value parsing.
+
+   Adding a new locale file:
+   - Save as UTF-8 (with or without BOM).
+   - Use LF or CRLF — either works.
+   - Key names must be ASCII. Values may use any Unicode codepoints.
+   - If a key is present in en_GB.txt but missing in a locale file, the
+     C++ fallback string in the calling code is used (never crashes).
+
+   Converting narrow strings for tooltip use:
+   - Use the project's Utf8ToW() helper in main.cpp:
+       std::wstring wide = Utf8ToW(narrowUtf8String);
+   - Or use the Win32 API directly:
+       MultiByteToWideChar(CP_UTF8, 0, narrow, -1, wide, wideLen);
+   - Never pass a narrow (char*) string to ShowMultilingualTooltip.
+
    ================================================================================
    END OF DOCUMENTATION
    ================================================================================

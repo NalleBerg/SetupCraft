@@ -171,3 +171,9 @@ comp_dest_label=Destination Path:
 comp_browse=Browse...
 comp_no_selection=Please select a component first.
 comp_confirm_remove=Remove selected component?
+
+# Entry page button tooltips
+new_project_hint=Create a new installer project
+open_project_hint=Open an existing project from the database
+delete_project_hint=Delete a project from the database
+exit_hint=Exit SetupCraft
