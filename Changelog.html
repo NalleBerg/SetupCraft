@@ -1,6 +1,17 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 09 March 2026 &mdash; v2026.03.09.09<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 09 March 2026 &mdash; v2026.03.09.12<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.09.12</span></h3>
+<p><strong>Tooltip font fix &mdash; Greek, Cyrillic, Ukrainian now render correctly (09.03.2026, 12:33):</strong></p>
+<ul>
+<li><strong>Greek/Cyrillic/Ukrainian tooltip rendering fixed:</strong> Windows&nbsp;11 returns <code>&ldquo;Segoe UI Variable&rdquo;</code> from <code>NONCLIENTMETRICS</code>. That is a GDI variable font; GDI&rsquo;s <code>TextOutW</code> cannot render non-Latin glyphs through it &mdash; they appeared as a row of vertical bars (<code>|||||||</code>). <code>InitTooltipSystem</code> in <code>tooltip.cpp</code> now derives the font <em>height</em> from <code>NONCLIENTMETRICS</code> (preserving DPI-correctness) but overrides the face name to <code>&ldquo;Segoe UI&rdquo;</code> &mdash; the classic version with full Unicode coverage for Latin extended, Greek, Cyrillic, Arabic, Hebrew, and CJK. A <code>DO&nbsp;NOT&nbsp;MODIFY</code> comment block is added above the font creation to document exactly why the face name must not be reverted to the system default.</li>
+<li><strong>Entry screen <code>g_guiFont</code> consistent with tooltip font:</strong> The previous <code>CreateFontW(&hellip;, L&quot;Segoe UI&quot;)</code> call with a manually-scaled pixel size has been replaced by the same <code>NONCLIENTMETRICS</code>&nbsp;height&nbsp;+ <code>&ldquo;Segoe UI&rdquo;</code> face-name override pattern. Font is now DPI-correct and consistent across the whole application.</li>
+<li><strong>Removed dead <code>g_tooltipFont</code> / <code>g_tooltipText</code> in <code>main.cpp</code>:</strong> Both variables were created in <code>WM_CREATE</code> but never read by the tooltip system, which owns its font entirely inside <code>tooltip.cpp</code>. Removing them eliminates the risk of someone editing the wrong font variable in the future.</li>
+<li><strong><code>entry_screen.h</code> created:</strong> New header declaring <code>EntryScreen_Run()</code> and <code>ENTRY_SCREEN_CLASS</code> &mdash; groundwork for isolating the entry screen into its own translation unit so tooltip and font code cannot accidentally bleed between modules again.</li>
+</ul>
+
+<h3 style="text-align: center;">&nbsp;</h3>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.09.09</span></h3>
 <p><strong>Entry page button tooltips &amp; UTF-8 BOM encoding fix (09.03.2026, 09:29):</strong></p>

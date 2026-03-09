@@ -63,8 +63,7 @@ static std::map<std::wstring, std::wstring> g_locale;
 static std::vector<std::wstring> g_availableLocales;
 static HFONT g_guiFont = NULL;
 static HFONT g_globeFont = NULL;
-static HFONT g_tooltipFont = NULL;
-static std::wstring g_tooltipText;
+// NOTE: g_tooltipFont is NOT here — the tooltip system owns its own font (tooltip.cpp).
 static std::vector<std::pair<std::wstring, std::wstring>> g_tooltipEntries; // country code, text
 static HWND g_globeIcon = NULL;
 static HWND g_aboutIcon = NULL;
@@ -915,20 +914,22 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             comboLeft, S(13), comboWidth, dropHeight,
             hwnd, (HMENU)IDC_LANG_COMBO, hInst, NULL);
 
-        // create and apply a GUI font that supports Cyrillic (Segoe UI)
+        // GUI font: derive height from NONCLIENTMETRICS (DPI-correct) but use
+        // "Segoe UI" face name so Greek/Cyrillic render correctly in GDI.
+        // Do NOT use "Segoe UI Variable" (Windows 11 default) — it is a GDI
+        // variable font that cannot render non-Latin scripts.
         if (!g_guiFont) {
-            g_guiFont = CreateFontW(-S(12), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,  // Scaled for DPI
-                                    DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                                    CLEARTYPE_QUALITY, VARIABLE_PITCH | FF_SWISS, L"Segoe UI");
+            NONCLIENTMETRICSW ncm = {};
+            ncm.cbSize = sizeof(ncm);
+            SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+            LOGFONTW lf  = ncm.lfMessageFont;
+            lf.lfWeight  = FW_NORMAL;
+            lf.lfQuality = CLEARTYPE_QUALITY;
+            lf.lfCharSet = DEFAULT_CHARSET;
+            wcscpy_s(lf.lfFaceName, L"Segoe UI");
+            g_guiFont = CreateFontIndirectW(&lf);
         }
         if (g_guiFont) SendMessageW(hCombo, WM_SETFONT, (WPARAM)g_guiFont, TRUE);
-
-        // Create font for tooltip
-        if (!g_tooltipFont) {
-            g_tooltipFont = CreateFontW(-S(14), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-                                        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                                        CLEARTYPE_QUALITY, VARIABLE_PITCH | FF_SWISS, L"Segoe UI");
-        }
 
         // Globe icon to the left of combo (using shell32.dll icon #13)
         HWND hIcon = CreateWindowExW(
@@ -1437,9 +1438,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         return 0;
     case WM_DESTROY:
         CleanupTooltipSystem();
-        if (g_guiFont) { DeleteObject(g_guiFont); g_guiFont = NULL; }
+        if (g_guiFont)   { DeleteObject(g_guiFont);   g_guiFont   = NULL; }
         if (g_globeFont) { DeleteObject(g_globeFont); g_globeFont = NULL; }
-        if (g_tooltipFont) { DeleteObject(g_tooltipFont); g_tooltipFont = NULL; }
         PostQuitMessage(0);
         return 0;
     }

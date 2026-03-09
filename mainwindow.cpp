@@ -15,6 +15,7 @@
 #include "about.h"
 #include "tooltip.h"
 #include "about_icon.h"
+#include "dragdrop.h"
 #include <fstream>
 
 // Static member initialization
@@ -82,19 +83,7 @@ static std::wstring GetProgramFilesFolderName() {
 // Per-node virtual-file map (keyed by live HTREEITEM; rebuilt from snapshot on restore)
 static std::map<HTREEITEM, std::vector<VirtualFolderFile>> s_virtualFolderFiles;
 
-// ── Drag-and-drop state ────────────────────────────────────────────────────
-enum class DragSource { None, TreeView, ListView };
-static DragSource  s_dragSource    = DragSource::None;
-static HTREEITEM   s_dragTreeItem  = NULL;   // TV drag: folder node being dragged
-static int         s_dragListIdx   = -1;     // LV drag: ListView item index
-static HTREEITEM   s_dropHighlight = NULL;   // item currently highlighted as drop target
-static HCURSOR     s_cursorNoDrop  = NULL;   // shell32 icon 109 — drag not allowed
-static HCURSOR     s_cursorCanDrop = NULL;   // shell32 icon 300 — drag allowed
-// Manual drag detection (WM_PARENTNOTIFY fallback for TVN/LVN_BEGINDRAG)
-static DragSource  s_dragPotential = DragSource::None;
-static HTREEITEM   s_dragPotTV     = NULL;
-static int         s_dragPotLV     = -1;
-static POINT       s_dragPotPt     = {0, 0};
+// Drag-and-drop is handled by the dragdrop module (dragdrop.h/.cpp).
 
 // Recursive snapshot of the Files-page tree (persists across page switches)
 static std::vector<TreeNodeSnapshot> s_treeSnapshot_ProgramFiles;
@@ -214,6 +203,7 @@ static bool s_filesPageHasContent = false; // tracks whether Files page has any 
 // Context menu IDs
 #define IDM_TREEVIEW_ADD_FOLDER 5030
 #define IDM_TREEVIEW_REMOVE_FOLDER 5031
+#define IDM_TREEVIEW_RENAME 5059
 
 // Registry context menu IDs
 #define IDM_REG_ADD_KEY         5032
@@ -897,66 +887,6 @@ void MainWindow::RestoreTreeSnapshot(HWND hTree, HTREEITEM hParent,
 }
 // ---------------------------------------------------------------------------
 
-// ── Drag-and-drop helpers ─────────────────────────────────────────────────
-
-// Load shell32 icons 109 (no-drop) and 300 (can-drop) as cursors on first use.
-static void EnsureDragCursors() {
-    if (s_cursorNoDrop && s_cursorCanDrop) return;
-    HMODULE hShell = GetModuleHandleW(L"shell32.dll");
-    if (!hShell) hShell = LoadLibraryW(L"shell32.dll");
-    typedef UINT (WINAPI *PFN)(LPCWSTR,int,int,int,HICON*,UINT*,UINT,UINT);
-    PFN fn = hShell ? (PFN)GetProcAddress(hShell, "PrivateExtractIconsW") : nullptr;
-    if (!s_cursorNoDrop) {
-        HICON h = NULL; UINT id = 0;
-        if (fn) fn(L"shell32.dll", 109, 32, 32, &h, &id, 1, LR_DEFAULTCOLOR);
-        s_cursorNoDrop = h ? (HCURSOR)h : LoadCursorW(NULL, IDC_NO);
-    }
-    if (!s_cursorCanDrop) {
-        HICON h = NULL; UINT id = 0;
-        if (fn) fn(L"shell32.dll", 300, 32, 32, &h, &id, 1, LR_DEFAULTCOLOR);
-        s_cursorCanDrop = h ? (HCURSOR)h : LoadCursorW(NULL, IDC_ARROW);
-    }
-}
-
-// True if hTest is a descendant of hAncestor in the TreeView.
-static bool IsTreeDescendant(HWND hTree, HTREEITEM hAncestor, HTREEITEM hTest) {
-    HTREEITEM h = hTest;
-    while (h) {
-        h = TreeView_GetParent(hTree, h);
-        if (h == hAncestor) return true;
-    }
-    return false;
-}
-
-// Returns the TreeView item under ptScreen (screen coords), or NULL.
-static HTREEITEM HitTestTreeView(POINT ptScreen) {
-    HWND hTree = MainWindow::GetFilesTreeView();
-    if (!hTree || !IsWindow(hTree)) return NULL;
-    POINT pt = ptScreen;
-    ScreenToClient(hTree, &pt);
-    TVHITTESTINFO ht = {};
-    ht.pt = pt;
-    return TreeView_HitTest(hTree, &ht);
-}
-
-// True if hDrop is a legal target for the current drag operation.
-static bool IsDragDropValid(HTREEITEM hDrop) {
-    if (!hDrop) return false;
-    HWND hTree = MainWindow::GetFilesTreeView();
-    // The 4 system roots are never valid drop targets.
-    if (hDrop == MainWindow::GetProgramFilesRoot() || hDrop == MainWindow::GetProgramDataRoot() ||
-        hDrop == MainWindow::GetAppDataRoot()       || hDrop == MainWindow::GetAskAtInstallRoot()) return false;
-    if (s_dragSource == DragSource::TreeView && s_dragTreeItem) {
-        if (hDrop == s_dragTreeItem)                                        return false; // self
-        if (IsTreeDescendant(hTree, s_dragTreeItem, hDrop))                 return false; // own child
-        if (hDrop == TreeView_GetParent(hTree, s_dragTreeItem))             return false; // already there
-    }
-    if (s_dragSource == DragSource::ListView) {
-        if (hDrop == TreeView_GetSelection(MainWindow::GetFilesTreeView())) return false; // same folder
-    }
-    return true;
-}
-
 // Recursively clone hSrc subtree (text, fullPath, virtualFiles) under hNewParent.
 // virtualFiles are *moved* (not copied) so they need no second erase.
 static HTREEITEM CloneTreeSubtree(HWND hTree, HTREEITEM hSrc, HTREEITEM hNewParent) {
@@ -989,19 +919,6 @@ static HTREEITEM CloneTreeSubtree(HWND hTree, HTREEITEM hSrc, HTREEITEM hNewPare
     return hNew;
 }
 
-// Tear down drag state, hide ghost image, clear drop highlight, restore cursor.
-static void CancelDrag() {
-    HWND hTree = MainWindow::GetFilesTreeView();
-    if (hTree && s_dropHighlight) { TreeView_SelectDropTarget(hTree, NULL); }
-    s_dropHighlight  = NULL;
-    s_dragSource     = DragSource::None;
-    s_dragTreeItem   = NULL;
-    s_dragListIdx    = -1;
-    s_dragPotential  = DragSource::None;
-    SetCursor(LoadCursorW(NULL, IDC_ARROW));
-}
-
-// ── End drag-and-drop helpers ──────────────────────────────────────────────
 
 // Callback for SHBrowseForFolderW — navigates to the initial folder.
 // bi.lParam must be a LPARAM pointing to a null-terminated wide path.
@@ -1257,7 +1174,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         
         // TreeView on the left (folder hierarchy) - child of main window to receive notifications
         s_hTreeView = CreateWindowExW(WS_EX_CLIENTEDGE, WC_TREEVIEW, NULL,
-            WS_CHILD | WS_VISIBLE | WS_BORDER | TVS_HASLINES | TVS_HASBUTTONS | TVS_LINESATROOT | TVS_SHOWSELALWAYS | TVS_EDITLABELS,
+            WS_CHILD | WS_VISIBLE | WS_BORDER | TVS_HASLINES | TVS_HASBUTTONS | TVS_LINESATROOT | TVS_SHOWSELALWAYS,
             S(20), s_toolbarHeight + viewTop, treeWidth, viewHeight,
             hwnd, (HMENU)102, hInst, NULL);
         
@@ -1465,6 +1382,77 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         // Subclass TreeView so we can show tooltip on hover
         if (s_hTreeView) {
             s_prevTreeProc = (WNDPROC)SetWindowLongPtrW(s_hTreeView, GWLP_WNDPROC, (LONG_PTR)TreeView_SubclassProc);
+        }
+
+        // Register drag-and-drop module for TreeView and ListView.
+        {
+            DragDropConfig ddcfg = {};
+            ddcfg.hwndParent   = hwnd;
+            ddcfg.hwndTreeView = s_hTreeView;
+            ddcfg.hwndListView = s_hListView;
+
+            ddcfg.canStartTreeDrag = [](HTREEITEM h) -> bool {
+                return h != s_hProgramFilesRoot && h != s_hProgramDataRoot
+                    && h != s_hAppDataRoot      && h != s_hAskAtInstallRoot;
+            };
+
+            ddcfg.canStartListDrag = [](int iItem) -> bool {
+                HTREEITEM hSel = TreeView_GetSelection(s_hTreeView);
+                if (!hSel) return false;
+                auto it = s_virtualFolderFiles.find(hSel);
+                return (it != s_virtualFolderFiles.end() &&
+                        iItem >= 0 && iItem < (int)it->second.size());
+            };
+
+            ddcfg.isValidDrop = [](HTREEITEM hDrop) -> bool {
+                if (!hDrop) return false;
+                // Program Files root and Ask-at-install root are never valid drop targets.
+                if (hDrop == s_hProgramFilesRoot || hDrop == s_hAskAtInstallRoot) return false;
+                // ProgramData and AppData roots accept folder drags but not file drags.
+                bool isDataRoot = (hDrop == s_hProgramDataRoot || hDrop == s_hAppDataRoot);
+                if (isDataRoot && DragDrop_GetSource() == DragSourceKind::ListView) return false;
+                if (DragDrop_GetSource() == DragSourceKind::TreeView) {
+                    HTREEITEM hSrc = DragDrop_GetTreeItem();
+                    if (!hSrc)                                              return false;
+                    if (hDrop == hSrc)                                      return false;
+                    if (DragDrop_IsDescendant(s_hTreeView, hSrc, hDrop))    return false;
+                    if (hDrop == TreeView_GetParent(s_hTreeView, hSrc))     return false;
+                }
+                if (DragDrop_GetSource() == DragSourceKind::ListView) {
+                    if (hDrop == TreeView_GetSelection(s_hTreeView))        return false;
+                }
+                return true;
+            };
+
+            ddcfg.onDrop = [hwnd](HTREEITEM hDrop) {
+                if (DragDrop_GetSource() == DragSourceKind::TreeView) {
+                    HTREEITEM hOld       = DragDrop_GetTreeItem();
+                    HTREEITEM hOldParent = TreeView_GetParent(s_hTreeView, hOld);
+                    bool wasUnderPF = (hOldParent == s_hProgramFilesRoot);
+                    HTREEITEM hNew  = CloneTreeSubtree(s_hTreeView, hOld, hDrop);
+                    TreeView_DeleteItem(s_hTreeView, hOld);
+                    TreeView_Expand(s_hTreeView, hDrop, TVE_EXPAND);
+                    TreeView_SelectItem(s_hTreeView, hNew);
+                    if (wasUnderPF) UpdateInstallPathFromTree(hwnd);
+                    MarkAsModified();
+                    UpdateComponentsButtonState(hwnd);
+                } else if (DragDrop_GetSource() == DragSourceKind::ListView) {
+                    HTREEITEM hSrc = TreeView_GetSelection(s_hTreeView);
+                    auto it = s_virtualFolderFiles.find(hSrc);
+                    int idx = DragDrop_GetListIndex();
+                    if (it != s_virtualFolderFiles.end() &&
+                        idx >= 0 && idx < (int)it->second.size()) {
+                        VirtualFolderFile vf = it->second[idx];
+                        it->second.erase(it->second.begin() + idx);
+                        s_virtualFolderFiles[hDrop].push_back(vf);
+                        TreeView_Expand(s_hTreeView, hDrop, TVE_EXPAND);
+                        TreeView_SelectItem(s_hTreeView, hDrop);
+                        MarkAsModified();
+                    }
+                }
+            };
+
+            DragDrop_Register(ddcfg);
         }
         
         // Sync Components button: only upgrade (never downgrade) so navigating back
@@ -2146,6 +2134,19 @@ static std::vector<std::wstring> GetAvailableLocales() {
 // TreeView subclass to show AskAtInstall tooltip on hover
 static LRESULT CALLBACK TreeView_SubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
+    case WM_KEYDOWN:
+        if (wParam == VK_F2) {
+            HTREEITEM hSel = TreeView_GetSelection(hwnd);
+            bool isSysRoot = (hSel == MainWindow::GetProgramFilesRoot() ||
+                              hSel == MainWindow::GetProgramDataRoot()  ||
+                              hSel == MainWindow::GetAppDataRoot()      ||
+                              hSel == MainWindow::GetAskAtInstallRoot());
+            if (hSel && !isSysRoot)
+                TreeView_EditLabel(hwnd, hSel);
+            return 0;
+        }
+        break;
+
     case WM_MOUSEMOVE: {
         // Hit test tree item under cursor
         POINT pt; GetCursorPos(&pt);
@@ -3345,44 +3346,10 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
     
     case WM_NOTIFY: {
         LPNMHDR nmhdr = (LPNMHDR)lParam;
+        if (DragDrop_OnBeginDrag(nmhdr)) return 0;
 
-        // ── TreeView drag begin ───────────────────────────────────────────────
-        if (nmhdr->idFrom == 102 && nmhdr->code == TVN_BEGINDRAG) {
-            LPNMTREEVIEW pnmtv = (LPNMTREEVIEW)lParam;
-            HTREEITEM hDrag = pnmtv->itemNew.hItem;
-            // System roots cannot be dragged.
-            if (hDrag == s_hProgramFilesRoot || hDrag == s_hProgramDataRoot ||
-                hDrag == s_hAppDataRoot      || hDrag == s_hAskAtInstallRoot) return 0;
-
-            EnsureDragCursors();
-            s_dragSource    = DragSource::TreeView;
-            s_dragTreeItem  = hDrag;
-            s_dragListIdx   = -1;
-            s_dragPotential = DragSource::None;
-            SetCapture(hwnd);
-            return 0;
-        }
-
-        // ── ListView file drag begin ──────────────────────────────────────────
-        if (nmhdr->idFrom == 100 && nmhdr->code == LVN_BEGINDRAG) {
-            if (!s_hListView || !s_hTreeView) return 0;
-            LPNMLISTVIEW pnmlv = (LPNMLISTVIEW)lParam;
-            int iItem = pnmlv->iItem;
-            if (iItem < 0) return 0;
-
-            // Only virtual-folder files can be re-parented; physical folders
-            // (lParam != "") are scanned from disk and are not in s_virtualFolderFiles.
-            HTREEITEM hSel = TreeView_GetSelection(s_hTreeView);
-            if (!hSel || s_virtualFolderFiles.find(hSel) == s_virtualFolderFiles.end()) return 0;
-
-            EnsureDragCursors();
-            s_dragSource    = DragSource::ListView;
-            s_dragListIdx   = iItem;
-            s_dragTreeItem  = NULL;
-            s_dragPotential = DragSource::None;
-            SetCapture(hwnd);
-            return 0;
-        }
+        // Drag-and-drop begin notifications are superseded by the dragdrop
+        // module (subclass-based threshold detection).  No action needed here.
 
         // Handle TreeView label edit
         if (nmhdr->idFrom == 102 && nmhdr->code == TVN_ENDLABELEDIT) {
@@ -5406,6 +5373,15 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             return 0;
         }
         
+        case IDM_TREEVIEW_RENAME: {
+            HTREEITEM hItem = s_rightClickedItem
+                ? s_rightClickedItem
+                : TreeView_GetSelection(s_hTreeView);
+            if (hItem) TreeView_EditLabel(s_hTreeView, hItem);
+            s_rightClickedItem = NULL;
+            return 0;
+        }
+
         case IDM_TREEVIEW_REMOVE_FOLDER: {
             // Remove the right-clicked folder from the tree
             if (s_rightClickedItem && s_rightClickedItem != s_hProgramFilesRoot) {
@@ -5633,12 +5609,14 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
                 AppendMenuW(hMenu, MF_STRING, IDM_TREEVIEW_ADD_FOLDER,  L"Create Folder...");
 
-                // "Remove" only for user nodes, never for the four system roots
+                // "Rename" and "Remove" only for user nodes, never for the four system roots
                 bool isSystemRoot = (hItem == s_hProgramFilesRoot ||
                                      hItem == s_hProgramDataRoot  ||
                                      hItem == s_hAppDataRoot       ||
                                      hItem == s_hAskAtInstallRoot);
                 if (!isSystemRoot) {
+                    AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
+                    AppendMenuW(hMenu, MF_STRING, IDM_TREEVIEW_RENAME,        L"Rename\tF2");
                     AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
                     AppendMenuW(hMenu, MF_STRING, IDM_TREEVIEW_REMOVE_FOLDER, L"Remove");
                 }
@@ -5972,97 +5950,13 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         return 0;
     }
     
-    case WM_LBUTTONUP: {
-        s_dragPotential = DragSource::None;
-        if (s_dragSource != DragSource::None) {
-            POINT ptScreen; GetCursorPos(&ptScreen);
-            HTREEITEM hDrop = HitTestTreeView(ptScreen);
-            bool valid = IsDragDropValid(hDrop);
-
-            if (valid) {
-                if (s_dragSource == DragSource::TreeView && s_dragTreeItem) {
-                    // ── Move folder node ──────────────────────────────────────
-                    HTREEITEM hOld       = s_dragTreeItem;
-                    HTREEITEM hOldParent = TreeView_GetParent(s_hTreeView, hOld);
-                    bool wasUnderPF = (hOldParent == s_hProgramFilesRoot);
-
-                    // CloneTreeSubtree moves virtualFiles and inserts under hDrop.
-                    HTREEITEM hNew = CloneTreeSubtree(s_hTreeView, hOld, hDrop);
-                    TreeView_DeleteItem(s_hTreeView, hOld);  // source node gone
-                    TreeView_Expand(s_hTreeView, hDrop, TVE_EXPAND);
-                    TreeView_SelectItem(s_hTreeView, hNew);
-                    if (wasUnderPF) UpdateInstallPathFromTree(hwnd);
-                    MarkAsModified();
-                    UpdateComponentsButtonState(hwnd);
-
-                } else if (s_dragSource == DragSource::ListView) {
-                    // ── Move file from one virtual folder to another ──────────
-                    HTREEITEM hSrc = TreeView_GetSelection(s_hTreeView);
-                    auto it = s_virtualFolderFiles.find(hSrc);
-                    if (it != s_virtualFolderFiles.end() &&
-                        s_dragListIdx >= 0 &&
-                        s_dragListIdx < (int)it->second.size()) {
-                        VirtualFolderFile vf = it->second[s_dragListIdx];
-                        it->second.erase(it->second.begin() + s_dragListIdx);
-                        s_virtualFolderFiles[hDrop].push_back(vf);
-                        // Show destination folder so user sees the file arrived.
-                        TreeView_Expand(s_hTreeView, hDrop, TVE_EXPAND);
-                        TreeView_SelectItem(s_hTreeView, hDrop);
-                        MarkAsModified();
-                    }
-                }
-            }
-
-            ReleaseCapture();
-            CancelDrag();
-            return 0;
-        }
+    case WM_LBUTTONUP:
+        if (DragDrop_OnLButtonUp()) return 0;
         break;
-    }
 
     case WM_SETCURSOR:
-        // During a drag, override the cursor with can-drop or no-drop icon.
-        if (s_dragSource != DragSource::None) {
-            POINT ptScreen; GetCursorPos(&ptScreen);
-            SetCursor(IsDragDropValid(HitTestTreeView(ptScreen))
-                      ? s_cursorCanDrop : s_cursorNoDrop);
-            return TRUE;
-        }
+        if (DragDrop_OnSetCursor()) return TRUE;
         break;
-
-    case WM_PARENTNOTIFY: {
-        // Record a potential drag start whenever the user presses LMB inside
-        // the TreeView or ListView — used as a reliable fallback when
-        // TVN_BEGINDRAG / LVN_BEGINDRAG don't fire (e.g. TVS_EDITLABELS timing).
-        if (LOWORD(wParam) == WM_LBUTTONDOWN && s_dragSource == DragSource::None) {
-            POINT ptS; GetCursorPos(&ptS);
-            HWND hUnder = WindowFromPoint(ptS);
-            if (hUnder == s_hTreeView) {
-                POINT ptC = ptS; ScreenToClient(s_hTreeView, &ptC);
-                TVHITTESTINFO ht{}; ht.pt = ptC;
-                HTREEITEM h = TreeView_HitTest(s_hTreeView, &ht);
-                if (h && !(ht.flags & TVHT_ONITEMBUTTON)) {
-                    s_dragPotential = DragSource::TreeView;
-                    s_dragPotTV     = h;
-                    s_dragPotLV     = -1;
-                    s_dragPotPt     = ptS;
-                }
-            } else if (hUnder == s_hListView) {
-                POINT ptC = ptS; ScreenToClient(s_hListView, &ptC);
-                LVHITTESTINFO ht{}; ht.pt = ptC;
-                int idx = ListView_HitTest(s_hListView, &ht);
-                if (idx >= 0) {
-                    s_dragPotential = DragSource::ListView;
-                    s_dragPotTV     = NULL;
-                    s_dragPotLV     = idx;
-                    s_dragPotPt     = ptS;
-                }
-            } else {
-                s_dragPotential = DragSource::None;
-            }
-        }
-        break;
-    }
 
     case WM_LBUTTONDOWN: {
         // Show About dialog only when click is on the About icon
@@ -6084,54 +5978,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
     }
     
     case WM_MOUSEMOVE: {
-        // ── Manual drag detection (WM_PARENTNOTIFY fallback) ─────────────────
-        if (s_dragPotential != DragSource::None && s_dragSource == DragSource::None) {
-            if (GetAsyncKeyState(VK_LBUTTON) & 0x8000) {
-                POINT ptS; GetCursorPos(&ptS);
-                int dx = abs(ptS.x - s_dragPotPt.x);
-                int dy = abs(ptS.y - s_dragPotPt.y);
-                if (dx > GetSystemMetrics(SM_CXDRAG) || dy > GetSystemMetrics(SM_CYDRAG)) {
-                    if (s_dragPotential == DragSource::TreeView && s_dragPotTV) {
-                        if (s_dragPotTV != s_hProgramFilesRoot && s_dragPotTV != s_hProgramDataRoot &&
-                            s_dragPotTV != s_hAppDataRoot       && s_dragPotTV != s_hAskAtInstallRoot) {
-                            EnsureDragCursors();
-                            s_dragSource   = DragSource::TreeView;
-                            s_dragTreeItem = s_dragPotTV;
-                            s_dragListIdx  = -1;
-                            SetCapture(hwnd);
-                        }
-                    } else if (s_dragPotential == DragSource::ListView) {
-                        HTREEITEM hSel = TreeView_GetSelection(s_hTreeView);
-                        auto it = (hSel) ? s_virtualFolderFiles.find(hSel) : s_virtualFolderFiles.end();
-                        if (it != s_virtualFolderFiles.end() &&
-                            s_dragPotLV >= 0 &&
-                            s_dragPotLV < (int)it->second.size()) {
-                            EnsureDragCursors();
-                            s_dragSource   = DragSource::ListView;
-                            s_dragListIdx  = s_dragPotLV;
-                            s_dragTreeItem = NULL;
-                            SetCapture(hwnd);
-                        }
-                    }
-                    s_dragPotential = DragSource::None;
-                }
-            } else {
-                s_dragPotential = DragSource::None;  // LMB released before threshold
-            }
-        }
-
-        // ── Active drag: update drop-target highlight ─────────────────────────
-        if (s_dragSource != DragSource::None) {
-            POINT ptScreen; GetCursorPos(&ptScreen);
-            HTREEITEM hDrop = HitTestTreeView(ptScreen);
-            bool valid = IsDragDropValid(hDrop);
-            if (hDrop != s_dropHighlight) {
-                TreeView_SelectDropTarget(s_hTreeView, valid ? hDrop : NULL);
-                s_dropHighlight = valid ? hDrop : NULL;
-            }
-            // Cursor is updated by WM_SETCURSOR which fires immediately after.
-            return 0;
-        }
+        if (DragDrop_OnMouseMove()) return 0;
 
         // About-icon tooltip is handled by AboutIcon_SubclassProc.
         // When cursor is over the disabled Components button (disabled windows
@@ -6197,14 +6044,9 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         }
         break;
 
-    case WM_CAPTURECHANGED: {
-        // Abort drag only if capture was not taken by a child control.
-        HWND hNew = (HWND)lParam;
-        if (s_dragSource != DragSource::None &&
-            hNew != s_hTreeView && hNew != s_hListView)
-            CancelDrag();
+    case WM_CAPTURECHANGED:
+        DragDrop_OnCaptureChanged((HWND)lParam);
         break;
-    }
 
     case WM_MOUSELEAVE:
         // Guard: only hide if cursor is not still over the about icon (§9 of tooltip API).
@@ -6232,6 +6074,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         return 0;
     
     case WM_DESTROY:
+        // Clean up drag-and-drop module
+        DragDrop_Unregister();
         // Clean up tooltip system
         CleanupTooltipSystem();
         // Don't call PostQuitMessage here - just close the window

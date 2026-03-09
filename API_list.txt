@@ -15,6 +15,10 @@
   spinner_dialog_API.txt            Modal progress/spinner dialog component — API,
                                     thread usage, and progress callback protocol.
 
+  dragdrop_API.txt                  Generic Win32 TreeView/ListView drag-and-drop
+                                    module — subclass-based detection, callbacks,
+                                    parent hooks, and utility functions.
+
   files_save_load_INTERNALS.txt     Files-page save/load architecture — data flow
                                     between the TreeView, s_virtualFolderFiles,
                                     SaveTreeToDb, the DB files table, DB-rebuild

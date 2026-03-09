@@ -228,16 +228,28 @@ bool InitTooltipSystem(HINSTANCE hInstance) {
         }
     }
     
-    // Create tooltip font: use the OS system message font (bold) so it supports
-    // every script the OS supports (Greek, Cyrillic, etc.) without hardcoding a face name.
+    // ── DO NOT CHANGE THE FONT SETUP BELOW ────────────────────────────────────
+    // Font rules for the multilingual tooltip:
+    //   • Face name MUST be "Segoe UI" (not "Segoe UI Variable").
+    //     Windows 11 returns "Segoe UI Variable" from NONCLIENTMETRICS; that is
+    //     a GDI variable font that cannot render Greek or Cyrillic — they show
+    //     as |||||||.  "Segoe UI" (the classic version) has full Unicode coverage
+    //     for Latin, Greek, Cyrillic, Arabic, Hebrew, etc.
+    //   • Font HEIGHT is derived from NONCLIENTMETRICS so it scales with DPI.
+    //   • FW_BOLD keeps the country codes and text legible at small sizes.
+    //   • DEFAULT_CHARSET lets GDI substitute a glyph from another installed
+    //     font as a last resort if a codepoint is absent from Segoe UI.
+    // ──────────────────────────────────────────────────────────────────────────
     if (!g_tooltipFont) {
         NONCLIENTMETRICSW ncm = {};
         ncm.cbSize = sizeof(ncm);
         SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
-        ncm.lfMessageFont.lfWeight = FW_BOLD;   // bold for all tooltips
-        ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
-        ncm.lfMessageFont.lfCharSet = DEFAULT_CHARSET; // allow GDI font substitution for non-Latin scripts
-        g_tooltipFont = CreateFontIndirectW(&ncm.lfMessageFont);
+        LOGFONTW lf       = ncm.lfMessageFont;   // start from system metrics (gets DPI-correct height)
+        lf.lfWeight       = FW_BOLD;
+        lf.lfQuality      = CLEARTYPE_QUALITY;
+        lf.lfCharSet      = DEFAULT_CHARSET;      // allow per-glyph GDI substitution
+        wcscpy_s(lf.lfFaceName, L"Segoe UI");     // override face: full Unicode coverage, not variable
+        g_tooltipFont = CreateFontIndirectW(&lf);
     }
     
     return true;

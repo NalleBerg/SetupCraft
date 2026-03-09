@@ -280,6 +280,30 @@ dpi.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/dpi.cpp.s
 .PHONY : dpi.cpp.s
 
+dragdrop.obj: dragdrop.cpp.obj
+.PHONY : dragdrop.obj
+
+# target to build an object file
+dragdrop.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/dragdrop.cpp.obj
+.PHONY : dragdrop.cpp.obj
+
+dragdrop.i: dragdrop.cpp.i
+.PHONY : dragdrop.i
+
+# target to preprocess a source file
+dragdrop.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/dragdrop.cpp.i
+.PHONY : dragdrop.cpp.i
+
+dragdrop.s: dragdrop.cpp.s
+.PHONY : dragdrop.s
+
+# target to generate assembly for a file
+dragdrop.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/dragdrop.cpp.s
+.PHONY : dragdrop.cpp.s
+
 languages.obj: languages.cpp.obj
 .PHONY : languages.obj
 
@@ -428,6 +452,9 @@ help:
 	@echo ... dpi.obj
 	@echo ... dpi.i
 	@echo ... dpi.s
+	@echo ... dragdrop.obj
+	@echo ... dragdrop.i
+	@echo ... dragdrop.s
 	@echo ... languages.obj
 	@echo ... languages.i
 	@echo ... languages.s

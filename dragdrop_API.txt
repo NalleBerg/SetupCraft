@@ -1,0 +1,324 @@
+================================================================================
+  dragdrop_API.txt  —  Generic Win32 TreeView / ListView Drag-and-Drop Module
+================================================================================
+
+  Files
+  ─────
+    dragdrop.h          Public API header
+    dragdrop.cpp        Implementation (include in your project)
+
+  Dependencies
+  ────────────
+    windows.h, commctrl.h, <functional>
+    Link: comctl32  (already required by any project using TreeView/ListView)
+    Windows version: XP+  (no commctrl v6 manifest required)
+
+================================================================================
+  §1  Overview
+================================================================================
+
+  dragdrop provides threshold-based drag-and-drop for Win32 TreeViews and
+  ListViews.  The classic TVN_BEGINDRAG / LVN_BEGINDRAG notifications have
+  a timing flaw — they are suppressed when TVS_EDITLABELS is set, and they
+  require the application to poll WM_MOUSEMOVE in the *parent* WndProc, which
+  never fires while a child control owns the mouse.
+
+  This module fixes both problems by subclassing the child controls directly
+  using `SetWindowLongPtrW` (the same approach used throughout mainwindow.cpp;
+  no commctrl v6 manifest is required).  Drag detection fires inside the
+  control's own `WM_MOUSEMOVE`, then `SetCapture` transfers ownership to the
+  parent for the duration of the drag.
+
+  No ImageList ghost image is used (incompatible with Desktop Window Manager).
+  Drop-target highlighting is done via TreeView_SelectDropTarget.
+  Cursors are loaded automatically from shell32.dll icons 109 (no-drop) and
+  300 (can-drop), identical to Windows Explorer.
+
+  The module is self-contained and has zero knowledge of application data.
+  All decisions (can this item be dragged? is this drop valid? what to do on
+  drop?) are delegated to caller-supplied callbacks.
+
+================================================================================
+  §2  Quick Start
+================================================================================
+
+  // 1.  Fill in a DragDropConfig.
+  DragDropConfig cfg = {};
+  cfg.hwndParent    = hwnd;
+  cfg.hwndTreeView  = s_hTreeView;     // NULL = no TV drag
+  cfg.hwndListView  = s_hListView;     // NULL = no LV drag
+  cfg.isValidDrop   = [](HTREEITEM h){ return h != nullptr; };
+  cfg.onDrop        = [](HTREEITEM h){ MoveCurrentItemTo(h); };
+
+  // 2.  Register after the controls are created.
+  DragDrop_Register(cfg);
+
+  // 3.  Hook four messages in the parent WndProc:
+  case WM_MOUSEMOVE:      if (DragDrop_OnMouseMove())    return 0;    break;
+  case WM_LBUTTONUP:      if (DragDrop_OnLButtonUp())    return 0;    break;
+  case WM_SETCURSOR:      if (DragDrop_OnSetCursor())    return TRUE; break;
+  case WM_CAPTURECHANGED: DragDrop_OnCaptureChanged((HWND)lParam);    break;
+
+  // 4.  Unregister before the window or controls are destroyed.
+  case WM_DESTROY: DragDrop_Unregister(); break;
+
+================================================================================
+  §3  DragDropConfig  (struct)
+================================================================================
+
+  Field                  Type                         Required
+  ───────────────────────────────────────────────────────────
+  hwndParent             HWND                         YES — receives SetCapture
+  hwndTreeView           HWND                         either/both (NULL = skip)
+  hwndListView           HWND                         either/both (NULL = skip)
+  hCursorNoDrop          HCURSOR                      optional
+  hCursorCanDrop         HCURSOR                      optional
+  canStartTreeDrag       function<bool(HTREEITEM)>    optional
+  canStartListDrag       function<bool(int)>          optional
+  isValidDrop            function<bool(HTREEITEM)>    optional
+  onDrop                 function<void(HTREEITEM)>    optional
+  onCancel               function<void()>             optional
+
+  hwndParent
+    Window that receives SetCapture().  Must be the direct or indirect parent
+    of hwndTreeView / hwndListView.  WM_MOUSEMOVE, WM_LBUTTONUP, WM_SETCURSOR,
+    and WM_CAPTURECHANGED are expected to flow here while the drag is active.
+
+  hwndTreeView / hwndListView
+    Set either, both, or leave NULL to disable that source type.
+
+  hCursorNoDrop / hCursorCanDrop
+    Supply your own HCURSOR, or leave NULL to auto-load shell32.dll icons
+    109 (no-drop) and 300 (can-drop).  If shell32 icons are unavailable the
+    fallbacks are IDC_NO and IDC_ARROW respectively.
+
+  canStartTreeDrag(HTREEITEM hItem)
+    Called when the user presses LMB on a TreeView item.  Return false to
+    prevent that item from being dragged (e.g. system root nodes).
+    If omitted, all items are draggable.
+
+  canStartListDrag(int iItem)
+    Same for ListView rows.  Receives the zero-based row index.
+    If omitted, all rows are draggable.
+
+  isValidDrop(HTREEITEM hDrop)
+    Called every WM_MOUSEMOVE and on LMB release to classify the current drop
+    target.  hDrop is the TreeView item under the cursor, or NULL if the
+    cursor is outside the tree.
+    Return true  → show can-drop cursor, highlight hDrop as target.
+    Return false → show no-drop cursor, suppress highlight.
+    If omitted, any non-NULL hDrop is considered valid.
+
+  onDrop(HTREEITEM hDrop)
+    Called when LMB is released over a valid target (isValidDrop returned
+    true).  The module has already cleared the capture and the highlight before
+    this callback fires.  Use DragDrop_GetSource() / DragDrop_GetTreeItem() /
+    DragDrop_GetListIndex() inside this callback to learn what was dragged.
+
+  onCancel()
+    Called when the drag is aborted without a valid drop.  Reasons include:
+    releasing LMB over an invalid target, WM_CAPTURECHANGED by another window,
+    DragDrop_Cancel(), or calling DragDrop_Unregister() while a drag is active.
+
+================================================================================
+  §4  Lifecycle Functions
+================================================================================
+
+  void DragDrop_Register(const DragDropConfig& cfg)
+    Register the module.  Subclasses hwndTreeView and/or hwndListView via
+    `SetWindowLongPtrW`, chaining on top of any existing subclass proc.
+    Safe to call multiple times — the previous registration is replaced
+    (saved procs are restored before re-registering).
+
+    Call order: after CreateWindowExW for both TV and LV, before the window
+    is shown or the user can click.
+
+  void DragDrop_Unregister()
+    Remove all subclasses and reset all internal state.  If a drag is active
+    it is cancelled without firing onCancel.
+
+    Call order: in WM_DESTROY of the parent window, or any time drag-and-drop
+    should be disabled permanently.
+
+================================================================================
+  §5  Parent-Window Message Hooks
+================================================================================
+
+  Call these four functions from the parent WndProc.  All are no-ops when no
+  drag is active, so they can remain in the message-handler unconditionally.
+
+  ── bool DragDrop_OnMouseMove() ─────────────────────────────────────────────
+    Checks the TV item under the cursor.  Updates the drop-target highlight
+    via TreeView_SelectDropTarget when the hovered item changes.
+    Returns true if a drag is active (caller should return 0 / TRUE).
+
+  ── bool DragDrop_OnLButtonUp() ─────────────────────────────────────────────
+    On drag completion: calls isValidDrop, fires onDrop or onCancel as
+    appropriate, releases SetCapture, and resets state.
+    Returns true if a drag was active.
+
+  ── bool DragDrop_OnSetCursor() ─────────────────────────────────────────────
+    Sets the cursor to hCursorCanDrop or hCursorNoDrop based on isValidDrop.
+    Returns true if a drag is active (caller should return TRUE to suppress
+    the default cursor).
+
+  ── void DragDrop_OnCaptureChanged(HWND hwndNewCapture) ─────────────────────
+    hwnNewCapture = (HWND)lParam from WM_CAPTURECHANGED.
+    Cancels the drag (fires onCancel) if capture moves to a window that is
+    not hwndTreeView or hwndListView.  Pass all WM_CAPTURECHANGED messages
+    regardless of whether a drag is active.
+
+================================================================================
+  §6  State-Query Functions
+================================================================================
+
+  bool           DragDrop_IsActive()
+    Returns true while a drag is in progress (SetCapture is held).
+
+  DragSourceKind DragDrop_GetSource()
+    Returns DragSourceKind::TreeView, ::ListView, or ::None.
+
+  HTREEITEM      DragDrop_GetTreeItem()
+    Returns the TreeView item that started a TV drag, or NULL.
+
+  int            DragDrop_GetListIndex()
+    Returns the ListView row index that started an LV drag, or -1.
+
+  Intended usage: call these inside onDrop to identify what was dragged.
+
+  Example:
+    cfg.onDrop = [](HTREEITEM hDrop) {
+        if (DragDrop_GetSource() == DragSourceKind::TreeView) {
+            HTREEITEM hSrc = DragDrop_GetTreeItem();
+            MoveTreeNode(hSrc, hDrop);
+        } else {
+            int idx = DragDrop_GetListIndex();
+            MoveListFile(idx, hDrop);
+        }
+    };
+
+================================================================================
+  §7  Utility Functions
+================================================================================
+
+  bool DragDrop_IsDescendant(HWND hTree, HTREEITEM hAncestor, HTREEITEM hTest)
+    Returns true if hTest is hAncestor or a descendant of hAncestor.
+    Useful inside isValidDrop to reject dropping a folder onto itself or one
+    of its own children.
+
+    Example:
+      cfg.isValidDrop = [](HTREEITEM hDrop) -> bool {
+          if (!hDrop) return false;
+          HTREEITEM hSrc = DragDrop_GetTreeItem();
+          if (hDrop == hSrc) return false;
+          if (DragDrop_IsDescendant(s_hTreeView, hSrc, hDrop)) return false;
+          return true;
+      };
+
+  void DragDrop_Cancel()
+    Programmatically abort an active drag.  Releases SetCapture, clears the
+    drop-target highlight, restores the arrow cursor, and fires onCancel.
+    No-op if no drag is active.
+
+================================================================================
+  §8  DragSourceKind  (enum class)
+================================================================================
+
+  enum class DragSourceKind { None, TreeView, ListView };
+
+  None        — no drag is active
+  TreeView    — drag originated from a TreeView item press
+  ListView    — drag originated from a ListView row press
+
+================================================================================
+  §9  How the Module Works Internally
+================================================================================
+
+  Subclass procs (`TVDragProc` / `LVDragProc`) are installed on the child
+  controls via `SetWindowLongPtrW` — the same pattern used in mainwindow.cpp.
+  The new proc is installed on top of whatever proc is current at
+  `DragDrop_Register` time, forming a clean call chain:
+
+    TVDragProc → prevTVProc (e.g. TreeView_SubclassProc) → native TreeView
+
+  On `DragDrop_Unregister`, the saved procs are restored via `SetWindowLongPtrW`
+  only if the window handles are still valid.
+
+  The procs intercept:
+
+    WM_LBUTTONDOWN   — hit-test under cursor; store as “potential drag” if
+                       the item passes canStartTreeDrag / canStartListDrag.
+    WM_MOUSEMOVE     — if LMB down + potential drag stored: measure distance
+                       against SM_CXDRAG / SM_CYDRAG.  When threshold exceeded:
+                       mark drag active, SetCapture(hwndParent).
+    WM_LBUTTONUP     — clear potential drag.
+
+  After SetCapture(hwndParent) all mouse messages flow to the parent, where
+  DragDrop_OnMouseMove / DragDrop_OnLButtonUp / DragDrop_OnSetCursor take over.
+
+  This approach works without a commctrl v6 manifest and coexists correctly
+  with any existing SetWindowLongPtrW-based subclass on the same controls.
+
+================================================================================
+  §10  Integration Checklist
+================================================================================
+
+  □  #include "dragdrop.h" in the file containing the parent WndProc
+  □  Add dragdrop.cpp to the build (CMakeLists.txt or project file)
+  □  Link comctl32 (usually already required)
+  □  Call DragDrop_Register() after creating the TV/LV controls
+  □  Add four WndProc hooks (WM_MOUSEMOVE, WM_LBUTTONUP, WM_SETCURSOR,
+     WM_CAPTURECHANGED)
+  □  Call DragDrop_Unregister() in WM_DESTROY
+  □  Implement isValidDrop and onDrop (minimum required callbacks)
+  □  Build and test with TVS_EDITLABELS set — drag should work without
+     any label-edit timing issue
+  □  Remove any TVN_BEGINDRAG / LVN_BEGINDRAG / WM_PARENTNOTIFY handlers
+     that previously drove drag detection (they are superseded by the module)
+
+================================================================================
+  §11  Complete Example  (TreeView drag only)
+================================================================================
+
+  // In the WM_CREATE / page-setup handler:
+  DragDropConfig cfg = {};
+  cfg.hwndParent   = hwnd;
+  cfg.hwndTreeView = s_hTreeView;
+
+  cfg.canStartTreeDrag = [](HTREEITEM h) {
+      // Block the four system-root nodes.
+      return h != s_hProgramFilesRoot && h != s_hProgramDataRoot
+          && h != s_hAppDataRoot      && h != s_hAskAtInstallRoot;
+  };
+
+  cfg.isValidDrop = [](HTREEITEM hDrop) -> bool {
+      if (!hDrop) return false;
+      if (hDrop == s_hProgramFilesRoot || hDrop == s_hProgramDataRoot
+       || hDrop == s_hAppDataRoot      || hDrop == s_hAskAtInstallRoot)
+          return false;
+      HTREEITEM hSrc = DragDrop_GetTreeItem();
+      if (!hSrc) return false;
+      if (hDrop == hSrc) return false;
+      if (DragDrop_IsDescendant(s_hTreeView, hSrc, hDrop)) return false;
+      if (hDrop == TreeView_GetParent(s_hTreeView, hSrc))  return false;
+      return true;
+  };
+
+  cfg.onDrop = [hwnd](HTREEITEM hDrop) {
+      HTREEITEM hOld = DragDrop_GetTreeItem();
+      HTREEITEM hNew = CloneTreeSubtree(s_hTreeView, hOld, hDrop);
+      TreeView_DeleteItem(s_hTreeView, hOld);
+      TreeView_Expand(s_hTreeView, hDrop, TVE_EXPAND);
+      TreeView_SelectItem(s_hTreeView, hNew);
+  };
+
+  DragDrop_Register(cfg);
+
+  // In the parent WndProc:
+  case WM_MOUSEMOVE:      if (DragDrop_OnMouseMove())    return 0;    break;
+  case WM_LBUTTONUP:      if (DragDrop_OnLButtonUp())    return 0;    break;
+  case WM_SETCURSOR:      if (DragDrop_OnSetCursor())    return TRUE; break;
+  case WM_CAPTURECHANGED: DragDrop_OnCaptureChanged((HWND)lParam);    break;
+  case WM_DESTROY:        DragDrop_Unregister();                       break;
+
+================================================================================
