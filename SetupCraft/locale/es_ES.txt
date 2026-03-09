@@ -40,3 +40,10 @@ tt_build=Compile the installer package
 tt_test=Test the compiled installer
 tt_scripts=Configurar scripts para ejecutar antes/después de la instalación
 tt_save=Guardar cambios del proyecto
+
+# Drag-and-drop folder conflict dialog
+merge_title=Carpeta ya existente
+merge_instr=Ya existe una carpeta con este nombre
+merge_content=Ya existe una carpeta llamada «%s» en la ubicación de destino.
+merge_btn_merge=Combinar
+merge_btn_overwrite=Sobrescribir

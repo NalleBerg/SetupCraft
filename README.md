@@ -2,7 +2,7 @@
 
 An installer creation tool for making your developed packages distributable. Designed to be simple to use with a clean, native Windows interface.
 
-**Current Release:** Version 2026.03.09.12 (Published: 09.03.2026 12:33)
+**Current Release:** Version 2026.03.09.16 (Published: 09.03.2026 16:34)
 
 > Note: This project is in active development. Entry screen and main window Files management page are complete with proper page switching.
 
@@ -43,7 +43,7 @@ An installer creation tool for making your developed packages distributable. Des
 - **Close Project Button**: Red toolbar button between Save and Exit — prompts to save unsaved changes then returns to the entry screen. i18n-ready via `close_project` locale key
 - **Per-Button Hover Tooltips**: `SetButtonTooltip(hBtn, text)` registers a plain-text tooltip on any enabled toolbar button; `ButtonSubclassProc` shows it on first hover and hides on mouse-leave with no extra tracking state
 - **Picker Last-Folder Memory**: Add Folder and Add Files both remember the last used directory per project in the DB (`last_picker_folder_<id>` / `last_picker_files_<id>`). File picker first-use falls back to `%USERPROFILE%` to prevent cross-picker shell state sharing
-- **Drag-and-Drop Infrastructure**: Drop-target highlight, cursor feedback (shell32 icon 109 no-drop / icon 300 can-drop), complete drop logic for moving tree nodes (`CloneTreeSubtree`) and virtual folder files — drag activation via subclassing coming next session
+- **Drag-and-Drop (Files Page)**: Fully working tree node drag-and-drop — move a folder anywhere in the tree, or drop onto a same-named folder to Merge (files carried across, recursively), Overwrite, or Cancel. Drop-target highlight, cursor feedback (no-drop / can-drop cursors), and freeze-free selection (nodes are always virtualized after a drop so `TVN_SELCHANGED` never blocks on a disk scan)
 - **Entry Page Button Tooltips**: All four entry-screen buttons (New Project, Open Project, Delete Project, Exit) show hover tooltips via `SetButtonTooltip()`, i18n-ready via locale keys `new_project_hint` etc., refreshed on language switch
 - **UTF-8 BOM Fix**: `LoadLocaleFile` now strips the 3-byte BOM (`EF BB BF`) from the first line of every locale file — all 20 bundled locales were BOM-encoded, causing the first key in each file to silently fail lookup. Cyrillic, Greek, emoji and all other non-ASCII characters now display correctly across every language
 - **Full Tree Persistence Across Restarts**: `SaveTreeToDb` walks all four tree roots on every Save and writes every folder node and file to the DB `files` table. On project open a DB-rebuild path reconstructs the exact tree from those rows — no dependency on a live disk path. Three bugs fixed: tree not saved, tree not loaded from DB, `directory` field not synced

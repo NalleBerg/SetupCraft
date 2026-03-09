@@ -47,3 +47,10 @@ tt_build=Compile the installer package
 tt_test=Test the compiled installer
 tt_scripts=Konfigurer scripts til at køre før/efter installation
 tt_save=Gem projektændringer
+
+# Drag-and-drop folder conflict dialog
+merge_title=Mappe eksisterer allerede
+merge_instr=Der findes allerede en mappe med dette navn
+merge_content=Der findes allerede en mappe med navnet "%s" på destinationen.
+merge_btn_merge=Flet
+merge_btn_overwrite=Overskriv

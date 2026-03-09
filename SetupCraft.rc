@@ -1,1 +1,7 @@
 1 ICON "SetupCraft.ico"
+
+// Embed the application manifest.
+// This activates comctl32 v6 (required for TaskDialogIndirect) and
+// declares DPI awareness so Windows does not DPI-virtualize the process.
+// 24 = RT_MANIFEST  (numeric value used for windres/MinGW compatibility)
+1 24 "app.manifest"

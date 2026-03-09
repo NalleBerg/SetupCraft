@@ -40,3 +40,10 @@ tt_build=Compile the installer package
 tt_test=Test the compiled installer
 tt_scripts=Configurați scripturi pentru a rula înainte/după instalare
 tt_save=Salvează modificările proiectului
+
+# Drag-and-drop folder conflict dialog
+merge_title=Folderul există deja
+merge_instr=Un folder cu acest nume există deja
+merge_content=Un folder cu numele "%s" există deja la destinație.
+merge_btn_merge=Îmbinare
+merge_btn_overwrite=Suprascriere

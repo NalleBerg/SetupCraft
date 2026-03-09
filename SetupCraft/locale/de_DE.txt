@@ -46,3 +46,10 @@ tt_build=Compile the installer package
 tt_test=Test the compiled installer
 tt_scripts=Skripte konfigurieren, die vor/nach der Installation ausgeführt werden
 tt_save=Projektänderungen speichern
+
+# Drag-and-drop folder conflict dialog
+merge_title=Ordner bereits vorhanden
+merge_instr=Ein Ordner mit diesem Namen existiert bereits
+merge_content=An diesem Ort existiert bereits ein Ordner namens "%s".
+merge_btn_merge=Zusammenführen
+merge_btn_overwrite=Überschreiben

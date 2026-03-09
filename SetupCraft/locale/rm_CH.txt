@@ -40,3 +40,10 @@ tt_build=Compile the installer package
 tt_test=Test the compiled installer
 tt_scripts=Configurar scripts per exequir avant/suenter l'installaziun
 tt_save=Salvar las midadas dal project
+
+# Drag-and-drop folder conflict dialog
+merge_title=Dossier exista gia
+merge_instr=En dossier cun quest num exista gia
+merge_content=En dossier cun il num «%s» exista gia tar il lieu da destinaziun.
+merge_btn_merge=Unir
+merge_btn_overwrite=Surscriver

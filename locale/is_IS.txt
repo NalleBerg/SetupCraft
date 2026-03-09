@@ -40,3 +40,10 @@ tt_build=Compile the installer package
 tt_test=Test the compiled installer
 tt_scripts=Stilla forrit til að keyra fyrir/eftir uppsetningu
 tt_save=Vista verkefnisbreytingar
+
+# Drag-and-drop folder conflict dialog
+merge_title=Mappa er þegar til
+merge_instr=Mappa með þessu heiti er þegar til
+merge_content=Mappa að nafni «%s» er þegar til á markvistarsetningu.
+merge_btn_merge=Sameina
+merge_btn_overwrite=Yfirskrifa

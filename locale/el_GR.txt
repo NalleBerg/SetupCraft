@@ -40,3 +40,10 @@ tt_build=Compile the installer package
 tt_test=Test the compiled installer
 tt_scripts=Διαμόρφωση scripts για εκτέλεση πριν/μετά την εγκατάσταση
 tt_save=Αποθήκευση αλλαγών του έργου
+
+# Drag-and-drop folder conflict dialog
+merge_title=Ο φάκελος υπάρχει ήδη
+merge_instr=Ένας φάκελος με αυτό το όνομα υπάρχει ήδη
+merge_content=Ένας φάκελος με το όνομα «%s» υπάρχει ήδη στον προορισμό.
+merge_btn_merge=Συγχώνευση
+merge_btn_overwrite=Αντικατάσταση

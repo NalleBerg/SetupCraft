@@ -1,6 +1,15 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 09 March 2026 &mdash; v2026.03.09.12<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 09 March 2026 &mdash; v2026.03.09.16<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.09.16</span></h3>
+<p><strong>Files page drag-and-drop: merge now carries all files &amp; freeze fixed (09.03.2026, 16:34):</strong></p>
+<ul>
+<li><strong>Merge brings all files across:</strong> When dragging a folder onto an existing same-named folder and choosing &laquo;Merge&raquo;, files that lived directly in the dragged folder were silently lost &mdash; they existed only on disk, not in <code>s_virtualFolderFiles</code>, so the merge code found nothing to transfer. A new <code>IngestRealPathFiles</code> helper enumerates the folder&rsquo;s direct children from disk and stores them as <code>VirtualFolderFile</code> entries in the merge target before the tree children are processed. The fix applies to both the Merge path and the normal-move path (<code>CloneTreeSubtree</code>).</li>
+<li><strong>Erratic UI freeze eliminated:</strong> After any move or merge, clicking the resulting node in the tree triggered <code>TVN_SELCHANGED &rarr; PopulateListView</code>, which called <code>SHGetFileInfoW</code> per file on the UI thread and caused intermittent hangs of several seconds. <code>CloneTreeSubtree</code> now always creates the cloned node with an empty <code>lParam</code> (virtual) and pre-populates <code>s_virtualFolderFiles</code> via <code>IngestRealPathFiles</code>. <code>TVN_SELCHANGED</code> therefore always takes the fast in-memory path and never issues a live disk scan.</li>
+</ul>
+
+<h3 style="text-align: center;">&nbsp;</h3>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.09.12</span></h3>
 <p><strong>Tooltip font fix &mdash; Greek, Cyrillic, Ukrainian now render correctly (09.03.2026, 12:33):</strong></p>

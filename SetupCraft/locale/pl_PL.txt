@@ -39,3 +39,10 @@ tt_build=Compile the installer package
 tt_test=Test the compiled installer
 tt_scripts=Skonfiguruj skrypty do uruchomienia przed/po instalacji
 tt_save=Zapisz zmiany projektu
+
+# Drag-and-drop folder conflict dialog
+merge_title=Folder już istnieje
+merge_instr=Folder o tej nazwie już istnieje
+merge_content=Folder o nazwie "%s" już istnieje w miejscu docelowym.
+merge_btn_merge=Połącz
+merge_btn_overwrite=Zastąp

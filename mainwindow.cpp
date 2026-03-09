@@ -889,6 +889,25 @@ void MainWindow::RestoreTreeSnapshot(HWND hTree, HTREEITEM hParent,
 
 // Recursively clone hSrc subtree (text, fullPath, virtualFiles) under hNewParent.
 // virtualFiles are *moved* (not copied) so they need no second erase.
+// Enumerate files at a real disk path and append them as VirtualFolderFile
+// entries into s_virtualFolderFiles[hTarget].  Only direct children (no subdirs).
+static void IngestRealPathFiles(HTREEITEM hTarget, const std::wstring& folderPath) {
+    std::wstring searchPath = folderPath + L"\\*";
+    WIN32_FIND_DATAW fd = {};
+    HANDLE hFind = FindFirstFileW(searchPath.c_str(), &fd);
+    if (hFind == INVALID_HANDLE_VALUE) return;
+    do {
+        if (wcscmp(fd.cFileName, L".") == 0 || wcscmp(fd.cFileName, L"..") == 0) continue;
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+        VirtualFolderFile vf;
+        vf.sourcePath    = folderPath + L"\\" + fd.cFileName;
+        vf.destination   = L"\\" + std::wstring(fd.cFileName);
+        vf.install_scope = L"";
+        s_virtualFolderFiles[hTarget].push_back(vf);
+    } while (FindNextFileW(hFind, &fd));
+    FindClose(hFind);
+}
+
 static HTREEITEM CloneTreeSubtree(HWND hTree, HTREEITEM hSrc, HTREEITEM hNewParent) {
     wchar_t text[256] = {};
     TVITEMW tvi = {};
@@ -900,12 +919,25 @@ static HTREEITEM CloneTreeSubtree(HWND hTree, HTREEITEM hSrc, HTREEITEM hNewPare
     std::wstring fullPath;
     if (tvi.lParam) fullPath = (const wchar_t*)tvi.lParam;
 
-    HTREEITEM hNew = MainWindow::AddTreeNode(hTree, hNewParent, text, fullPath);
+    // Always create the clone as a virtual node (empty lParam) so that
+    // TVN_SELCHANGED uses s_virtualFolderFiles instead of triggering a
+    // live disk scan, which blocks the UI thread and caused the erratic freeze.
+    HTREEITEM hNew = MainWindow::AddTreeNode(hTree, hNewParent, text, L"");
 
-    // Move virtualFiles from old item to new item.
+    // If the source was a real-path node, read its direct files from disk
+    // and store them as virtual entries.  This is the only place those files
+    // exist — they were never in s_virtualFolderFiles.
+    if (!fullPath.empty()) {
+        IngestRealPathFiles(hNew, fullPath);
+    }
+
+    // Move virtualFiles from old item to new item (handles already-virtual nodes).
     auto it = s_virtualFolderFiles.find(hSrc);
     if (it != s_virtualFolderFiles.end()) {
-        s_virtualFolderFiles[hNew] = std::move(it->second);
+        auto& dest = s_virtualFolderFiles[hNew];
+        dest.insert(dest.end(),
+            std::make_move_iterator(it->second.begin()),
+            std::make_move_iterator(it->second.end()));
         s_virtualFolderFiles.erase(it);
     }
 
@@ -919,6 +951,33 @@ static HTREEITEM CloneTreeSubtree(HWND hTree, HTREEITEM hSrc, HTREEITEM hNewPare
     return hNew;
 }
 
+// Force-refresh the ListView to show the files belonging to hItem.
+// Only reads from s_virtualFolderFiles — skips the disk-scan path because
+// after a merge/move the result data is always in s_virtualFolderFiles,
+// and TVN_SELCHANGED handles the physical-path case for normal navigation.
+static void ForceRefreshListView(HWND hwndListView, HTREEITEM hItem) {
+    if (!hwndListView || !IsWindow(hwndListView) || !hItem) return;
+    ListView_DeleteAllItems(hwndListView);
+    auto it = s_virtualFolderFiles.find(hItem);
+    if (it != s_virtualFolderFiles.end()) {
+        for (const auto& fileInfo : it->second) {
+            SHFILEINFOW sfi = {};
+            SHGetFileInfoW(fileInfo.sourcePath.c_str(), 0, &sfi, sizeof(sfi),
+                           SHGFI_SYSICONINDEX | SHGFI_SMALLICON);
+            LVITEMW lvi = {};
+            lvi.mask     = LVIF_TEXT | LVIF_PARAM | LVIF_IMAGE;
+            lvi.iItem    = ListView_GetItemCount(hwndListView);
+            lvi.pszText  = (LPWSTR)fileInfo.sourcePath.c_str();
+            lvi.iImage   = sfi.iIcon;
+            wchar_t* copy = (wchar_t*)malloc((fileInfo.sourcePath.size() + 1) * sizeof(wchar_t));
+            if (copy) { wcscpy(copy, fileInfo.sourcePath.c_str()); lvi.lParam = (LPARAM)copy; }
+            int idx = ListView_InsertItem(hwndListView, &lvi);
+            ListView_SetItemText(hwndListView, idx, 1, (LPWSTR)fileInfo.destination.c_str());
+        }
+    }
+    InvalidateRect(hwndListView, NULL, TRUE);
+    UpdateWindow(hwndListView);
+}
 
 // Callback for SHBrowseForFolderW — navigates to the initial folder.
 // bi.lParam must be a LPARAM pointing to a null-terminated wide path.
@@ -1406,11 +1465,14 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
 
             ddcfg.isValidDrop = [](HTREEITEM hDrop) -> bool {
                 if (!hDrop) return false;
-                // Program Files root and Ask-at-install root are never valid drop targets.
-                if (hDrop == s_hProgramFilesRoot || hDrop == s_hAskAtInstallRoot) return false;
-                // ProgramData and AppData roots accept folder drags but not file drags.
-                bool isDataRoot = (hDrop == s_hProgramDataRoot || hDrop == s_hAppDataRoot);
-                if (isDataRoot && DragDrop_GetSource() == DragSourceKind::ListView) return false;
+                // Ask-at-install root is never a valid drop target (it is a flag node,
+                // not a real install-path folder).
+                if (hDrop == s_hAskAtInstallRoot) return false;
+                // The four section roots accept folder drags but not file (ListView) drags.
+                bool isSectionRoot = (hDrop == s_hProgramFilesRoot
+                                   || hDrop == s_hProgramDataRoot
+                                   || hDrop == s_hAppDataRoot);
+                if (isSectionRoot && DragDrop_GetSource() == DragSourceKind::ListView) return false;
                 if (DragDrop_GetSource() == DragSourceKind::TreeView) {
                     HTREEITEM hSrc = DragDrop_GetTreeItem();
                     if (!hSrc)                                              return false;
@@ -1429,10 +1491,118 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
                     HTREEITEM hOld       = DragDrop_GetTreeItem();
                     HTREEITEM hOldParent = TreeView_GetParent(s_hTreeView, hOld);
                     bool wasUnderPF = (hOldParent == s_hProgramFilesRoot);
-                    HTREEITEM hNew  = CloneTreeSubtree(s_hTreeView, hOld, hDrop);
-                    TreeView_DeleteItem(s_hTreeView, hOld);
+
+                    // ── Get the dragged folder's name ─────────────────────────
+                    wchar_t draggedName[260] = {};
+                    { TVITEMW tvi = {}; tvi.hItem = hOld; tvi.mask = TVIF_TEXT;
+                      tvi.pszText = draggedName; tvi.cchTextMax = 260;
+                      TreeView_GetItem(s_hTreeView, &tvi); }
+
+                    // ── Look for a same-named child at the drop target ────────
+                    HTREEITEM hExisting = NULL;
+                    { HTREEITEM hCh = TreeView_GetChild(s_hTreeView, hDrop);
+                      while (hCh) {
+                          wchar_t chName[260] = {};
+                          TVITEMW tvi2 = {}; tvi2.hItem = hCh; tvi2.mask = TVIF_TEXT;
+                          tvi2.pszText = chName; tvi2.cchTextMax = 260;
+                          TreeView_GetItem(s_hTreeView, &tvi2);
+                          if (hCh != hOld && lstrcmpiW(chName, draggedName) == 0)
+                              { hExisting = hCh; break; }
+                          hCh = TreeView_GetNextSibling(s_hTreeView, hCh);
+                      } }
+
+                    HTREEITEM hResultItem = NULL;
+
+                    if (hExisting) {
+                        // ── Duplicate name: ask Merge / Overwrite / Cancel ────
+                        auto LS = [&](const wchar_t* k, const wchar_t* fb) -> std::wstring {
+                            auto it = s_locale.find(k);
+                            return (it != s_locale.end()) ? it->second : fb;
+                        };
+                        std::wstring title   = LS(L"merge_title",   L"Folder Already Exists");
+                        std::wstring instr   = LS(L"merge_instr",   L"A folder with this name already exists");
+                        std::wstring content = LS(L"merge_content", L"A folder named \"%s\" already exists at the target location.");
+                        { auto p = content.find(L"%s"); if (p != std::wstring::npos) content.replace(p, 2, draggedName); }
+                        std::wstring btnMerge = LS(L"merge_btn_merge",     L"Merge");
+                        std::wstring btnOvwr  = LS(L"merge_btn_overwrite", L"Overwrite");
+                        std::wstring btnCnl   = LS(L"cancel",              L"Cancel");
+
+                        TASKDIALOG_BUTTON btns[] = {
+                            { 101, btnMerge.c_str() },
+                            { 102, btnOvwr.c_str()  },
+                            { 103, btnCnl.c_str()   },
+                        };
+                        TASKDIALOGCONFIG tdc = {};
+                        tdc.cbSize             = sizeof(tdc);
+                        tdc.hwndParent         = hwnd;
+                        tdc.dwFlags            = TDF_POSITION_RELATIVE_TO_WINDOW;
+                        tdc.pszWindowTitle     = title.c_str();
+                        tdc.pszMainInstruction = instr.c_str();
+                        tdc.pszContent         = content.c_str();
+                        tdc.pButtons           = btns;
+                        tdc.cButtons           = 3;
+                        tdc.nDefaultButton     = 101;
+                        int clickedBtn = 103;
+                        TaskDialogIndirect(&tdc, &clickedBtn, NULL, NULL);
+
+                        if (clickedBtn == 101) {
+                            // Merge: first transfer files directly owned by hOld into
+                            // hExisting (CloneTreeSubtree only processes tree children,
+                            // not the s_virtualFolderFiles of the folders themselves).
+
+                            // If hOld is a real-path node its files are on disk,
+                            // not in s_virtualFolderFiles — ingest them now.
+                            {
+                                wchar_t oldPathBuf[MAX_PATH] = {};
+                                TVITEMW tviOld = {};
+                                tviOld.hItem      = hOld;
+                                tviOld.mask       = TVIF_PARAM;
+                                tviOld.pszText    = oldPathBuf;
+                                tviOld.cchTextMax = MAX_PATH;
+                                TreeView_GetItem(s_hTreeView, &tviOld);
+                                if (tviOld.lParam) {
+                                    const wchar_t* rp = (const wchar_t*)tviOld.lParam;
+                                    if (rp && wcslen(rp) > 0)
+                                        IngestRealPathFiles(hExisting, rp);
+                                }
+                            }
+
+                            auto itOldFiles = s_virtualFolderFiles.find(hOld);
+                            if (itOldFiles != s_virtualFolderFiles.end()) {
+                                auto& dest = s_virtualFolderFiles[hExisting];
+                                dest.insert(dest.end(),
+                                    itOldFiles->second.begin(),
+                                    itOldFiles->second.end());
+                                s_virtualFolderFiles.erase(itOldFiles);
+                            }
+                            // Then move every subfolder of hOld into hExisting.
+                            HTREEITEM hCh = TreeView_GetChild(s_hTreeView, hOld);
+                            while (hCh) {
+                                HTREEITEM hNext = TreeView_GetNextSibling(s_hTreeView, hCh);
+                                CloneTreeSubtree(s_hTreeView, hCh, hExisting);
+                                hCh = hNext;
+                            }
+                            TreeView_DeleteItem(s_hTreeView, hOld);
+                            hResultItem = hExisting;
+                        } else if (clickedBtn == 102) {
+                            // Overwrite: delete existing, then normal clone
+                            TreeView_DeleteItem(s_hTreeView, hExisting);
+                            hResultItem = CloneTreeSubtree(s_hTreeView, hOld, hDrop);
+                            TreeView_DeleteItem(s_hTreeView, hOld);
+                        } else {
+                            return;  // Cancel — no drop
+                        }
+                    } else {
+                        // Normal move — no name conflict
+                        hResultItem = CloneTreeSubtree(s_hTreeView, hOld, hDrop);
+                        TreeView_DeleteItem(s_hTreeView, hOld);
+                    }
+
                     TreeView_Expand(s_hTreeView, hDrop, TVE_EXPAND);
-                    TreeView_SelectItem(s_hTreeView, hNew);
+                    if (hResultItem) {
+                        TreeView_SelectItem(s_hTreeView, hResultItem);
+                        ForceRefreshListView(s_hListView, hResultItem);
+                    }
                     if (wasUnderPF) UpdateInstallPathFromTree(hwnd);
                     MarkAsModified();
                     UpdateComponentsButtonState(hwnd);

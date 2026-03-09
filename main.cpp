@@ -1455,6 +1455,12 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR pCmdLine, int nCmdShow
     // Initialize COM (required for IFileOpenDialog used on the Components page)
     CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
 
+    // Register comctl32 v6 control classes (TreeView, ListView, Tab, etc.).
+    // The app.manifest activates v6; this call ensures all classes are registered.
+    { INITCOMMONCONTROLSEX icc = {}; icc.dwSize = sizeof(icc);
+      icc.dwICC = ICC_WIN95_CLASSES | ICC_TREEVIEW_CLASSES | ICC_LISTVIEW_CLASSES | ICC_TAB_CLASSES;
+      InitCommonControlsEx(&icc); }
+
     // Initialize database
     DB::InitDb();
 

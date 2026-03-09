@@ -39,3 +39,10 @@ tt_settings=Configure installer settings
 tt_build=Compile the installer package
 tt_test=Test the compiled installer
 tt_scripts=Configurer des scripts à exécuter avant/après l'installationtt_save=Enregistrer les modifications du projet
+
+# Drag-and-drop folder conflict dialog
+merge_title=Dossier déjà existant
+merge_instr=Un dossier portant ce nom existe déjà
+merge_content=Un dossier nommé « %s » existe déjà à cet emplacement.
+merge_btn_merge=Fusionner
+merge_btn_overwrite=Remplacer

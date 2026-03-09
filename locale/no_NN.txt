@@ -39,3 +39,10 @@ tt_settings=Configure installer settings
 tt_build=Compile the installer package
 tt_test=Test the compiled installer
 tt_scripts=Konfigurer skript som skal kjørast før/etter installasjontt_save=Lagre prosjektendringer
+
+# Drag-and-drop folder conflict dialog
+merge_title=Mappa finst allereie
+merge_instr=Det finst allereie ei mappe med dette namnet
+merge_content=Det finst allereie ei mappe kalla «%s» på målstaden.
+merge_btn_merge=Slå saman
+merge_btn_overwrite=Erstatt

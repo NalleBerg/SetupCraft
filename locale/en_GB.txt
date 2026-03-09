@@ -177,3 +177,10 @@ new_project_hint=Create a new installer project
 open_project_hint=Open an existing project from the database
 delete_project_hint=Delete a project from the database
 exit_hint=Exit SetupCraft
+
+# Drag-and-drop folder conflict dialog
+merge_title=Folder Already Exists
+merge_instr=A folder with this name already exists
+merge_content=A folder named "%s" already exists at the target location.
+merge_btn_merge=Merge
+merge_btn_overwrite=Overwrite

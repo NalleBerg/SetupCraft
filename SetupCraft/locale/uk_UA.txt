@@ -40,3 +40,10 @@ tt_build=Compile the installer package
 tt_test=Test the compiled installer
 tt_scripts=Налаштувати скрипти для запуску до/після встановлення
 tt_save=Зберегти зміни проекту
+
+# Drag-and-drop folder conflict dialog
+merge_title=Тека вже існує
+merge_instr=Тека з такою назвою вже існує
+merge_content=Тека з назвою «%s» вже існує в цьому місці.
+merge_btn_merge=Об'єднати
+merge_btn_overwrite=Замінити
