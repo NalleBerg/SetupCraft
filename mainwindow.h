@@ -19,6 +19,8 @@ struct TreeNodeSnapshot {
     std::wstring fullPath;
     std::vector<VirtualFolderFile> virtualFiles;
     std::vector<TreeNodeSnapshot> children;
+    mutable bool expanded     = true;  // Files page expansion — per session only
+    mutable bool compExpanded = true;  // Components page expansion — independent, per session
 };
 
 // Main window class

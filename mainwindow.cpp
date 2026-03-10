@@ -877,6 +877,7 @@ void MainWindow::SaveTreeSnapshot(HWND hTree, HTREEITEM hParent,
         TreeView_GetItem(hTree, &tvi);
         snap.text     = buf;
         snap.fullPath = tvi.lParam ? reinterpret_cast<wchar_t *>(tvi.lParam) : L"";
+        snap.expanded = (TreeView_GetItemState(hTree, hChild, TVIS_EXPANDED) & TVIS_EXPANDED) != 0;
         auto it = s_virtualFolderFiles.find(hChild);
         if (it != s_virtualFolderFiles.end())
             snap.virtualFiles = it->second;
@@ -893,13 +894,43 @@ void MainWindow::RestoreTreeSnapshot(HWND hTree, HTREEITEM hParent,
         HTREEITEM hNew = AddTreeNode(hTree, hParent, snap.text, snap.fullPath);
         if (!snap.virtualFiles.empty())
             s_virtualFolderFiles[hNew] = snap.virtualFiles;
-        if (!snap.children.empty())
+        if (!snap.children.empty()) {
             RestoreTreeSnapshot(hTree, hNew, snap.children);
+            if (snap.expanded)
+                TreeView_Expand(hTree, hNew, TVE_EXPAND);
+        }
     }
-    // Expand the parent so the restored children are visible
-    if (!nodes.empty())
-        TreeView_Expand(hTree, hParent, TVE_EXPAND);
 }
+
+// Expand every node nested under hItem (used for first-visit full-expand).
+static void ExpandAllSubnodes(HWND hTree, HTREEITEM hItem) {
+    HTREEITEM hChild = TreeView_GetChild(hTree, hItem);
+    while (hChild) {
+        TreeView_Expand(hTree, hChild, TVE_EXPAND);
+        ExpandAllSubnodes(hTree, hChild);
+        hChild = TreeView_GetNextSibling(hTree, hChild);
+    }
+}
+
+// Traverse the Comp-page tree and persist each node's expanded state back into
+// the TreeNodeSnapshot it points to (lParam).  Called when leaving page 9.
+static void SaveCompTreeExpansion(HWND hTree, HTREEITEM hParent) {
+    HTREEITEM hChild = TreeView_GetChild(hTree, hParent);
+    while (hChild) {
+        TVITEMW tvi = {};
+        tvi.hItem     = hChild;
+        tvi.mask      = TVIF_PARAM | TVIF_STATE;
+        tvi.stateMask = TVIS_EXPANDED;
+        TreeView_GetItem(hTree, &tvi);
+        if (tvi.lParam) {
+            const TreeNodeSnapshot* p = reinterpret_cast<const TreeNodeSnapshot*>(tvi.lParam);
+            p->compExpanded = (tvi.state & TVIS_EXPANDED) != 0;  // mutable field, independent from Files page
+        }
+        SaveCompTreeExpansion(hTree, hChild);
+        hChild = TreeView_GetNextSibling(hTree, hChild);
+    }
+}
+
 // ---------------------------------------------------------------------------
 
 // Recursively clone hSrc subtree (text, fullPath, virtualFiles) under hNewParent.
@@ -1032,15 +1063,23 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
     // Snapshot Files page tree before tearing it down so we can restore it
     // (including virtual folders and full hierarchy) when we return.
     if (s_currentPageIndex == 0 && s_hTreeView && IsWindow(s_hTreeView)) {
-        s_treeSnapshot_ProgramFiles.clear();
-        s_treeSnapshot_ProgramData.clear();
-        s_treeSnapshot_AppData.clear();
-        s_treeSnapshot_AskAtInstall.clear();
-        if (s_hProgramFilesRoot) SaveTreeSnapshot(s_hTreeView, s_hProgramFilesRoot, s_treeSnapshot_ProgramFiles);
-        if (s_hProgramDataRoot)  SaveTreeSnapshot(s_hTreeView, s_hProgramDataRoot,  s_treeSnapshot_ProgramData);
-        if (s_hAppDataRoot)      SaveTreeSnapshot(s_hTreeView, s_hAppDataRoot,       s_treeSnapshot_AppData);
-        if (s_hAskAtInstallRoot) SaveTreeSnapshot(s_hTreeView, s_hAskAtInstallRoot,  s_treeSnapshot_AskAtInstall);
+        // Only clear+resave a snapshot when the corresponding root exists.
+        // Roots absent in the current mode (e.g. ProgramData while AskAtInstall
+        // is enabled) keep their previous snapshot so switching modes round-trips
+        // without losing data.
+        if (s_hProgramFilesRoot) { s_treeSnapshot_ProgramFiles.clear();  SaveTreeSnapshot(s_hTreeView, s_hProgramFilesRoot, s_treeSnapshot_ProgramFiles); }
+        if (s_hProgramDataRoot)  { s_treeSnapshot_ProgramData.clear();   SaveTreeSnapshot(s_hTreeView, s_hProgramDataRoot,  s_treeSnapshot_ProgramData);  }
+        if (s_hAppDataRoot)      { s_treeSnapshot_AppData.clear();        SaveTreeSnapshot(s_hTreeView, s_hAppDataRoot,       s_treeSnapshot_AppData);      }
+        if (s_hAskAtInstallRoot) { s_treeSnapshot_AskAtInstall.clear();   SaveTreeSnapshot(s_hTreeView, s_hAskAtInstallRoot,  s_treeSnapshot_AskAtInstall);  }
         UpdateComponentsButtonState(hwnd);
+    }
+    // Save Comp page tree expansion state before teardown
+    if (s_currentPageIndex == 9 && s_hCompTreeView && IsWindow(s_hCompTreeView)) {
+        HTREEITEM hR = TreeView_GetRoot(s_hCompTreeView);
+        while (hR) {
+            SaveCompTreeExpansion(s_hCompTreeView, hR);
+            hR = TreeView_GetNextSibling(s_hCompTreeView, hR);
+        }
     }
     // Destroy previous page content
     if (s_hCurrentPage) {
@@ -1132,6 +1171,9 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
     s_hTreeView = NULL;
     s_hListView = NULL;
     s_hProgramFilesRoot = NULL;
+    s_hProgramDataRoot  = NULL;
+    s_hAppDataRoot      = NULL;
+    s_hAskAtInstallRoot = NULL;
     s_hRegTreeView = NULL;
     s_hRegListView = NULL;
     
@@ -1256,7 +1298,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         
         // TreeView on the left (folder hierarchy) - child of main window to receive notifications
         s_hTreeView = CreateWindowExW(WS_EX_CLIENTEDGE, WC_TREEVIEW, NULL,
-            WS_CHILD | WS_VISIBLE | WS_BORDER | TVS_HASLINES | TVS_HASBUTTONS | TVS_LINESATROOT | TVS_SHOWSELALWAYS,
+            WS_CHILD | WS_VISIBLE | WS_BORDER | TVS_HASLINES | TVS_HASBUTTONS | TVS_LINESATROOT | TVS_SHOWSELALWAYS | TVS_EDITLABELS,
             S(20), s_toolbarHeight + viewTop, treeWidth, viewHeight,
             hwnd, (HMENU)102, hInst, NULL);
         
@@ -1397,10 +1439,10 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         if (hasSnapshot) {
             // Drop stale HTREEITEM keys; restore will re-populate with fresh keys.
             s_virtualFolderFiles.clear();
-            if (s_hProgramFilesRoot) RestoreTreeSnapshot(s_hTreeView, s_hProgramFilesRoot, s_treeSnapshot_ProgramFiles);
-            if (s_hProgramDataRoot)  RestoreTreeSnapshot(s_hTreeView, s_hProgramDataRoot,  s_treeSnapshot_ProgramData);
-            if (s_hAppDataRoot)      RestoreTreeSnapshot(s_hTreeView, s_hAppDataRoot,       s_treeSnapshot_AppData);
-            if (s_hAskAtInstallRoot) RestoreTreeSnapshot(s_hTreeView, s_hAskAtInstallRoot,  s_treeSnapshot_AskAtInstall);
+            if (s_hProgramFilesRoot) { RestoreTreeSnapshot(s_hTreeView, s_hProgramFilesRoot, s_treeSnapshot_ProgramFiles);  TreeView_Expand(s_hTreeView, s_hProgramFilesRoot, TVE_EXPAND); }
+            if (s_hProgramDataRoot)  { RestoreTreeSnapshot(s_hTreeView, s_hProgramDataRoot,  s_treeSnapshot_ProgramData);   TreeView_Expand(s_hTreeView, s_hProgramDataRoot,  TVE_EXPAND); }
+            if (s_hAppDataRoot)      { RestoreTreeSnapshot(s_hTreeView, s_hAppDataRoot,       s_treeSnapshot_AppData);       TreeView_Expand(s_hTreeView, s_hAppDataRoot,      TVE_EXPAND); }
+            if (s_hAskAtInstallRoot) { RestoreTreeSnapshot(s_hTreeView, s_hAskAtInstallRoot,  s_treeSnapshot_AskAtInstall);  TreeView_Expand(s_hTreeView, s_hAskAtInstallRoot, TVE_EXPAND); }
         } else {
             // No session snapshot — first time this project is shown in this session.
             // Prefer rebuilding from the persisted DB rows (works even when directory=""
@@ -1455,10 +1497,15 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
                         }
                     }
                     TreeView_Expand(s_hTreeView, s_hProgramFilesRoot, TVE_EXPAND);
+                    ExpandAllSubnodes(s_hTreeView, s_hProgramFilesRoot);
+                    if (s_hProgramDataRoot)  { TreeView_Expand(s_hTreeView, s_hProgramDataRoot,  TVE_EXPAND); ExpandAllSubnodes(s_hTreeView, s_hProgramDataRoot);  }
+                    if (s_hAppDataRoot)      { TreeView_Expand(s_hTreeView, s_hAppDataRoot,       TVE_EXPAND); ExpandAllSubnodes(s_hTreeView, s_hAppDataRoot);       }
+                    if (s_hAskAtInstallRoot) { TreeView_Expand(s_hTreeView, s_hAskAtInstallRoot,  TVE_EXPAND); ExpandAllSubnodes(s_hTreeView, s_hAskAtInstallRoot);  }
                 }
             }
             if (!rebuiltFromDb && !s_currentProject.directory.empty()) {
                 PopulateTreeView(s_hTreeView, s_currentProject.directory, defaultPath);
+                ExpandAllSubnodes(s_hTreeView, s_hProgramFilesRoot);
             }
         }
         // Subclass TreeView so we can show tooltip on hover
@@ -2078,7 +2125,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         HWND hCompTitle = CreateWindowExW(0, L"STATIC", compTitle.c_str(),
             WS_CHILD | WS_VISIBLE | SS_LEFT,
             S(20), pageY + S(15), rc.right - S(40), S(38),
-            hwnd, NULL, hInst, NULL);
+            hwnd, (HMENU)5100, hInst, NULL);
         if (s_hPageTitleFont) SendMessageW(hCompTitle, WM_SETFONT, (WPARAM)s_hPageTitleFont, TRUE);
 
         // Enable-components checkbox
@@ -2136,6 +2183,28 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
                     HICON hOpen  = (HICON)LoadImageW(hShell32, MAKEINTRESOURCEW(5), IMAGE_ICON, 32, 32, 0);
                     if (hClose) { ImageList_AddIcon(hCompIL, hClose); DestroyIcon(hClose); }
                     if (hOpen)  { ImageList_AddIcon(hCompIL, hOpen);  DestroyIcon(hOpen);  }
+                    // Badge icon (blue circle) for AskAtInstall root — index 2
+                    HICON hBadge = NULL;
+                    {
+                        HDC hdc = GetDC(NULL);
+                        HBITMAP hBmp = CreateCompatibleBitmap(hdc, 32, 32);
+                        HDC hMem = CreateCompatibleDC(hdc);
+                        HBITMAP hOld = (HBITMAP)SelectObject(hMem, hBmp);
+                        HBRUSH hCircle = CreateSolidBrush(RGB(65,105,225));
+                        HBRUSH hOldBrush = (HBRUSH)SelectObject(hMem, hCircle);
+                        Ellipse(hMem, 6, 6, 26, 26);
+                        SelectObject(hMem, hOldBrush);
+                        DeleteObject(hCircle);
+                        ICONINFO ii = {};
+                        ii.fIcon = TRUE;
+                        ii.hbmMask = hBmp;
+                        ii.hbmColor = hBmp;
+                        hBadge = CreateIconIndirect(&ii);
+                        SelectObject(hMem, hOld);
+                        DeleteDC(hMem);
+                        ReleaseDC(NULL, hdc);
+                    }
+                    if (hBadge) { ImageList_AddIcon(hCompIL, hBadge); DestroyIcon(hBadge); }
                     FreeLibrary(hShell32);
                 }
                 TreeView_SetImageList(s_hCompTreeView, hCompIL, TVSIL_NORMAL);
@@ -2185,7 +2254,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
 
         // Build folder tree from the 4 VFS snapshots
         {
-            auto addRoot = [&](const wchar_t* label,
+            auto addRoot = [&](const wchar_t* label, int imgIdx,
                                const std::vector<TreeNodeSnapshot>& snaps)
             {
                 if (snaps.empty()) return;
@@ -2195,8 +2264,8 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
                 tvis.item.mask           = TVIF_TEXT | TVIF_PARAM | TVIF_IMAGE | TVIF_SELECTEDIMAGE;
                 tvis.item.pszText        = (LPWSTR)label;
                 tvis.item.lParam         = 0;  // section root — no files
-                tvis.item.iImage         = 0;
-                tvis.item.iSelectedImage = 1;
+                tvis.item.iImage         = imgIdx;
+                tvis.item.iSelectedImage = (imgIdx == 0) ? 1 : imgIdx;
                 HTREEITEM hR = (HTREEITEM)SendMessageW(s_hCompTreeView, TVM_INSERTITEMW,
                                                        0, (LPARAM)&tvis);
                 if (hR) {
@@ -2204,10 +2273,10 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
                     TreeView_Expand(s_hCompTreeView, hR, TVE_EXPAND);
                 }
             };
-            addRoot(L"Program Files",     s_treeSnapshot_ProgramFiles);
-            addRoot(L"ProgramData",        s_treeSnapshot_ProgramData);
-            addRoot(L"AppData (Roaming)",  s_treeSnapshot_AppData);
-            addRoot(L"Ask At Install",     s_treeSnapshot_AskAtInstall);
+            addRoot(L"Program Files",    0, s_treeSnapshot_ProgramFiles);
+            addRoot(L"ProgramData",       0, s_treeSnapshot_ProgramData);
+            addRoot(L"AppData (Roaming)", 0, s_treeSnapshot_AppData);
+            addRoot(L"AskAtInstall",      2, s_treeSnapshot_AskAtInstall);
         }
 
         // Apply system message font to non-button controls
@@ -3505,8 +3574,11 @@ static void VFSPicker_AddSubtree(HWND hTree, HTREEITEM hParent,
         tvis.item.iImage         = 0;  // closed folder
         tvis.item.iSelectedImage = 1;  // open folder
         HTREEITEM hNew = (HTREEITEM)SendMessageW(hTree, TVM_INSERTITEMW, 0, (LPARAM)&tvis);
-        if (hNew && !snap.children.empty())
+        if (hNew && !snap.children.empty()) {
             VFSPicker_AddSubtree(hTree, hNew, snap.children);
+            if (snap.compExpanded)
+                TreeView_Expand(hTree, hNew, TVE_EXPAND);
+        }
     }
 }
 
@@ -4078,6 +4150,16 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 
         // Drag-and-drop begin notifications are superseded by the dragdrop
         // module (subclass-based threshold detection).  No action needed here.
+
+        // Handle TreeView label edit
+        if (nmhdr->idFrom == 102 && nmhdr->code == TVN_BEGINLABELEDIT) {
+            LPNMTVDISPINFO ptvdi = (LPNMTVDISPINFO)lParam;
+            bool isSysRoot = (ptvdi->item.hItem == s_hProgramFilesRoot  ||
+                              ptvdi->item.hItem == s_hProgramDataRoot   ||
+                              ptvdi->item.hItem == s_hAppDataRoot       ||
+                              ptvdi->item.hItem == s_hAskAtInstallRoot);
+            return isSysRoot ? TRUE : FALSE; // TRUE = cancel edit on system roots
+        }
 
         // Handle TreeView label edit
         if (nmhdr->idFrom == 102 && nmhdr->code == TVN_ENDLABELEDIT) {
@@ -6088,16 +6170,14 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 s_currentProject.directory = s_currentInstallPath;
             DB::UpdateProject(s_currentProject);
 
-            // Ensure snapshots are current (take a fresh one if Files page is live)
+            // Ensure snapshots are current (take a fresh one if Files page is live).
+            // Only refresh roots that actually exist — inactive-mode roots keep
+            // their previous snapshot so their data is preserved in the DB.
             if (s_currentPageIndex == 0 && s_hTreeView && IsWindow(s_hTreeView)) {
-                s_treeSnapshot_ProgramFiles.clear();
-                s_treeSnapshot_ProgramData.clear();
-                s_treeSnapshot_AppData.clear();
-                s_treeSnapshot_AskAtInstall.clear();
-                if (s_hProgramFilesRoot) SaveTreeSnapshot(s_hTreeView, s_hProgramFilesRoot, s_treeSnapshot_ProgramFiles);
-                if (s_hProgramDataRoot)  SaveTreeSnapshot(s_hTreeView, s_hProgramDataRoot,  s_treeSnapshot_ProgramData);
-                if (s_hAppDataRoot)      SaveTreeSnapshot(s_hTreeView, s_hAppDataRoot,       s_treeSnapshot_AppData);
-                if (s_hAskAtInstallRoot) SaveTreeSnapshot(s_hTreeView, s_hAskAtInstallRoot,  s_treeSnapshot_AskAtInstall);
+                if (s_hProgramFilesRoot) { s_treeSnapshot_ProgramFiles.clear();  SaveTreeSnapshot(s_hTreeView, s_hProgramFilesRoot, s_treeSnapshot_ProgramFiles); }
+                if (s_hProgramDataRoot)  { s_treeSnapshot_ProgramData.clear();   SaveTreeSnapshot(s_hTreeView, s_hProgramDataRoot,  s_treeSnapshot_ProgramData);  }
+                if (s_hAppDataRoot)      { s_treeSnapshot_AppData.clear();        SaveTreeSnapshot(s_hTreeView, s_hAppDataRoot,       s_treeSnapshot_AppData);      }
+                if (s_hAskAtInstallRoot) { s_treeSnapshot_AskAtInstall.clear();   SaveTreeSnapshot(s_hTreeView, s_hAskAtInstallRoot,  s_treeSnapshot_AskAtInstall);  }
             }
 
             // Replace file rows: walk full tree snapshots so both real-path folder
@@ -6575,17 +6655,18 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 auto itAFi = s_locale.find(L"files_add_files");
                 std::wstring addFilesText = (itAFi != s_locale.end()) ? itAFi->second : L"Add Files";
 
-                HMENU hMenu = CreatePopupMenu();
-                AppendMenuW(hMenu, MF_STRING, IDC_FILES_ADD_DIR,        addFolderText.c_str());
-                AppendMenuW(hMenu, MF_STRING, IDC_FILES_ADD_FILES,      addFilesText.c_str());
-                AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
-                AppendMenuW(hMenu, MF_STRING, IDM_TREEVIEW_ADD_FOLDER,  L"Create Folder...");
-
-                // "Rename" and "Remove" only for user nodes, never for the four system roots
+                // "Add Files", "Rename" and "Remove" only for user nodes, never for the four system roots
                 bool isSystemRoot = (hItem == s_hProgramFilesRoot ||
                                      hItem == s_hProgramDataRoot  ||
                                      hItem == s_hAppDataRoot       ||
                                      hItem == s_hAskAtInstallRoot);
+
+                HMENU hMenu = CreatePopupMenu();
+                AppendMenuW(hMenu, MF_STRING, IDC_FILES_ADD_DIR, addFolderText.c_str());
+                if (!isSystemRoot)
+                    AppendMenuW(hMenu, MF_STRING, IDC_FILES_ADD_FILES, addFilesText.c_str());
+                AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
+                AppendMenuW(hMenu, MF_STRING, IDM_TREEVIEW_ADD_FOLDER, L"Create Folder...");
                 if (!isSystemRoot) {
                     AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
                     AppendMenuW(hMenu, MF_STRING, IDM_TREEVIEW_RENAME,        L"Rename\tF2");

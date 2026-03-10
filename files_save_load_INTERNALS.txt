@@ -19,6 +19,13 @@ TreeNodeSnapshot  (mainwindow.h)
                                    ("" = virtual node, real path = physical folder)
     std::vector<VirtualFolderFile> virtualFiles  – files attached to this node
     std::vector<TreeNodeSnapshot>  children      – recursive child nodes
+    mutable bool expanded     = true  – Files-page expanded state, per session only;
+                                        saved by SaveTreeSnapshot, restored by
+                                        RestoreTreeSnapshot; always true on first visit
+    mutable bool compExpanded = true  – Components-page expanded state, independent
+                                        of `expanded`; saved by SaveCompTreeExpansion
+                                        when leaving page 9, applied by
+                                        VFSPicker_AddSubtree when rebuilding comp tree
 
 FileRow  (db.h)
     int         id

@@ -1,6 +1,18 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 10 March 2026 &mdash; v2026.03.10.10<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 10 March 2026 &mdash; v2026.03.10.13<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.10.13</span></h3>
+<p><strong>Folder expand/collapse memory, Components page fixes (10.03.2026, 13:51):</strong></p>
+<ul>
+<li><strong>Folder expand/collapse memory &mdash; Files page:</strong> <code>TreeNodeSnapshot</code> now carries an <code>expanded</code> flag. <code>SaveTreeSnapshot</code> records each node&rsquo;s expanded state when leaving the Files page; <code>RestoreTreeSnapshot</code> restores it per node on return. On the very first visit to a project all folders are fully expanded automatically via <code>ExpandAllSubnodes</code>. Within a session, collapsing a subtree is remembered when you switch away and come back.</li>
+<li><strong>Folder expand/collapse memory &mdash; Components page (independent):</strong> A separate <code>compExpanded</code> flag on <code>TreeNodeSnapshot</code> tracks expansion for the Components page independently. Collapsing a folder on the Files page has no effect on the Components page and vice versa. <code>SaveCompTreeExpansion</code> traverses the comp tree on leaving page 9 and writes each node&rsquo;s state back into its snapshot; <code>VFSPicker_AddSubtree</code> applies <code>compExpanded</code> when rebuilding the comp tree.</li>
+<li><strong>Components page title font corrected:</strong> The page title static control was created with no menu-ID (<code>NULL</code>), so the <code>WM_CTLCOLORSTATIC</code> handler never matched it and <code>s_hPageTitleFont</code> was never applied &mdash; the heading rendered in the default small system font. The control now receives <code>(HMENU)5100</code>, consistent with every other page title.</li>
+<li><strong>Components page <code>AskAtInstall</code> root &mdash; wrong label and missing badge icon fixed:</strong> The root node was labelled <code>&ldquo;Ask At Install&rdquo;</code> (three words, no badge) instead of matching the Files page label <code>&ldquo;AskAtInstall&rdquo;</code> and its distinctive blue-circle badge icon. Label corrected; the badge icon (index&nbsp;2) is now added to the Components page image list and assigned to that root, identical to the Files page treatment.</li>
+<li><strong>Context menu <code>Add Files</code> removed from root nodes:</strong> Right-clicking Program&nbsp;Files, ProgramData, AppData&nbsp;(Roaming), or AskAtInstall previously showed an <em>Add&nbsp;Files</em> entry that would be blocked at execution time. The item is now omitted from the popup for these four system roots; only <em>Add&nbsp;Folder</em> and <em>Create&nbsp;Folder&hellip;</em> appear.</li>
+</ul>
+
+<h3 style="text-align: center;">&nbsp;</h3>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.10.10</span></h3>
 <p><strong>Components page folder tree, VFS picker, component dependencies &amp; assorted fixes (10.03.2026, 10:16):</strong></p>
