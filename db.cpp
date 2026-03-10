@@ -109,6 +109,7 @@ bool DB::InitDb() {
     const char *createRegistry = "CREATE TABLE IF NOT EXISTS registry_entries (id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER NOT NULL, hive TEXT NOT NULL, path TEXT NOT NULL, name TEXT NOT NULL, type TEXT NOT NULL, data TEXT, FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);";
     const char *createFiles = "CREATE TABLE IF NOT EXISTS files (id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER NOT NULL, source_path TEXT NOT NULL, destination_path TEXT NOT NULL, install_scope TEXT DEFAULT '', FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);";
     const char *createComponents = "CREATE TABLE IF NOT EXISTS components (id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER NOT NULL, display_name TEXT NOT NULL DEFAULT '', description TEXT DEFAULT '', is_required INTEGER DEFAULT 0, source_type TEXT DEFAULT 'folder', source_path TEXT DEFAULT '', dest_path TEXT DEFAULT '', FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);";
+    const char *createCompDeps = "CREATE TABLE IF NOT EXISTS component_dependencies (id INTEGER PRIMARY KEY AUTOINCREMENT, component_id INTEGER NOT NULL, depends_on_id INTEGER NOT NULL, UNIQUE(component_id, depends_on_id), FOREIGN KEY(component_id) REFERENCES components(id) ON DELETE CASCADE, FOREIGN KEY(depends_on_id) REFERENCES components(id) ON DELETE CASCADE);";
     char *errmsg = NULL;
     if (p_exec(db, createProjects, NULL, NULL, &errmsg) != 0) {
         // ignore
@@ -125,6 +126,9 @@ bool DB::InitDb() {
     if (p_exec(db, createComponents, NULL, NULL, &errmsg) != 0) {
         // ignore
     }
+    if (p_exec(db, createCompDeps, NULL, NULL, &errmsg) != 0) {
+        // ignore
+    }
     
     // Migrate existing projects table to add new columns if they don't exist
     p_exec(db, "ALTER TABLE projects ADD COLUMN register_in_windows INTEGER DEFAULT 1;", NULL, NULL, &errmsg);
@@ -134,6 +138,8 @@ bool DB::InitDb() {
     p_exec(db, "ALTER TABLE files ADD COLUMN install_scope TEXT DEFAULT '';", NULL, NULL, &errmsg);
     // Add use_components column to projects table
     p_exec(db, "ALTER TABLE projects ADD COLUMN use_components INTEGER DEFAULT 0;", NULL, NULL, &errmsg);
+    // Ensure component_dependencies table exists for older DBs
+    p_exec(db, "CREATE TABLE IF NOT EXISTS component_dependencies (id INTEGER PRIMARY KEY AUTOINCREMENT, component_id INTEGER NOT NULL, depends_on_id INTEGER NOT NULL, UNIQUE(component_id, depends_on_id), FOREIGN KEY(component_id) REFERENCES components(id) ON DELETE CASCADE, FOREIGN KEY(depends_on_id) REFERENCES components(id) ON DELETE CASCADE);", NULL, NULL, &errmsg);
     
     // Check if projects table is empty, if so add SetupCraft project
     const char *countSql = "SELECT COUNT(*) FROM projects;";
@@ -705,4 +711,55 @@ bool DB::DeleteComponent(int id) {
     if (p_finalize) p_finalize(stmt);
     p_close(db);
     return true;
+}
+
+// ─── Component dependency persistence ────────────────────────────────────────
+
+bool DB::InsertComponentDependency(int componentId, int dependsOnId) {
+    std::wstring dbPath = GetAppDataDbPath();
+    std::string dbPathUtf8 = WToUtf8(dbPath);
+    void *db = NULL; int flags = 0x00000002 | 0x00000004;
+    if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return false;
+    const char *sql = "INSERT OR IGNORE INTO component_dependencies (component_id, depends_on_id) VALUES (?,?);";
+    void *stmt2 = NULL;
+    if (p_prepare(db, sql, -1, &stmt2, NULL) != 0) { p_close(db); return false; }
+    std::string sComp = std::to_string(componentId);
+    std::string sDep  = std::to_string(dependsOnId);
+    if (p_bind_text) p_bind_text(stmt2, 1, sComp.c_str(), -1, NULL);
+    if (p_bind_text) p_bind_text(stmt2, 2, sDep.c_str(),  -1, NULL);
+    p_step(stmt2);
+    if (p_finalize) p_finalize(stmt2);
+    p_close(db); return true;
+}
+
+std::vector<int> DB::GetDependenciesForComponent(int componentId) {
+    std::vector<int> out;
+    std::wstring dbPath = GetAppDataDbPath();
+    std::string dbPathUtf8 = WToUtf8(dbPath);
+    void *db = NULL; int flags = 0x00000002 | 0x00000004;
+    if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return out;
+    const char *sql = "SELECT depends_on_id FROM component_dependencies WHERE component_id=? ORDER BY id ASC;";
+    void *stmt2 = NULL;
+    if (p_prepare(db, sql, -1, &stmt2, NULL) != 0) { p_close(db); return out; }
+    std::string sComp = std::to_string(componentId);
+    if (p_bind_text) p_bind_text(stmt2, 1, sComp.c_str(), -1, NULL);
+    while (p_step(stmt2) == 100 /*SQLITE_ROW*/)
+        out.push_back((int)p_col_int64(stmt2, 0));
+    if (p_finalize) p_finalize(stmt2);
+    p_close(db); return out;
+}
+
+bool DB::DeleteDependenciesForComponent(int componentId) {
+    std::wstring dbPath = GetAppDataDbPath();
+    std::string dbPathUtf8 = WToUtf8(dbPath);
+    void *db = NULL; int flags = 0x00000002 | 0x00000004;
+    if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return false;
+    const char *sql = "DELETE FROM component_dependencies WHERE component_id=?;";
+    void *stmt2 = NULL;
+    if (p_prepare(db, sql, -1, &stmt2, NULL) != 0) { p_close(db); return false; }
+    std::string sComp = std::to_string(componentId);
+    if (p_bind_text) p_bind_text(stmt2, 1, sComp.c_str(), -1, NULL);
+    p_step(stmt2);
+    if (p_finalize) p_finalize(stmt2);
+    p_close(db); return true;
 }

@@ -410,7 +410,7 @@ void ShowMultilingualTooltip(const std::vector<TooltipEntry>& entries, int x, in
         // tooltip to receive mouse events so we can track mouse enter/leave on
         // the tooltip window itself (prevents flashing when moving from icon
         // into the tooltip).
-        LONG_PTR exStyles = WS_EX_TOPMOST | WS_EX_TOOLWINDOW;
+        LONG_PTR exStyles = WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE;
         if (isSimpleTooltip) exStyles |= WS_EX_TRANSPARENT;
         g_tooltipWindow = CreateWindowExW((DWORD)exStyles,
             TOOLTIP_CLASS_NAME, L"",
@@ -424,22 +424,6 @@ void ShowMultilingualTooltip(const std::vector<TooltipEntry>& entries, int x, in
                      SWP_SHOWWINDOW | SWP_NOACTIVATE);
         InvalidateRect(g_tooltipWindow, NULL, TRUE);
     }
-
-    // Lightweight debug log to help diagnose tooltip visibility issues
-    try {
-        std::wstring logPath = GetExeDir() + L"\\tooltip_debug.log";
-        std::wofstream lf;
-        lf.open(logPath.c_str(), std::ios::app);
-        if (lf.is_open()) {
-            lf << L"ShowMultilingualTooltip called: entries=" << g_currentEntries.size() << L" x=" << finalX << L" y=" << finalY << L"\n";
-            // list first few entries codes
-            for (size_t i = 0; i < g_currentEntries.size() && i < 6; ++i) {
-                lf << L"  [" << g_currentEntries[i].first << L"] " << g_currentEntries[i].second << L"\n";
-            }
-            lf.flush();
-            lf.close();
-        }
-    } catch (...) { }
 }
 
 HWND GetTooltipWindow() {
@@ -447,24 +431,8 @@ HWND GetTooltipWindow() {
 }
 
 void HideTooltip() {
-    try {
-        if (g_tooltipWindow && IsWindowVisible(g_tooltipWindow)) {
-            ShowWindow(g_tooltipWindow, SW_HIDE);
-            std::wstring logPath = GetExeDir() + L"\\tooltip_debug.log";
-            std::wofstream lf(logPath.c_str(), std::ios::app);
-            if (lf.is_open()) {
-                lf << L"HideTooltip called - Hid window\n";
-                lf.close();
-            }
-        } else {
-            std::wstring logPath = GetExeDir() + L"\\tooltip_debug.log";
-            std::wofstream lf(logPath.c_str(), std::ios::app);
-            if (lf.is_open()) {
-                lf << L"HideTooltip called - no visible window\n";
-                lf.close();
-            }
-        }
-    } catch(...) {}
+    if (g_tooltipWindow && IsWindowVisible(g_tooltipWindow))
+        ShowWindow(g_tooltipWindow, SW_HIDE);
 }
 
 bool IsTooltipVisible() {

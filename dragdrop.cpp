@@ -279,14 +279,11 @@ static LRESULT CALLBACK TVDragProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
             } else { g_dd.potential = DragSourceKind::None; }
         } else { g_dd.potential = DragSourceKind::None; }
 
-        LRESULT r = CallWindowProcW(g_dd.prevTVProc, hwnd, msg, wParam, lParam);
-
-        // Grab capture AFTER native returns so WM_MOUSEMOVE always routes to
-        // us while the button is held, regardless of what native did.
-        if (g_dd.potential == DragSourceKind::TreeView)
-            SetCapture(hwnd);
-
-        return r;
+        // Do NOT SetCapture here — grabbing capture on every click prevents
+        // toolbar buttons from receiving WM_MOUSEMOVE (hover) until the mouse
+        // button is released.  Capture is grabbed only when the drag threshold
+        // is actually exceeded (in WM_MOUSEMOVE below).
+        return CallWindowProcW(g_dd.prevTVProc, hwnd, msg, wParam, lParam);
     }
     case WM_MOUSEMOVE: {
         // While drag is active: update drag visuals directly here, then swallow.
@@ -301,13 +298,12 @@ static LRESULT CALLBACK TVDragProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
         }
         if ((wParam & MK_LBUTTON) &&
             g_dd.potential == DragSourceKind::TreeView && !g_dd.active) {
-            // Reclaim capture if native proc stole it between WM_LBUTTONDOWN and now
-            if (GetCapture() != hwnd) SetCapture(hwnd);
             POINT ptS = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
             ClientToScreen(hwnd, &ptS);
             int dx = abs(ptS.x - g_dd.potStartPt.x);
             int dy = abs(ptS.y - g_dd.potStartPt.y);
             if (dx > GetSystemMetrics(SM_CXDRAG) || dy > GetSystemMetrics(SM_CYDRAG)) {
+                // Threshold exceeded — NOW grab capture and start drag.
                 TreeView_EndEditLabelNow(hwnd, TRUE);
                 EnsureCursors();
                 g_dd.active       = true;
@@ -330,10 +326,9 @@ static LRESULT CALLBACK TVDragProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
             SendMessageW(g_dd.cfg.hwndParent, WM_LBUTTONUP, wParam, lParam);
             return 0;
         }
-        if (g_dd.potential != DragSourceKind::None) {
-            g_dd.potential = DragSourceKind::None;
-            ReleaseCapture();
-        }
+        // Clear potential drag state; capture is only held when a real drag
+        // was started (active==true above), so no ReleaseCapture needed here.
+        g_dd.potential = DragSourceKind::None;
         break;
     }
     return CallWindowProcW(g_dd.prevTVProc, hwnd, msg, wParam, lParam);

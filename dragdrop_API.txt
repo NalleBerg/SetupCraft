@@ -248,10 +248,14 @@
 
     WM_LBUTTONDOWN   — hit-test under cursor; store as “potential drag” if
                        the item passes canStartTreeDrag / canStartListDrag.
+                       SetCapture is NOT grabbed here — grabbing capture on
+                       every click would block hover/tooltip on toolbar buttons
+                       until the mouse button was released.
     WM_MOUSEMOVE     — if LMB down + potential drag stored: measure distance
                        against SM_CXDRAG / SM_CYDRAG.  When threshold exceeded:
                        mark drag active, SetCapture(hwndParent).
-    WM_LBUTTONUP     — clear potential drag.
+    WM_LBUTTONUP     — clear potential drag state.  No ReleaseCapture is called
+                       here because capture is only held after a real drag starts.
 
   After SetCapture(hwndParent) all mouse messages flow to the parent, where
   DragDrop_OnMouseMove / DragDrop_OnLButtonUp / DragDrop_OnSetCursor take over.

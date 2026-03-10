@@ -2,7 +2,7 @@
 
 An installer creation tool for making your developed packages distributable. Designed to be simple to use with a clean, native Windows interface.
 
-**Current Release:** Version 2026.03.09.16 (Published: 09.03.2026 16:34)
+**Current Release:** Version 2026.03.10.10 (Published: 10.03.2026 10:16)
 
 > Note: This project is in active development. Entry screen and main window Files management page are complete with proper page switching.
 
@@ -12,7 +12,11 @@ An installer creation tool for making your developed packages distributable. Des
 - **Consistent Body Font**: All labels, edits, checkboxes, TreeViews, and ListViews use a system-derived `NONCLIENTMETRICS` font at 120% scale for clear, legible text on every screen
 - **Bold Page Titles**: Each page has a prominent semi-bold heading rendered with a dedicated `s_hPageTitleFont` (150% NONCLIENTMETRICS) — correctly applied via `WM_CTLCOLORSTATIC` ID check so the body-font override no longer clobbers it
 - **Two-Row Toolbar**: 12 buttons in two compact rows — Row 1: Files, Components, Registry, Shortcuts, Dependencies, Dialogs; Row 2: Settings, Scripts, Test, Build, Save, Close Project, Exit. About «i» icon centered vertically at the right end
-- **Components Page**: Full component-based installation page — enable/disable toggle, single **Add Files / Folders** button (native `IFileOpenDialog` multi-select, auto-detects file vs folder), Edit/Remove actions, tabular ListView (6 columns), modal edit dialog with auto-fill, DB-backed persistence
+- **Components Page**: Full component-based installation page — enable/disable toggle, split-pane TreeView + ListView layout (mirrors Files page), VFS folder tree on the left, file list on the right, Edit actions, modal edit dialog with auto-fill and dependency selection, DB-backed persistence
+- **Components Folder TreeView**: Left pane of the Components page shows the virtual folder tree (VFS snapshots) from the Files page; selecting a folder instantly shows its files with component metadata in the right pane
+- **Components Enable Auto-Populate**: Toggling "Enable components" auto-creates `ComponentRow` entries for every file in the current VFS snapshot — no manual Add clicks required; disabling clears all components from the DB
+- **VFS Picker Dialog**: "Add Files / Folders" opens a split-pane VFS browser instead of the native file dialog — pick files or real-path folders from the tree already built on the Files page
+- **Component Dependencies**: Component Edit dialog shows a multi-select "Requires:" listbox to declare which other components a component depends on; stored in the new `component_dependencies` DB table
 - **Components Disabled Tooltip**: Hovering the grayed-out Components button shows an i18n tooltip ("Components are not available yet. Go to the Files page and add at least one file or folder first.") — implemented with a 60 ms timer-callback poll, no subclass or TrackMouseEvent (disabled windows cause blink loop with those approaches)
 - **Auto-Measured Toolbar Buttons**: All 12 toolbar buttons measure their label width at runtime via `GetTextExtentPoint32W` with the bold NONCLIENTMETRICS font — correct widths for every language, no hardcoded pixel values
 - **Tight Multiline Tooltip Sizing**: Multiline tooltips measure each line individually and use only as much width as the widest line requires — no more excess whitespace around short messages
@@ -43,7 +47,8 @@ An installer creation tool for making your developed packages distributable. Des
 - **Close Project Button**: Red toolbar button between Save and Exit — prompts to save unsaved changes then returns to the entry screen. i18n-ready via `close_project` locale key
 - **Per-Button Hover Tooltips**: `SetButtonTooltip(hBtn, text)` registers a plain-text tooltip on any enabled toolbar button; `ButtonSubclassProc` shows it on first hover and hides on mouse-leave with no extra tracking state
 - **Picker Last-Folder Memory**: Add Folder and Add Files both remember the last used directory per project in the DB (`last_picker_folder_<id>` / `last_picker_files_<id>`). File picker first-use falls back to `%USERPROFILE%` to prevent cross-picker shell state sharing
-- **Drag-and-Drop (Files Page)**: Fully working tree node drag-and-drop — move a folder anywhere in the tree, or drop onto a same-named folder to Merge (files carried across, recursively), Overwrite, or Cancel. Drop-target highlight, cursor feedback (no-drop / can-drop cursors), and freeze-free selection (nodes are always virtualized after a drop so `TVN_SELCHANGED` never blocks on a disk scan)
+- **Drag-and-Drop (Files Page)**: Fully working tree node drag-and-drop — move a folder anywhere in the tree, or drop onto a same-named folder to Merge (files carried across, recursively), Overwrite, or Cancel. Drop-target highlight, cursor feedback (no-drop / can-drop cursors), and freeze-free selection (nodes are always virtualized after a drop so `TVN_SELCHANGED` never blocks on a disk scan). Capture is deferred until the drag threshold is exceeded so toolbar hover is never blocked
+- **Folder-Level Required Flag**: Right-click any folder in the Components tree to cascade the Required flag to all files inside it and all subfolders via a single compact dialog
 - **Entry Page Button Tooltips**: All four entry-screen buttons (New Project, Open Project, Delete Project, Exit) show hover tooltips via `SetButtonTooltip()`, i18n-ready via locale keys `new_project_hint` etc., refreshed on language switch
 - **UTF-8 BOM Fix**: `LoadLocaleFile` now strips the 3-byte BOM (`EF BB BF`) from the first line of every locale file — all 20 bundled locales were BOM-encoded, causing the first key in each file to silently fail lookup. Cyrillic, Greek, emoji and all other non-ASCII characters now display correctly across every language
 - **Full Tree Persistence Across Restarts**: `SaveTreeToDb` walks all four tree roots on every Save and writes every folder node and file to the DB `files` table. On project open a DB-rebuild path reconstructs the exact tree from those rows — no dependency on a live disk path. Three bugs fixed: tree not saved, tree not loaded from DB, `directory` field not synced

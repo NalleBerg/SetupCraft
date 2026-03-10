@@ -119,7 +119,7 @@ API REFERENCE:
       - Tooltip is positioned using MONITOR bounds, not parent window bounds
         (critical: entry windows are often too small to contain the tooltip table)
       - Tooltip is created on first call, reused on subsequent calls
-      - Tooltip is topmost and non-activating
+      - Tooltip is topmost and non-activating (WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW)
 
 ================================================================================
 
@@ -448,8 +448,9 @@ API REFERENCE:
 
    13) Debugging tips
    ------------------
-   - The repo writes a `tooltip_debug.log` when the tooltip is shown/hidden.
-     Use it to confirm `WM_MOUSEMOVE` and `WM_MOUSELEAVE` reach your subclass.
+   - Use OutputDebugStringW / a debugger to confirm WM_MOUSEMOVE and
+     WM_MOUSELEAVE reach your subclass. The `tooltip_debug.log` that was
+     written in older builds has been removed to avoid UI-thread file I/O.
 
    - If the tooltip does not hide (ENABLED control):
      - Ensure `SS_NOTIFY` is set on the control.

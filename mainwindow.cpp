@@ -133,6 +133,7 @@ static void CALLBACK CompTT_TimerCallback(HWND hwnd, UINT, UINT_PTR id, DWORD) {
 }
 // Components page state
 static HWND s_hCompListView = NULL;
+static HWND s_hCompTreeView = NULL;
 static std::vector<ComponentRow> s_components;
 static bool s_filesPageHasContent = false; // tracks whether Files page has any files/folders
 
@@ -176,6 +177,7 @@ static bool s_filesPageHasContent = false; // tracks whether Files page has any 
 #define IDC_COMP_ENABLE       5060
 #define IDC_COMP_LISTVIEW     5061
 #define IDC_COMP_ADD          5062
+#define IDC_COMP_TREEVIEW     5063
 #define IDC_COMP_EDIT         5064
 #define IDC_COMP_REMOVE       5065
 
@@ -188,6 +190,19 @@ static bool s_filesPageHasContent = false; // tracks whether Files page has any 
 #define IDC_COMPDLG_DST      306
 #define IDC_COMPDLG_OK       307
 #define IDC_COMPDLG_CANCEL   308
+#define IDC_COMPDLG_DEPS     309   // multi-select listbox for dependencies
+
+// VFS Picker dialog control IDs (scoped to VFSPickerDlg window)
+#define IDC_VFSPICKER_TREE   6100
+#define IDC_VFSPICKER_LIST   6101
+#define IDC_VFSPICKER_OK     6102
+#define IDC_VFSPICKER_CANCEL 6103
+
+// Components context menu
+#define IDM_COMP_CTX_EDIT       6200
+#define IDM_COMP_CTX_REMOVE     6201
+#define IDM_COMP_TREE_CTX_EDIT  6202
+#define IDC_FOLDER_DLG_REQUIRED 320
 
 // Files dialog button IDs
 #define IDC_FILES_ADD_DIR   5020
@@ -962,8 +977,8 @@ static void ForceRefreshListView(HWND hwndListView, HTREEITEM hItem) {
     if (it != s_virtualFolderFiles.end()) {
         for (const auto& fileInfo : it->second) {
             SHFILEINFOW sfi = {};
-            SHGetFileInfoW(fileInfo.sourcePath.c_str(), 0, &sfi, sizeof(sfi),
-                           SHGFI_SYSICONINDEX | SHGFI_SMALLICON);
+            SHGetFileInfoW(fileInfo.sourcePath.c_str(), FILE_ATTRIBUTE_NORMAL, &sfi, sizeof(sfi),
+                           SHGFI_SYSICONINDEX | SHGFI_SMALLICON | SHGFI_USEFILEATTRIBUTES);
             LVITEMW lvi = {};
             lvi.mask     = LVIF_TEXT | LVIF_PARAM | LVIF_IMAGE;
             lvi.iItem    = ListView_GetItemCount(hwndListView);
@@ -1009,6 +1024,10 @@ static void SaveTreeToDb(int projectId,
     }
 }
 
+// Forward declaration — full definition is in the VFS Picker section below.
+static void VFSPicker_AddSubtree(HWND hTree, HTREEITEM hParent,
+                                 const std::vector<TreeNodeSnapshot>& nodes);
+
 void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
     // Snapshot Files page tree before tearing it down so we can restore it
     // (including virtual folders and full hierarchy) when we return.
@@ -1045,7 +1064,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         IDC_REG_CHECKBOX, IDC_REG_ICON_PREVIEW, IDC_REG_ADD_ICON, IDC_REG_DISPLAY_NAME,
         IDC_REG_VERSION, IDC_REG_PUBLISHER, IDC_REG_ADD_KEY, IDC_REG_ADD_VALUE, IDC_REG_EDIT, IDC_REG_REMOVE, IDC_REG_BACKUP,
         IDC_REG_SHOW_REGKEY, IDC_REG_WARNING_ICON, IDC_REG_TREEVIEW, IDC_REG_LISTVIEW,
-        IDC_COMP_ENABLE, IDC_COMP_LISTVIEW, IDC_COMP_ADD, IDC_COMP_EDIT, IDC_COMP_REMOVE,
+        IDC_COMP_ENABLE, IDC_COMP_LISTVIEW, IDC_COMP_TREEVIEW, IDC_COMP_ADD, IDC_COMP_EDIT, IDC_COMP_REMOVE,
         5100, 5101, 5102, 5103, 5104, 5105, 5106, 5107, 5108, 5109, 5110 // Labels and other static controls
     };
     
@@ -1121,6 +1140,10 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         DestroyWindow(s_hCompListView);
     }
     s_hCompListView = NULL;
+    if (s_hCompTreeView && IsWindow(s_hCompTreeView)) {
+        DestroyWindow(s_hCompTreeView);
+    }
+    s_hCompTreeView = NULL;
     s_components.clear();
     
     // Clear registry values map
@@ -2082,25 +2105,52 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
             S(20), pageY + S(124), rc.right - S(40), S(2),
             hwnd, NULL, hInst, NULL);
 
-        // Button row: Add Files/Folders, Edit, Remove
-        auto itAddComp = s_locale.find(L"comp_add");
-        std::wstring addCompTxt = (itAddComp != s_locale.end()) ? itAddComp->second : L"Add Files / Folders";
+        // Button row: Edit only
         auto itEditBtn = s_locale.find(L"comp_edit");
         std::wstring editTxt = (itEditBtn != s_locale.end()) ? itEditBtn->second : L"Edit";
-        auto itRemoveBtn = s_locale.find(L"comp_remove");
-        std::wstring removeTxt = (itRemoveBtn != s_locale.end()) ? itRemoveBtn->second : L"Remove";
 
-        CreateCustomButtonWithIcon(hwnd, IDC_COMP_ADD, addCompTxt.c_str(), ButtonColor::Blue,
-            L"shell32.dll", 4, S(20), pageY + S(134), S(180), S(34), hInst);
         CreateCustomButtonWithIcon(hwnd, IDC_COMP_EDIT, editTxt.c_str(), ButtonColor::Blue,
-            L"imageres.dll", 109, S(210), pageY + S(134), S(100), S(34), hInst);
-        CreateCustomButtonWithIcon(hwnd, IDC_COMP_REMOVE, removeTxt.c_str(), ButtonColor::Red,
-            L"shell32.dll", 131, S(320), pageY + S(134), S(110), S(34), hInst);
+            L"imageres.dll", 109, S(20), pageY + S(134), S(130), S(34), hInst);
 
-        // ListView
+        // Split-pane: TreeView (left) + ListView (right), mirroring the Files page layout
+        int splitY  = pageY + S(178);
+        int splitH  = pageHeight - S(185);
+        int totalW  = rc.right - S(40);
+        int treeW   = S(270);
+        int listX   = S(20) + treeW + S(8);
+        int listW   = totalW - treeW - S(8);
+
+        // Left pane: folder tree
+        s_hCompTreeView = CreateWindowExW(WS_EX_CLIENTEDGE, WC_TREEVIEWW, L"",
+            WS_CHILD | WS_VISIBLE | TVS_HASLINES | TVS_LINESATROOT |
+            TVS_HASBUTTONS | TVS_SHOWSELALWAYS,
+            S(20), splitY, treeW, splitH,
+            hwnd, (HMENU)IDC_COMP_TREEVIEW, hInst, NULL);
+        // Attach folder icons (16×16 from shell32.dll — indices 0=closed, 1=open)
+        {
+            HIMAGELIST hCompIL = ImageList_Create(32, 32, ILC_COLOR32 | ILC_MASK, 2, 2);
+            if (hCompIL) {
+                HMODULE hShell32 = LoadLibraryW(L"shell32.dll");
+                if (hShell32) {
+                    HICON hClose = (HICON)LoadImageW(hShell32, MAKEINTRESOURCEW(4), IMAGE_ICON, 32, 32, 0);
+                    HICON hOpen  = (HICON)LoadImageW(hShell32, MAKEINTRESOURCEW(5), IMAGE_ICON, 32, 32, 0);
+                    if (hClose) { ImageList_AddIcon(hCompIL, hClose); DestroyIcon(hClose); }
+                    if (hOpen)  { ImageList_AddIcon(hCompIL, hOpen);  DestroyIcon(hOpen);  }
+                    FreeLibrary(hShell32);
+                }
+                TreeView_SetImageList(s_hCompTreeView, hCompIL, TVSIL_NORMAL);
+                TreeView_SetItemHeight(s_hCompTreeView, 34);
+                // Store for cleanup
+                HIMAGELIST hOldIL = (HIMAGELIST)GetPropW(hwnd, L"hCompTreeIL");
+                if (hOldIL) ImageList_Destroy(hOldIL);
+                SetPropW(hwnd, L"hCompTreeIL", (HANDLE)hCompIL);
+            }
+        }
+
+        // Right pane: component list
         s_hCompListView = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEW, L"",
             WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_SHOWSELALWAYS | WS_BORDER,
-            S(20), pageY + S(178), rc.right - S(40), pageHeight - S(185),
+            listX, splitY, listW, splitH,
             hwnd, (HMENU)IDC_COMP_LISTVIEW, hInst, NULL);
         ListView_SetExtendedListViewStyle(s_hCompListView,
             LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES | LVS_EX_INFOTIP);
@@ -2110,21 +2160,21 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
             auto itC = s_locale.find(key);
             return (itC != s_locale.end()) ? itC->second : fallback;
         };
-        LVCOLUMNW col = {};
-        col.mask = LVCF_TEXT | LVCF_WIDTH;
-        int colIdx = 0;
-        std::wstring cName = compLocStr(L"comp_col_name", L"Name");
-        std::wstring cDesc = compLocStr(L"comp_col_desc", L"Description");
-        std::wstring cReq  = compLocStr(L"comp_col_required", L"Required");
-        std::wstring cType = compLocStr(L"comp_col_type", L"Type");
-        std::wstring cPath = compLocStr(L"comp_col_path", L"Source Path");
-        std::wstring cDest = compLocStr(L"comp_col_dest", L"Destination Path");
-        col.pszText = (LPWSTR)cName.c_str(); col.cx = S(185); ListView_InsertColumn(s_hCompListView, colIdx++, &col);
-        col.pszText = (LPWSTR)cDesc.c_str(); col.cx = S(220); ListView_InsertColumn(s_hCompListView, colIdx++, &col);
-        col.pszText = (LPWSTR)cReq.c_str();  col.cx = S(78);  ListView_InsertColumn(s_hCompListView, colIdx++, &col);
-        col.pszText = (LPWSTR)cType.c_str(); col.cx = S(70);  ListView_InsertColumn(s_hCompListView, colIdx++, &col);
-        col.pszText = (LPWSTR)cPath.c_str(); col.cx = S(210); ListView_InsertColumn(s_hCompListView, colIdx++, &col);
-        col.pszText = (LPWSTR)cDest.c_str(); col.cx = S(210); ListView_InsertColumn(s_hCompListView, colIdx++, &col);
+        {
+            LVCOLUMNW col = {};
+            col.mask = LVCF_TEXT | LVCF_WIDTH;
+            int colIdx = 0;
+            std::wstring cName = compLocStr(L"comp_col_name",     L"Name");
+            std::wstring cDesc = compLocStr(L"comp_col_desc",     L"Description");
+            std::wstring cReq  = compLocStr(L"comp_col_required", L"Required");
+            std::wstring cType = compLocStr(L"comp_col_type",     L"Type");
+            std::wstring cPath = compLocStr(L"comp_col_path",     L"Source Path");
+            col.pszText = (LPWSTR)cName.c_str(); col.cx = S(170); ListView_InsertColumn(s_hCompListView, colIdx++, &col);
+            col.pszText = (LPWSTR)cDesc.c_str(); col.cx = S(180); ListView_InsertColumn(s_hCompListView, colIdx++, &col);
+            col.pszText = (LPWSTR)cReq.c_str();  col.cx = S(75);  ListView_InsertColumn(s_hCompListView, colIdx++, &col);
+            col.pszText = (LPWSTR)cType.c_str(); col.cx = S(65);  ListView_InsertColumn(s_hCompListView, colIdx++, &col);
+            col.pszText = (LPWSTR)cPath.c_str(); col.cx = listW - S(510 + 20); ListView_InsertColumn(s_hCompListView, colIdx++, &col);
+        }
 
         // Load components from DB
         if (s_currentProject.id > 0) {
@@ -2132,24 +2182,32 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         } else {
             s_components.clear();
         }
-        // Populate ListView
-        for (int ci = 0; ci < (int)s_components.size(); ++ci) {
-            const ComponentRow &cmp = s_components[ci];
-            LVITEMW lvi = {};
-            lvi.mask = LVIF_TEXT;
-            lvi.iItem = ci;
-            lvi.iSubItem = 0;
-            lvi.pszText = (LPWSTR)cmp.display_name.c_str();
-            ListView_InsertItem(s_hCompListView, &lvi);
-            ListView_SetItemText(s_hCompListView, ci, 1, (LPWSTR)cmp.description.c_str());
-            auto itYes = s_locale.find(cmp.is_required ? L"yes" : L"no");
-            std::wstring reqStr = (itYes != s_locale.end()) ? itYes->second : (cmp.is_required ? L"Yes" : L"No");
-            ListView_SetItemText(s_hCompListView, ci, 2, (LPWSTR)reqStr.c_str());
-            auto itType2 = s_locale.find(cmp.source_type == L"folder" ? L"comp_type_folder" : L"comp_type_file");
-            std::wstring typeStr = (itType2 != s_locale.end()) ? itType2->second : cmp.source_type;
-            ListView_SetItemText(s_hCompListView, ci, 3, (LPWSTR)typeStr.c_str());
-            ListView_SetItemText(s_hCompListView, ci, 4, (LPWSTR)cmp.source_path.c_str());
-            ListView_SetItemText(s_hCompListView, ci, 5, (LPWSTR)cmp.dest_path.c_str());
+
+        // Build folder tree from the 4 VFS snapshots
+        {
+            auto addRoot = [&](const wchar_t* label,
+                               const std::vector<TreeNodeSnapshot>& snaps)
+            {
+                if (snaps.empty()) return;
+                TVINSERTSTRUCTW tvis = {};
+                tvis.hParent             = TVI_ROOT;
+                tvis.hInsertAfter        = TVI_LAST;
+                tvis.item.mask           = TVIF_TEXT | TVIF_PARAM | TVIF_IMAGE | TVIF_SELECTEDIMAGE;
+                tvis.item.pszText        = (LPWSTR)label;
+                tvis.item.lParam         = 0;  // section root — no files
+                tvis.item.iImage         = 0;
+                tvis.item.iSelectedImage = 1;
+                HTREEITEM hR = (HTREEITEM)SendMessageW(s_hCompTreeView, TVM_INSERTITEMW,
+                                                       0, (LPARAM)&tvis);
+                if (hR) {
+                    VFSPicker_AddSubtree(s_hCompTreeView, hR, snaps);
+                    TreeView_Expand(s_hCompTreeView, hR, TVE_EXPAND);
+                }
+            };
+            addRoot(L"Program Files",     s_treeSnapshot_ProgramFiles);
+            addRoot(L"ProgramData",        s_treeSnapshot_ProgramData);
+            addRoot(L"AppData (Roaming)",  s_treeSnapshot_AppData);
+            addRoot(L"Ask At Install",     s_treeSnapshot_AskAtInstall);
         }
 
         // Apply system message font to non-button controls
@@ -2162,9 +2220,10 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
             ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
             HFONT hCtrlFont = CreateFontIndirectW(&ncm.lfMessageFont);
             if (hCtrlFont) {
-                SendMessageW(hCompEnable, WM_SETFONT, (WPARAM)hCtrlFont, TRUE);
-                SendMessageW(hHintLabel, WM_SETFONT, (WPARAM)hCtrlFont, TRUE);
-                SendMessageW(s_hCompListView, WM_SETFONT, (WPARAM)hCtrlFont, TRUE);
+                SendMessageW(hCompEnable,    WM_SETFONT, (WPARAM)hCtrlFont, TRUE);
+                SendMessageW(hHintLabel,     WM_SETFONT, (WPARAM)hCtrlFont, TRUE);
+                SendMessageW(s_hCompListView,WM_SETFONT, (WPARAM)hCtrlFont, TRUE);
+                SendMessageW(s_hCompTreeView,WM_SETFONT, (WPARAM)hCtrlFont, TRUE);
                 HFONT hOld = (HFONT)GetPropW(hwnd, L"hCompCtrlFont");
                 if (hOld) DeleteObject(hOld);
                 SetPropW(hwnd, L"hCompCtrlFont", (HANDLE)hCtrlFont);
@@ -2173,10 +2232,21 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
 
         // Grey out action controls if components are not enabled
         bool compEnabled = (s_currentProject.use_components != 0);
-        EnableWindow(GetDlgItem(hwnd, IDC_COMP_ADD),    compEnabled ? TRUE : FALSE);
         EnableWindow(GetDlgItem(hwnd, IDC_COMP_EDIT),   compEnabled ? TRUE : FALSE);
-        EnableWindow(GetDlgItem(hwnd, IDC_COMP_REMOVE), compEnabled ? TRUE : FALSE);
         EnableWindow(s_hCompListView,                   compEnabled ? TRUE : FALSE);
+        EnableWindow(s_hCompTreeView,                   compEnabled ? TRUE : FALSE);
+
+        // Auto-select the first real folder in the tree (so the list isn't blank)
+        if (compEnabled && s_hCompTreeView) {
+            HTREEITEM hFirst = TreeView_GetRoot(s_hCompTreeView);
+            if (hFirst) {
+                HTREEITEM hChild = TreeView_GetChild(s_hCompTreeView, hFirst);
+                if (hChild)
+                    TreeView_SelectItem(s_hCompTreeView, hChild);
+                else
+                    TreeView_SelectItem(s_hCompTreeView, hFirst);
+            }
+        }
 
         break;
     }
@@ -3213,6 +3283,454 @@ LRESULT CALLBACK AddKeyDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
     return DefWindowProcW(hwnd, msg, wParam, lParam);
 }
 
+// ─── Folder Component Edit Dialog ───────────────────────────────────────────
+// Lightweight dialog for editing the required-state of an entire folder subtree.
+
+struct CompFolderDlgData {
+    std::wstring folderName;     // shown as read-only label
+    int          initRequired;   // 0 = No, 1 = Yes, -1 = Mixed
+    std::wstring titleText;
+    std::wstring requiredLabel;
+    std::wstring cascadeHint;
+    std::wstring okText;
+    std::wstring cancelText;
+    bool okClicked  = false;
+    int  outRequired = 0;
+};
+
+LRESULT CALLBACK CompFolderEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    switch (msg) {
+    case WM_CREATE: {
+        CREATESTRUCTW*      cs    = (CREATESTRUCTW*)lParam;
+        HINSTANCE           hInst = cs->hInstance;
+        CompFolderDlgData*  pData = (CompFolderDlgData*)cs->lpCreateParams;
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)pData);
+
+        int y = 20;
+        // Folder name (static, read-only)
+        CreateWindowExW(0, L"STATIC", pData->folderName.c_str(),
+            WS_CHILD | WS_VISIBLE | SS_LEFT,
+            20, y, 520, 28, hwnd, NULL, hInst, NULL);
+        y += 38;
+
+        // Required checkbox
+        HWND hReq = CreateWindowExW(0, L"BUTTON", pData->requiredLabel.c_str(),
+            WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
+            20, y, 520, 26, hwnd, (HMENU)IDC_FOLDER_DLG_REQUIRED, hInst, NULL);
+        if (pData->initRequired == 1) SendMessageW(hReq, BM_SETCHECK, BST_CHECKED, 0);
+        y += 36;
+
+        // Cascade hint
+        CreateWindowExW(0, L"STATIC", pData->cascadeHint.c_str(),
+            WS_CHILD | WS_VISIBLE | SS_LEFT,
+            20, y, 520, 22, hwnd, NULL, hInst, NULL);
+        y += 34;
+
+        // OK / Cancel
+        CreateCustomButtonWithIcon(hwnd, IDC_COMPDLG_OK,     pData->okText.c_str(),     ButtonColor::Green,
+            L"imageres.dll", 89,  20,  y, 140, 38, hInst);
+        CreateCustomButtonWithIcon(hwnd, IDC_COMPDLG_CANCEL, pData->cancelText.c_str(), ButtonColor::Red,
+            L"shell32.dll",  131, 175, y, 150, 38, hInst);
+
+        // Font
+        NONCLIENTMETRICSW ncm = {}; ncm.cbSize = sizeof(ncm);
+        SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+        if (ncm.lfMessageFont.lfHeight < 0)
+            ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
+        ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+        HFONT hF = CreateFontIndirectW(&ncm.lfMessageFont);
+        if (hF) {
+            EnumChildWindows(hwnd, [](HWND hC, LPARAM lp) -> BOOL {
+                SendMessageW(hC, WM_SETFONT, (WPARAM)(HFONT)lp, TRUE); return TRUE;
+            }, (LPARAM)hF);
+            SetPropW(hwnd, L"hFolderDlgFont", (HANDLE)hF);
+        }
+        return 0;
+    }
+    case WM_COMMAND: {
+        CompFolderDlgData* pData = (CompFolderDlgData*)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+        if (!pData) break;
+        int wmId = LOWORD(wParam);
+        if (wmId == IDC_COMPDLG_CANCEL || wmId == IDCANCEL) {
+            DestroyWindow(hwnd); return 0;
+        }
+        if (wmId == IDC_COMPDLG_OK) {
+            pData->outRequired = (SendDlgItemMessageW(hwnd, IDC_FOLDER_DLG_REQUIRED,
+                                                      BM_GETCHECK, 0, 0) == BST_CHECKED) ? 1 : 0;
+            pData->okClicked   = true;
+            DestroyWindow(hwnd); return 0;
+        }
+        break;
+    }
+    case WM_DRAWITEM: {
+        LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
+        if (dis->CtlID == IDC_COMPDLG_OK || dis->CtlID == IDC_COMPDLG_CANCEL) {
+            ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
+            NONCLIENTMETRICSW ncm = {}; ncm.cbSize = sizeof(ncm);
+            SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+            if (ncm.lfMessageFont.lfHeight < 0)
+                ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
+            ncm.lfMessageFont.lfWeight  = FW_BOLD;
+            ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+            HFONT hFont = CreateFontIndirectW(&ncm.lfMessageFont);
+            LRESULT res = DrawCustomButton(dis, color, hFont);
+            if (hFont) DeleteObject(hFont);
+            return res;
+        }
+        break;
+    }
+    case WM_DESTROY: {
+        HFONT hF = (HFONT)GetPropW(hwnd, L"hFolderDlgFont");
+        if (hF) { DeleteObject(hF); RemovePropW(hwnd, L"hFolderDlgFont"); }
+        break;
+    }
+    case WM_CLOSE:
+        DestroyWindow(hwnd); return 0;
+    }
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+// Recursively collect all source paths from a single snapshot node and all its descendants.
+// Falls back to disk scan when virtualFiles is empty but fullPath is a real folder.
+static void CollectSnapshotPaths(const TreeNodeSnapshot& snap, std::vector<std::wstring>& out)
+{
+    if (!snap.virtualFiles.empty()) {
+        for (const auto& vf : snap.virtualFiles)
+            if (!vf.sourcePath.empty()) out.push_back(vf.sourcePath);
+    } else if (!snap.fullPath.empty()) {
+        // Real-path node whose virtualFiles were never populated (user never clicked it
+        // on the Files page). Scan disk directly — files only, no subdirs.
+        std::wstring sp = snap.fullPath + L"\\*";
+        WIN32_FIND_DATAW fd = {};
+        HANDLE hFind = FindFirstFileW(sp.c_str(), &fd);
+        if (hFind != INVALID_HANDLE_VALUE) {
+            do {
+                if (wcscmp(fd.cFileName, L".") == 0 || wcscmp(fd.cFileName, L"..") == 0) continue;
+                if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+                out.push_back(snap.fullPath + L"\\" + fd.cFileName);
+            } while (FindNextFileW(hFind, &fd));
+            FindClose(hFind);
+        }
+    }
+    for (const auto& child : snap.children)
+        CollectSnapshotPaths(child, out);
+}
+
+// Recursively collect all VirtualFolderFiles from a snapshot tree into ComponentRow vector.
+// Falls back to disk scan for real-path nodes whose virtualFiles were never populated.
+static void CollectAllFiles(const std::vector<TreeNodeSnapshot>& nodes,
+                            int projectId,
+                            std::vector<ComponentRow>& out)
+{
+    for (const auto& snap : nodes) {
+        if (!snap.virtualFiles.empty()) {
+            for (const auto& vf : snap.virtualFiles) {
+                if (vf.sourcePath.empty()) continue;
+                std::wstring fname = vf.sourcePath;
+                size_t sep = fname.find_last_of(L"\\/");
+                if (sep != std::wstring::npos) fname = fname.substr(sep + 1);
+                ComponentRow comp;
+                comp.project_id   = projectId;
+                comp.display_name = fname;
+                comp.description  = L"";
+                comp.is_required  = 0;
+                comp.source_type  = L"file";
+                comp.source_path  = vf.sourcePath;
+                comp.dest_path    = L"";
+                out.push_back(comp);
+            }
+        } else if (!snap.fullPath.empty()) {
+            // Real-path node with no cached virtualFiles — enumerate from disk.
+            std::wstring sp = snap.fullPath + L"\\*";
+            WIN32_FIND_DATAW fd = {};
+            HANDLE hFind = FindFirstFileW(sp.c_str(), &fd);
+            if (hFind != INVALID_HANDLE_VALUE) {
+                do {
+                    if (wcscmp(fd.cFileName, L".") == 0 || wcscmp(fd.cFileName, L"..") == 0) continue;
+                    if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+                    ComponentRow comp;
+                    comp.project_id   = projectId;
+                    comp.display_name = fd.cFileName;
+                    comp.description  = L"";
+                    comp.is_required  = 0;
+                    comp.source_type  = L"file";
+                    comp.source_path  = snap.fullPath + L"\\" + fd.cFileName;
+                    comp.dest_path    = L"";
+                    out.push_back(comp);
+                } while (FindNextFileW(hFind, &fd));
+                FindClose(hFind);
+            }
+        }
+        CollectAllFiles(snap.children, projectId, out);
+    }
+}
+
+// ─── VFS Picker Dialog ───────────────────────────────────────────────────────
+// Shows the virtual file system from the Files page (s_treeSnapshot_*) as a
+// split-pane tree/listview browser so the user can pick files or folders as
+// component sources without touching the real filesystem.
+
+struct VFSPickerResult {
+    std::wstring sourcePath;   // real disk path
+    std::wstring displayName;  // leaf name for auto-fill
+    std::wstring sourceType;   // L"file" or L"folder"
+};
+
+struct VFSPickerData {
+    // Locale
+    std::wstring titleText;
+    std::wstring okText;
+    std::wstring cancelText;
+    std::wstring colFile;      // listview column header
+    std::wstring colPath;      // listview column header
+    std::wstring noSelMsg;     // shown when nothing selected
+    // Output
+    bool okClicked = false;
+    std::vector<VFSPickerResult> results;
+};
+
+// Recursively insert snapshot children into the TreeView.
+// lParam of each inserted item = const TreeNodeSnapshot* (pointer into static vectors).
+static void VFSPicker_AddSubtree(HWND hTree, HTREEITEM hParent,
+                                  const std::vector<TreeNodeSnapshot>& nodes)
+{
+    for (const auto& snap : nodes) {
+        TVINSERTSTRUCTW tvis = {};
+        tvis.hParent             = hParent;
+        tvis.hInsertAfter        = TVI_LAST;
+        tvis.item.mask           = TVIF_TEXT | TVIF_PARAM | TVIF_IMAGE | TVIF_SELECTEDIMAGE;
+        tvis.item.pszText        = (LPWSTR)snap.text.c_str();
+        tvis.item.lParam         = (LPARAM)&snap;
+        tvis.item.iImage         = 0;  // closed folder
+        tvis.item.iSelectedImage = 1;  // open folder
+        HTREEITEM hNew = (HTREEITEM)SendMessageW(hTree, TVM_INSERTITEMW, 0, (LPARAM)&tvis);
+        if (hNew && !snap.children.empty())
+            VFSPicker_AddSubtree(hTree, hNew, snap.children);
+    }
+}
+
+LRESULT CALLBACK VFSPickerDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    switch (msg) {
+    case WM_CREATE: {
+        CREATESTRUCTW*  cs    = (CREATESTRUCTW*)lParam;
+        HINSTANCE       hInst = cs->hInstance;
+        VFSPickerData*  pData = (VFSPickerData*)cs->lpCreateParams;
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)pData);
+
+        RECT rc; GetClientRect(hwnd, &rc);
+        int W = rc.right, H = rc.bottom;
+        int treeW = 240, pad = 10, btnH = 36, btnY = H - pad - btnH;
+        int listX = treeW + pad * 2, listW = W - listX - pad;
+        int ctrlH = btnY - pad * 2 - 20; // leave room for column-header label
+
+        // "Folders" label
+        CreateWindowExW(0, L"STATIC", L"Folders",
+            WS_CHILD | WS_VISIBLE | SS_LEFT,
+            pad, pad, treeW, 18, hwnd, NULL, hInst, NULL);
+
+        // TreeView
+        HWND hTree = CreateWindowExW(WS_EX_CLIENTEDGE, WC_TREEVIEWW,
+            L"", WS_CHILD | WS_VISIBLE | TVS_HASLINES | TVS_LINESATROOT |
+                TVS_HASBUTTONS | TVS_SHOWSELALWAYS,
+            pad, pad + 20, treeW, ctrlH, hwnd, (HMENU)IDC_VFSPICKER_TREE, hInst, NULL);
+
+        // "Files in selected folder" label
+        CreateWindowExW(0, L"STATIC", L"Files in selected folder",
+            WS_CHILD | WS_VISIBLE | SS_LEFT,
+            listX, pad, listW, 18, hwnd, NULL, hInst, NULL);
+
+        // ListView
+        HWND hList = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEWW,
+            L"", WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_SHOWSELALWAYS,
+            listX, pad + 20, listW, ctrlH, hwnd, (HMENU)IDC_VFSPICKER_LIST, hInst, NULL);
+        ListView_SetExtendedListViewStyle(hList,
+            LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
+        { // columns
+            LVCOLUMNW col = {};
+            col.mask    = LVCF_TEXT | LVCF_WIDTH;
+            col.cx      = 180;
+            col.pszText = (LPWSTR)pData->colFile.c_str();
+            ListView_InsertColumn(hList, 0, &col);
+            col.cx      = listW - 190;
+            col.pszText = (LPWSTR)pData->colPath.c_str();
+            ListView_InsertColumn(hList, 1, &col);
+        }
+
+        // Buttons
+        CreateCustomButtonWithIcon(hwnd, IDC_VFSPICKER_OK,
+            pData->okText.c_str(), ButtonColor::Green,
+            L"imageres.dll", 89, pad, btnY, 140, btnH, hInst);
+        CreateCustomButtonWithIcon(hwnd, IDC_VFSPICKER_CANCEL,
+            pData->cancelText.c_str(), ButtonColor::Red,
+            L"shell32.dll", 131, pad + 150, btnY, 150, btnH, hInst);
+
+        // Apply system font to all children
+        {
+            NONCLIENTMETRICSW ncm = {}; ncm.cbSize = sizeof(ncm);
+            SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+            if (ncm.lfMessageFont.lfHeight < 0)
+                ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
+            ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+            HFONT hF = CreateFontIndirectW(&ncm.lfMessageFont);
+            if (hF) {
+                EnumChildWindows(hwnd, [](HWND hC, LPARAM lp) -> BOOL {
+                    SendMessageW(hC, WM_SETFONT, (WPARAM)(HFONT)lp, TRUE);
+                    return TRUE;
+                }, (LPARAM)hF);
+                SetPropW(hwnd, L"hPickFont", (HANDLE)hF);
+            }
+        }
+
+        // Populate tree from snapshots
+        // Section roots get lParam = 0 (not pickable as folder components)
+        auto addRoot = [&](const wchar_t* label,
+                           const std::vector<TreeNodeSnapshot>& snaps)
+        {
+            if (snaps.empty()) return;
+            TVINSERTSTRUCTW tvis = {};
+            tvis.hParent      = TVI_ROOT;
+            tvis.hInsertAfter = TVI_LAST;
+            tvis.item.mask    = TVIF_TEXT | TVIF_PARAM;
+            tvis.item.pszText = (LPWSTR)label;
+            tvis.item.lParam  = 0;  // section root — not selectable
+            HTREEITEM hR = (HTREEITEM)SendMessageW(hTree, TVM_INSERTITEMW, 0, (LPARAM)&tvis);
+            if (hR) {
+                VFSPicker_AddSubtree(hTree, hR, snaps);
+                TreeView_Expand(hTree, hR, TVE_EXPAND);
+            }
+        };
+        addRoot(L"Program Files",    s_treeSnapshot_ProgramFiles);
+        addRoot(L"ProgramData",       s_treeSnapshot_ProgramData);
+        addRoot(L"AppData (Roaming)", s_treeSnapshot_AppData);
+        addRoot(L"AskAtInstall",      s_treeSnapshot_AskAtInstall);
+
+        return 0;
+    }
+
+    case WM_NOTIFY: {
+        NMHDR* nmhdr = (NMHDR*)lParam;
+        if (nmhdr->idFrom == IDC_VFSPICKER_TREE && nmhdr->code == TVN_SELCHANGED) {
+            LPNMTREEVIEWW pnmtv = (LPNMTREEVIEWW)lParam;
+            HWND hList = GetDlgItem(hwnd, IDC_VFSPICKER_LIST);
+            ListView_DeleteAllItems(hList);
+            const TreeNodeSnapshot* snap =
+                (const TreeNodeSnapshot*)pnmtv->itemNew.lParam;
+            if (snap) {
+                int idx = 0;
+                for (const auto& vf : snap->virtualFiles) {
+                    std::wstring fname = vf.sourcePath;
+                    size_t sep = fname.find_last_of(L"\\/");
+                    if (sep != std::wstring::npos) fname = fname.substr(sep + 1);
+                    LVITEMW lvi = {};
+                    lvi.mask    = LVIF_TEXT | LVIF_PARAM;
+                    lvi.iItem   = idx++;
+                    lvi.pszText = (LPWSTR)fname.c_str();
+                    lvi.lParam  = (LPARAM)&vf;  // pointer into snapshot's virtualFiles
+                    int row = ListView_InsertItem(hList, &lvi);
+                    ListView_SetItemText(hList, row, 1, (LPWSTR)vf.sourcePath.c_str());
+                }
+            }
+        }
+        return 0;
+    }
+
+    case WM_COMMAND: {
+        int wmId = LOWORD(wParam);
+        VFSPickerData* pData = (VFSPickerData*)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+        if (!pData) break;
+
+        if (wmId == IDC_VFSPICKER_CANCEL || wmId == IDCANCEL) {
+            pData->okClicked = false;
+            DestroyWindow(hwnd);
+            return 0;
+        }
+
+        if (wmId == IDC_VFSPICKER_OK) {
+            HWND hList = GetDlgItem(hwnd, IDC_VFSPICKER_LIST);
+            HWND hTree = GetDlgItem(hwnd, IDC_VFSPICKER_TREE);
+
+            // Collect all selected ListView items (files)
+            int lvSel = -1;
+            while ((lvSel = ListView_GetNextItem(hList, lvSel, LVNI_SELECTED)) != -1) {
+                LVITEMW lvi = {}; lvi.mask = LVIF_PARAM; lvi.iItem = lvSel;
+                ListView_GetItem(hList, &lvi);
+                const VirtualFolderFile* vf = (const VirtualFolderFile*)lvi.lParam;
+                if (!vf) continue;
+                std::wstring fname = vf->sourcePath;
+                size_t sep = fname.find_last_of(L"\\/");
+                if (sep != std::wstring::npos) fname = fname.substr(sep + 1);
+                VFSPickerResult r;
+                r.sourcePath  = vf->sourcePath;
+                r.displayName = fname;
+                r.sourceType  = L"file";
+                pData->results.push_back(r);
+            }
+
+            // If nothing from ListView, try tree selection as folder
+            if (pData->results.empty()) {
+                HTREEITEM hSel = TreeView_GetSelection(hTree);
+                if (hSel) {
+                    TVITEMW tvi = {};
+                    tvi.hItem = hSel;
+                    tvi.mask  = TVIF_PARAM | TVIF_TEXT;
+                    wchar_t nameBuf[260] = {};
+                    tvi.pszText    = nameBuf;
+                    tvi.cchTextMax = 260;
+                    TreeView_GetItem(hTree, &tvi);
+                    const TreeNodeSnapshot* snap = (const TreeNodeSnapshot*)tvi.lParam;
+                    if (snap && !snap->fullPath.empty()) {
+                        VFSPickerResult r;
+                        r.sourcePath  = snap->fullPath;
+                        r.displayName = nameBuf;
+                        r.sourceType  = L"folder";
+                        pData->results.push_back(r);
+                    }
+                }
+            }
+
+            if (pData->results.empty()) {
+                MessageBoxW(hwnd, pData->noSelMsg.c_str(), L"", MB_OK | MB_ICONINFORMATION);
+                return 0;
+            }
+            pData->okClicked = true;
+            DestroyWindow(hwnd);
+            return 0;
+        }
+        break;
+    }
+
+    case WM_DRAWITEM: {
+        LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
+        if (dis->CtlID == IDC_VFSPICKER_OK || dis->CtlID == IDC_VFSPICKER_CANCEL) {
+            ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
+            NONCLIENTMETRICSW ncm = {}; ncm.cbSize = sizeof(ncm);
+            SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+            if (ncm.lfMessageFont.lfHeight < 0)
+                ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
+            ncm.lfMessageFont.lfWeight  = FW_BOLD;
+            ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+            HFONT hFont = CreateFontIndirectW(&ncm.lfMessageFont);
+            LRESULT res = DrawCustomButton(dis, color, hFont);
+            if (hFont) DeleteObject(hFont);
+            return res;
+        }
+        break;
+    }
+
+    case WM_DESTROY: {
+        HFONT hF = (HFONT)GetPropW(hwnd, L"hPickFont");
+        if (hF) { DeleteObject(hF); RemovePropW(hwnd, L"hPickFont"); }
+        break;
+    }
+    case WM_CLOSE:
+        DestroyWindow(hwnd);
+        return 0;
+    }
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
 // ─── Component Edit Dialog ────────────────────────────────────────────────────
 
 struct CompDlgData {
@@ -3222,12 +3740,16 @@ struct CompDlgData {
     int initRequired = 0;
     std::wstring initSourceType; // L"folder" or L"file"
     std::wstring initSourcePath;
+    // Dependencies
+    std::vector<ComponentRow> otherComponents;  // all other comps in project (for checklist)
+    std::vector<int> initDependencyIds;          // currently declared deps
     // Locale strings
     std::wstring titleText;
     std::wstring nameLabel;
     std::wstring descLabel;
     std::wstring requiredLabel;
     std::wstring sourceLabel;
+    std::wstring depsLabel;
     std::wstring browseText;
     std::wstring okText;
     std::wstring cancelText;
@@ -3237,6 +3759,7 @@ struct CompDlgData {
     std::wstring outDesc;
     int outRequired = 0;
     std::wstring outSourcePath;
+    std::vector<int> outDependencyIds;
 };
 
 LRESULT CALLBACK CompEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -3248,7 +3771,7 @@ LRESULT CALLBACK CompEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)pData);
 
         int y = 20;
-        int labelW = 150, editX = 175, editW = 380;
+        int labelW = 150, editX = 175, editW = 400;
 
         // Display Name
         CreateWindowExW(0, L"STATIC", pData->nameLabel.c_str(),
@@ -3285,13 +3808,35 @@ LRESULT CALLBACK CompEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
         CreateWindowExW(0, L"BUTTON", pData->browseText.c_str(),
             WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
             editX + editW - 80, y, 78, 28, hwnd, (HMENU)IDC_COMPDLG_BROWSE, hInst, NULL);
-        y += 48;
+        y += 44;
+
+        // Dependencies — multi-select listbox of other components
+        if (!pData->otherComponents.empty()) {
+            CreateWindowExW(0, L"STATIC", pData->depsLabel.c_str(),
+                WS_CHILD | WS_VISIBLE | SS_LEFT,
+                20, y, labelW, 24, hwnd, NULL, hInst, NULL);
+            int listH = 100;
+            HWND hDeps = CreateWindowExW(WS_EX_CLIENTEDGE, L"LISTBOX", L"",
+                WS_CHILD | WS_VISIBLE | LBS_MULTIPLESEL | WS_VSCROLL | LBS_NOTIFY,
+                editX, y, editW, listH, hwnd, (HMENU)IDC_COMPDLG_DEPS, hInst, NULL);
+            for (int ci = 0; ci < (int)pData->otherComponents.size(); ++ci) {
+                SendMessageW(hDeps, LB_ADDSTRING, 0,
+                    (LPARAM)pData->otherComponents[ci].display_name.c_str());
+                // Pre-select if this comp is in initDependencyIds
+                int depId = pData->otherComponents[ci].id;
+                for (int dId : pData->initDependencyIds) {
+                    if (dId == depId) { SendMessageW(hDeps, LB_SETSEL, TRUE, ci); break; }
+                }
+            }
+            y += listH + 10;
+        }
+        y += 10;
 
         // OK / Cancel
         CreateCustomButtonWithIcon(hwnd, IDC_COMPDLG_OK, pData->okText.c_str(), ButtonColor::Green,
-            L"imageres.dll", 89, 175, y, 140, 38, hInst);
+            L"imageres.dll", 89, 20, y, 140, 38, hInst);
         CreateCustomButtonWithIcon(hwnd, IDC_COMPDLG_CANCEL, pData->cancelText.c_str(), ButtonColor::Red,
-            L"shell32.dll", 131, 330, y, 150, 38, hInst);
+            L"shell32.dll", 131, 175, y, 150, 38, hInst);
 
         // Apply system font
         {
@@ -3367,6 +3912,19 @@ LRESULT CALLBACK CompEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
             GetDlgItemTextW(hwnd, IDC_COMPDLG_DESC, buf, 512); pData->outDesc = buf;
             pData->outRequired = (SendDlgItemMessageW(hwnd, IDC_COMPDLG_REQUIRED, BM_GETCHECK, 0, 0) == BST_CHECKED) ? 1 : 0;
             GetDlgItemTextW(hwnd, IDC_COMPDLG_SRC, buf, 512); pData->outSourcePath = buf;
+            // Collect selected dependencies
+            HWND hDeps = GetDlgItem(hwnd, IDC_COMPDLG_DEPS);
+            if (hDeps) {
+                int selCount = (int)SendMessageW(hDeps, LB_GETSELCOUNT, 0, 0);
+                if (selCount > 0) {
+                    std::vector<int> selIdx(selCount);
+                    SendMessageW(hDeps, LB_GETSELITEMS, selCount, (LPARAM)selIdx.data());
+                    for (int si : selIdx) {
+                        if (si >= 0 && si < (int)pData->otherComponents.size())
+                            pData->outDependencyIds.push_back(pData->otherComponents[si].id);
+                    }
+                }
+            }
             pData->okClicked = true;
             DestroyWindow(hwnd);
             return 0;
@@ -3606,46 +4164,49 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             if (s_hListView && IsWindow(s_hListView)) {
                 // Always clear ListView first
                 ListView_DeleteAllItems(s_hListView);
-                
-                // Check if folder has a physical path
-                bool hasPhysicalPath = false;
+
+                HTREEITEM hItem = pnmtv->itemNew.hItem;
+
+                // If this is a real-path node, lazily ingest its files into the virtual
+                // store (one-time FindFirstFile scan, no SHGetFileInfoW per file here).
+                // This fixes:  (a) the UI freeze caused by PopulateListView doing
+                // SHGetFileInfoW on the UI thread, and (b) the empty Components-tree
+                // panes caused by s_virtualFolderFiles never being populated for
+                // real-path nodes (snapshot captured empty virtualFiles).
                 if (pnmtv->itemNew.lParam) {
                     wchar_t* folderPath = (wchar_t*)pnmtv->itemNew.lParam;
-                    if (folderPath && wcslen(folderPath) > 0) {
-                        // Physical folder - populate from disk
-                        PopulateListView(s_hListView, folderPath);
-                        hasPhysicalPath = true;
+                    if (folderPath && wcslen(folderPath) > 0 &&
+                        s_virtualFolderFiles.find(hItem) == s_virtualFolderFiles.end()) {
+                        IngestRealPathFiles(hItem, folderPath);
                     }
                 }
-                
-                // If no physical path, check for virtual folder files
-                if (!hasPhysicalPath) {
-                    auto it = s_virtualFolderFiles.find(pnmtv->itemNew.hItem);
-                    if (it != s_virtualFolderFiles.end()) {
-                        for (const auto& fileInfo : it->second) {
-                            // Get file icon
-                            SHFILEINFOW sfi = {};
-                            SHGetFileInfoW(fileInfo.sourcePath.c_str(), 0, &sfi, sizeof(sfi), SHGFI_SYSICONINDEX | SHGFI_SMALLICON);
-                            
-                            LVITEMW lvi = {};
-                            lvi.mask = LVIF_TEXT | LVIF_PARAM | LVIF_IMAGE;
-                            lvi.iItem = ListView_GetItemCount(s_hListView);
-                            lvi.iSubItem = 0;
-                            lvi.pszText = (LPWSTR)fileInfo.sourcePath.c_str();
-                            lvi.iImage = sfi.iIcon;
-                            
-                            wchar_t* pathCopy = (wchar_t*)malloc((fileInfo.sourcePath.length() + 1) * sizeof(wchar_t));
-                            if (pathCopy) {
-                                wcscpy(pathCopy, fileInfo.sourcePath.c_str());
-                                lvi.lParam = (LPARAM)pathCopy;
-                            }
-                            
-                            int idx = ListView_InsertItem(s_hListView, &lvi);
-                            ListView_SetItemText(s_hListView, idx, 1, (LPWSTR)fileInfo.destination.c_str());
+
+                // Show files from virtual store (same path for both real-path and
+                // virtual nodes).  Use SHGFI_USEFILEATTRIBUTES so the icon lookup
+                // is extension-based only — no file-system access, no blocking.
+                auto it = s_virtualFolderFiles.find(hItem);
+                if (it != s_virtualFolderFiles.end()) {
+                    for (const auto& fileInfo : it->second) {
+                        SHFILEINFOW sfi = {};
+                        SHGetFileInfoW(fileInfo.sourcePath.c_str(), FILE_ATTRIBUTE_NORMAL,
+                                       &sfi, sizeof(sfi),
+                                       SHGFI_SYSICONINDEX | SHGFI_SMALLICON | SHGFI_USEFILEATTRIBUTES);
+                        LVITEMW lvi = {};
+                        lvi.mask     = LVIF_TEXT | LVIF_PARAM | LVIF_IMAGE;
+                        lvi.iItem    = ListView_GetItemCount(s_hListView);
+                        lvi.iSubItem = 0;
+                        lvi.pszText  = (LPWSTR)fileInfo.sourcePath.c_str();
+                        lvi.iImage   = sfi.iIcon;
+                        wchar_t* pathCopy = (wchar_t*)malloc((fileInfo.sourcePath.length() + 1) * sizeof(wchar_t));
+                        if (pathCopy) {
+                            wcscpy(pathCopy, fileInfo.sourcePath.c_str());
+                            lvi.lParam = (LPARAM)pathCopy;
                         }
+                        int idx = ListView_InsertItem(s_hListView, &lvi);
+                        ListView_SetItemText(s_hListView, idx, 1, (LPWSTR)fileInfo.destination.c_str());
                     }
                 }
-                
+
                 // Force ListView to redraw
                 InvalidateRect(s_hListView, NULL, TRUE);
                 UpdateWindow(s_hListView);
@@ -3700,6 +4261,75 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         // Handle double-click on Components ListView -> edit component
         if (nmhdr->idFrom == IDC_COMP_LISTVIEW && nmhdr->code == NM_DBLCLK) {
             SendMessageW(hwnd, WM_COMMAND, IDC_COMP_EDIT, 0);
+            return 0;
+        }
+
+        // When a folder is selected in the Components tree, populate the file list
+        if (nmhdr->idFrom == IDC_COMP_TREEVIEW && nmhdr->code == TVN_SELCHANGED) {
+            if (!s_hCompListView) break;
+            LPNMTREEVIEWW pnmtv = (LPNMTREEVIEWW)lParam;
+            ListView_DeleteAllItems(s_hCompListView);
+            const TreeNodeSnapshot* snap =
+                (const TreeNodeSnapshot*)pnmtv->itemNew.lParam;
+            if (snap) {
+                // Build a temporary list of files to display.
+                // Priority 1: virtualFiles already cached in the snapshot.
+                // Priority 2: disk scan if this is a real-path node with no cache.
+                std::vector<VirtualFolderFile> diskFiles;
+                const std::vector<VirtualFolderFile>* files = &snap->virtualFiles;
+                if (snap->virtualFiles.empty() && !snap->fullPath.empty()) {
+                    std::wstring sp = snap->fullPath + L"\\*";
+                    WIN32_FIND_DATAW fd = {};
+                    HANDLE hFind = FindFirstFileW(sp.c_str(), &fd);
+                    if (hFind != INVALID_HANDLE_VALUE) {
+                        do {
+                            if (wcscmp(fd.cFileName, L".") == 0 || wcscmp(fd.cFileName, L"..") == 0) continue;
+                            if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+                            VirtualFolderFile vf;
+                            vf.sourcePath  = snap->fullPath + L"\\" + fd.cFileName;
+                            vf.destination = L"\\" + std::wstring(fd.cFileName);
+                            diskFiles.push_back(std::move(vf));
+                        } while (FindNextFileW(hFind, &fd));
+                        FindClose(hFind);
+                    }
+                    files = &diskFiles;
+                }
+
+                int row = 0;
+                for (const auto& vf : *files) {
+                    // Find matching ComponentRow in s_components by source_path
+                    int compIdx = -1;
+                    for (int ci = 0; ci < (int)s_components.size(); ++ci) {
+                        if (s_components[ci].source_path == vf.sourcePath) {
+                            compIdx = ci; break;
+                        }
+                    }
+                    std::wstring fname = vf.sourcePath;
+                    size_t sep = fname.find_last_of(L"\\/");
+                    if (sep != std::wstring::npos) fname = fname.substr(sep + 1);
+
+                    std::wstring dispName = (compIdx >= 0) ? s_components[compIdx].display_name : fname;
+                    std::wstring desc     = (compIdx >= 0) ? s_components[compIdx].description  : L"";
+                    int isReq             = (compIdx >= 0) ? s_components[compIdx].is_required  : 0;
+                    std::wstring srcType  = (compIdx >= 0) ? s_components[compIdx].source_type  : L"file";
+
+                    LVITEMW lvi = {};
+                    lvi.mask    = LVIF_TEXT | LVIF_PARAM;
+                    lvi.iItem   = row++;
+                    lvi.pszText = (LPWSTR)dispName.c_str();
+                    lvi.lParam  = (LPARAM)compIdx;
+                    int lrow = ListView_InsertItem(s_hCompListView, &lvi);
+
+                    ListView_SetItemText(s_hCompListView, lrow, 1, (LPWSTR)desc.c_str());
+                    auto itYes = s_locale.find(isReq ? L"yes" : L"no");
+                    std::wstring reqStr = (itYes != s_locale.end()) ? itYes->second : (isReq ? L"Yes" : L"No");
+                    ListView_SetItemText(s_hCompListView, lrow, 2, (LPWSTR)reqStr.c_str());
+                    auto itType2 = s_locale.find(srcType == L"folder" ? L"comp_type_folder" : L"comp_type_file");
+                    std::wstring typeStr = (itType2 != s_locale.end()) ? itType2->second : srcType;
+                    ListView_SetItemText(s_hCompListView, lrow, 3, (LPWSTR)typeStr.c_str());
+                    ListView_SetItemText(s_hCompListView, lrow, 4, (LPWSTR)vf.sourcePath.c_str());
+                }
+            }
             return 0;
         }
 
@@ -5184,83 +5814,98 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             int checked = (hChk && SendMessageW(hChk, BM_GETCHECK, 0, 0) == BST_CHECKED) ? 1 : 0;
             s_currentProject.use_components = checked;
             DB::UpdateProject(s_currentProject);
-            EnableWindow(GetDlgItem(hwnd, IDC_COMP_ADD),    checked ? TRUE : FALSE);
-            EnableWindow(GetDlgItem(hwnd, IDC_COMP_EDIT),   checked ? TRUE : FALSE);
-            EnableWindow(GetDlgItem(hwnd, IDC_COMP_REMOVE), checked ? TRUE : FALSE);
-            if (s_hCompListView) EnableWindow(s_hCompListView, checked ? TRUE : FALSE);
+            if (checked) {
+                // Auto-populate from VFS snapshots only if there are no components yet
+                if (DB::GetComponentsForProject(s_currentProject.id).empty()) {
+                    std::vector<ComponentRow> toAdd;
+                    CollectAllFiles(s_treeSnapshot_ProgramFiles,  s_currentProject.id, toAdd);
+                    CollectAllFiles(s_treeSnapshot_ProgramData,   s_currentProject.id, toAdd);
+                    CollectAllFiles(s_treeSnapshot_AppData,       s_currentProject.id, toAdd);
+                    CollectAllFiles(s_treeSnapshot_AskAtInstall,  s_currentProject.id, toAdd);
+                    for (auto& c : toAdd) DB::InsertComponent(c);
+                }
+            } else {
+                DB::DeleteComponentsForProject(s_currentProject.id);
+            }
+            SwitchPage(hwnd, 9);
+            MarkAsModified();
             return 0;
         }
 
         case IDC_COMP_ADD: {
             if (s_currentProject.id <= 0) return 0;
 
-            IFileOpenDialog *pfd = NULL;
-            HRESULT hr = CoCreateInstance(CLSID_FileOpenDialog, NULL, CLSCTX_INPROC_SERVER,
-                                          IID_PPV_ARGS(&pfd));
-            if (FAILED(hr)) return 0;
+            // Build picker data with locale strings
+            auto LS = [&](const wchar_t* k, const wchar_t* fb) -> std::wstring {
+                auto it = s_locale.find(k);
+                return (it != s_locale.end()) ? it->second : fb;
+            };
+            VFSPickerData pickData;
+            pickData.titleText  = LS(L"comp_add_picker_title",  L"Select files or folders to add as components");
+            pickData.okText     = LS(L"ok",                     L"OK");
+            pickData.cancelText = LS(L"cancel",                 L"Cancel");
+            pickData.colFile    = LS(L"comp_picker_col_file",   L"Name");
+            pickData.colPath    = LS(L"comp_picker_col_path",   L"Source Path");
+            pickData.noSelMsg   = LS(L"comp_picker_no_sel",
+                L"Select one or more files in the right pane, or select a "
+                L"real-path folder in the left pane, then click OK.");
 
-            DWORD dwFlags = 0;
-            pfd->GetOptions(&dwFlags);
-            pfd->SetOptions(dwFlags | FOS_ALLOWMULTISELECT | FOS_FORCEFILESYSTEM);
+            // Register and show the picker dialog
+            WNDCLASSEXW wc = {};
+            wc.cbSize        = sizeof(wc);
+            wc.lpfnWndProc   = VFSPickerDlgProc;
+            wc.hInstance     = GetModuleHandleW(NULL);
+            wc.lpszClassName = L"VFSPickerDialog";
+            wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
+            wc.hCursor       = LoadCursor(NULL, IDC_ARROW);
+            if (!GetClassInfoExW(GetModuleHandleW(NULL), L"VFSPickerDialog", &wc))
+                RegisterClassExW(&wc);
 
-            auto itTitle = s_locale.find(L"comp_add_picker_title");
-            std::wstring pickerTitle = (itTitle != s_locale.end()) ? itTitle->second
-                : L"Select files or folders to add as components";
-            pfd->SetTitle(pickerTitle.c_str());
+            RECT rcMain; GetWindowRect(hwnd, &rcMain);
+            int dlgW = 720, dlgH = 500;
+            HWND hPicker = CreateWindowExW(
+                WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+                L"VFSPickerDialog", pickData.titleText.c_str(),
+                WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
+                rcMain.left + ((rcMain.right  - rcMain.left) - dlgW) / 2,
+                rcMain.top  + ((rcMain.bottom - rcMain.top)  - dlgH) / 2,
+                dlgW, dlgH, hwnd, NULL, GetModuleHandleW(NULL), &pickData);
 
-            hr = pfd->Show(hwnd);
-            if (SUCCEEDED(hr)) {
-                IShellItemArray *psia = NULL;
-                hr = pfd->GetResults(&psia);
-                if (SUCCEEDED(hr)) {
-                    DWORD count = 0;
-                    psia->GetCount(&count);
-                    int added = 0;
-                    for (DWORD i = 0; i < count; i++) {
-                        IShellItem *psi = NULL;
-                        if (SUCCEEDED(psia->GetItemAt(i, &psi))) {
-                            LPWSTR pszPath = NULL;
-                            if (SUCCEEDED(psi->GetDisplayName(SIGDN_FILESYSPATH, &pszPath))) {
-                                std::wstring srcPath(pszPath);
-                                CoTaskMemFree(pszPath);
-
-                                DWORD attrs = GetFileAttributesW(srcPath.c_str());
-                                bool isFld = (attrs != INVALID_FILE_ATTRIBUTES &&
-                                             (attrs & FILE_ATTRIBUTE_DIRECTORY));
-
-                                // Auto-fill display name from path leaf
-                                std::wstring leaf = srcPath;
-                                size_t sep = leaf.find_last_of(L"\\/");
-                                if (sep != std::wstring::npos) leaf = leaf.substr(sep + 1);
-
-                                ComponentRow comp;
-                                comp.project_id   = s_currentProject.id;
-                                comp.display_name = leaf;
-                                comp.description  = L"";
-                                comp.is_required  = 0;
-                                comp.source_type  = isFld ? L"folder" : L"file";
-                                comp.source_path  = srcPath;
-                                comp.dest_path    = L"";
-                                DB::InsertComponent(comp);
-                                added++;
-                            }
-                            psi->Release();
-                        }
-                    }
-                    psia->Release();
-                    if (added > 0) {
-                        SwitchPage(hwnd, 9);
-                        MarkAsModified();
-                    }
-                }
+            MSG pickMsg;
+            while (GetMessageW(&pickMsg, NULL, 0, 0) > 0) {
+                if (!IsWindow(hPicker)) break;
+                TranslateMessage(&pickMsg);
+                DispatchMessageW(&pickMsg);
             }
-            pfd->Release();
+
+            if (pickData.okClicked && !pickData.results.empty()) {
+                for (const auto& r : pickData.results) {
+                    ComponentRow comp;
+                    comp.project_id   = s_currentProject.id;
+                    comp.display_name = r.displayName;
+                    comp.description  = L"";
+                    comp.is_required  = 0;
+                    comp.source_type  = r.sourceType;
+                    comp.source_path  = r.sourcePath;
+                    comp.dest_path    = L"";
+                    DB::InsertComponent(comp);
+                }
+                SwitchPage(hwnd, 9);
+                MarkAsModified();
+            }
             return 0;
         }
 
         case IDC_COMP_EDIT: {
             if (!s_hCompListView || !IsWindow(s_hCompListView)) return 0;
-            int selIdx = ListView_GetNextItem(s_hCompListView, -1, LVNI_SELECTED);
+            int selRow = ListView_GetNextItem(s_hCompListView, -1, LVNI_SELECTED);
+            // Get the component index stored as lParam on the list item
+            int selIdx = -1;
+            if (selRow >= 0) {
+                LVITEMW lvi = {}; lvi.mask = LVIF_PARAM; lvi.iItem = selRow;
+                ListView_GetItem(s_hCompListView, &lvi);
+                selIdx = (int)lvi.lParam;
+            }
             if (selIdx < 0 || selIdx >= (int)s_components.size()) {
                 auto itNoSel = s_locale.find(L"comp_no_selection");
                 std::wstring noSelMsg = (itNoSel != s_locale.end()) ? itNoSel->second : L"Please select a component first.";
@@ -5268,23 +5913,32 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 return 0;
             }
             const ComponentRow &cmp = s_components[selIdx];
+            // Load existing dependencies and build other-components list
+            std::vector<int>         currentDeps = DB::GetDependenciesForComponent(cmp.id);
+            std::vector<ComponentRow> otherComps;
+            for (const auto& oc : s_components)
+                if (oc.id != cmp.id) otherComps.push_back(oc);
+
             auto lstrE = [&](const wchar_t *key, const wchar_t *fb) -> std::wstring {
                 auto itE = s_locale.find(key); return (itE != s_locale.end()) ? itE->second : fb;
             };
             CompDlgData dlgData2;
-            dlgData2.initName       = cmp.display_name;
-            dlgData2.initDesc       = cmp.description;
-            dlgData2.initRequired   = cmp.is_required;
-            dlgData2.initSourceType = cmp.source_type;
-            dlgData2.initSourcePath = cmp.source_path;
-            dlgData2.titleText     = lstrE(L"comp_edit_title", L"Edit Component");
-            dlgData2.nameLabel     = lstrE(L"comp_name_label", L"Display Name:");
-            dlgData2.descLabel     = lstrE(L"comp_desc_label", L"Description:");
-            dlgData2.requiredLabel = lstrE(L"comp_required_label", L"Required (always installed)");
-            dlgData2.sourceLabel   = lstrE(L"comp_source_label", L"Source Path:");
-            dlgData2.browseText    = lstrE(L"comp_browse", L"Browse...");
-            dlgData2.okText        = lstrE(L"ok", L"OK");
-            dlgData2.cancelText    = lstrE(L"cancel", L"Cancel");
+            dlgData2.initName          = cmp.display_name;
+            dlgData2.initDesc          = cmp.description;
+            dlgData2.initRequired      = cmp.is_required;
+            dlgData2.initSourceType    = cmp.source_type;
+            dlgData2.initSourcePath    = cmp.source_path;
+            dlgData2.otherComponents   = otherComps;
+            dlgData2.initDependencyIds = currentDeps;
+            dlgData2.titleText     = lstrE(L"comp_edit_title",    L"Edit Component");
+            dlgData2.nameLabel     = lstrE(L"comp_name_label",    L"Display Name:");
+            dlgData2.descLabel     = lstrE(L"comp_desc_label",    L"Description:");
+            dlgData2.requiredLabel = lstrE(L"comp_required_label",L"Required (always installed)");
+            dlgData2.sourceLabel   = lstrE(L"comp_source_label",  L"Source Path:");
+            dlgData2.browseText    = lstrE(L"comp_browse",        L"Browse...");
+            dlgData2.depsLabel     = lstrE(L"comp_deps_label",    L"Requires:");
+            dlgData2.okText        = lstrE(L"ok",                 L"OK");
+            dlgData2.cancelText    = lstrE(L"cancel",             L"Cancel");
 
             WNDCLASSEXW wcComp2 = {};
             wcComp2.cbSize = sizeof(wcComp2);
@@ -5297,7 +5951,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 RegisterClassExW(&wcComp2);
             }
             RECT rcMain2; GetWindowRect(hwnd, &rcMain2);
-            int dlgW2 = 600, dlgH2 = 300;
+            int dlgW2 = 620;
+            int dlgH2 = otherComps.empty() ? 420 : 540;
             HWND hDlg2 = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
                 L"CompEditDialog", dlgData2.titleText.c_str(),
                 WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
@@ -5316,6 +5971,10 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 updated.is_required  = dlgData2.outRequired;
                 updated.source_path  = dlgData2.outSourcePath;
                 DB::UpdateComponent(updated);
+                // Save dependency selections
+                DB::DeleteDependenciesForComponent(updated.id);
+                for (int depId : dlgData2.outDependencyIds)
+                    DB::InsertComponentDependency(updated.id, depId);
                 SwitchPage(hwnd, 9);
                 MarkAsModified();
             }
@@ -5324,7 +5983,13 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 
         case IDC_COMP_REMOVE: {
             if (!s_hCompListView || !IsWindow(s_hCompListView)) return 0;
-            int selIdx = ListView_GetNextItem(s_hCompListView, -1, LVNI_SELECTED);
+            int selRow = ListView_GetNextItem(s_hCompListView, -1, LVNI_SELECTED);
+            int selIdx = -1;
+            if (selRow >= 0) {
+                LVITEMW lvi = {}; lvi.mask = LVIF_PARAM; lvi.iItem = selRow;
+                ListView_GetItem(s_hCompListView, &lvi);
+                selIdx = (int)lvi.lParam;
+            }
             if (selIdx < 0 || selIdx >= (int)s_components.size()) {
                 auto itNoSel = s_locale.find(L"comp_no_selection");
                 std::wstring noSelMsg = (itNoSel != s_locale.end()) ? itNoSel->second : L"Please select a component first.";
@@ -5735,7 +6400,144 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             DestroyMenu(hMenu);
             return 0;
         }
-        
+
+        // Handle Components ListView context menu
+        if (hWndContext == s_hCompListView) {
+            int xPos = GET_X_LPARAM(lParam);
+            int yPos = GET_Y_LPARAM(lParam);
+            if (xPos == -1 && yPos == -1) {
+                int iSel = ListView_GetNextItem(s_hCompListView, -1, LVNI_SELECTED);
+                if (iSel >= 0) {
+                    RECT rcItem;
+                    ListView_GetItemRect(s_hCompListView, iSel, &rcItem, LVIR_BOUNDS);
+                    POINT pt = { rcItem.left, rcItem.bottom };
+                    ClientToScreen(s_hCompListView, &pt);
+                    xPos = pt.x; yPos = pt.y;
+                }
+            }
+            int selIdx = ListView_GetNextItem(s_hCompListView, -1, LVNI_SELECTED);
+            if (selIdx < 0) return 0;
+            auto LS = [&](const wchar_t* k, const wchar_t* fb) -> std::wstring {
+                auto it = s_locale.find(k); return (it != s_locale.end()) ? it->second : fb;
+            };
+            HMENU hMenu = CreatePopupMenu();
+            AppendMenuW(hMenu, MF_STRING, IDM_COMP_CTX_EDIT, LS(L"comp_edit", L"Edit").c_str());
+            int cmd = (int)TrackPopupMenu(hMenu, TPM_RIGHTBUTTON | TPM_RETURNCMD, xPos, yPos, 0, hwnd, NULL);
+            DestroyMenu(hMenu);
+            if (cmd == IDM_COMP_CTX_EDIT)
+                SendMessageW(hwnd, WM_COMMAND, IDC_COMP_EDIT, 0);
+            return 0;
+        }
+
+        // Handle Components TreeView context menu
+        if (hWndContext == s_hCompTreeView) {
+            int xPos = GET_X_LPARAM(lParam);
+            int yPos = GET_Y_LPARAM(lParam);
+            if (xPos == -1 && yPos == -1) {
+                HTREEITEM hSel = TreeView_GetSelection(s_hCompTreeView);
+                if (hSel) {
+                    RECT rcItem;
+                    TreeView_GetItemRect(s_hCompTreeView, hSel, &rcItem, TRUE);
+                    POINT pt = { rcItem.left, rcItem.bottom };
+                    ClientToScreen(s_hCompTreeView, &pt);
+                    xPos = pt.x; yPos = pt.y;
+                }
+            }
+            // Hit-test and select the item under the cursor
+            TVHITTESTINFO ht = {};
+            ht.pt = { xPos, yPos };
+            ScreenToClient(s_hCompTreeView, &ht.pt);
+            HTREEITEM hHit = TreeView_HitTest(s_hCompTreeView, &ht);
+            if (!hHit) return 0;
+            TreeView_SelectItem(s_hCompTreeView, hHit);
+
+            TVITEMW tvi = {}; tvi.hItem = hHit; tvi.mask = TVIF_PARAM;
+            TreeView_GetItem(s_hCompTreeView, &tvi);
+            const TreeNodeSnapshot* snap = (const TreeNodeSnapshot*)tvi.lParam;
+            if (!snap) return 0;  // section root — no lParam
+
+            auto LS = [&](const wchar_t* k, const wchar_t* fb) -> std::wstring {
+                auto it = s_locale.find(k); return (it != s_locale.end()) ? it->second : fb;
+            };
+            HMENU hMenu = CreatePopupMenu();
+            AppendMenuW(hMenu, MF_STRING, IDM_COMP_TREE_CTX_EDIT, LS(L"comp_edit", L"Edit").c_str());
+            int cmd = (int)TrackPopupMenu(hMenu, TPM_RIGHTBUTTON | TPM_RETURNCMD, xPos, yPos, 0, hwnd, NULL);
+            DestroyMenu(hMenu);
+
+            if (cmd == IDM_COMP_TREE_CTX_EDIT) {
+                // Collect all file paths under this folder and its subfolders
+                std::vector<std::wstring> paths;
+                CollectSnapshotPaths(*snap, paths);
+                if (paths.empty()) return 0;
+
+                // Determine current required state
+                // -1 = not yet set, then 0/1; if mixed outcomes -> use 0
+                int reqState = -1;
+                for (const auto& path : paths) {
+                    for (const auto& cmp : s_components) {
+                        if (cmp.source_path == path) {
+                            if (reqState == -1) reqState = cmp.is_required;
+                            else if (reqState != cmp.is_required) { reqState = -1; goto mixed_done; }
+                            break;
+                        }
+                    }
+                }
+                mixed_done:
+
+                CompFolderDlgData fd;
+                fd.folderName    = snap->text;
+                fd.initRequired  = (reqState == 1) ? 1 : 0;
+                fd.titleText     = LS(L"comp_folder_edit_title",  L"Edit Folder");
+                fd.requiredLabel = LS(L"comp_required_label",     L"Required (always installed)");
+                fd.cascadeHint   = LS(L"comp_folder_cascade_hint",
+                    L"Applies to all files and subfolders. You can still override individual subfolders afterwards.");
+                fd.okText        = LS(L"ok",     L"OK");
+                fd.cancelText    = LS(L"cancel", L"Cancel");
+
+                // Register and show the dialog
+                WNDCLASSEXW wcFd = {};
+                wcFd.cbSize = sizeof(wcFd);
+                if (!GetClassInfoExW(GetModuleHandleW(NULL), L"CompFolderEditDialog", &wcFd)) {
+                    wcFd.lpfnWndProc   = CompFolderEditDlgProc;
+                    wcFd.hInstance     = GetModuleHandleW(NULL);
+                    wcFd.lpszClassName = L"CompFolderEditDialog";
+                    wcFd.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
+                    wcFd.hCursor       = LoadCursor(NULL, IDC_ARROW);
+                    RegisterClassExW(&wcFd);
+                }
+                RECT rcMain3; GetWindowRect(hwnd, &rcMain3);
+                int dlgW3 = 580, dlgH3 = 190;
+                HWND hFd = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+                    L"CompFolderEditDialog", fd.titleText.c_str(),
+                    WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
+                    rcMain3.left + ((rcMain3.right - rcMain3.left) - dlgW3) / 2,
+                    rcMain3.top  + ((rcMain3.bottom - rcMain3.top)  - dlgH3) / 2,
+                    dlgW3, dlgH3, hwnd, NULL, GetModuleHandleW(NULL), &fd);
+                MSG msgFd;
+                while (GetMessageW(&msgFd, NULL, 0, 0) > 0) {
+                    if (!IsWindow(hFd)) break;
+                    TranslateMessage(&msgFd); DispatchMessageW(&msgFd);
+                }
+
+                if (fd.okClicked) {
+                    // Cascade required flag to all ComponentRows matching the collected paths
+                    for (const auto& path : paths) {
+                        for (auto& cmp : s_components) {
+                            if (cmp.source_path == path) {
+                                ComponentRow updated = cmp;
+                                updated.is_required = fd.outRequired;
+                                DB::UpdateComponent(updated);
+                                break;
+                            }
+                        }
+                    }
+                    SwitchPage(hwnd, 9);
+                    MarkAsModified();
+                }
+            }
+            return 0;
+        }
+
         // Handle TreeView context menu
         if (hWndContext == s_hTreeView) {
             // Get cursor position
@@ -5791,7 +6593,12 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                     AppendMenuW(hMenu, MF_STRING, IDM_TREEVIEW_REMOVE_FOLDER, L"Remove");
                 }
 
+                // Ensure main window is foreground before showing the popup, otherwise
+                // TrackPopupMenu blocks until the window is re-activated (alt-tab bug).
+                // PostMessage(WM_NULL) after the call is the MSDN-documented companion fix.
+                SetForegroundWindow(hwnd);
                 TrackPopupMenu(hMenu, TPM_RIGHTBUTTON, xPos, yPos, 0, hwnd, NULL);
+                PostMessageW(hwnd, WM_NULL, 0, 0);
                 DestroyMenu(hMenu);
             }
             return 0;

@@ -68,4 +68,8 @@ namespace DB {
     std::vector<ComponentRow> GetComponentsForProject(int projectId);
     bool DeleteComponentsForProject(int projectId);
     bool DeleteComponent(int id);
+    // Component dependency persistence
+    bool InsertComponentDependency(int componentId, int dependsOnId);
+    std::vector<int> GetDependenciesForComponent(int componentId);
+    bool DeleteDependenciesForComponent(int componentId);
 }
