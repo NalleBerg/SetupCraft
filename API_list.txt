@@ -31,4 +31,10 @@
                                     path, toolbar row layout, and step-by-step
                                     guide for adding a new toolbar button.
 
+  shell32_API.txt                   Shell icon loading reference — PrivateExtractIconsW
+                                    vs LoadImageW(MAKEINTRESOURCE), verified
+                                    sequential icon indices for shell32.dll and
+                                    imageres.dll, ImageList loading pattern,
+                                    and ComponentRow dest_path cascade-scope rules.
+
 ================================================================================

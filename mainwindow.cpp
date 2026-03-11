@@ -19,6 +19,8 @@
 #include "dragdrop.h"
 #include <fstream>
 
+// (no extra declarations needed — ExtractIconExW is in shellapi.h)
+
 // Static member initialization
 ProjectRow MainWindow::s_currentProject = {};
 std::map<std::wstring, std::wstring> MainWindow::s_locale;
@@ -1060,6 +1062,12 @@ static void SaveTreeToDb(int projectId,
 static void VFSPicker_AddSubtree(HWND hTree, HTREEITEM hParent,
                                  const std::vector<TreeNodeSnapshot>& nodes);
 static void CollectSnapshotPaths(const TreeNodeSnapshot& snap, std::vector<std::wstring>& out);
+static void CollectAllFiles(const std::vector<TreeNodeSnapshot>& nodes,
+                            int projectId, std::vector<ComponentRow>& out,
+                            const std::wstring& sectionRoot);
+static void UpdateCompTreeRequiredIcons(HWND hTree, HTREEITEM hItem,
+                                        const std::wstring& sectionHint,
+                                        bool parentIsRequired);
 
 // -- Multi-select tracking set for Files-page TreeView ----------------------
 static WNDPROC g_origFilesTreeProc = NULL;
@@ -1174,35 +1182,81 @@ static LRESULT CALLBACK CompTree_TooltipSubclassProc(HWND hwnd, UINT msg, WPARAM
                               : DefWindowProcW(hwnd, msg, wParam, lParam);
 }
 
+// Walk up the comp tree to find the section root node (lParam == 0) and return its label.
+// Returns e.g. L"Program Files", L"AskAtInstall", etc.
+static std::wstring GetCompTreeItemSection(HWND hTree, HTREEITEM hItem)
+{
+    HTREEITEM cur = hItem;
+    while (cur) {
+        wchar_t buf[256] = {};
+        TVITEMW t = {}; t.hItem = cur; t.mask = TVIF_PARAM | TVIF_TEXT;
+        t.pszText = buf; t.cchTextMax = 256;
+        TreeView_GetItem(hTree, &t);
+        if (t.lParam == 0)   // section root has no snapshot
+            return std::wstring(buf);
+        HTREEITEM hP = TreeView_GetParent(hTree, cur);
+        if (!hP) break;
+        cur = hP;
+    }
+    return L"";
+}
+
 // Walk the comp tree and set icon index 3 (required) or 0 (optional) on each
-// node based on whether all its files are marked is_required == 1.
-static void UpdateCompTreeRequiredIcons(HWND hTree, HTREEITEM hItem)
+// node based on whether all its files are marked is_required == 1 in the
+// correct section (so AskAtInstall components are never confused with
+// Program Files components that share the same source path).
+// parentIsRequired: when true, nodes with NO registered components inherit the
+// parent's required state instead of defaulting to optional.  This makes
+// empty or component-less subfolders (img/, locale/ etc.) correctly reflect the
+// cascaded required state of their parent.
+static void UpdateCompTreeRequiredIcons(HWND hTree, HTREEITEM hItem,
+                                        const std::wstring& sectionHint = L"",
+                                        bool parentIsRequired = false)
 {
     while (hItem) {
-        TVITEMW tvi = {}; tvi.hItem = hItem; tvi.mask = TVIF_PARAM;
+        wchar_t textBuf[256] = {};
+        TVITEMW tvi = {}; tvi.hItem = hItem;
+        tvi.mask = TVIF_PARAM | TVIF_TEXT;
+        tvi.pszText = textBuf; tvi.cchTextMax = 256;
         TreeView_GetItem(hTree, &tvi);
         const TreeNodeSnapshot* snap = (const TreeNodeSnapshot*)tvi.lParam;
+
+        // Section root nodes have lParam == 0; their label IS the section name.
+        std::wstring mySection = sectionHint;
+        if (!snap && textBuf[0])
+            mySection = textBuf;
+
+        int useIcon = 0;
         if (snap) {
             std::vector<std::wstring> paths;
             CollectSnapshotPaths(*snap, paths);
-            bool allRequired = !paths.empty();
+            // Only consider files that ARE registered as components.
+            // Files not in s_components (unregistered) are ignored so they
+            // don't prevent a parent folder from receiving the required icon.
+            bool anyFound     = false;
+            bool allRequired  = true;
             for (const auto& p : paths) {
-                bool found = false;
                 for (const auto& c : s_components) {
-                    if (c.source_path == p) {
-                        if (!c.is_required) allRequired = false;
-                        found = true; break;
-                    }
+                    if (c.source_path != p) continue;
+                    if (!c.dest_path.empty() && c.dest_path != mySection) continue;
+                    anyFound = true;
+                    if (!c.is_required) allRequired = false;
+                    break;
                 }
-                if (!found) { allRequired = false; }
                 if (!allRequired) break;
             }
+            if (anyFound)
+                useIcon = allRequired ? 3 : 0;
+            else
+                useIcon = parentIsRequired ? 3 : 0;  // inherit parent state
             tvi.mask = TVIF_IMAGE | TVIF_SELECTEDIMAGE;
-            tvi.iImage         = allRequired ? 3 : 0;
-            tvi.iSelectedImage = allRequired ? 3 : 1;
+            tvi.iImage         = useIcon;
+            tvi.iSelectedImage = (useIcon == 3) ? 3 : 1;
             TreeView_SetItem(hTree, &tvi);
         }
-        UpdateCompTreeRequiredIcons(hTree, TreeView_GetChild(hTree, hItem));
+        // Propagate this node's resolved required state to its children so that
+        // component-less sub-folders (img/, locale/ etc.) pick up the cascade.
+        UpdateCompTreeRequiredIcons(hTree, TreeView_GetChild(hTree, hItem), mySection, useIcon == 3);
         hItem = TreeView_GetNextSibling(hTree, hItem);
     }
 }
@@ -2359,13 +2413,17 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
                     }
                     if (hBadge) { ImageList_AddIcon(hCompIL, hBadge); DestroyIcon(hBadge); }
                     FreeLibrary(hShell32);
-                    // Required-folder icon from imageres.dll — index 3
-                    HMODULE hImgres = LoadLibraryW(L"imageres.dll");
-                    if (hImgres) {
-                        HICON hReq = (HICON)LoadImageW(hImgres, MAKEINTRESOURCEW(110),
-                                                       IMAGE_ICON, 32, 32, LR_DEFAULTCOLOR);
+                    // Required-folder icon: imageres.dll sequential index 110
+                    // (folder with blue checkmark badge). ExtractIconExW is documented,
+                    // already available via shellapi.h, and takes the same 0-based
+                    // sequential index as PrivateExtractIconsW.
+                    {
+                        wchar_t imgresPath[MAX_PATH];
+                        GetSystemDirectoryW(imgresPath, MAX_PATH);
+                        wcscat_s(imgresPath, L"\\imageres.dll");
+                        HICON hReq = NULL;
+                        ExtractIconExW(imgresPath, 110, &hReq, NULL, 1);
                         if (hReq) { ImageList_AddIcon(hCompIL, hReq); DestroyIcon(hReq); }
-                        FreeLibrary(hImgres);
                     }
                 }
                 TreeView_SetImageList(s_hCompTreeView, hCompIL, TVSIL_NORMAL);
@@ -2415,6 +2473,44 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         // Load components from DB
         if (s_currentProject.id > 0) {
             s_components = DB::GetComponentsForProject(s_currentProject.id);
+
+            // Repair legacy rows that have dest_path=="" by inferring their section
+            // from the VFS snapshots.  The VFS snapshots are always built in the same
+            // section order as the initial auto-populate (PF → PD → AD → AAI), so
+            // positional matching recovers the correct section even when the same
+            // source file is registered in more than one section.
+            {
+                bool anyLegacy = false;
+                for (const auto& c : s_components)
+                    if (c.dest_path.empty()) { anyLegacy = true; break; }
+                if (anyLegacy) {
+                    // Build per-path ordered section lists from each snapshot.
+                    std::unordered_map<std::wstring, std::vector<std::wstring>> sectionSeq;
+                    auto gather = [&](const std::vector<TreeNodeSnapshot>& nodes,
+                                      const std::wstring& sec) {
+                        std::vector<ComponentRow> tmp;
+                        CollectAllFiles(nodes, 0, tmp, L"");
+                        for (const auto& row : tmp)
+                            if (!row.source_path.empty())
+                                sectionSeq[row.source_path].push_back(sec);
+                    };
+                    gather(s_treeSnapshot_ProgramFiles,  L"Program Files");
+                    gather(s_treeSnapshot_ProgramData,   L"ProgramData");
+                    gather(s_treeSnapshot_AppData,       L"AppData (Roaming)");
+                    gather(s_treeSnapshot_AskAtInstall,  L"AskAtInstall");
+
+                    std::unordered_map<std::wstring, int> pathUsed;
+                    for (auto& comp : s_components) {
+                        if (!comp.dest_path.empty()) continue;
+                        int idx = pathUsed[comp.source_path]++;
+                        auto it = sectionSeq.find(comp.source_path);
+                        if (it != sectionSeq.end() && idx < (int)it->second.size()) {
+                            comp.dest_path = it->second[idx];
+                            DB::UpdateComponent(comp);   // persist so fix runs only once
+                        }
+                    }
+                }
+            }
         } else {
             s_components.clear();
         }
@@ -3661,7 +3757,8 @@ static void CollectSnapshotPaths(const TreeNodeSnapshot& snap, std::vector<std::
 // Falls back to disk scan for real-path nodes whose virtualFiles were never populated.
 static void CollectAllFiles(const std::vector<TreeNodeSnapshot>& nodes,
                             int projectId,
-                            std::vector<ComponentRow>& out)
+                            std::vector<ComponentRow>& out,
+                            const std::wstring& sectionRoot = L"")
 {
     for (const auto& snap : nodes) {
         if (!snap.virtualFiles.empty()) {
@@ -3677,7 +3774,7 @@ static void CollectAllFiles(const std::vector<TreeNodeSnapshot>& nodes,
                 comp.is_required  = 0;
                 comp.source_type  = L"file";
                 comp.source_path  = vf.sourcePath;
-                comp.dest_path    = L"";
+                comp.dest_path    = sectionRoot;   // section tag for scoped cascade
                 out.push_back(comp);
             }
         } else if (!snap.fullPath.empty()) {
@@ -3696,13 +3793,13 @@ static void CollectAllFiles(const std::vector<TreeNodeSnapshot>& nodes,
                     comp.is_required  = 0;
                     comp.source_type  = L"file";
                     comp.source_path  = snap.fullPath + L"\\" + fd.cFileName;
-                    comp.dest_path    = L"";
+                    comp.dest_path    = sectionRoot;   // section tag for scoped cascade
                     out.push_back(comp);
                 } while (FindNextFileW(hFind, &fd));
                 FindClose(hFind);
             }
         }
-        CollectAllFiles(snap.children, projectId, out);
+        CollectAllFiles(snap.children, projectId, out, sectionRoot);
     }
 }
 
@@ -6131,10 +6228,10 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 // Auto-populate from VFS snapshots only if there are no components yet
                 if (DB::GetComponentsForProject(s_currentProject.id).empty()) {
                     std::vector<ComponentRow> toAdd;
-                    CollectAllFiles(s_treeSnapshot_ProgramFiles,  s_currentProject.id, toAdd);
-                    CollectAllFiles(s_treeSnapshot_ProgramData,   s_currentProject.id, toAdd);
-                    CollectAllFiles(s_treeSnapshot_AppData,       s_currentProject.id, toAdd);
-                    CollectAllFiles(s_treeSnapshot_AskAtInstall,  s_currentProject.id, toAdd);
+                    CollectAllFiles(s_treeSnapshot_ProgramFiles,  s_currentProject.id, toAdd, L"Program Files");
+                    CollectAllFiles(s_treeSnapshot_ProgramData,   s_currentProject.id, toAdd, L"ProgramData");
+                    CollectAllFiles(s_treeSnapshot_AppData,       s_currentProject.id, toAdd, L"AppData (Roaming)");
+                    CollectAllFiles(s_treeSnapshot_AskAtInstall,  s_currentProject.id, toAdd, L"AskAtInstall");
                     for (auto& c : toAdd) DB::InsertComponent(c);
                 }
             } else {
@@ -6781,16 +6878,20 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 CollectSnapshotPaths(*snap, paths);
                 if (paths.empty()) return 0;
 
+                // Determine which section (Program Files / AskAtInstall etc.) this node
+                // belongs to, so the cascade doesn't bleed into other sections.
+                std::wstring section = GetCompTreeItemSection(s_hCompTreeView, hHit);
+
                 // Determine current required state
                 // -1 = not yet set, then 0/1; if mixed outcomes -> use 0
                 int reqState = -1;
                 for (const auto& path : paths) {
                     for (const auto& cmp : s_components) {
-                        if (cmp.source_path == path) {
-                            if (reqState == -1) reqState = cmp.is_required;
-                            else if (reqState != cmp.is_required) { reqState = -1; goto mixed_done; }
-                            break;
-                        }
+                        if (cmp.source_path != path) continue;
+                        if (!cmp.dest_path.empty() && cmp.dest_path != section) continue;
+                        if (reqState == -1) reqState = cmp.is_required;
+                        else if (reqState != cmp.is_required) { reqState = -1; goto mixed_done; }
+                        break;
                     }
                 }
                 mixed_done:
@@ -6831,14 +6932,16 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 }
 
                 if (fd.okClicked) {
-                    // Cascade required flag to all ComponentRows matching the collected paths
+                    // Cascade required flag to all ComponentRows matching the collected paths,
+                    // restricted to the same section so AskAtInstall entries are not affected
+                    // when cascading a Program Files folder (and vice-versa).
                     for (const auto& path : paths) {
                         for (auto& cmp : s_components) {
-                            if (cmp.source_path == path) {
-                                cmp.is_required = fd.outRequired;
-                                DB::UpdateComponent(cmp);
-                                break;
-                            }
+                            if (cmp.source_path != path) continue;
+                            if (!cmp.dest_path.empty() && cmp.dest_path != section) continue;
+                            cmp.is_required = fd.outRequired;
+                            DB::UpdateComponent(cmp);
+                            break;
                         }
                     }
                     // Refresh required-folder icons without a full page rebuild

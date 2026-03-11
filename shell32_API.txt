@@ -1,0 +1,409 @@
+================================================================================
+  SetupCraft — Shell Icon Loading Reference
+================================================================================
+
+  This file documents how icons are loaded from Windows system DLLs throughout
+  SetupCraft, and which icon indices correspond to which images.
+
+  KEY RULE: Use ExtractIconExW (documented, shellapi.h) for loading icons from
+  system DLLs into ImageLists.  PrivateExtractIconsW is an undocumented
+  user32.dll export that can silently fail on some Windows configurations —
+  use it only as a fallback inside button.cpp's draw path.  Do NOT use
+  LoadLibraryW + LoadImageW(MAKEINTRESOURCE(n)) for shell/imageres icons;
+  resource IDs are NOT the same as sequential indices.
+
+================================================================================
+  §1  ExtractIconExW — recommended method for ImageList loading
+================================================================================
+
+  Prototype (shellapi.h, already included via mainwindow.cpp):
+
+    UINT ExtractIconExW(LPCWSTR lpszFile, int nIconIndex,
+                        HICON *phiconLarge,  // 32x32 (or NULL)
+                        HICON *phiconSmall,  // 16x16 (or NULL)
+                        UINT nIcons);
+
+  nIconIndex is 0-based sequential — same numbering shown in IconViewer.exe.
+  Returns the number of icons extracted (0 on failure).
+
+  Usage pattern (used for imageres.dll required-folder icon in comp tree):
+
+    wchar_t path[MAX_PATH];
+    GetSystemDirectoryW(path, MAX_PATH);
+    wcscat_s(path, L"\\imageres.dll");   // or shell32.dll etc.
+    HICON hLarge = NULL;
+    ExtractIconExW(path, INDEX, &hLarge, NULL, 1);
+    if (hLarge) { ImageList_AddIcon(hIL, hLarge); DestroyIcon(hLarge); }
+
+  Notes:
+  - GetSystemDirectoryW returns the true system32 path on a 64-bit process.
+  - Always call DestroyIcon() after ImageList_AddIcon (the list copies the bits).
+
+================================================================================
+  §2  PrivateExtractIconsW — used internally by button.cpp only
+================================================================================
+
+  Declared manually in button.cpp:
+
+    extern "C" __declspec(dllimport) UINT WINAPI PrivateExtractIconsW(
+        LPCWSTR szFileName, int nIconIndex, int cxIcon, int cyIcon,
+        HICON* phicon, UINT* piconid, UINT nIcons, UINT flags);
+
+  Same 0-based sequential index as ExtractIconExW.  Works well for button icon
+  drawing (desired pixel size controllable via cxIcon/cyIcon), but can silently
+  return 0 on some Windows configurations.
+
+  DO NOT add a second declaration of PrivateExtractIconsW in mainwindow.cpp —
+  use ExtractIconExW there instead (it is already declared via shellapi.h).
+
+================================================================================
+  §3  Verified icon indices — shell32.dll (sequential, 0-based)
+================================================================================
+
+  These are confirmed working with ExtractIconExW / PrivateExtractIconsW and
+  are used throughout SetupCraft:
+
+  Index   Description                          Where used
+  ──────────────────────────────────────────────────────────────────────────────
+    3     Closed folder (yellow)               Files page TreeView image list
+    4     Closed folder (yellow) — alt size    Files page TreeView image list
+                                               Comp page TreeView image list
+    5     Open folder (yellow, open lid)       Files page / Comp page selected
+  109     No-drop cursor icon                  Drag-and-drop module
+  131     Red X / close icon                   Close Project button, OK/Cancel
+  221     Information / About (i)              About icon button
+  300     Can-drop / move cursor icon          Drag-and-drop module
+
+  NOTE: button_INTERNALS.txt "Verified shell32.dll icon indices" is the
+  authoritative list for toolbar buttons.
+
+================================================================================
+  §4  Verified icon indices — imageres.dll (sequential, 0-based)
+================================================================================
+
+  Confirmed with IconViewer.exe against imageres.dll:
+
+  Index   Description                          Where used
+  ──────────────────────────────────────────────────────────────────────────────
+  109     Edit / settings gear                 Comp page Edit button (IDC_COMP_EDIT)
+  110     Folder with blue checkmark badge     Comp tree image list index 3
+                                               Shown on fully-required folders
+  244     Warning / shield exclamation         Registry page warning icon
+
+  IMPORTANT: Resource IDs in imageres.dll do NOT match sequential indices.
+  Always use the sequential index with ExtractIconExW, never
+  LoadImageW(hModule, MAKEINTRESOURCEW(n), ...).
+
+================================================================================
+  §5  Loading icons into a TreeView ImageList
+================================================================================
+
+  Standard pattern used in SetupCraft (from comp page TreeView setup):
+
+    HIMAGELIST hIL = ImageList_Create(32, 32, ILC_COLOR32 | ILC_MASK, 4, 0);
+
+    wchar_t shell32Path[MAX_PATH];
+    GetSystemDirectoryW(shell32Path, MAX_PATH);
+    wcscat_s(shell32Path, L"\\shell32.dll");
+
+    // index 0 — closed folder
+    HICON hClosed = NULL;
+    ExtractIconExW(shell32Path, 4, &hClosed, NULL, 1);
+    if (hClosed) { ImageList_AddIcon(hIL, hClosed); DestroyIcon(hClosed); }
+
+    // index 1 — open folder
+    HICON hOpen = NULL;
+    ExtractIconExW(shell32Path, 5, &hOpen, NULL, 1);
+    if (hOpen)   { ImageList_AddIcon(hIL, hOpen);   DestroyIcon(hOpen);   }
+
+    // index 2 — custom badge (drawn manually, not from a DLL)
+    // ... CreateCompatibleBitmap + Ellipse + CreateIconIndirect ...
+    if (hBadge)  { ImageList_AddIcon(hIL, hBadge);  DestroyIcon(hBadge);  }
+
+    // index 3 — required-folder icon (imageres.dll sequential index 110)
+    wchar_t imgresPath[MAX_PATH];
+    GetSystemDirectoryW(imgresPath, MAX_PATH);
+    wcscat_s(imgresPath, L"\\imageres.dll");
+    HICON hReq = NULL;
+    ExtractIconExW(imgresPath, 110, &hReq, NULL, 1);
+    if (hReq)    { ImageList_AddIcon(hIL, hReq);    DestroyIcon(hReq);    }
+
+    TreeView_SetImageList(hTree, hIL, TVSIL_NORMAL);
+    TreeView_SetItemHeight(hTree, 34);
+
+    // Store for cleanup (avoid leak on SwitchPage):
+    HIMAGELIST hOld = (HIMAGELIST)GetPropW(hwnd, L"hCompTreeIL");
+    if (hOld) ImageList_Destroy(hOld);
+    SetPropW(hwnd, L"hCompTreeIL", (HANDLE)hIL);
+
+================================================================================
+  §6  Why NOT LoadLibraryW + LoadImageW(MAKEINTRESOURCEW(n))
+================================================================================
+
+  LoadImageW with MAKEINTRESOURCEW(n) looks up an icon by RESOURCE ID, not by
+  sequential position.  In imageres.dll the resource IDs are private and do not
+  correspond to sequential positions — MAKEINTRESOURCEW(110) returns a
+  completely different icon than sequential index 110.
+
+  Additionally, LoadLibraryExW(..., LOAD_LIBRARY_AS_DATAFILE) prevents MUI icon
+  resolution on Windows 8+, causing failures for modern icon resources.
+
+  Summary: indices in this file and documentation are always sequential
+  (0-based, as shown in IconViewer.exe).  Pass them to ExtractIconExW, not to
+  LoadImageW(MAKEINTRESOURCEW).
+
+================================================================================
+  §7  Required-folder icon logic in UpdateCompTreeRequiredIcons
+================================================================================
+
+  A folder in the comp tree receives icon index 3 (required badge) when:
+  - At least one file under it (recursively) IS registered in s_components, AND
+  - ALL registered files found under it have is_required == 1.
+
+  Files that exist on disk but are NOT in s_components are ignored — they do not
+  prevent a parent folder from showing the required icon.  This handles the
+  common case where a folder contains files that were never added to the
+  component registry.
+
+  Code pattern:
+    bool anyFound    = false;
+    bool allRequired = true;
+    for (const auto& p : paths) {
+        for (const auto& c : s_components) {
+            if (c.source_path != p) continue;
+            if (!c.dest_path.empty() && c.dest_path != mySection) continue;
+            anyFound = true;
+            if (!c.is_required) allRequired = false;
+            break;
+        }
+        if (!allRequired) break;
+    }
+    // anyFound=false → inherit parent's resolved state (parentIsRequired).
+    // This handles subfolders (img/, locale/ etc.) that have no component rows
+    // but should display the badge when their parent is fully required.
+    int useIcon = anyFound ? (allRequired ? 3 : 0) : (parentIsRequired ? 3 : 0);
+
+  UpdateCompTreeRequiredIcons signature:
+    static void UpdateCompTreeRequiredIcons(HWND hTree, HTREEITEM hItem,
+                                            const std::wstring& sectionHint = L"",
+                                            bool parentIsRequired = false);
+
+  Each recursive call passes   useIcon == 3   as the new parentIsRequired:
+    UpdateCompTreeRequiredIcons(hTree, TreeView_GetChild(hTree, hItem),
+                                mySection, useIcon == 3);
+
+================================================================================
+  §8  Cascade-scope and dest_path in ComponentRow
+================================================================================
+
+  When components are auto-populated (Enable Components toggle), CollectAllFiles
+  is called once per section and stores the section name in ComponentRow.dest_path:
+
+    CollectAllFiles(s_treeSnapshot_ProgramFiles,  id, out, L"Program Files");
+    CollectAllFiles(s_treeSnapshot_ProgramData,   id, out, L"ProgramData");
+    CollectAllFiles(s_treeSnapshot_AppData,       id, out, L"AppData (Roaming)");
+    CollectAllFiles(s_treeSnapshot_AskAtInstall,  id, out, L"AskAtInstall");
+
+  This prevents a cascade on a Program Files node from accidentally updating
+  AskAtInstall components that share the same physical source_path.
+
+  Matching rule:
+    if (!cmp.dest_path.empty() && cmp.dest_path != section) continue;
+    // empty dest_path = legacy row (pre-section fix) — treated as a match
+
+  Legacy repair block (runs once on Components page load):
+
+    When a project was created before section-tagging was introduced, all rows
+    have dest_path == "".  On the first load of the Components page a repair
+    block infers the correct section for each row by matching source paths
+    against the four VFS snapshots (in the same insertion order used by
+    CollectAllFiles: Program Files → ProgramData → AppData → AskAtInstall),
+    assigns the section, and writes it back via DB::UpdateComponent.  After
+    that single pass the repair condition (anyLegacy) is false and the block
+    is skipped on every subsequent load.
+
+  Helper: GetCompTreeItemSection(HWND hTree, HTREEITEM hItem)
+    Walks parent chain up to the section root (lParam == 0) and returns its
+    text label (e.g. L"Program Files" or L"AskAtInstall").
+
+================================================================================
+
+  This file documents how icons are loaded from Windows system DLLs throughout
+  SetupCraft, and which icon indices correspond to which images.
+
+  KEY RULE: Always use PrivateExtractIconsW (or ExtractIconExW) for loading
+  icons from system DLLs.  Do NOT use LoadLibraryW + LoadImageW(MAKEINTRESOURCE)
+  for shell/imageres icon loading — resource IDs are NOT the same as the
+  sequential (0-based) icon indices used by PrivateExtractIconsW.
+
+================================================================================
+  §1  PrivateExtractIconsW — primary method (used by button.cpp)
+================================================================================
+
+  Declaration (copy into any .cpp that needs it):
+
+    extern "C" __declspec(dllimport) UINT WINAPI PrivateExtractIconsW(
+        LPCWSTR szFileName,   // full path to the DLL/EXE
+        int     nIconIndex,   // 0-based sequential icon index
+        int     cxIcon,       // desired width  in px (e.g. 32)
+        int     cyIcon,       // desired height in px (e.g. 32)
+        HICON  *phicon,       // receives the icon handle (or NULL)
+        UINT   *piconid,      // receives resource ID   (or NULL)
+        UINT    nIcons,       // number of icons to extract (usually 1)
+        UINT    flags);       // 0 for standard extraction
+
+  Usage pattern (mirrors button.cpp):
+
+    wchar_t path[MAX_PATH];
+    GetSystemDirectoryW(path, MAX_PATH);
+    wcscat_s(path, L"\\shell32.dll");   // or imageres.dll, etc.
+    HICON hIcon = NULL;
+    PrivateExtractIconsW(path, INDEX, SIZE, SIZE, &hIcon, NULL, 1, 0);
+    if (hIcon) { /* use icon */ DestroyIcon(hIcon); }
+
+  Notes:
+  - GetSystemDirectoryW returns the true system32 path; never hardcode it.
+  - The function is exported from user32.dll (undocumented but stable since
+    Windows XP; used by the Windows shell itself).
+  - Always call DestroyIcon() after adding to an ImageList
+    (ImageList_AddIcon copies the bits).
+
+================================================================================
+  §2  ExtractIconExW — alternative when PrivateExtractIconsW is not declared
+================================================================================
+
+  Prototype (shellapi.h, already included via mainwindow.cpp):
+
+    UINT ExtractIconExW(LPCWSTR lpszFile, int nIconIndex,
+                        HICON *phiconLarge,  // 32×32 or NULL
+                        HICON *phiconSmall,  // 16×16 or NULL
+                        UINT nIcons);
+
+  nIconIndex is also 0-based sequential, same numbering as PrivateExtractIconsW.
+  Prefer PrivateExtractIconsW when transparency matters; ExtractIconExW may
+  produce a black background on older icon formats.
+
+================================================================================
+  §3  Verified icon indices — shell32.dll (sequential, 0-based)
+================================================================================
+
+  These are confirmed working with PrivateExtractIconsW and are used throughout
+  SetupCraft:
+
+  Index   Description                          Where used
+  ──────────────────────────────────────────────────────────────────────────────
+    3     Closed folder (yellow)               Files page TreeView image list
+    4     Closed folder (yellow) — alt size    Files page TreeView image list
+                                               Comp page TreeView image list
+    5     Open folder (yellow, open lid)       Files page / Comp page selected
+  109     No-drop cursor icon                  Drag-and-drop module
+  131     Red ✕ / close icon                   Close Project button, OK/Cancel
+  221     Information / About (ℹ)              About icon button
+  300     Can-drop / move cursor icon          Drag-and-drop module
+
+  NOTE: button_INTERNALS.txt §"Verified shell32.dll icon indices" is the
+  authoritative list for toolbar buttons.  The table above lists only the
+  indices used in image lists and non-button contexts.
+
+================================================================================
+  §4  Verified icon indices — imageres.dll (sequential, 0-based)
+================================================================================
+
+  Index   Description                          Where used
+  ──────────────────────────────────────────────────────────────────────────────
+  109     Edit / settings gear (imageres)      Comp page Edit button (IDC_COMP_EDIT)
+  110     Folder with blue checkmark badge     Comp tree image list index 3
+                                               Indicates a fully-required folder
+  244     Warning / shield exclamation         Registry page warning icon
+
+  NOTE: Resource IDs in imageres.dll do NOT match sequential indices.
+  Always use PrivateExtractIconsW with these sequential indices, never
+  LoadImageW(hModule, MAKEINTRESOURCEW(n), ...).
+
+================================================================================
+  §5  Loading icons into a TreeView ImageList
+================================================================================
+
+  Standard pattern used in SetupCraft:
+
+    HIMAGELIST hIL = ImageList_Create(32, 32, ILC_COLOR32 | ILC_MASK, 4, 0);
+
+    // index 0 — closed folder
+    wchar_t shell32Path[MAX_PATH];
+    GetSystemDirectoryW(shell32Path, MAX_PATH);
+    wcscat_s(shell32Path, L"\\shell32.dll");
+    HICON hClosed = NULL;
+    PrivateExtractIconsW(shell32Path, 4, 32, 32, &hClosed, NULL, 1, 0);
+    if (hClosed) { ImageList_AddIcon(hIL, hClosed); DestroyIcon(hClosed); }
+
+    // index 1 — open folder
+    HICON hOpen = NULL;
+    PrivateExtractIconsW(shell32Path, 5, 32, 32, &hOpen, NULL, 1, 0);
+    if (hOpen)   { ImageList_AddIcon(hIL, hOpen);   DestroyIcon(hOpen);   }
+
+    // index 2 — custom badge (drawn manually, not from DLL)
+    // ... CreateCompatibleBitmap + Ellipse + CreateIconIndirect ...
+    if (hBadge)  { ImageList_AddIcon(hIL, hBadge);  DestroyIcon(hBadge);  }
+
+    // index 3 — required-folder icon (imageres.dll)
+    wchar_t imgresPath[MAX_PATH];
+    GetSystemDirectoryW(imgresPath, MAX_PATH);
+    wcscat_s(imgresPath, L"\\imageres.dll");
+    HICON hReq = NULL;
+    PrivateExtractIconsW(imgresPath, 110, 32, 32, &hReq, NULL, 1, 0);
+    if (hReq)    { ImageList_AddIcon(hIL, hReq);    DestroyIcon(hReq);    }
+
+    TreeView_SetImageList(hTree, hIL, TVSIL_NORMAL);
+    TreeView_SetItemHeight(hTree, 34);
+
+    // Store for cleanup (avoid duplicate creation on SwitchPage):
+    HIMAGELIST hOld = (HIMAGELIST)GetPropW(hwnd, L"hCompTreeIL");
+    if (hOld) ImageList_Destroy(hOld);
+    SetPropW(hwnd, L"hCompTreeIL", (HANDLE)hIL);
+
+================================================================================
+  §6  Why NOT LoadLibraryW + LoadImageW(MAKEINTRESOURCEW(n))
+================================================================================
+
+  LoadImageW with MAKEINTRESOURCEW(n) looks up an icon by its RESOURCE ID, not
+  by sequential position.  In shell32.dll and imageres.dll:
+
+  - Resource IDs are sparse (e.g. shell32 folder closed = resource ID 4,
+    which happens to match sequential index 3).  They are NOT the same number.
+  - imageres.dll has been compiled with private resource IDs that do not
+    correspond to sequential positions at all.  Using MAKEINTRESOURCEW(110)
+    in imageres.dll returns a completely different icon than sequential index 110.
+  - LoadLibraryExW(path, NULL, LOAD_LIBRARY_AS_DATAFILE) additionally prevents
+    MUI (multilingual user interface) icon resolution on Windows 8+, causing
+    icon load failures for modern icon resources.
+
+  Summary: for any icon identified by "shell32 index N" or "imageres index N"
+  in this codebase or documentation, N is always a sequential (PrivateExtractIconsW)
+  index.  Pass it to PrivateExtractIconsW, not to LoadImageW(MAKEINTRESOURCEW).
+
+================================================================================
+  §7  Cascade-scope and dest_path in ComponentRow
+================================================================================
+
+  When components are auto-populated (Enable Components toggle), CollectAllFiles
+  is called once per section and stores the section name in ComponentRow.dest_path:
+
+    CollectAllFiles(s_treeSnapshot_ProgramFiles,  id, out, L"Program Files");
+    CollectAllFiles(s_treeSnapshot_ProgramData,   id, out, L"ProgramData");
+    CollectAllFiles(s_treeSnapshot_AppData,       id, out, L"AppData (Roaming)");
+    CollectAllFiles(s_treeSnapshot_AskAtInstall,  id, out, L"AskAtInstall");
+
+  This prevents a cascade (right-click Edit Folder on a Program Files node) from
+  accidentally setting is_required on AskAtInstall components that happen to
+  share the same physical source_path (e.g. a shared DLL or exe present in both
+  sections).
+
+  Matching rule used in cascade and UpdateCompTreeRequiredIcons:
+    if (!cmp.dest_path.empty() && cmp.dest_path != section) continue; // skip wrong section
+    // empty dest_path = legacy row (created before this change) — treated as match
+
+  Helper: GetCompTreeItemSection(HWND hTree, HTREEITEM hItem)
+    Walks the TreeView parent chain from hItem up to the section root (whose
+    lParam is 0) and returns that root's text label.
+
+================================================================================

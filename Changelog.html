@@ -1,6 +1,16 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 11 March 2026 &mdash; v2026.03.11.08<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 11 March 2026 &mdash; v2026.03.11.10<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.11.10</span></h3>
+<p><strong>Required-folder icon fix, cascade scope &amp; Required-icon inheritance (11.03.2026, 10:00):</strong></p>
+<ul>
+<li><strong>Components page: Required-folder icon now uses <code>ExtractIconExW</code>:</strong> The previous <code>PrivateExtractIconsW</code> call was undocumented and silently returned 0 on some Windows configurations, leaving image-list slot&nbsp;3 empty so only the plain folder icon appeared. Switched to the documented <code>ExtractIconExW(imgresPath, 110, &amp;hReq, NULL, 1)</code> which reliably extracts <code>imageres.dll</code> sequential index&nbsp;110 (folder with blue checkmark badge).</li>
+<li><strong>Components page: cascade no longer touches AskAtInstall entries:</strong> Legacy <code>ComponentRow</code> rows had <code>dest_path&nbsp;=&nbsp;&ldquo;&rdquo;</code> making every section-filter check a no-op. A repair block now runs once when the Components page loads: it infers the correct section for every legacy row by matching source paths against the four VFS snapshots (in original insertion order) and persists the fix to the DB via <code>DB::UpdateComponent</code>. After repair the filter <code>if (!cmp.dest_path.empty() &amp;&amp; cmp.dest_path != section) continue</code> correctly isolates each section.</li>
+<li><strong>Components page: <code>UpdateCompTreeRequiredIcons</code> inherits parent Required state:</strong> Subfolders with no registered component files (e.g.&nbsp;<code>img/</code>, <code>locale/</code>) previously always showed the plain folder icon because <code>anyFound == false</code> mapped unconditionally to icon&nbsp;0. A new <code>parentIsRequired</code> parameter propagates each node&rsquo;s resolved icon state into its children: a component-less subfolder of a fully-required parent now correctly inherits the blue-checkmark badge icon and propagates it further down the tree.</li>
+</ul>
+
+<h3 style="text-align: center;">&nbsp;</h3>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.11.08</span></h3>
 <p><strong>Required-folder icon &amp; tooltip, Files page native blue multi-select (11.03.2026, 08:31):</strong></p>
