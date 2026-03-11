@@ -1,4 +1,4 @@
-#include "mainwindow.h"
+﻿#include "mainwindow.h"
 #include "dpi.h"
 #include <commctrl.h>
 #include <shlwapi.h>
@@ -8,6 +8,7 @@
 #include <windowsx.h>
 #include <functional>
 #include <vector>
+#include <set>
 #include <algorithm>
 #include "ctrlw.h"
 #include "button.h"
@@ -1058,6 +1059,154 @@ static void SaveTreeToDb(int projectId,
 // Forward declaration — full definition is in the VFS Picker section below.
 static void VFSPicker_AddSubtree(HWND hTree, HTREEITEM hParent,
                                  const std::vector<TreeNodeSnapshot>& nodes);
+static void CollectSnapshotPaths(const TreeNodeSnapshot& snap, std::vector<std::wstring>& out);
+
+// -- Multi-select tracking set for Files-page TreeView ----------------------
+static WNDPROC g_origFilesTreeProc = NULL;
+static std::set<HTREEITEM> s_filesTreeMultiSel;
+
+static LRESULT CALLBACK FilesTree_CtrlClickProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    if (msg == WM_LBUTTONDOWN) {
+        bool ctrl  = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+        bool shift = (GetKeyState(VK_SHIFT)   & 0x8000) != 0;
+        if (ctrl || shift) {
+            TVHITTESTINFO ht = {};
+            ht.pt.x = GET_X_LPARAM(lParam);
+            ht.pt.y = GET_Y_LPARAM(lParam);
+            HTREEITEM hHit = TreeView_HitTest(hwnd, &ht);
+            if (hHit && (ht.flags & (TVHT_ONITEM | TVHT_ONITEMICON | TVHT_ONITEMLABEL))) {
+                if (ctrl) {
+                    if (s_filesTreeMultiSel.count(hHit))
+                        s_filesTreeMultiSel.erase(hHit);
+                    else
+                        s_filesTreeMultiSel.insert(hHit);
+                } else {
+                    HTREEITEM hCur = TreeView_GetSelection(hwnd);
+                    s_filesTreeMultiSel.clear();
+                    if (hCur && hCur != hHit) {
+                        bool collecting = false;
+                        std::function<void(HTREEITEM)> Walk = [&](HTREEITEM h) {
+                            while (h) {
+                                if (h == hCur || h == hHit) {
+                                    s_filesTreeMultiSel.insert(h);
+                                    if (collecting) return;
+                                    collecting = true;
+                                } else if (collecting) {
+                                    s_filesTreeMultiSel.insert(h);
+                                }
+                                if (TreeView_GetItemState(hwnd, h, TVIS_EXPANDED) & TVIS_EXPANDED)
+                                    Walk(TreeView_GetChild(hwnd, h));
+                                if (collecting && s_filesTreeMultiSel.count(hCur) && s_filesTreeMultiSel.count(hHit))
+                                    return;
+                                h = TreeView_GetNextSibling(hwnd, h);
+                            }
+                        };
+                        Walk(TreeView_GetRoot(hwnd));
+                    } else {
+                        s_filesTreeMultiSel.insert(hHit);
+                    }
+                }
+                InvalidateRect(hwnd, NULL, FALSE);
+                return 0;
+            }
+        }
+        // Plain click: clear multi-selection
+        s_filesTreeMultiSel.clear();
+        InvalidateRect(hwnd, NULL, FALSE);
+    }
+    if (msg == WM_NCDESTROY) {
+        if (g_origFilesTreeProc)
+            SetWindowLongPtrW(hwnd, GWLP_WNDPROC, (LONG_PTR)g_origFilesTreeProc);
+        g_origFilesTreeProc = NULL;
+    }
+    return g_origFilesTreeProc
+        ? CallWindowProcW(g_origFilesTreeProc, hwnd, msg, wParam, lParam)
+        : DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+// ── Comp-tree required-icon tooltip subclass ─────────────────────────────────
+static WNDPROC g_origCompTreeProc    = NULL;
+static bool    s_compTreeTTTracking  = false;
+
+static LRESULT CALLBACK CompTree_TooltipSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    switch (msg) {
+    case WM_MOUSEMOVE: {
+        TVHITTESTINFO ht = {};
+        ht.pt.x = GET_X_LPARAM(lParam);
+        ht.pt.y = GET_Y_LPARAM(lParam);
+        HTREEITEM hHit = TreeView_HitTest(hwnd, &ht);
+        bool overRequired = false;
+        if (hHit && (ht.flags & TVHT_ONITEM)) {
+            TVITEMW tvi = {}; tvi.hItem = hHit; tvi.mask = TVIF_IMAGE;
+            TreeView_GetItem(hwnd, &tvi);
+            overRequired = (tvi.iImage == 3);
+        }
+        if (overRequired && !IsTooltipVisible()) {
+            POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+            ClientToScreen(hwnd, &pt);
+            std::vector<TooltipEntry> entries = {{ L"", L"Required" }};
+            ShowMultilingualTooltip(entries, pt.x + 12, pt.y + 18, GetParent(hwnd));
+        } else if (!overRequired && IsTooltipVisible()) {
+            HideTooltip();
+        }
+        if (!s_compTreeTTTracking) {
+            TRACKMOUSEEVENT tme = {}; tme.cbSize = sizeof(tme);
+            tme.dwFlags = TME_LEAVE; tme.hwndTrack = hwnd;
+            TrackMouseEvent(&tme);
+            s_compTreeTTTracking = true;
+        }
+        break;
+    }
+    case WM_MOUSELEAVE:
+        HideTooltip();
+        s_compTreeTTTracking = false;
+        break;
+    case WM_NCDESTROY:
+        if (g_origCompTreeProc) {
+            SetWindowLongPtrW(hwnd, GWLP_WNDPROC, (LONG_PTR)g_origCompTreeProc);
+            g_origCompTreeProc = NULL;
+        }
+        break;
+    }
+    return g_origCompTreeProc ? CallWindowProcW(g_origCompTreeProc, hwnd, msg, wParam, lParam)
+                              : DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+// Walk the comp tree and set icon index 3 (required) or 0 (optional) on each
+// node based on whether all its files are marked is_required == 1.
+static void UpdateCompTreeRequiredIcons(HWND hTree, HTREEITEM hItem)
+{
+    while (hItem) {
+        TVITEMW tvi = {}; tvi.hItem = hItem; tvi.mask = TVIF_PARAM;
+        TreeView_GetItem(hTree, &tvi);
+        const TreeNodeSnapshot* snap = (const TreeNodeSnapshot*)tvi.lParam;
+        if (snap) {
+            std::vector<std::wstring> paths;
+            CollectSnapshotPaths(*snap, paths);
+            bool allRequired = !paths.empty();
+            for (const auto& p : paths) {
+                bool found = false;
+                for (const auto& c : s_components) {
+                    if (c.source_path == p) {
+                        if (!c.is_required) allRequired = false;
+                        found = true; break;
+                    }
+                }
+                if (!found) { allRequired = false; }
+                if (!allRequired) break;
+            }
+            tvi.mask = TVIF_IMAGE | TVIF_SELECTEDIMAGE;
+            tvi.iImage         = allRequired ? 3 : 0;
+            tvi.iSelectedImage = allRequired ? 3 : 1;
+            TreeView_SetItem(hTree, &tvi);
+        }
+        UpdateCompTreeRequiredIcons(hTree, TreeView_GetChild(hTree, hItem));
+        hItem = TreeView_GetNextSibling(hTree, hItem);
+    }
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
     // Snapshot Files page tree before tearing it down so we can restore it
@@ -1168,6 +1317,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
     }
     
     // Clear tree/list handles
+    s_filesTreeMultiSel.clear();
     s_hTreeView = NULL;
     s_hListView = NULL;
     s_hProgramFilesRoot = NULL;
@@ -1305,8 +1455,11 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         // Set indent width to make hierarchy more visible
         TreeView_SetIndent(s_hTreeView, S(19));
         if (s_scaledFont) SendMessageW(s_hTreeView, WM_SETFONT, (WPARAM)s_scaledFont, TRUE);
-        
-        // Create image list for folder icons
+
+        // Ctrl+Click subclass for checkbox multi-select
+        if (!g_origFilesTreeProc)
+            g_origFilesTreeProc = (WNDPROC)SetWindowLongPtrW(
+                s_hTreeView, GWLP_WNDPROC, (LONG_PTR)FilesTree_CtrlClickProc);
         HIMAGELIST hImageList = ImageList_Create(32, 32, ILC_COLOR32 | ILC_MASK, 2, 2);
         if (hImageList) {
             // Load folder icons from shell32.dll
@@ -2206,6 +2359,14 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
                     }
                     if (hBadge) { ImageList_AddIcon(hCompIL, hBadge); DestroyIcon(hBadge); }
                     FreeLibrary(hShell32);
+                    // Required-folder icon from imageres.dll — index 3
+                    HMODULE hImgres = LoadLibraryW(L"imageres.dll");
+                    if (hImgres) {
+                        HICON hReq = (HICON)LoadImageW(hImgres, MAKEINTRESOURCEW(110),
+                                                       IMAGE_ICON, 32, 32, LR_DEFAULTCOLOR);
+                        if (hReq) { ImageList_AddIcon(hCompIL, hReq); DestroyIcon(hReq); }
+                        FreeLibrary(hImgres);
+                    }
                 }
                 TreeView_SetImageList(s_hCompTreeView, hCompIL, TVSIL_NORMAL);
                 TreeView_SetItemHeight(s_hCompTreeView, 34);
@@ -2213,6 +2374,12 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
                 HIMAGELIST hOldIL = (HIMAGELIST)GetPropW(hwnd, L"hCompTreeIL");
                 if (hOldIL) ImageList_Destroy(hOldIL);
                 SetPropW(hwnd, L"hCompTreeIL", (HANDLE)hCompIL);
+            }
+            // Install tooltip subclass (only once)
+            if (!g_origCompTreeProc) {
+                g_origCompTreeProc = (WNDPROC)SetWindowLongPtrW(
+                    s_hCompTreeView, GWLP_WNDPROC,
+                    (LONG_PTR)CompTree_TooltipSubclassProc);
             }
         }
 
@@ -2277,6 +2444,9 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
             addRoot(L"ProgramData",       0, s_treeSnapshot_ProgramData);
             addRoot(L"AppData (Roaming)", 0, s_treeSnapshot_AppData);
             addRoot(L"AskAtInstall",      2, s_treeSnapshot_AskAtInstall);
+
+            // Mark required folders with special icon
+            UpdateCompTreeRequiredIcons(s_hCompTreeView, TreeView_GetRoot(s_hCompTreeView));
         }
 
         // Apply system message font to non-button controls
@@ -2338,7 +2508,8 @@ HTREEITEM MainWindow::AddTreeNode(HWND hTree, HTREEITEM hParent, const std::wstr
     tvis.item.iImage = 0;  // Closed folder icon
     tvis.item.iSelectedImage = 1;  // Open folder icon
     
-    return TreeView_InsertItem(hTree, &tvis);
+    HTREEITEM hNew = TreeView_InsertItem(hTree, &tvis);
+    return hNew;
 }
 
 HTREEITEM MainWindow::GetAskAtInstallRoot() {
@@ -3393,8 +3564,8 @@ LRESULT CALLBACK CompFolderEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
         // Cascade hint
         CreateWindowExW(0, L"STATIC", pData->cascadeHint.c_str(),
             WS_CHILD | WS_VISIBLE | SS_LEFT,
-            20, y, 520, 22, hwnd, NULL, hInst, NULL);
-        y += 34;
+            20, y, 520, 42, hwnd, NULL, hInst, NULL);
+        y += 54;
 
         // OK / Cancel
         CreateCustomButtonWithIcon(hwnd, IDC_COMPDLG_OK,     pData->okText.c_str(),     ButtonColor::Green,
@@ -4150,6 +4321,22 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 
         // Drag-and-drop begin notifications are superseded by the dragdrop
         // module (subclass-based threshold detection).  No action needed here.
+
+        // NM_CUSTOMDRAW: paint multi-selected items in system highlight colour
+        if (nmhdr->idFrom == 102 && nmhdr->code == NM_CUSTOMDRAW) {
+            NMTVCUSTOMDRAW* pcd = (NMTVCUSTOMDRAW*)lParam;
+            if (pcd->nmcd.dwDrawStage == CDDS_PREPAINT)
+                return CDRF_NOTIFYITEMDRAW;
+            if (pcd->nmcd.dwDrawStage == CDDS_ITEMPREPAINT) {
+                HTREEITEM hItem = (HTREEITEM)pcd->nmcd.dwItemSpec;
+                if (s_filesTreeMultiSel.count(hItem)) {
+                    pcd->clrText   = GetSysColor(COLOR_HIGHLIGHTTEXT);
+                    pcd->clrTextBk = GetSysColor(COLOR_HIGHLIGHT);
+                    return CDRF_NEWFONT;
+                }
+            }
+            return CDRF_DODEFAULT;
+        }
 
         // Handle TreeView label edit
         if (nmhdr->idFrom == 102 && nmhdr->code == TVN_BEGINLABELEDIT) {
@@ -4914,14 +5101,61 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 }
             }
             
-            // Remove selected item from TreeView (skips system roots)
+            // Remove multi-selected (or single selected) items from TreeView
             if (s_hTreeView && IsWindow(s_hTreeView)) {
+                std::vector<HTREEITEM> selectedItems;
+                for (HTREEITEM hI : s_filesTreeMultiSel) {
+                    if (hI != s_hProgramFilesRoot && hI != s_hProgramDataRoot &&
+                        hI != s_hAppDataRoot      && hI != s_hAskAtInstallRoot)
+                        selectedItems.push_back(hI);
+                }
+
+                if (!selectedItems.empty()) {
+                    std::set<HTREEITEM> selSet(selectedItems.begin(), selectedItems.end());
+                    std::vector<HTREEITEM> toDelete;
+                    for (HTREEITEM hI : selectedItems) {
+                        bool ancestorSelected = false;
+                        HTREEITEM hP = TreeView_GetParent(s_hTreeView, hI);
+                        while (hP) {
+                            if (selSet.count(hP)) { ancestorSelected = true; break; }
+                            hP = TreeView_GetParent(s_hTreeView, hP);
+                        }
+                        if (!ancestorSelected)
+                            toDelete.push_back(hI);
+                    }
+                    int n = (int)toDelete.size();
+                    std::wstring msg = L"Remove " + std::to_wstring(n) +
+                        (n == 1 ? L" selected folder?" : L" selected folders?");
+                    if (MessageBoxW(hwnd, msg.c_str(), L"Confirm Remove",
+                            MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) == IDYES) {
+                        std::function<void(HTREEITEM)> CleanupVF = [&](HTREEITEM hI) {
+                            s_virtualFolderFiles.erase(hI);
+                            HTREEITEM hC = TreeView_GetChild(s_hTreeView, hI);
+                            while (hC) { CleanupVF(hC); hC = TreeView_GetNextSibling(s_hTreeView, hC); }
+                        };
+                        bool anyUnderPF = false;
+                        for (HTREEITEM hSel : toDelete) {
+                            HTREEITEM hParent = TreeView_GetParent(s_hTreeView, hSel);
+                            if (hParent == s_hProgramFilesRoot) anyUnderPF = true;
+                            CleanupVF(hSel);
+                            TreeView_DeleteItem(s_hTreeView, hSel);
+                        }
+                        s_filesTreeMultiSel.clear();
+                        if (s_hListView && IsWindow(s_hListView))
+                            ListView_DeleteAllItems(s_hListView);
+                        UpdateComponentsButtonState(hwnd);
+                        MarkAsModified();
+                        if (anyUnderPF) UpdateInstallPathFromTree(hwnd);
+                    }
+                    return 0;
+                }
+
+                // Fallback: single selected item when nothing is checked
                 HTREEITEM hSel = TreeView_GetSelection(s_hTreeView);
                 if (hSel &&
                     hSel != s_hProgramFilesRoot && hSel != s_hProgramDataRoot &&
                     hSel != s_hAppDataRoot      && hSel != s_hAskAtInstallRoot) {
 
-                    // Confirm if the node has children
                     bool shouldDelete = true;
                     wchar_t folderName[256] = {};
                     TVITEMW tvItem = {};
@@ -4940,9 +5174,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                         shouldDelete = (MessageBoxW(hwnd, msg.c_str(), L"Confirm Remove",
                             MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) == IDYES);
                     }
-
                     if (shouldDelete) {
-                        // Recursively clean up virtual folder files
                         std::function<void(HTREEITEM)> CleanupVF = [&](HTREEITEM hItem) {
                             s_virtualFolderFiles.erase(hItem);
                             HTREEITEM hChild = TreeView_GetChild(s_hTreeView, hItem);
@@ -4952,7 +5184,6 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                             }
                         };
                         CleanupVF(hSel);
-
                         HTREEITEM hParent = TreeView_GetParent(s_hTreeView, hSel);
                         bool wasUnderProgramFiles = (hParent == s_hProgramFilesRoot);
                         TreeView_DeleteItem(s_hTreeView, hSel);
@@ -6586,7 +6817,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                     RegisterClassExW(&wcFd);
                 }
                 RECT rcMain3; GetWindowRect(hwnd, &rcMain3);
-                int dlgW3 = 580, dlgH3 = 190;
+                int dlgW3 = 580, dlgH3 = 240;
                 HWND hFd = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
                     L"CompFolderEditDialog", fd.titleText.c_str(),
                     WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
@@ -6604,14 +6835,14 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                     for (const auto& path : paths) {
                         for (auto& cmp : s_components) {
                             if (cmp.source_path == path) {
-                                ComponentRow updated = cmp;
-                                updated.is_required = fd.outRequired;
-                                DB::UpdateComponent(updated);
+                                cmp.is_required = fd.outRequired;
+                                DB::UpdateComponent(cmp);
                                 break;
                             }
                         }
                     }
-                    SwitchPage(hwnd, 9);
+                    // Refresh required-folder icons without a full page rebuild
+                    UpdateCompTreeRequiredIcons(s_hCompTreeView, TreeView_GetRoot(s_hCompTreeView));
                     MarkAsModified();
                 }
             }

@@ -236,3 +236,46 @@ db.cpp
   DB::DeleteFilesForProject()      – unchanged
 
 ================================================================================
+7. FILES PAGE MULTI-SELECT
+================================================================================
+
+static std::set<HTREEITEM> s_filesTreeMultiSel   (mainwindow.cpp)
+    Set of all currently multi-selected tree items.  Empty when no multi-select
+    is active (i.e. when the user last plain-clicked or left the Files page).
+
+FilesTree_CtrlClickProc  (subclass WndProc on s_hTreeView)
+    WM_LBUTTONDOWN:
+      – Ctrl held  → toggle clicked item in s_filesTreeMultiSel;
+                      do NOT suppress the default TreeView selection update;
+                      call InvalidateRect(hwnd, NULL, TRUE) to trigger repaint.
+      – Shift held → walk the tree from the current selection anchor down to
+                      the clicked item, adding each HTREEITEM to the set;
+                      call InvalidateRect.
+      – No modifier → clear s_filesTreeMultiSel; call InvalidateRect;
+                       let the default WndProc handle normal single-selection.
+
+NM_CUSTOMDRAW handler  (WM_NOTIFY, idFrom == 102)
+    CDDS_PREPAINT  → return CDRF_NOTIFYITEMDRAW.
+    CDDS_ITEMPREPAINT:
+      – If (HTREEITEM)pcd->nmcd.dwItemSpec is in s_filesTreeMultiSel:
+          pcd->clrText   = GetSysColor(COLOR_HIGHLIGHTTEXT);
+          pcd->clrTextBk = GetSysColor(COLOR_HIGHLIGHT);
+          return CDRF_NEWFONT;
+      – Otherwise → fall through, return CDRF_DODEFAULT.
+    This produces a blue highlight indistinguishable from native Windows
+    Explorer multi-select.  No owner-draw or custom paint needed.
+
+Remove handler  (IDC_FILES_REMOVE_FILE button)
+    If s_filesTreeMultiSel is non-empty:
+      – Iterate s_filesTreeMultiSel and delete each item with the usual
+        confirmation prompt (one confirmation covers the whole batch).
+      – Clear s_filesTreeMultiSel after all deletions.
+    If empty:
+      – Fall back to the normal single-item delete (selected item).
+
+Page teardown  (SwitchPage cleanup, before s_hTreeView = NULL)
+    s_filesTreeMultiSel.clear();
+    Ensures stale HTREEITEM handles cannot be referenced after the tree is
+    destroyed.
+
+================================================================================

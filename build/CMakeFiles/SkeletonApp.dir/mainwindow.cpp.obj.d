@@ -413,6 +413,9 @@ CMakeFiles/SkeletonApp.dir/mainwindow.cpp.obj: \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/enable_special_members.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/array \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/compare \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/set \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_set.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_multiset.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/algorithm \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_algo.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/algorithmfwd.h \

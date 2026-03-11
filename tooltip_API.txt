@@ -523,3 +523,83 @@ API REFERENCE:
    ================================================================================
    END OF DOCUMENTATION
    ================================================================================
+
+   16) TreeView item-hover tooltip pattern
+   ----------------------------------------
+   Use this pattern when you want a tooltip to appear only when the mouse is
+   over specific items in a TreeView (e.g. items that carry a particular icon
+   index), rather than treating the whole control as a single hover zone.
+
+   Overview:
+   - Subclass the TreeView with SetWindowLongPtrW(hTree, GWLP_WNDPROC, ...).
+   - In WM_MOUSEMOVE, call TreeView_HitTest with the cursor client position to
+     identify the item under the cursor.
+   - Read the item's iImage via TreeView_GetItem (TVIF_IMAGE).
+   - Show or hide the tooltip based on whether the item meets your criteria.
+   - Track mouse-leave with TRACKMOUSEEVENT (hwndTrack = the TreeView itself,
+     not the parent) so WM_MOUSELEAVE fires when the mouse exits the control.
+
+   Copy-paste template (CompTree_TooltipSubclassProc in mainwindow.cpp):
+
+   static WNDPROC g_origCompTreeProc    = nullptr;
+   static bool    s_compTreeTTTracking  = false;
+
+   static LRESULT CALLBACK CompTree_TooltipSubclassProc(
+       HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+   {
+       switch (msg) {
+       case WM_MOUSEMOVE: {
+           TVHITTESTINFO hti = {};
+           hti.pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+           HTREEITEM hHit = TreeView_HitTest(hwnd, &hti);
+           if (hHit && (hti.flags & TVHT_ONITEM)) {
+               TVITEMW item = {};
+               item.mask  = TVIF_IMAGE;
+               item.hItem = hHit;
+               TreeView_GetItem(hwnd, &item);
+               if (item.iImage == 3 /* required folder icon */) {
+                   if (!IsTooltipVisible()) {
+                       POINT pt = hti.pt;
+                       ClientToScreen(hwnd, &pt);
+                       std::vector<std::pair<std::wstring,std::wstring>> e;
+                       e.push_back({L"", L"Required"});
+                       ShowMultilingualTooltip(e, pt.x + 16, pt.y + 16,
+                                               GetParent(hwnd));
+                   }
+               } else {
+                   HideTooltip();
+               }
+           } else {
+               HideTooltip();
+           }
+           if (!s_compTreeTTTracking) {
+               TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, hwnd, 0 };
+               TrackMouseEvent(&tme);
+               s_compTreeTTTracking = true;
+           }
+           break;
+       }
+       case WM_MOUSELEAVE:
+           HideTooltip();
+           s_compTreeTTTracking = false;
+           break;
+       case WM_NCDESTROY:
+           SetWindowLongPtrW(hwnd, GWLP_WNDPROC, (LONG_PTR)g_origCompTreeProc);
+           break;
+       }
+       return CallWindowProcW(g_origCompTreeProc, hwnd, msg, wParam, lParam);
+   }
+
+   Notes:
+   - TreeView_HitTest takes CLIENT coordinates; the lParam in WM_MOUSEMOVE is
+     also client-relative, so no conversion is needed before the hit test.
+     Convert to screen coordinates (ClientToScreen) when calling
+     ShowMultilingualTooltip.
+   - TVHT_ONITEM covers TVHT_ONITEMLABEL | TVHT_ONITEMICON. To restrict the
+     tooltip to icon hover only, test for TVHT_ONITEMICON instead.
+   - Always call HideTooltip() in the ELSE branches (cursor on non-matching
+     item, or cursor not on any item) so there is never a stale tooltip after
+     item state changes while the mouse stays over the control.
+   - This pattern is safe to combine with the drag-and-drop subclass because
+     the tooltip subclass is the outermost proc and forwards all messages it
+     does not handle via CallWindowProcW.
