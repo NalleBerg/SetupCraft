@@ -28,6 +28,16 @@ dont_save=Don't Save
 yes=Yes
 no=No
 
+# Duplicate project dialog
+dup_proj_title=Project Already Exists
+dup_proj_message=A project named \u201c{0}\u201d already exists.\n\nWhat do you want to do?
+dup_proj_overwrite=Overwrite
+dup_proj_rename=Rename this one
+
+# Rename project dialog
+rename_proj_title=Rename Project
+rename_proj_label=Enter a new project name:
+
 # General dialog captions
 error=Error
 info=Info
@@ -77,6 +87,16 @@ files_remove=Remove
 files_project_name=Project name:
 files_install_folder=Install folder:
 files_ask_user_install=Ask end user at install (Per-user / All-users)
+
+# Files page - remove confirmations
+confirm_remove_title=Confirm Remove
+confirm_remove_file=Remove 1 selected file?
+confirm_remove_files=Remove {0} selected files?
+confirm_remove_folder=Remove 1 selected folder?
+confirm_remove_folders=Remove {0} selected folders?
+confirm_remove_folder_recursive='{0}' contains sub-folders.\n\nDelete it and all its contents?
+confirm_remove_single=Remove '{0}'?
+confirm_delete_nonempty=The folder '{0}' is not empty.\n\nDo you want to delete it and all its contents?
 
 # Registry page section header
 custom_registry_entries=Custom Registry Entries

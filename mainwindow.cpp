@@ -9,6 +9,7 @@
 #include <functional>
 #include <vector>
 #include <set>
+#include <unordered_set>
 #include <algorithm>
 #include "ctrlw.h"
 #include "button.h"
@@ -955,6 +956,67 @@ static void IngestRealPathFiles(HTREEITEM hTarget, const std::wstring& folderPat
         s_virtualFolderFiles[hTarget].push_back(vf);
     } while (FindNextFileW(hFind, &fd));
     FindClose(hFind);
+}
+
+// Recursively collect source paths from the VFS subtree rooted at hItem.
+// Uses s_virtualFolderFiles for virtual nodes; falls back to a direct disk scan
+// for real-path nodes (lParam points to the folder path).
+// Must be called BEFORE s_virtualFolderFiles entries are erased for hItem.
+static void CollectSubtreePaths(HWND hTree, HTREEITEM hItem,
+                                 std::unordered_set<std::wstring>& out)
+{
+    auto it = s_virtualFolderFiles.find(hItem);
+    if (it != s_virtualFolderFiles.end()) {
+        for (const auto& vf : it->second)
+            if (!vf.sourcePath.empty()) out.insert(vf.sourcePath);
+    } else {
+        // Real-path node whose virtualFiles were never populated — scan disk.
+        TVITEMW tvi = {}; tvi.mask = TVIF_PARAM; tvi.hItem = hItem;
+        TreeView_GetItem(hTree, &tvi);
+        if (tvi.lParam) {
+            const wchar_t* fp = reinterpret_cast<const wchar_t*>(tvi.lParam);
+            if (fp && *fp) {
+                std::wstring sp = std::wstring(fp) + L"\\*";
+                WIN32_FIND_DATAW fd = {};
+                HANDLE hFind = FindFirstFileW(sp.c_str(), &fd);
+                if (hFind != INVALID_HANDLE_VALUE) {
+                    do {
+                        if (!wcscmp(fd.cFileName, L".") || !wcscmp(fd.cFileName, L"..")) continue;
+                        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+                        out.insert(std::wstring(fp) + L"\\" + fd.cFileName);
+                    } while (FindNextFileW(hFind, &fd));
+                    FindClose(hFind);
+                }
+            }
+        }
+    }
+    HTREEITEM hChild = TreeView_GetChild(hTree, hItem);
+    while (hChild) {
+        CollectSubtreePaths(hTree, hChild, out);
+        hChild = TreeView_GetNextSibling(hTree, hChild);
+    }
+}
+
+// Delete all file-type component rows whose source_path is in pathSet from the DB.
+static void PurgeComponentRowsByPaths(int projectId,
+                                       const std::unordered_set<std::wstring>& pathSet)
+{
+    if (projectId <= 0 || pathSet.empty()) return;
+    for (const auto& c : DB::GetComponentsForProject(projectId))
+        if (c.source_type == L"file" && pathSet.count(c.source_path))
+            DB::DeleteComponent(c.id);
+}
+
+// Look up a locale key and substitute {0} with val (leave as-is if no placeholder).
+static std::wstring LocFmt(const std::map<std::wstring, std::wstring>& loc,
+                            const std::wstring& key,
+                            const std::wstring& val = L"")
+{
+    auto it = loc.find(key);
+    std::wstring s = (it != loc.end()) ? it->second : key;
+    auto p = s.find(L"{0}");
+    if (p != std::wstring::npos) s.replace(p, 3, val);
+    return s;
 }
 
 static HTREEITEM CloneTreeSubtree(HWND hTree, HTREEITEM hSrc, HTREEITEM hNewParent) {
@@ -3008,42 +3070,62 @@ struct RegKeyDialogData {
     std::wstring copyText;
 };
 
+// Layout constants for the Registry Key dialog (design-time px at 96 DPI)
+static const int RK_PAD_H  = 20;  // left/right padding
+static const int RK_PAD_T  = 20;  // top padding
+static const int RK_LBL_H  = 22;  // label height
+static const int RK_GAP_LE = 10;  // gap label → edit
+static const int RK_EDIT_H = 60;  // registry path edit height (multiline)
+static const int RK_GAP_EB = 15;  // gap edit → buttons
+static const int RK_BTN_H  = 38;  // button height
+static const int RK_PAD_B  = 20;  // bottom padding
+static const int RK_CONT_W = 560; // content (label/edit) width
+static const int RK_BTN_W0 = 200; // "Take me there" button width
+static const int RK_BTN_W1 = 120; // "Copy" button width
+static const int RK_BTN_W2 = 120; // "Close" button width
+static const int RK_BTN_GAP = 15; // gap between buttons
+
 // Dialog procedure for Show Registry Key dialog
 LRESULT CALLBACK RegKeyDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
     case WM_CREATE: {
         CREATESTRUCTW* cs = (CREATESTRUCTW*)lParam;
         HINSTANCE hInst = cs->hInstance;
-        
-        // Get dialog data from user data
+
         RegKeyDialogData* pData = (RegKeyDialogData*)cs->lpCreateParams;
-        
-        // Store pointer in window data for later use
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)pData);
-        
-        // Create label
+
+        RECT rcC; GetClientRect(hwnd, &rcC);
+        int cW = rcC.right, cH = rcC.bottom;
+        int contW = cW - 2*S(RK_PAD_H); // label and edit width
+
+        // Label
         CreateWindowExW(0, L"STATIC", pData->labelText.c_str(),
             WS_CHILD | WS_VISIBLE | SS_LEFT,
-            20, 20, 600, 22,
+            S(RK_PAD_H), S(RK_PAD_T), contW, S(RK_LBL_H),
             hwnd, NULL, hInst, NULL);
-        
-        // Create registry path EDIT control (read-only, multiline for full path visibility)
+
+        // Registry path edit (read-only, multiline so long paths word-wrap)
+        int editY = S(RK_PAD_T) + S(RK_LBL_H) + S(RK_GAP_LE);
         HWND hEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", pData->regPath.c_str(),
             WS_CHILD | WS_VISIBLE | ES_LEFT | ES_READONLY | ES_MULTILINE | ES_AUTOHSCROLL | WS_VSCROLL,
-            20, 52, 600, 60,
+            S(RK_PAD_H), editY, contW, S(RK_EDIT_H),
             hwnd, (HMENU)IDC_REGKEY_DLG_EDIT, hInst, NULL);
-        
-        // Create "Take me there" button with icon 267
+
+        // 3 buttons centred, pinned to bottom
+        int totalBtnW = S(RK_BTN_W0)+S(RK_BTN_W1)+S(RK_BTN_W2)+2*S(RK_BTN_GAP);
+        int startX    = (cW - totalBtnW) / 2;
+        int btnY      = cH - S(RK_PAD_B) - S(RK_BTN_H);
+
         CreateCustomButtonWithIcon(hwnd, IDC_REGKEY_DLG_NAVIGATE, pData->navigateText.c_str(), ButtonColor::Blue,
-            L"shell32.dll", 267, 20, 145, 270, 38, hInst);
-        
-        // Create "Copy" button with icon 64
+            L"shell32.dll", 267, startX, btnY, S(RK_BTN_W0), S(RK_BTN_H), hInst);
         CreateCustomButtonWithIcon(hwnd, IDC_REGKEY_DLG_COPY, pData->copyText.c_str(), ButtonColor::Blue,
-            L"shell32.dll", 64, 305, 145, 150, 38, hInst);
-        
-        // Create "Close" button with icon 300
+            L"shell32.dll", 64,
+            startX+S(RK_BTN_W0)+S(RK_BTN_GAP), btnY, S(RK_BTN_W1), S(RK_BTN_H), hInst);
         CreateCustomButtonWithIcon(hwnd, IDC_REGKEY_DLG_CLOSE, pData->closeText.c_str(), ButtonColor::Blue,
-            L"shell32.dll", 300, 470, 145, 150, 38, hInst);
+            L"shell32.dll", 300,
+            startX+S(RK_BTN_W0)+S(RK_BTN_GAP)+S(RK_BTN_W1)+S(RK_BTN_GAP), btnY,
+            S(RK_BTN_W2), S(RK_BTN_H), hInst);
 
         // Apply system message font to all controls
         {
@@ -3266,46 +3348,64 @@ struct AddValueDialogData {
 };
 
 // Dialog procedure for Add Registry Value dialog
+// ── AddValue dialog layout constants (design-px at 96 DPI) ────────────────────
+// Layout: label column | gap | edit/combo column, 3 data rows then buttons.
+static const int AV_PAD_H   = 20; // left/right padding
+static const int AV_PAD_T   = 20; // top padding
+static const int AV_PAD_B   = 20; // bottom padding
+static const int AV_LBL_W   = 145; // label column width
+static const int AV_FLD_GAP = 10;  // gap between label and field
+static const int AV_EDIT_W  = 460; // edit/combo field width
+static const int AV_ROW_H   = 28;  // row height (label/edit/combo)
+static const int AV_GAP_R1  = 16;  // vertical gap between rows 1 and 2
+static const int AV_GAP_R2  = 18;  // vertical gap between rows 2 and 3
+static const int AV_GAP_RB  = 34;  // vertical gap between last row and buttons
+static const int AV_BTN_H   = 38;
+static const int AV_BTN_W0  = 155; // OK
+static const int AV_BTN_W1  = 155; // Cancel
+static const int AV_BTN_GAP = 10;
+
 LRESULT CALLBACK AddValueDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
     case WM_CREATE: {
         CREATESTRUCTW* cs = (CREATESTRUCTW*)lParam;
         HINSTANCE hInst = cs->hInstance;
-        
-        // Get dialog data
+
         AddValueDialogData* pData = (AddValueDialogData*)cs->lpCreateParams;
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)pData);
-        
-        int y = 20;
-        
-        // Value Name label and edit
+
+        RECT rcC; GetClientRect(hwnd, &rcC);
+        int cW = rcC.right;
+        int editX = S(AV_PAD_H) + S(AV_LBL_W) + S(AV_FLD_GAP);
+        int editW = cW - editX - S(AV_PAD_H);
+
+        int y = S(AV_PAD_T);
+
+        // Row 1 — Value Name
         CreateWindowExW(0, L"STATIC", pData->nameText.c_str(),
             WS_CHILD | WS_VISIBLE | SS_LEFT,
-            20, y, 145, 28, hwnd, NULL, hInst, NULL);
+            S(AV_PAD_H), y, S(AV_LBL_W), S(AV_ROW_H), hwnd, NULL, hInst, NULL);
         HWND hNameEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", pData->valueName.c_str(),
             WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL,
-            175, y, 460, 28, hwnd, (HMENU)IDC_ADDVAL_NAME, hInst, NULL);
-        // Ensure the edit control text is set (explicit prefill for edit mode)
+            editX, y, editW, S(AV_ROW_H), hwnd, (HMENU)IDC_ADDVAL_NAME, hInst, NULL);
         SetDlgItemTextW(hwnd, IDC_ADDVAL_NAME, pData->valueName.c_str());
-        y += 44;
-        
-        // Type label and combobox
+        y += S(AV_ROW_H) + S(AV_GAP_R1);
+
+        // Row 2 — Type
         CreateWindowExW(0, L"STATIC", pData->typeText.c_str(),
             WS_CHILD | WS_VISIBLE | SS_LEFT,
-            20, y, 145, 28, hwnd, NULL, hInst, NULL);
+            S(AV_PAD_H), y, S(AV_LBL_W), S(AV_ROW_H), hwnd, NULL, hInst, NULL);
         HWND hCombo = CreateWindowExW(WS_EX_CLIENTEDGE, L"COMBOBOX", L"",
             WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
-            175, y, 460, 200, hwnd, (HMENU)IDC_ADDVAL_TYPE, hInst, NULL);
-        
-        // Populate type combobox - all Windows Registry types with descriptions
+            editX, y, editW, S(200), hwnd, (HMENU)IDC_ADDVAL_TYPE, hInst, NULL);
+
         SendMessageW(hCombo, CB_ADDSTRING, 0, (LPARAM)L"REG_SZ - Text string value");
         SendMessageW(hCombo, CB_ADDSTRING, 0, (LPARAM)L"REG_BINARY - Binary data (any length)");
         SendMessageW(hCombo, CB_ADDSTRING, 0, (LPARAM)L"REG_DWORD - 32-bit number");
         SendMessageW(hCombo, CB_ADDSTRING, 0, (LPARAM)L"REG_QWORD - 64-bit number");
         SendMessageW(hCombo, CB_ADDSTRING, 0, (LPARAM)L"REG_MULTI_SZ - Multiple text strings");
         SendMessageW(hCombo, CB_ADDSTRING, 0, (LPARAM)L"REG_EXPAND_SZ - Expandable string (with %variables%)");
-        
-        // Select the appropriate type if editing
+
         int typeIndex = 0;
         if (!pData->valueType.empty()) {
             if (pData->valueType == L"REG_SZ") typeIndex = 0;
@@ -3316,24 +3416,26 @@ LRESULT CALLBACK AddValueDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             else if (pData->valueType == L"REG_EXPAND_SZ") typeIndex = 5;
         }
         SendMessageW(hCombo, CB_SETCURSEL, typeIndex, 0);
-        y += 46;
-        
-        // Data label and edit
+        y += S(AV_ROW_H) + S(AV_GAP_R2);
+
+        // Row 3 — Data
         CreateWindowExW(0, L"STATIC", pData->dataText.c_str(),
             WS_CHILD | WS_VISIBLE | SS_LEFT,
-            20, y, 155, 28, hwnd, NULL, hInst, NULL);
+            S(AV_PAD_H), y, S(AV_LBL_W), S(AV_ROW_H), hwnd, NULL, hInst, NULL);
         CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", pData->valueData.c_str(),
             WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL,
-            185, y, 460, 28, hwnd, (HMENU)IDC_ADDVAL_DATA, hInst, NULL);
-        // Ensure data edit is filled (explicit prefill)
+            editX, y, editW, S(AV_ROW_H), hwnd, (HMENU)IDC_ADDVAL_DATA, hInst, NULL);
         SetDlgItemTextW(hwnd, IDC_ADDVAL_DATA, pData->valueData.c_str());
-        y += 62;
-        
-        // OK and Cancel buttons
+        y += S(AV_ROW_H) + S(AV_GAP_RB);
+
+        // Buttons — centred
+        int totalBtnW = S(AV_BTN_W0) + S(AV_BTN_GAP) + S(AV_BTN_W1);
+        int startX    = (cW - totalBtnW) / 2;
         CreateCustomButtonWithIcon(hwnd, IDC_ADDVAL_OK, pData->okText.c_str(), ButtonColor::Green,
-            L"imageres.dll", 89, 185, y, 135, 38, hInst);
+            L"imageres.dll", 89, startX, y, S(AV_BTN_W0), S(AV_BTN_H), hInst);
         CreateCustomButtonWithIcon(hwnd, IDC_ADDVAL_CANCEL, pData->cancelText.c_str(), ButtonColor::Red,
-            L"shell32.dll", 131, 340, y, 150, 38, hInst);
+            L"shell32.dll", 131, startX + S(AV_BTN_W0) + S(AV_BTN_GAP), y,
+            S(AV_BTN_W1), S(AV_BTN_H), hInst);
 
         // Apply system message font to all controls (labels, edits, combobox)
         {
@@ -3462,35 +3564,56 @@ struct AddKeyDialogData {
     bool okClicked;
 };
 
+// ── AddKey dialog layout constants (design-px at 96 DPI) ─────────────────────
+// Layout: label | gap | edit on one row, then buttons below.
+static const int AK_PAD_H   = 20; // left/right padding
+static const int AK_PAD_T   = 22; // top padding
+static const int AK_PAD_B   = 20; // bottom padding
+static const int AK_LBL_W   = 145; // label column width
+static const int AK_FLD_GAP = 10;  // gap between label and edit
+static const int AK_EDIT_W  = 370; // edit field width
+static const int AK_ROW_H   = 30;  // label/edit height
+static const int AK_GAP_EB  = 36;  // gap from row bottom to button top
+static const int AK_BTN_H   = 38;
+static const int AK_BTN_W0  = 155; // OK
+static const int AK_BTN_W1  = 155; // Cancel
+static const int AK_BTN_GAP = 10;
+
 // Dialog procedure for Add Registry Key dialog
 LRESULT CALLBACK AddKeyDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
     case WM_CREATE: {
         CREATESTRUCTW* cs = (CREATESTRUCTW*)lParam;
         HINSTANCE hInst = cs->hInstance;
-        
-        // Get dialog data
+
         AddKeyDialogData* pData = (AddKeyDialogData*)cs->lpCreateParams;
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)pData);
-        
-        int y = 22;
-        
-        // Key Name label and edit (pre-fill with default key name)
+
+        RECT rcC; GetClientRect(hwnd, &rcC);
+        int cW = rcC.right;
+        int editX = S(AK_PAD_H) + S(AK_LBL_W) + S(AK_FLD_GAP);
+        int editW = cW - editX - S(AK_PAD_H);
+
+        int y = S(AK_PAD_T);
+
+        // Key Name — label and edit side by side
         CreateWindowExW(0, L"STATIC", pData->nameText.c_str(),
             WS_CHILD | WS_VISIBLE | SS_LEFT,
-            20, y, 145, 30, hwnd, NULL, hInst, NULL);
+            S(AK_PAD_H), y, S(AK_LBL_W), S(AK_ROW_H), hwnd, NULL, hInst, NULL);
         CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", pData->defaultKeyName.c_str(),
             WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL,
-            175, y, 370, 30, hwnd, (HMENU)IDC_ADDKEY_NAME, hInst, NULL);
-        // Explicitly set edit text to ensure prefill works in Edit mode
+            editX, y, editW, S(AK_ROW_H), hwnd, (HMENU)IDC_ADDKEY_NAME, hInst, NULL);
         SetDlgItemTextW(hwnd, IDC_ADDKEY_NAME, pData->defaultKeyName.c_str());
-        y += 66;
-        
-        // OK and Cancel buttons
+        y += S(AK_ROW_H) + S(AK_GAP_EB);
+
+        // Buttons — centred
+        int totalBtnW = S(AK_BTN_W0) + S(AK_BTN_GAP) + S(AK_BTN_W1);
+        int startX    = (cW - totalBtnW) / 2;
         CreateCustomButtonWithIcon(hwnd, IDC_ADDKEY_OK, pData->okText.c_str(), ButtonColor::Green,
-            L"imageres.dll", 89, 165, y, 135, 38, hInst);
+            L"imageres.dll", 89, startX, y, S(AK_BTN_W0), S(AK_BTN_H), hInst);
         CreateCustomButtonWithIcon(hwnd, IDC_ADDKEY_CANCEL, pData->cancelText.c_str(), ButtonColor::Red,
-            L"shell32.dll", 131, 315, y, 150, 38, hInst);
+            L"shell32.dll", 131, startX + S(AK_BTN_W0) + S(AK_BTN_GAP), y,
+            S(AK_BTN_W1), S(AK_BTN_H), hInst);
 
         // Apply system message font to all controls (labels, edits)
         {
@@ -3628,9 +3751,25 @@ struct CompFolderDlgData {
     std::wstring cascadeHint;
     std::wstring okText;
     std::wstring cancelText;
-    bool okClicked  = false;
+    bool okClicked   = false;
     int  outRequired = 0;
+    int  hintH       = 0; // pre-measured hint text height (px, already DPI-scaled)
 };
+
+// ── CompFolderEdit dialog layout constants (design-px at 96 DPI) ──────────────
+static const int CFE_PAD_H    = 20;
+static const int CFE_PAD_T    = 20;
+static const int CFE_PAD_B    = 20;
+static const int CFE_CONT_W   = 520; // content width (label, checkbox, hint)
+static const int CFE_NAME_H   = 28;  // folder name label height
+static const int CFE_GAP_NR   = 10;  // gap: name → required checkbox
+static const int CFE_CHECK_H  = 26;  // checkbox height
+static const int CFE_GAP_RC   = 10;  // gap: checkbox → hint
+static const int CFE_GAP_HB   = 14;  // gap: hint → buttons
+static const int CFE_BTN_H    = 38;
+static const int CFE_BTN_W0   = 155; // OK
+static const int CFE_BTN_W1   = 155; // Cancel
+static const int CFE_BTN_GAP  = 10;
 
 LRESULT CALLBACK CompFolderEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
@@ -3641,31 +3780,44 @@ LRESULT CALLBACK CompFolderEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
         CompFolderDlgData*  pData = (CompFolderDlgData*)cs->lpCreateParams;
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)pData);
 
-        int y = 20;
-        // Folder name (static, read-only)
+        RECT rcC; GetClientRect(hwnd, &rcC);
+        int cW   = rcC.right;
+        int cH   = rcC.bottom;
+        int contW = cW - 2*S(CFE_PAD_H); // content width fills client minus padding
+
+        // Hint text height is stored in __hintH passed via the data struct
+        int hintH = pData->hintH > 0 ? pData->hintH : S(42);
+
+        int y = S(CFE_PAD_T);
+
+        // Folder name (read-only label)
         CreateWindowExW(0, L"STATIC", pData->folderName.c_str(),
             WS_CHILD | WS_VISIBLE | SS_LEFT,
-            20, y, 520, 28, hwnd, NULL, hInst, NULL);
-        y += 38;
+            S(CFE_PAD_H), y, contW, S(CFE_NAME_H), hwnd, NULL, hInst, NULL);
+        y += S(CFE_NAME_H) + S(CFE_GAP_NR);
 
         // Required checkbox
         HWND hReq = CreateWindowExW(0, L"BUTTON", pData->requiredLabel.c_str(),
             WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
-            20, y, 520, 26, hwnd, (HMENU)IDC_FOLDER_DLG_REQUIRED, hInst, NULL);
+            S(CFE_PAD_H), y, contW, S(CFE_CHECK_H),
+            hwnd, (HMENU)IDC_FOLDER_DLG_REQUIRED, hInst, NULL);
         if (pData->initRequired == 1) SendMessageW(hReq, BM_SETCHECK, BST_CHECKED, 0);
-        y += 36;
+        y += S(CFE_CHECK_H) + S(CFE_GAP_RC);
 
-        // Cascade hint
+        // Cascade hint (may wrap over multiple lines)
         CreateWindowExW(0, L"STATIC", pData->cascadeHint.c_str(),
             WS_CHILD | WS_VISIBLE | SS_LEFT,
-            20, y, 520, 42, hwnd, NULL, hInst, NULL);
-        y += 54;
+            S(CFE_PAD_H), y, contW, hintH, hwnd, NULL, hInst, NULL);
+        y += hintH + S(CFE_GAP_HB);
 
-        // OK / Cancel
+        // OK / Cancel — centred
+        int totalBtnW = S(CFE_BTN_W0) + S(CFE_BTN_GAP) + S(CFE_BTN_W1);
+        int startX    = (cW - totalBtnW) / 2;
         CreateCustomButtonWithIcon(hwnd, IDC_COMPDLG_OK,     pData->okText.c_str(),     ButtonColor::Green,
-            L"imageres.dll", 89,  20,  y, 140, 38, hInst);
+            L"imageres.dll", 89,  startX, y, S(CFE_BTN_W0), S(CFE_BTN_H), hInst);
         CreateCustomButtonWithIcon(hwnd, IDC_COMPDLG_CANCEL, pData->cancelText.c_str(), ButtonColor::Red,
-            L"shell32.dll",  131, 175, y, 150, 38, hInst);
+            L"shell32.dll",  131, startX + S(CFE_BTN_W0) + S(CFE_BTN_GAP), y,
+            S(CFE_BTN_W1), S(CFE_BTN_H), hInst);
 
         // Font
         NONCLIENTMETRICSW ncm = {}; ncm.cbSize = sizeof(ncm);
@@ -5167,10 +5319,10 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             if (hFocus == s_hListView || (s_hListView && IsWindow(s_hListView) && ListView_GetSelectedCount(s_hListView) > 0)) {
                 int selCount = ListView_GetSelectedCount(s_hListView);
                 if (selCount > 0) {
-                    std::wstring msg = L"Remove " + std::to_wstring(selCount) +
-                        (selCount == 1 ? L" selected file?" : L" selected files?");
-                    if (MessageBoxW(hwnd, msg.c_str(), L"Confirm Remove",
-                            MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) != IDYES) {
+                    std::wstring msg = (selCount == 1)
+                        ? LocFmt(s_locale, L"confirm_remove_file")
+                        : LocFmt(s_locale, L"confirm_remove_files", std::to_wstring(selCount));
+                    if (!ShowConfirmDeleteDialog(hwnd, LocFmt(s_locale, L"confirm_remove_title"), msg, s_locale)) {
                         return 0;
                     }
                 }
@@ -5219,10 +5371,18 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                             toDelete.push_back(hI);
                     }
                     int n = (int)toDelete.size();
-                    std::wstring msg = L"Remove " + std::to_wstring(n) +
-                        (n == 1 ? L" selected folder?" : L" selected folders?");
-                    if (MessageBoxW(hwnd, msg.c_str(), L"Confirm Remove",
-                            MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) == IDYES) {
+                    std::wstring msg = (n == 1)
+                        ? LocFmt(s_locale, L"confirm_remove_folder")
+                        : LocFmt(s_locale, L"confirm_remove_folders", std::to_wstring(n));
+                    if (ShowConfirmDeleteDialog(hwnd, LocFmt(s_locale, L"confirm_remove_title"), msg, s_locale)) {
+                        // Collect file paths BEFORE wiping s_virtualFolderFiles,
+                        // then remove orphaned component rows from the DB.
+                        {
+                            std::unordered_set<std::wstring> delPaths;
+                            for (HTREEITEM hI : toDelete)
+                                CollectSubtreePaths(s_hTreeView, hI, delPaths);
+                            PurgeComponentRowsByPaths(s_currentProject.id, delPaths);
+                        }
                         std::function<void(HTREEITEM)> CleanupVF = [&](HTREEITEM hI) {
                             s_virtualFolderFiles.erase(hI);
                             HTREEITEM hC = TreeView_GetChild(s_hTreeView, hI);
@@ -5260,16 +5420,20 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                     tvItem.cchTextMax = 256;
                     TreeView_GetItem(s_hTreeView, &tvItem);
                     if (TreeView_GetChild(s_hTreeView, hSel)) {
-                        std::wstring msg = L"'" + std::wstring(folderName) +
-                            L"' contains sub-folders.\n\nDelete it and all its contents?";
-                        shouldDelete = (MessageBoxW(hwnd, msg.c_str(), L"Confirm Remove",
-                            MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) == IDYES);
+                        std::wstring msg = LocFmt(s_locale, L"confirm_remove_folder_recursive", std::wstring(folderName));
+                        shouldDelete = ShowConfirmDeleteDialog(hwnd, LocFmt(s_locale, L"confirm_remove_title"), msg, s_locale);
                     } else {
-                        std::wstring msg = L"Remove '" + std::wstring(folderName) + L"'?";
-                        shouldDelete = (MessageBoxW(hwnd, msg.c_str(), L"Confirm Remove",
-                            MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) == IDYES);
+                        std::wstring msg = LocFmt(s_locale, L"confirm_remove_single", std::wstring(folderName));
+                        shouldDelete = ShowConfirmDeleteDialog(hwnd, LocFmt(s_locale, L"confirm_remove_title"), msg, s_locale);
                     }
                     if (shouldDelete) {
+                        // Collect file paths BEFORE wiping s_virtualFolderFiles,
+                        // then remove orphaned component rows from the DB.
+                        {
+                            std::unordered_set<std::wstring> delPaths;
+                            CollectSubtreePaths(s_hTreeView, hSel, delPaths);
+                            PurgeComponentRowsByPaths(s_currentProject.id, delPaths);
+                        }
                         std::function<void(HTREEITEM)> CleanupVF = [&](HTREEITEM hItem) {
                             s_virtualFolderFiles.erase(hItem);
                             HTREEITEM hChild = TreeView_GetChild(s_hTreeView, hItem);
@@ -5425,14 +5589,26 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 dialogClassRegistered = true;
             }
             
-            // Center dialog over main window
+            // Compute DPI-aware dialog size
+            int clientW = S(RK_CONT_W) + 2*S(RK_PAD_H);
+            int clientH = S(RK_PAD_T) + S(RK_LBL_H) + S(RK_GAP_LE)
+                        + S(RK_EDIT_H) + S(RK_GAP_EB) + S(RK_BTN_H) + S(RK_PAD_B);
+            RECT wrc = { 0, 0, clientW, clientH };
+            AdjustWindowRectEx(&wrc, WS_POPUP|WS_CAPTION|WS_SYSMENU, FALSE, WS_EX_TOPMOST|WS_EX_TOOLWINDOW);
+            int dlgWidth  = wrc.right  - wrc.left;
+            int dlgHeight = wrc.bottom - wrc.top;
+
+            // Centre over main window
             RECT rcMain;
             GetWindowRect(hwnd, &rcMain);
-            int dlgWidth = 640;
-            int dlgHeight = 240;
-            int dlgX = rcMain.left + (rcMain.right - rcMain.left - dlgWidth) / 2;
-            int dlgY = rcMain.top + 160;
-            
+            int dlgX = rcMain.left + (rcMain.right  - rcMain.left - dlgWidth)  / 2;
+            int dlgY = rcMain.top  + (rcMain.bottom - rcMain.top  - dlgHeight) / 2;
+            RECT rcWork; SystemParametersInfoW(SPI_GETWORKAREA, 0, &rcWork, 0);
+            if (dlgX < rcWork.left) dlgX = rcWork.left;
+            if (dlgY < rcWork.top)  dlgY = rcWork.top;
+            if (dlgX + dlgWidth  > rcWork.right)  dlgX = rcWork.right  - dlgWidth;
+            if (dlgY + dlgHeight > rcWork.bottom) dlgY = rcWork.bottom - dlgHeight;
+
             // Create modeless dialog
             s_hRegKeyDialog = CreateWindowExW(
                 WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
@@ -5495,14 +5671,23 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 RegisterClassExW(&wc);
             }
             
-            // Center dialog over main window
-            RECT rcMain;
-            GetWindowRect(hwnd, &rcMain);
-            int dlgWidth = 580;
-            int dlgHeight = 210;
-            int dlgX = rcMain.left + ((rcMain.right - rcMain.left) - dlgWidth) / 2;
-            int dlgY = rcMain.top + ((rcMain.bottom - rcMain.top) - dlgHeight) / 2;
-            
+            // Compute DPI-aware dialog size via AdjustWindowRectEx
+            int clientW = S(AK_PAD_H)+S(AK_LBL_W)+S(AK_FLD_GAP)+S(AK_EDIT_W)+S(AK_PAD_H);
+            int clientH = S(AK_PAD_T)+S(AK_ROW_H)+S(AK_GAP_EB)+S(AK_BTN_H)+S(AK_PAD_B);
+            RECT wrcAK1 = {0,0,clientW,clientH};
+            AdjustWindowRectEx(&wrcAK1, WS_POPUP|WS_CAPTION|WS_SYSMENU, FALSE,
+                               WS_EX_TOPMOST|WS_EX_TOOLWINDOW);
+            int dlgWidth  = wrcAK1.right-wrcAK1.left;
+            int dlgHeight = wrcAK1.bottom-wrcAK1.top;
+            RECT rcMainAK1; GetWindowRect(hwnd, &rcMainAK1);
+            int dlgX = rcMainAK1.left + (rcMainAK1.right-rcMainAK1.left-dlgWidth)/2;
+            int dlgY = rcMainAK1.top  + (rcMainAK1.bottom-rcMainAK1.top-dlgHeight)/2;
+            RECT rcWkAK1; SystemParametersInfoW(SPI_GETWORKAREA,0,&rcWkAK1,0);
+            if(dlgX<rcWkAK1.left) dlgX=rcWkAK1.left;
+            if(dlgY<rcWkAK1.top)  dlgY=rcWkAK1.top;
+            if(dlgX+dlgWidth>rcWkAK1.right)  dlgX=rcWkAK1.right-dlgWidth;
+            if(dlgY+dlgHeight>rcWkAK1.bottom) dlgY=rcWkAK1.bottom-dlgHeight;
+
             // Show dialog
             HWND hDialog = CreateWindowExW(
                 WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
@@ -5604,14 +5789,27 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 RegisterClassExW(&wc);
             }
             
-            // Center dialog over main window
-            RECT rcMain;
-            GetWindowRect(hwnd, &rcMain);
-            int dlgWidth = 680;
-            int dlgHeight = 315;
-            int dlgX = rcMain.left + ((rcMain.right - rcMain.left) - dlgWidth) / 2;
-            int dlgY = rcMain.top + ((rcMain.bottom - rcMain.top) - dlgHeight) / 2;
-            
+            // Compute DPI-aware dialog size via AdjustWindowRectEx
+            int avClientW = S(AV_PAD_H)+S(AV_LBL_W)+S(AV_FLD_GAP)+S(AV_EDIT_W)+S(AV_PAD_H);
+            int avClientH = S(AV_PAD_T)
+                          + S(AV_ROW_H)+S(AV_GAP_R1)
+                          + S(AV_ROW_H)+S(AV_GAP_R2)
+                          + S(AV_ROW_H)+S(AV_GAP_RB)
+                          + S(AV_BTN_H)+S(AV_PAD_B);
+            RECT wrcAV1 = {0,0,avClientW,avClientH};
+            AdjustWindowRectEx(&wrcAV1, WS_POPUP|WS_CAPTION|WS_SYSMENU, FALSE,
+                               WS_EX_TOPMOST|WS_EX_TOOLWINDOW);
+            int dlgWidth  = wrcAV1.right-wrcAV1.left;
+            int dlgHeight = wrcAV1.bottom-wrcAV1.top;
+            RECT rcMainAV1; GetWindowRect(hwnd, &rcMainAV1);
+            int dlgX = rcMainAV1.left + (rcMainAV1.right-rcMainAV1.left-dlgWidth)/2;
+            int dlgY = rcMainAV1.top  + (rcMainAV1.bottom-rcMainAV1.top-dlgHeight)/2;
+            RECT rcWkAV1; SystemParametersInfoW(SPI_GETWORKAREA,0,&rcWkAV1,0);
+            if(dlgX<rcWkAV1.left) dlgX=rcWkAV1.left;
+            if(dlgY<rcWkAV1.top)  dlgY=rcWkAV1.top;
+            if(dlgX+dlgWidth>rcWkAV1.right)  dlgX=rcWkAV1.right-dlgWidth;
+            if(dlgY+dlgHeight>rcWkAV1.bottom) dlgY=rcWkAV1.bottom-dlgHeight;
+
             // Show dialog
             HWND hDialog = CreateWindowExW(
                 WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
@@ -5966,15 +6164,21 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 RegisterClassExW(&wc);
             }
 
-            RECT rcParent;
-            GetWindowRect(hwnd, &rcParent);
-            int dlgX = rcParent.left + (rcParent.right - rcParent.left - 580) / 2;
-            int dlgY = rcParent.top + (rcParent.bottom - rcParent.top - 210) / 2;
+            RECT rcParent; GetWindowRect(hwnd, &rcParent);
+            int akClientW2 = S(AK_PAD_H)+S(AK_LBL_W)+S(AK_FLD_GAP)+S(AK_EDIT_W)+S(AK_PAD_H);
+            int akClientH2 = S(AK_PAD_T)+S(AK_ROW_H)+S(AK_GAP_EB)+S(AK_BTN_H)+S(AK_PAD_B);
+            RECT wrcAK2 = {0,0,akClientW2,akClientH2};
+            AdjustWindowRectEx(&wrcAK2, WS_POPUP|WS_CAPTION|WS_SYSMENU, FALSE,
+                               WS_EX_DLGMODALFRAME|WS_EX_TOPMOST);
+            int dlgWidth2  = wrcAK2.right-wrcAK2.left;
+            int dlgHeight2 = wrcAK2.bottom-wrcAK2.top;
+            int dlgX2 = rcParent.left + (rcParent.right-rcParent.left-dlgWidth2)/2;
+            int dlgY2 = rcParent.top  + (rcParent.bottom-rcParent.top-dlgHeight2)/2;
 
             HWND hDialog = CreateWindowExW(WS_EX_DLGMODALFRAME | WS_EX_TOPMOST,
                 L"AddKeyDialog", title.c_str(),
                 WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
-                dlgX, dlgY, 580, 210, hwnd, NULL, hInst, &data);
+                dlgX2, dlgY2, dlgWidth2, dlgHeight2, hwnd, NULL, hInst, &data);
             
             if (hDialog) {
                 EnableWindow(hwnd, FALSE);
@@ -6065,22 +6269,27 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 RegisterClassExW(&wc);
             }
 
-            // Create dialog window
-            HWND hDialog = CreateWindowExW(WS_EX_DLGMODALFRAME | WS_EX_TOPMOST, L"AddValueDialog",
-                title.c_str(), WS_POPUP | WS_CAPTION | WS_SYSMENU,
-                CW_USEDEFAULT, CW_USEDEFAULT, 680, 315, hwnd, NULL, hInst, &dialogData);
-            
+            // Create dialog window with DPI-aware sizing
+            HWND hDialog = NULL;
+            {
+                int clientW = S(AV_PAD_H)+S(AV_LBL_W)+S(AV_FLD_GAP)+S(AV_EDIT_W)+S(AV_PAD_H);
+                int clientH = S(AV_PAD_T)
+                            + S(AV_ROW_H)+S(AV_GAP_R1)
+                            + S(AV_ROW_H)+S(AV_GAP_R2)
+                            + S(AV_ROW_H)+S(AV_GAP_RB)
+                            + S(AV_BTN_H)+S(AV_PAD_B);
+                RECT wrc = {0,0,clientW,clientH};
+                AdjustWindowRectEx(&wrc, WS_POPUP|WS_CAPTION|WS_SYSMENU, FALSE,
+                                   WS_EX_DLGMODALFRAME|WS_EX_TOPMOST);
+                int dlgW = wrc.right-wrc.left, dlgH = wrc.bottom-wrc.top;
+                RECT rcP; GetWindowRect(hwnd, &rcP);
+                int x = rcP.left + (rcP.right-rcP.left-dlgW)/2;
+                int y = rcP.top  + (rcP.bottom-rcP.top-dlgH)/2;
+                hDialog = CreateWindowExW(WS_EX_DLGMODALFRAME | WS_EX_TOPMOST, L"AddValueDialog",
+                    title.c_str(), WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
+                    x, y, dlgW, dlgH, hwnd, NULL, hInst, &dialogData);
+            }
             if (hDialog) {
-                // Center dialog
-                RECT rcParent, rcDialog;
-                GetWindowRect(hwnd, &rcParent);
-                GetWindowRect(hDialog, &rcDialog);
-                int x = rcParent.left + (rcParent.right - rcParent.left - (rcDialog.right - rcDialog.left)) / 2;
-                int y = rcParent.top + (rcParent.bottom - rcParent.top - (rcDialog.bottom - rcDialog.top)) / 2;
-                SetWindowPos(hDialog, NULL, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
-                
-                ShowWindow(hDialog, SW_SHOW);
-                
                 // Modal message loop
                 EnableWindow(hwnd, FALSE);
                 MSG msg;
@@ -6217,6 +6426,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             
         // Components page handlers
         case IDC_COMP_ENABLE: {
+            if (HIWORD(wParam) != BN_CLICKED) return 0;
             if (s_currentProject.id <= 0) return 0;
             HWND hChk = GetDlgItem(hwnd, IDC_COMP_ENABLE);
             int checked = (hChk && SendMessageW(hChk, BM_GETCHECK, 0, 0) == BST_CHECKED) ? 1 : 0;
@@ -6447,14 +6657,14 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 }
 
                 if (existingId > 0) {
-                    int choice = ShowDuplicateProjectDialog(hwnd, s_currentProject.name);
+                    int choice = ShowDuplicateProjectDialog(hwnd, s_currentProject.name, s_locale);
                     if (choice == 0) return 0; // Cancel
                     if (choice == 1) {
                         // Overwrite: adopt existing project's ID (UpdateProject below will refresh all fields)
                         s_currentProject.id = existingId;
                     } else { // choice == 2: Rename
                         std::wstring newName = s_currentProject.name;
-                        if (!ShowRenameProjectDialog(hwnd, newName)) return 0;
+                        if (!ShowRenameProjectDialog(hwnd, newName, s_locale)) return 0;
                         s_currentProject.name = newName;
                         // Reflect new name in the edit and title bar
                         s_updatingProjectNameProgrammatically = true;
@@ -6641,11 +6851,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 // Show confirmation dialog if folder is not empty
                 bool shouldDelete = true;
                 if (hasChildren) {
-                    std::wstring message = L"The folder '" + std::wstring(folderName) + 
-                                          L"' is not empty.\n\nDo you want to delete it and all its contents?";
-                    int result = MessageBoxW(hwnd, message.c_str(), L"Confirm Delete", 
-                                           MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2);
-                    shouldDelete = (result == IDYES);
+                    std::wstring message = LocFmt(s_locale, L"confirm_delete_nonempty", std::wstring(folderName));
+                    shouldDelete = ShowConfirmDeleteDialog(hwnd, LocFmt(s_locale, L"confirm_delete_title"), message, s_locale);
                 }
                 
                 // Delete the folder and all its children
@@ -6653,7 +6860,15 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                     // Check if deleted item was under Program Files root
                     HTREEITEM hParent = TreeView_GetParent(s_hTreeView, s_rightClickedItem);
                     bool wasUnderProgramFiles = (hParent == s_hProgramFilesRoot);
-                    
+
+                    // Collect file paths BEFORE wiping s_virtualFolderFiles,
+                    // then remove orphaned component rows from the DB.
+                    {
+                        std::unordered_set<std::wstring> delPaths;
+                        CollectSubtreePaths(s_hTreeView, s_rightClickedItem, delPaths);
+                        PurgeComponentRowsByPaths(s_currentProject.id, delPaths);
+                    }
+
                     // Clean up virtual folder files recursively before deleting
                     std::function<void(HTREEITEM)> CleanupVirtualFolderFiles = [&](HTREEITEM hItem) {
                         // Remove this folder's files from the map
@@ -6915,14 +7130,42 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                     wcFd.hCursor       = LoadCursor(NULL, IDC_ARROW);
                     RegisterClassExW(&wcFd);
                 }
+                // Measure cascade hint so the dialog sizes to it
+                {
+                    NONCLIENTMETRICSW ncmH = {}; ncmH.cbSize = sizeof(ncmH);
+                    SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncmH), &ncmH, 0);
+                    if (ncmH.lfMessageFont.lfHeight < 0)
+                        ncmH.lfMessageFont.lfHeight = (LONG)(ncmH.lfMessageFont.lfHeight * 1.2f);
+                    ncmH.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+                    HFONT hMF = CreateFontIndirectW(&ncmH.lfMessageFont);
+                    HDC hdc = GetDC(NULL);
+                    HFONT hOld = (HFONT)SelectObject(hdc, hMF);
+                    int hintMaxW = S(CFE_CONT_W);
+                    RECT rcHint = { 0, 0, hintMaxW, 0 };
+                    DrawTextW(hdc, fd.cascadeHint.c_str(), -1, &rcHint,
+                              DT_CALCRECT | DT_WORDBREAK | DT_LEFT | DT_NOPREFIX);
+                    SelectObject(hdc, hOld);
+                    ReleaseDC(NULL, hdc);
+                    DeleteObject(hMF);
+                    fd.hintH = rcHint.bottom > 0 ? rcHint.bottom : S(42);
+                }
+                int clientW3 = S(CFE_PAD_H)+S(CFE_CONT_W)+S(CFE_PAD_H);
+                int clientH3 = S(CFE_PAD_T)
+                             + S(CFE_NAME_H)+S(CFE_GAP_NR)
+                             + S(CFE_CHECK_H)+S(CFE_GAP_RC)
+                             + fd.hintH+S(CFE_GAP_HB)
+                             + S(CFE_BTN_H)+S(CFE_PAD_B);
+                RECT wrc3 = {0,0,clientW3,clientH3};
+                AdjustWindowRectEx(&wrc3, WS_POPUP|WS_CAPTION|WS_SYSMENU, FALSE,
+                                   WS_EX_TOPMOST|WS_EX_TOOLWINDOW);
+                int dlgW3 = wrc3.right-wrc3.left, dlgH3 = wrc3.bottom-wrc3.top;
                 RECT rcMain3; GetWindowRect(hwnd, &rcMain3);
-                int dlgW3 = 580, dlgH3 = 240;
+                int xFd = rcMain3.left + (rcMain3.right-rcMain3.left-dlgW3)/2;
+                int yFd = rcMain3.top  + (rcMain3.bottom-rcMain3.top-dlgH3)/2;
                 HWND hFd = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
                     L"CompFolderEditDialog", fd.titleText.c_str(),
                     WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
-                    rcMain3.left + ((rcMain3.right - rcMain3.left) - dlgW3) / 2,
-                    rcMain3.top  + ((rcMain3.bottom - rcMain3.top)  - dlgH3) / 2,
-                    dlgW3, dlgH3, hwnd, NULL, GetModuleHandleW(NULL), &fd);
+                    xFd, yFd, dlgW3, dlgH3, hwnd, NULL, GetModuleHandleW(NULL), &fd);
                 MSG msgFd;
                 while (GetMessageW(&msgFd, NULL, 0, 0) > 0) {
                     if (!IsWindow(hFd)) break;

@@ -1,0 +1,177 @@
+================================================================================
+  SetupCraft — Dialog Internals Reference
+================================================================================
+
+PURPOSE
+-------
+All modal yes/no and multi-choice dialogs in SetupCraft are custom Win32 popup
+windows (not DialogBoxParam). They use the custom button system (button.h) for
+i18n-correct labels and consistent visual style.
+
+This file describes the "measure-then-create" sizing pattern that makes dialogs
+resize automatically to fit any locale's text without hardcoded pixel heights.
+
+================================================================================
+PATTERN: MEASURE-THEN-CREATE (dynamic dialog sizing)
+================================================================================
+
+The problem with fixed-size dialogs
+------------------------------------
+A fixed height (e.g. 205 px) works for English but silently clips longer text in
+other languages. A static STATIC control with WS_CLIP does not scroll or grow —
+the text is just cut off.
+
+The solution
+------------
+Compute the outer window size BEFORE calling CreateWindowExW, by:
+  1. Expanding locale escape sequences (see below).
+  2. Measuring the wrapped text height with DrawTextW + DT_CALCRECT.
+  3. Deriving client size from layout constants.
+  4. Converting client size to outer window size with AdjustWindowRectEx.
+  5. Passing the result to CreateWindowExW.
+
+Inject the pre-computed text height into the locale copy (key "__dlg_textH") so
+that WM_CREATE can position controls via GetClientRect without re-measuring.
+
+Layout constants (design pixels at 96 DPI — always wrap in S())
+----------------------------------------------------------------
+  DLG_PAD_H   = 20   left/right padding inside the client area
+  DLG_PAD_T   = 20   top padding (text top edge)
+  DLG_PAD_B   = 15   bottom padding (below the button row)
+  DLG_GAP_TB  = 15   vertical gap between text bottom and button top
+  DLG_BTN_H   = 34   button height
+  DLG_BTN_W   = 120  each button width (two buttons per yes/no dialog)
+  DLG_BTN_GAP = 15   gap between the two buttons
+  DLG_CONT_W  = 380  text column wrap width
+
+  clientW = DLG_CONT_W + 2 × DLG_PAD_H       (= 420 at 96 DPI)
+  clientH = DLG_PAD_T + textH + DLG_GAP_TB + DLG_BTN_H + DLG_PAD_B
+
+Escape-sequence expansion
+--------------------------
+Locale files store newlines as literal two-character sequences "\n" or "\r\n".
+These MUST be converted to real newline characters (char 10) before:
+  - Passing text to DrawTextW for measurement.
+  - Setting text on a STATIC control (so line breaks appear correctly).
+
+Helper: ExpandEscapes(std::wstring s)  — defined in ctrlw.cpp.
+  Replaces "\\r\\n" → "\n", then "\\n" → "\n" (one pass each, no double-replace).
+
+Text measurement helper
+------------------------
+MeasureDialogTextHeight(const std::wstring& text, int maxW)  — ctrlw.cpp.
+  - Uses GetDC(NULL) (screen DC, DPI-aware because g_dpiScale is already applied
+    to maxW by the caller via S()).
+  - Selects the same NONCLIENTMETRICS font the dialog uses.
+  - Calls DrawTextW with DT_CALCRECT | DT_WORDBREAK | DT_CENTER | DT_NOPREFIX.
+  - Returns rc.bottom (== measured height; rc.top is always 0).
+  - Releases the DC and deletes the font before returning.
+
+WM_CREATE layout
+-----------------
+  RECT rcC; GetClientRect(hDlg, &rcC);  // correct after AdjustWindowRectEx
+  // text
+  CreateWindowExW(0, L"STATIC", message, WS_CHILD|WS_VISIBLE|SS_CENTER,
+      S(DLG_PAD_H), S(DLG_PAD_T),
+      rcC.right - 2*S(DLG_PAD_H), textH,
+      hDlg, ...);
+  // buttons — centred horizontally, pinned to bottom
+  int totalBtnW = 2*S(DLG_BTN_W) + S(DLG_BTN_GAP);
+  int startX    = (rcC.right - totalBtnW) / 2;
+  int btnY      = rcC.bottom - S(DLG_PAD_B) - S(DLG_BTN_H);
+  CreateCustomButtonWithIcon(hDlg, IDYES, yesText, ButtonColor::Green, ...,
+      startX, btnY, S(DLG_BTN_W), S(DLG_BTN_H), hInst);
+  CreateCustomButtonWithIcon(hDlg, IDNO,  noText,  ButtonColor::Red,   ...,
+      startX + S(DLG_BTN_W) + S(DLG_BTN_GAP), btnY,
+      S(DLG_BTN_W), S(DLG_BTN_H), hInst);
+
+AdjustWindowRectEx call
+------------------------
+  RECT wrc = { 0, 0, clientW, clientH };
+  AdjustWindowRectEx(&wrc,
+      WS_POPUP | WS_CAPTION | WS_SYSMENU,  // must match CreateWindowExW style
+      FALSE,                                // no menu
+      WS_EX_DLGMODALFRAME);                 // must match CreateWindowExW exStyle
+  int width  = wrc.right  - wrc.left;
+  int height = wrc.bottom - wrc.top;
+
+  *** Use the SAME style flags as in CreateWindowExW or the sizes will not match. ***
+
+Centering after dynamic sizing
+--------------------------------
+After computing width/height, centre on the parent window:
+  int x = rcParent.left + (rcParent.right  - rcParent.left - width)  / 2;
+  int y = rcParent.top  + (rcParent.bottom - rcParent.top  - height) / 2;
+Then clamp to the monitor work area (SPI_GETWORKAREA) so the dialog is never
+partially off-screen.
+
+================================================================================
+APPLYING THIS PATTERN TO OTHER DIALOGS
+================================================================================
+
+All dialogs are now converted to the measure-then-create pattern.
+
+ctrlw.cpp dialogs (all DONE):
+  QuitDialogProc / ShowQuitDialog          — generic yes/no
+  ShowCloseProjectDialog                   — reuses ShowQuitDialog
+  ShowConfirmDeleteDialog                  — reuses ShowQuitDialog
+  DupDialogProc / ShowDuplicateProjectDialog   — 3 buttons, 2 lines; DUP_BTN_W* constants
+  RenameDialogProc / ShowRenameProjectDialog   — edit box + 2 buttons; REN_* constants
+  UnsavedChangesDialogProc / ShowUnsavedChangesDialog — 3 buttons; UNS_BTN_W* constants
+
+mainwindow.cpp dialogs (all DONE):
+  RegKeyDialogProc                         — RK_* layout constants; AdjustWindowRectEx
+  AddValueDialogProc                       — AV_* constants; 3 field rows + buttons
+  AddKeyDialogProc                         — AK_* constants; single field row + buttons
+  CompFolderEditDlgProc                    — CFE_* constants; hint height measured at
+                                             creation site with DrawTextW DT_CALCRECT
+
+Per-dialog layout constant sets (all in mainwindow.cpp before their proc):
+  RK_PAD_H/T/B, RK_LBL_H, RK_GAP_LE, RK_EDIT_H, RK_GAP_EB, RK_BTN_H/W0/W1/W2, RK_BTN_GAP
+  AV_PAD_H/T/B, AV_LBL_W, AV_FLD_GAP, AV_EDIT_W, AV_ROW_H,
+      AV_GAP_R1/R2/RB, AV_BTN_H/W0/W1, AV_BTN_GAP
+  AK_PAD_H/T/B, AK_LBL_W, AK_FLD_GAP, AK_EDIT_W, AK_ROW_H,
+      AK_GAP_EB, AK_BTN_H/W0/W1, AK_BTN_GAP
+  CFE_PAD_H/T/B, CFE_CONT_W, CFE_NAME_H, CFE_GAP_NR, CFE_CHECK_H, CFE_GAP_RC,
+      CFE_GAP_HB, CFE_BTN_H/W0/W1, CFE_BTN_GAP
+
+Notes on CompFolderEdit hint measurement:
+  MeasureDialogTextHeight() is static inside ctrlw.cpp and cannot be called from
+  mainwindow.cpp. The cascade hint is measured inline at the creation site using
+  GetDC(NULL) + DrawTextW(DT_CALCRECT|DT_WORDBREAK). The result is stored in
+  CompFolderDlgData::hintH (int, already DPI-scaled) so WM_CREATE can use it
+  directly via pData->hintH.
+
+The pattern for multi-button dialogs is the same except:
+  - totalBtnW = N × DLG_BTN_W + (N-1) × DLG_BTN_GAP
+  - Measure text the same way (one call to MeasureDialogTextHeight).
+  - Same AdjustWindowRectEx call with matching styles.
+
+================================================================================
+PITFALLS
+================================================================================
+
+1. Hardcoded pixel positions in WM_CREATE
+   Use GetClientRect + S() — never hardcode positions; they will be wrong at
+   non-96-DPI and when text heights change.
+
+2. Forgetting to expand escape sequences before measuring
+   DrawTextW does not interpret literal backslash-n. Unexpanded text measures as
+   one long line → wrong (too-narrow) wrap → incorrect height.
+
+3. AdjustWindowRectEx style mismatch
+   If the styles passed to AdjustWindowRectEx differ from the actual CreateWindowExW
+   styles, the client area will not match the computed clientH. Verify both calls
+   at the same time when changing window styles.
+
+4. Re-using stale dimensions across DPI changes
+   Dimensions are computed fresh in ShowQuitDialog every time it is called, so
+   they automatically adapt if g_dpiScale changes (e.g. user moves window between
+   monitors). No caching needed.
+
+5. WM_CREATE fires synchronously inside CreateWindowExW
+   GetClientRect in WM_CREATE returns the final client area provided the window
+   has not been shown yet (SW_SHOW is called AFTER CreateWindowExW returns). This
+   is the correct and safe order; do not reorder the calls.
+
+================================================================================

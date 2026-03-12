@@ -378,4 +378,5 @@ CMakeFiles/SkeletonApp.dir/ctrlw.cpp.obj: \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_multimap.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/erase_if.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\button.h \
+ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\dpi.h \
  C:/mingw64/x86_64-w64-mingw32/include/commctrl.h

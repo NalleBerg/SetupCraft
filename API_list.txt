@@ -37,4 +37,11 @@
                                     imageres.dll, ImageList loading pattern,
                                     and ComponentRow dest_path cascade-scope rules.
 
+  dialog_INTERNALS.txt              Custom modal dialog system — measure-then-create
+                                    dynamic sizing pattern, layout constants,
+                                    ExpandEscapes / MeasureDialogTextHeight helpers,
+                                    AdjustWindowRectEx sizing recipe, WM_CREATE
+                                    GetClientRect layout, and per-dialog status
+                                    (which dialogs have been converted).
+
 ================================================================================

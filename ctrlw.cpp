@@ -1,6 +1,47 @@
 #include "ctrlw.h"
 #include "button.h"
+#include "dpi.h"
 #include <commctrl.h>
+
+// ─── Dialog layout constants (design-time pixels at 96 DPI) ─────────────────
+static const int DLG_PAD_H   = 20;   // left/right padding
+static const int DLG_PAD_T   = 20;   // top padding (above text)
+static const int DLG_PAD_B   = 15;   // bottom padding (below buttons)
+static const int DLG_GAP_TB  = 15;   // gap between text bottom and button top
+static const int DLG_BTN_H   = 34;   // button height
+static const int DLG_BTN_W   = 120;  // each button width
+static const int DLG_BTN_GAP = 15;   // gap between the two buttons
+static const int DLG_CONT_W  = 380;  // text column wrap width
+
+// Convert literal \n / \r\n escape sequences (as stored in locale files)
+// into real newline characters so STATIC controls and DrawText display them.
+static std::wstring ExpandEscapes(std::wstring s) {
+    for (size_t p; (p = s.find(L"\\r\\n")) != std::wstring::npos; )
+        s.replace(p, 4, L"\n");
+    for (size_t p; (p = s.find(L"\\n"))   != std::wstring::npos; )
+        s.replace(p, 2, L"\n");
+    return s;
+}
+
+// Measure the pixel height that 'text' occupies when word-wrapped into
+// 'maxW' logical pixels, using the same NONCLIENTMETRICS font the dialogs use.
+static int MeasureDialogTextHeight(const std::wstring& text, int maxW) {
+    NONCLIENTMETRICSW ncm = {}; ncm.cbSize = sizeof(ncm);
+    SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+    if (ncm.lfMessageFont.lfHeight < 0)
+        ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
+    ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+    HFONT hFont = CreateFontIndirectW(&ncm.lfMessageFont);
+    HDC hdc = GetDC(NULL);
+    HFONT hOld = (HFONT)SelectObject(hdc, hFont);
+    RECT rc = { 0, 0, maxW, 0 };
+    DrawTextW(hdc, text.c_str(), -1, &rc,
+              DT_CALCRECT | DT_WORDBREAK | DT_CENTER | DT_NOPREFIX);
+    SelectObject(hdc, hOld);
+    ReleaseDC(NULL, hdc);
+    DeleteObject(hFont);
+    return rc.bottom; // rc.top is always 0 here
+}
 
 // Global for dialog result
 static bool g_quitDialogResult = false;
@@ -15,42 +56,56 @@ LRESULT CALLBACK QuitDialogProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lPara
         
         if (pLocale) {
             SetWindowLongPtr(hDlg, GWLP_USERDATA, (LONG_PTR)pLocale);
-            
+
             HINSTANCE hInst = cs->hInstance;
-            
-            // Create static text for message
+
+            // Build font (identical spec used during pre-measurement in ShowQuitDialog)
+            NONCLIENTMETRICSW ncm = {}; ncm.cbSize = sizeof(ncm);
+            SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+            if (ncm.lfMessageFont.lfHeight < 0)
+                ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
+            ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+            HFONT hFont = CreateFontIndirectW(&ncm.lfMessageFont);
+
+            // Retrieve pre-measured text height stored by ShowQuitDialog
+            auto itTH = pLocale->find(L"__dlg_textH");
+            int textH = (itTH != pLocale->end()) ? std::stoi(itTH->second) : S(50);
+
+            // Retrieve message (already had escapes expanded in ShowQuitDialog)
             auto itMsg = pLocale->find(L"quit_message");
-            std::wstring message = (itMsg != pLocale->end()) ? itMsg->second : L"Are you sure you want to quit?";
-            
+            std::wstring message = (itMsg != pLocale->end()) ? itMsg->second
+                                                              : L"Are you sure you want to quit?";
+
+            // Use actual client rect so layout is always correct
+            RECT rcC; GetClientRect(hDlg, &rcC);
+            int cW = rcC.right;
+            int cH = rcC.bottom;
+
+            // Text — fills content column, height from measurement
             HWND hText = CreateWindowExW(0, L"STATIC", message.c_str(),
                 WS_CHILD | WS_VISIBLE | SS_CENTER,
-                20, 25, 380, 50,
+                S(DLG_PAD_H), S(DLG_PAD_T),
+                cW - 2 * S(DLG_PAD_H), textH,
                 hDlg, NULL, hInst, NULL);
-            
-            // Use system font (same size as main window labels)
-            HFONT hFont = NULL;
-            {
-                NONCLIENTMETRICSW ncm = {};
-                ncm.cbSize = sizeof(ncm);
-                SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
-                if (ncm.lfMessageFont.lfHeight < 0)
-                    ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
-                ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
-                hFont = CreateFontIndirectW(&ncm.lfMessageFont);
-            }
             if (hFont) SendMessageW(hText, WM_SETFONT, (WPARAM)hFont, TRUE);
-            
-            // Create Yes button
+
+            // Buttons — centred horizontally, pinned to bottom
+            int totalBtnW = 2 * S(DLG_BTN_W) + S(DLG_BTN_GAP);
+            int startX    = (cW - totalBtnW) / 2;
+            int btnY      = cH - S(DLG_PAD_B) - S(DLG_BTN_H);
+
             auto itYes = pLocale->find(L"yes");
             std::wstring yesText = (itYes != pLocale->end()) ? itYes->second : L"Yes";
             CreateCustomButtonWithIcon(hDlg, IDYES, yesText, ButtonColor::Green,
-                L"shell32.dll", 112, 80, 108, 110, 34, hInst);
-            
-            // Create No button
+                L"shell32.dll", 112,
+                startX, btnY, S(DLG_BTN_W), S(DLG_BTN_H), hInst);
+
             auto itNo = pLocale->find(L"no");
             std::wstring noText = (itNo != pLocale->end()) ? itNo->second : L"No";
             CreateCustomButtonWithIcon(hDlg, IDNO, noText, ButtonColor::Red,
-                L"shell32.dll", 131, 230, 108, 110, 34, hInst);
+                L"shell32.dll", 131,
+                startX + S(DLG_BTN_W) + S(DLG_BTN_GAP), btnY,
+                S(DLG_BTN_W), S(DLG_BTN_H), hInst);
         }
         
         return 0;
@@ -136,7 +191,24 @@ bool ShowQuitDialog(HWND hwndParent, const std::map<std::wstring, std::wstring>&
         SystemParametersInfoW(SPI_GETWORKAREA, 0, &rcParent, 0);
     }
     
-    int width = 420, height = 205;
+    // Measure message text to compute dialog size dynamically
+    auto itMsg2 = locale.find(L"quit_message");
+    std::wstring msgRaw = (itMsg2 != locale.end()) ? itMsg2->second
+                                                   : L"Are you sure you want to quit?";
+    std::wstring msgExpanded = ExpandEscapes(msgRaw);
+    int textH  = MeasureDialogTextHeight(msgExpanded, S(DLG_CONT_W));
+    if (textH < S(20)) textH = S(20); // floor: at least one line
+
+    int clientW = S(DLG_CONT_W) + 2 * S(DLG_PAD_H);
+    int clientH = S(DLG_PAD_T) + textH + S(DLG_GAP_TB) + S(DLG_BTN_H) + S(DLG_PAD_B);
+
+    // Convert client size to outer window size
+    RECT wrc = { 0, 0, clientW, clientH };
+    AdjustWindowRectEx(&wrc, WS_POPUP | WS_CAPTION | WS_SYSMENU,
+                       FALSE, WS_EX_DLGMODALFRAME);
+    int width  = wrc.right  - wrc.left;
+    int height = wrc.bottom - wrc.top;
+
     int x = rcParent.left + (rcParent.right - rcParent.left - width) / 2;
     int y = rcParent.top + (rcParent.bottom - rcParent.top - height) / 2;
     
@@ -149,9 +221,13 @@ bool ShowQuitDialog(HWND hwndParent, const std::map<std::wstring, std::wstring>&
     if (y + height > rcWork.bottom) y = rcWork.bottom - height;
     
     // Create a non-const copy of locale to pass as parameter
-    std::map<std::wstring, std::wstring>* pLocaleCopy = 
+    // Inject the pre-measured text height and expanded message so WM_CREATE
+    // can do layout without re-measuring.
+    std::map<std::wstring, std::wstring>* pLocaleCopy =
         new std::map<std::wstring, std::wstring>(locale);
-    
+    (*pLocaleCopy)[L"quit_message"] = msgExpanded; // already has real newlines
+    (*pLocaleCopy)[L"__dlg_textH"]  = std::to_wstring(textH);
+
     // Reset result to safe default before showing dialog
     g_quitDialogResult = false;
     
@@ -202,33 +278,66 @@ bool ShowCloseProjectDialog(HWND hwndParent, const std::map<std::wstring, std::w
 // Returns: 0=Cancel  1=Overwrite  2=Rename
 static int g_dupDialogResult = 0;
 
+// Button widths for the 3-button row (design px at 96 DPI)
+static const int DUP_BTN_W0 = 140; // Overwrite
+static const int DUP_BTN_W1 = 175; // Rename this one
+static const int DUP_BTN_W2 = 120; // Cancel
+
 LRESULT CALLBACK DupDialogProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
     case WM_CREATE: {
         CREATESTRUCTW* cs = (CREATESTRUCTW*)lParam;
-        std::wstring* pName = (std::wstring*)cs->lpCreateParams;
+        std::map<std::wstring,std::wstring>* pLocale =
+            (std::map<std::wstring,std::wstring>*)cs->lpCreateParams;
         HINSTANCE hInst = cs->hInstance;
+        SetWindowLongPtr(hDlg, GWLP_USERDATA, (LONG_PTR)pLocale);
 
-        std::wstring text = L"A project named \u201c" + (pName ? *pName : L"") +
-                            L"\u201d already exists.\n\nWhat do you want to do?";
-        HWND hText = CreateWindowExW(0, L"STATIC", text.c_str(),
-            WS_CHILD | WS_VISIBLE | SS_CENTER,
-            15, 18, 570, 60, hDlg, NULL, hInst, NULL);
         NONCLIENTMETRICSW ncm = {}; ncm.cbSize = sizeof(ncm);
         SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
         if (ncm.lfMessageFont.lfHeight < 0)
             ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
         ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
         HFONT hFont = CreateFontIndirectW(&ncm.lfMessageFont);
+
+        // Pre-measured text height and expanded message injected by ShowDuplicateProjectDialog
+        auto itTH  = pLocale->find(L"__dlg_textH");
+        auto itMsg = pLocale->find(L"dup_proj_message");
+        int textH  = (itTH  != pLocale->end()) ? std::stoi(itTH->second) : S(50);
+        std::wstring message = (itMsg != pLocale->end()) ? itMsg->second : L"";
+
+        RECT rcC; GetClientRect(hDlg, &rcC);
+        int cW = rcC.right, cH = rcC.bottom;
+
+        // Centred message text
+        HWND hText = CreateWindowExW(0, L"STATIC", message.c_str(),
+            WS_CHILD | WS_VISIBLE | SS_CENTER,
+            S(DLG_PAD_H), S(DLG_PAD_T), cW - 2*S(DLG_PAD_H), textH,
+            hDlg, NULL, hInst, NULL);
         if (hFont) SendMessageW(hText, WM_SETFONT, (WPARAM)hFont, TRUE);
 
-        // 3 buttons: Overwrite(Red) Rename(Blue) Cancel(Red)
-        CreateCustomButtonWithIcon(hDlg, 1, L"Overwrite", ButtonColor::Red,
-            L"shell32.dll", 240,  15, 105, 160, 34, hInst);
-        CreateCustomButtonWithIcon(hDlg, 2, L"Rename this one", ButtonColor::Blue,
-            L"shell32.dll", 296, 195, 105, 175, 34, hInst);
-        CreateCustomButtonWithIcon(hDlg, IDCANCEL, L"Cancel", ButtonColor::Red,
-            L"shell32.dll", 131, 395, 105, 140, 34, hInst);
+        // 3 buttons centred horizontally, pinned to bottom
+        int totalBtnW = S(DUP_BTN_W0)+S(DUP_BTN_W1)+S(DUP_BTN_W2)+2*S(DLG_BTN_GAP);
+        int startX    = (cW - totalBtnW) / 2;
+        int btnY      = cH - S(DLG_PAD_B) - S(DLG_BTN_H);
+
+        auto itOvr = pLocale->find(L"dup_proj_overwrite");
+        auto itRen = pLocale->find(L"dup_proj_rename");
+        auto itCnl = pLocale->find(L"cancel");
+        std::wstring ovrTxt = (itOvr != pLocale->end()) ? itOvr->second : L"Overwrite";
+        std::wstring renTxt = (itRen != pLocale->end()) ? itRen->second : L"Rename this one";
+        std::wstring cnlTxt = (itCnl != pLocale->end()) ? itCnl->second : L"Cancel";
+
+        CreateCustomButtonWithIcon(hDlg, 1, ovrTxt, ButtonColor::Red,
+            L"shell32.dll", 240,
+            startX, btnY, S(DUP_BTN_W0), S(DLG_BTN_H), hInst);
+        CreateCustomButtonWithIcon(hDlg, 2, renTxt, ButtonColor::Blue,
+            L"shell32.dll", 296,
+            startX+S(DUP_BTN_W0)+S(DLG_BTN_GAP), btnY,
+            S(DUP_BTN_W1), S(DLG_BTN_H), hInst);
+        CreateCustomButtonWithIcon(hDlg, IDCANCEL, cnlTxt, ButtonColor::Red,
+            L"shell32.dll", 131,
+            startX+S(DUP_BTN_W0)+S(DLG_BTN_GAP)+S(DUP_BTN_W1)+S(DLG_BTN_GAP), btnY,
+            S(DUP_BTN_W2), S(DLG_BTN_H), hInst);
         return 0;
     }
     case WM_COMMAND:
@@ -263,7 +372,8 @@ LRESULT CALLBACK DupDialogProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam
     return DefWindowProcW(hDlg, msg, wParam, lParam);
 }
 
-int ShowDuplicateProjectDialog(HWND hwndParent, const std::wstring& projectName) {
+int ShowDuplicateProjectDialog(HWND hwndParent, const std::wstring& projectName,
+                               const std::map<std::wstring,std::wstring>& locale) {
     static bool reg = false;
     if (!reg) {
         WNDCLASSEXW wc={}; wc.cbSize=sizeof(wc);
@@ -275,20 +385,48 @@ int ShowDuplicateProjectDialog(HWND hwndParent, const std::wstring& projectName)
         wc.lpszClassName=L"DupProjDialogClass";
         RegisterClassExW(&wc); reg=true;
     }
+
+    // Substitute project name into message template and expand escape sequences
+    auto itMsg = locale.find(L"dup_proj_message");
+    std::wstring msgRaw = (itMsg != locale.end()) ? itMsg->second
+        : L"A project named \u201c{0}\u201d already exists.\n\nWhat do you want to do?";
+    auto p = msgRaw.find(L"{0}");
+    if (p != std::wstring::npos) msgRaw.replace(p, 3, projectName);
+    std::wstring msgExpanded = ExpandEscapes(msgRaw);
+
+    // Content width driven by the 3-button row
+    int contW = S(DUP_BTN_W0)+S(DUP_BTN_W1)+S(DUP_BTN_W2)+2*S(DLG_BTN_GAP)+2*S(DLG_PAD_H);
+    int textW = contW - 2*S(DLG_PAD_H);
+    int textH = MeasureDialogTextHeight(msgExpanded, textW);
+    if (textH < S(20)) textH = S(20);
+
+    int clientW = contW;
+    int clientH = S(DLG_PAD_T) + textH + S(DLG_GAP_TB) + S(DLG_BTN_H) + S(DLG_PAD_B);
+    RECT wrc = { 0, 0, clientW, clientH };
+    AdjustWindowRectEx(&wrc, WS_POPUP|WS_CAPTION|WS_SYSMENU, FALSE, WS_EX_DLGMODALFRAME);
+    int w = wrc.right-wrc.left, h = wrc.bottom-wrc.top;
+
     RECT rcP; GetWindowRect(hwndParent, &rcP);
-    int w=560, h=195;
     int x=rcP.left+(rcP.right-rcP.left-w)/2;
     int y=rcP.top+(rcP.bottom-rcP.top-h)/2;
     RECT rcW; SystemParametersInfoW(SPI_GETWORKAREA,0,&rcW,0);
     if(x<rcW.left) x=rcW.left; if(y<rcW.top) y=rcW.top;
     if(x+w>rcW.right) x=rcW.right-w; if(y+h>rcW.bottom) y=rcW.bottom-h;
 
-    std::wstring* pName = new std::wstring(projectName);
+    auto itTitle = locale.find(L"dup_proj_title");
+    std::wstring title = (itTitle != locale.end()) ? itTitle->second : L"Project Already Exists";
+
+    // Pass locale copy with pre-computed values to WM_CREATE
+    std::map<std::wstring,std::wstring>* pLocCopy =
+        new std::map<std::wstring,std::wstring>(locale);
+    (*pLocCopy)[L"dup_proj_message"] = msgExpanded;
+    (*pLocCopy)[L"__dlg_textH"]     = std::to_wstring(textH);
+
     g_dupDialogResult=0;
     HWND hDlg = CreateWindowExW(WS_EX_DLGMODALFRAME|WS_EX_TOPMOST,
-        L"DupProjDialogClass", L"Project Already Exists",
+        L"DupProjDialogClass", title.c_str(),
         WS_POPUP|WS_CAPTION|WS_SYSMENU,
-        x, y, w, h, hwndParent, NULL, GetModuleHandle(NULL), pName);
+        x, y, w, h, hwndParent, NULL, GetModuleHandle(NULL), pLocCopy);
     if (hDlg) {
         EnableWindow(hwndParent, FALSE);
         ShowWindow(hDlg, SW_SHOW);
@@ -302,7 +440,7 @@ int ShowDuplicateProjectDialog(HWND hwndParent, const std::wstring& projectName)
         EnableWindow(hwndParent, TRUE);
         SetForegroundWindow(hwndParent);
     }
-    delete pName;
+    delete pLocCopy;
     return g_dupDialogResult;
 }
 
@@ -310,12 +448,20 @@ int ShowDuplicateProjectDialog(HWND hwndParent, const std::wstring& projectName)
 static std::wstring g_renameResult;
 static bool        g_renameConfirmed = false;
 
+static const int REN_EDIT_H = 26; // edit box height (design px)
+static const int REN_LBL_H  = 22; // label height
+static const int REN_GAP_LE =  6; // gap between label and edit
+static const int REN_BTN_W  = 120; // OK / Cancel button width
+
 LRESULT CALLBACK RenameDialogProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
     case WM_CREATE: {
         CREATESTRUCTW* cs = (CREATESTRUCTW*)lParam;
-        std::wstring* pName = (std::wstring*)cs->lpCreateParams;
+        std::map<std::wstring,std::wstring>* pLocale =
+            (std::map<std::wstring,std::wstring>*)cs->lpCreateParams;
         HINSTANCE hInst = cs->hInstance;
+        SetWindowLongPtr(hDlg, GWLP_USERDATA, (LONG_PTR)pLocale);
+
         NONCLIENTMETRICSW ncm={}; ncm.cbSize=sizeof(ncm);
         SystemParametersInfoW(SPI_GETNONCLIENTMETRICS,sizeof(ncm),&ncm,0);
         if (ncm.lfMessageFont.lfHeight<0)
@@ -323,23 +469,49 @@ LRESULT CALLBACK RenameDialogProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lPa
         ncm.lfMessageFont.lfQuality=CLEARTYPE_QUALITY;
         HFONT hFont=CreateFontIndirectW(&ncm.lfMessageFont);
 
-        HWND hLbl=CreateWindowExW(0,L"STATIC",L"Enter a new project name:",
+        auto itLbl  = pLocale->find(L"rename_proj_label");
+        auto itName = pLocale->find(L"__dlg_initName");
+        std::wstring lblTxt  = (itLbl  != pLocale->end()) ? itLbl->second  : L"Enter a new project name:";
+        std::wstring initVal = (itName != pLocale->end()) ? itName->second : L"";
+
+        RECT rcC; GetClientRect(hDlg, &rcC);
+        int cW = rcC.right;
+        int editW = cW - 2*S(DLG_PAD_H);
+
+        // Label
+        HWND hLbl=CreateWindowExW(0,L"STATIC",lblTxt.c_str(),
             WS_CHILD|WS_VISIBLE|SS_LEFT,
-            15,18,370,22,hDlg,NULL,hInst,NULL);
+            S(DLG_PAD_H), S(DLG_PAD_T), editW, S(REN_LBL_H),
+            hDlg, NULL, hInst, NULL);
         if(hFont) SendMessageW(hLbl,WM_SETFONT,(WPARAM)hFont,TRUE);
 
-        HWND hEdit=CreateWindowExW(WS_EX_CLIENTEDGE,L"EDIT",
-            pName ? pName->c_str() : L"",
+        // Edit box
+        int editY = S(DLG_PAD_T) + S(REN_LBL_H) + S(REN_GAP_LE);
+        HWND hEdit=CreateWindowExW(WS_EX_CLIENTEDGE,L"EDIT",initVal.c_str(),
             WS_CHILD|WS_VISIBLE|WS_BORDER|ES_LEFT|ES_AUTOHSCROLL,
-            15,46,370,26,hDlg,(HMENU)100,hInst,NULL);
+            S(DLG_PAD_H), editY, editW, S(REN_EDIT_H),
+            hDlg,(HMENU)100,hInst,NULL);
         if(hFont) SendMessageW(hEdit,WM_SETFONT,(WPARAM)hFont,TRUE);
         SendMessageW(hEdit,EM_SETSEL,0,-1);
         SetFocus(hEdit);
 
-        CreateCustomButtonWithIcon(hDlg,IDOK,L"OK",ButtonColor::Green,
-            L"shell32.dll",258, 15,90,120,32,hInst);
-        CreateCustomButtonWithIcon(hDlg,IDCANCEL,L"Cancel",ButtonColor::Red,
-            L"shell32.dll",131,155,90,120,32,hInst);
+        // Buttons centred, pinned to bottom
+        int totalBtnW = 2*S(REN_BTN_W)+S(DLG_BTN_GAP);
+        int startX    = (cW - totalBtnW) / 2;
+        int btnY      = rcC.bottom - S(DLG_PAD_B) - S(DLG_BTN_H);
+
+        auto itOK  = pLocale->find(L"ok");
+        auto itCnl = pLocale->find(L"cancel");
+        std::wstring okTxt  = (itOK  != pLocale->end()) ? itOK->second  : L"OK";
+        std::wstring cnlTxt = (itCnl != pLocale->end()) ? itCnl->second : L"Cancel";
+
+        CreateCustomButtonWithIcon(hDlg,IDOK,okTxt,ButtonColor::Green,
+            L"shell32.dll",258,
+            startX, btnY, S(REN_BTN_W), S(DLG_BTN_H), hInst);
+        CreateCustomButtonWithIcon(hDlg,IDCANCEL,cnlTxt,ButtonColor::Red,
+            L"shell32.dll",131,
+            startX+S(REN_BTN_W)+S(DLG_BTN_GAP), btnY,
+            S(REN_BTN_W), S(DLG_BTN_H), hInst);
         return 0;
     }
     case WM_COMMAND:
@@ -393,7 +565,8 @@ LRESULT CALLBACK RenameDialogProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lPa
     return DefWindowProcW(hDlg, msg, wParam, lParam);
 }
 
-bool ShowRenameProjectDialog(HWND hwndParent, std::wstring& inOutName) {
+bool ShowRenameProjectDialog(HWND hwndParent, std::wstring& inOutName,
+                             const std::map<std::wstring,std::wstring>& locale) {
     static bool reg=false;
     if(!reg){
         WNDCLASSEXW wc={}; wc.cbSize=sizeof(wc);
@@ -405,21 +578,37 @@ bool ShowRenameProjectDialog(HWND hwndParent, std::wstring& inOutName) {
         wc.lpszClassName=L"RenameProjDialogClass";
         RegisterClassExW(&wc); reg=true;
     }
+
+    // Client size: text column + padding, label + edit + gap + buttons
+    int editW   = S(DLG_CONT_W);
+    int clientW = editW + 2*S(DLG_PAD_H);
+    int clientH = S(DLG_PAD_T) + S(REN_LBL_H) + S(REN_GAP_LE)
+                + S(REN_EDIT_H) + S(DLG_GAP_TB) + S(DLG_BTN_H) + S(DLG_PAD_B);
+    RECT wrc = { 0, 0, clientW, clientH };
+    AdjustWindowRectEx(&wrc, WS_POPUP|WS_CAPTION|WS_SYSMENU, FALSE, WS_EX_DLGMODALFRAME);
+    int w = wrc.right-wrc.left, h = wrc.bottom-wrc.top;
+
     RECT rcP; GetWindowRect(hwndParent,&rcP);
-    int w=410, h=175;
     int x=rcP.left+(rcP.right-rcP.left-w)/2;
     int y=rcP.top+(rcP.bottom-rcP.top-h)/2;
     RECT rcW; SystemParametersInfoW(SPI_GETWORKAREA,0,&rcW,0);
     if(x<rcW.left) x=rcW.left; if(y<rcW.top) y=rcW.top;
     if(x+w>rcW.right) x=rcW.right-w; if(y+h>rcW.bottom) y=rcW.bottom-h;
 
-    std::wstring* pName=new std::wstring(inOutName);
+    auto itTitle = locale.find(L"rename_proj_title");
+    std::wstring title = (itTitle != locale.end()) ? itTitle->second : L"Rename Project";
+
+    // Pass locale copy with initial name to WM_CREATE
+    std::map<std::wstring,std::wstring>* pLocCopy =
+        new std::map<std::wstring,std::wstring>(locale);
+    (*pLocCopy)[L"__dlg_initName"] = inOutName;
+
     g_renameConfirmed=false;
     g_renameResult=inOutName;
     HWND hDlg=CreateWindowExW(WS_EX_DLGMODALFRAME|WS_EX_TOPMOST,
-        L"RenameProjDialogClass", L"Rename Project",
+        L"RenameProjDialogClass", title.c_str(),
         WS_POPUP|WS_CAPTION|WS_SYSMENU,
-        x,y,w,h,hwndParent,NULL,GetModuleHandle(NULL),pName);
+        x,y,w,h,hwndParent,NULL,GetModuleHandle(NULL),pLocCopy);
     if(hDlg){
         EnableWindow(hwndParent,FALSE);
         ShowWindow(hDlg,SW_SHOW);
@@ -433,7 +622,7 @@ bool ShowRenameProjectDialog(HWND hwndParent, std::wstring& inOutName) {
         EnableWindow(hwndParent,TRUE);
         SetForegroundWindow(hwndParent);
     }
-    delete pName;
+    delete pLocCopy;
     if(g_renameConfirmed && !g_renameResult.empty())
         inOutName=g_renameResult;
     return g_renameConfirmed && !g_renameResult.empty();
@@ -446,6 +635,11 @@ bool IsCtrlWPressed(UINT msg, WPARAM wParam) {
     return false;
 }
 
+// UnsavedChanges button widths (design px)
+static const int UNS_BTN_W0 = 140; // Save
+static const int UNS_BTN_W1 = 175; // Don't Save
+static const int UNS_BTN_W2 = 120; // Cancel
+
 // Global for unsaved changes dialog result
 static int g_unsavedChangesDialogResult = 0;
 
@@ -454,92 +648,72 @@ LRESULT CALLBACK UnsavedChangesDialogProc(HWND hDlg, UINT msg, WPARAM wParam, LP
     switch (msg) {
     case WM_CREATE: {
         CREATESTRUCTW* cs = (CREATESTRUCTW*)lParam;
-        std::map<std::wstring, std::wstring>* pLocale = 
+        std::map<std::wstring, std::wstring>* pLocale =
             (std::map<std::wstring, std::wstring>*)cs->lpCreateParams;
-        
-        if (pLocale) {
-            SetWindowLongPtr(hDlg, GWLP_USERDATA, (LONG_PTR)pLocale);
-            
-            HINSTANCE hInst = cs->hInstance;
-            
-            // Create static text for message
-            auto itMsg = pLocale->find(L"close_unsaved_message");
-            std::wstring message = (itMsg != pLocale->end()) ? itMsg->second : L"You have unsaved changes. Do you want to save before closing?";
-            
-            HWND hText = CreateWindowExW(0, L"STATIC", message.c_str(),
-                WS_CHILD | WS_VISIBLE | SS_CENTER,
-                15, 23, 590, 65,
-                hDlg, NULL, hInst, NULL);
-            
-            // Use system font (same size as main window labels)
-            HFONT hFont = NULL;
-            {
-                NONCLIENTMETRICSW ncm = {};
-                ncm.cbSize = sizeof(ncm);
-                SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
-                if (ncm.lfMessageFont.lfHeight < 0)
-                    ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
-                ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
-                hFont = CreateFontIndirectW(&ncm.lfMessageFont);
-            }
-            if (hFont) SendMessageW(hText, WM_SETFONT, (WPARAM)hFont, TRUE);
-            
-            // 3 buttons: Save(160) + gap(20) + Don'tSave(230) + gap(20) + Cancel(160) + margins(15 each) = 620
-            const int bY = 110, bH = 34, gX = 20;
-            const int bW0 = 160, bW1 = 230, bW2 = 160;
-            const int bX0 = 15, bX1 = bX0+bW0+gX, bX2 = bX1+bW1+gX;
+        if (!pLocale) return 0;
+        SetWindowLongPtr(hDlg, GWLP_USERDATA, (LONG_PTR)pLocale);
+        HINSTANCE hInst = cs->hInstance;
 
-            // Save button
-            auto itSave = pLocale->find(L"save");
-            std::wstring saveText = (itSave != pLocale->end()) ? itSave->second : L"Save";
-            CreateCustomButtonWithIcon(hDlg, 1, saveText, ButtonColor::Green,
-                L"shell32.dll", 258, bX0, bY, bW0, bH, hInst);
-            
-            // Don't Save button
-            auto itDontSave = pLocale->find(L"dont_save");
-            std::wstring dontSaveText = (itDontSave != pLocale->end()) ? itDontSave->second : L"Don't Save";
-            CreateCustomButtonWithIcon(hDlg, 3, dontSaveText, ButtonColor::Blue,
-                L"shell32.dll", 240, bX1, bY, bW1, bH, hInst);
-            
-            // Cancel button
-            auto itCancel = pLocale->find(L"cancel");
-            std::wstring cancelText = (itCancel != pLocale->end()) ? itCancel->second : L"Cancel";
-            CreateCustomButtonWithIcon(hDlg, IDCANCEL, cancelText, ButtonColor::Red,
-                L"shell32.dll", 131, bX2, bY, bW2, bH, hInst);
-        }
-        
+        NONCLIENTMETRICSW ncm = {}; ncm.cbSize = sizeof(ncm);
+        SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+        if (ncm.lfMessageFont.lfHeight < 0)
+            ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
+        ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+        HFONT hFont = CreateFontIndirectW(&ncm.lfMessageFont);
+
+        auto itTH  = pLocale->find(L"__dlg_textH");
+        auto itMsg = pLocale->find(L"close_unsaved_message");
+        int textH  = (itTH  != pLocale->end()) ? std::stoi(itTH->second) : S(50);
+        std::wstring message = (itMsg != pLocale->end()) ? itMsg->second
+            : L"You have unsaved changes. Do you want to save before closing?";
+
+        RECT rcC; GetClientRect(hDlg, &rcC);
+        int cW = rcC.right, cH = rcC.bottom;
+
+        // Text
+        HWND hText = CreateWindowExW(0, L"STATIC", message.c_str(),
+            WS_CHILD | WS_VISIBLE | SS_CENTER,
+            S(DLG_PAD_H), S(DLG_PAD_T), cW - 2*S(DLG_PAD_H), textH,
+            hDlg, NULL, hInst, NULL);
+        if (hFont) SendMessageW(hText, WM_SETFONT, (WPARAM)hFont, TRUE);
+
+        // 3 buttons centred, pinned to bottom
+        int totalBtnW = S(UNS_BTN_W0)+S(UNS_BTN_W1)+S(UNS_BTN_W2)+2*S(DLG_BTN_GAP);
+        int startX    = (cW - totalBtnW) / 2;
+        int btnY      = cH - S(DLG_PAD_B) - S(DLG_BTN_H);
+
+        auto itSave  = pLocale->find(L"save");
+        auto itDont  = pLocale->find(L"dont_save");
+        auto itCnl   = pLocale->find(L"cancel");
+        std::wstring saveTxt  = (itSave != pLocale->end()) ? itSave->second  : L"Save";
+        std::wstring dontTxt  = (itDont != pLocale->end()) ? itDont->second  : L"Don't Save";
+        std::wstring cnlTxt   = (itCnl  != pLocale->end()) ? itCnl->second   : L"Cancel";
+
+        CreateCustomButtonWithIcon(hDlg, 1, saveTxt, ButtonColor::Green,
+            L"shell32.dll", 258, startX, btnY, S(UNS_BTN_W0), S(DLG_BTN_H), hInst);
+        CreateCustomButtonWithIcon(hDlg, 3, dontTxt, ButtonColor::Blue,
+            L"shell32.dll", 240,
+            startX+S(UNS_BTN_W0)+S(DLG_BTN_GAP), btnY,
+            S(UNS_BTN_W1), S(DLG_BTN_H), hInst);
+        CreateCustomButtonWithIcon(hDlg, IDCANCEL, cnlTxt, ButtonColor::Red,
+            L"shell32.dll", 131,
+            startX+S(UNS_BTN_W0)+S(DLG_BTN_GAP)+S(UNS_BTN_W1)+S(DLG_BTN_GAP), btnY,
+            S(UNS_BTN_W2), S(DLG_BTN_H), hInst);
         return 0;
     }
-    
     case WM_COMMAND:
-        if (LOWORD(wParam) == 1) {  // Save
-            g_unsavedChangesDialogResult = 1;
-            DestroyWindow(hDlg);
-            return 0;
-        }
-        if (LOWORD(wParam) == 3) {  // Don't Save
-            g_unsavedChangesDialogResult = 2;
-            DestroyWindow(hDlg);
-            return 0;
-        }
-        if (LOWORD(wParam) == IDCANCEL) {  // Cancel
-            g_unsavedChangesDialogResult = 0;
-            DestroyWindow(hDlg);
-            return 0;
-        }
+        if (LOWORD(wParam) == 1)        { g_unsavedChangesDialogResult = 1; DestroyWindow(hDlg); return 0; }
+        if (LOWORD(wParam) == 3)        { g_unsavedChangesDialogResult = 2; DestroyWindow(hDlg); return 0; }
+        if (LOWORD(wParam) == IDCANCEL) { g_unsavedChangesDialogResult = 0; DestroyWindow(hDlg); return 0; }
         break;
-        
     case WM_CLOSE:
-        g_unsavedChangesDialogResult = 0;  // Cancel
+        g_unsavedChangesDialogResult = 0;
         DestroyWindow(hDlg);
         return 0;
-        
     case WM_CTLCOLORSTATIC: {
-        HDC hdcStatic = (HDC)wParam;
-        SetBkMode(hdcStatic, TRANSPARENT);
+        SetBkMode((HDC)wParam, TRANSPARENT);
         return (LRESULT)GetStockObject(NULL_BRUSH);
     }
-
     case WM_DRAWITEM: {
         LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
         if (dis->CtlID == 1 || dis->CtlID == 3 || dis->CtlID == IDCANCEL) {
@@ -576,37 +750,49 @@ int ShowUnsavedChangesDialog(HWND hwndParent, const std::map<std::wstring, std::
         RegisterClassExW(&wcDlg);
         dialogClassRegistered = true;
     }
-    
+
+    // Measure message text for dynamic sizing
+    auto itMsg = locale.find(L"close_unsaved_message");
+    std::wstring msgRaw = (itMsg != locale.end()) ? itMsg->second
+        : L"You have unsaved changes. Do you want to save before closing?";
+    std::wstring msgExpanded = ExpandEscapes(msgRaw);
+
+    // Content width driven by the 3-button row
+    int contW  = S(UNS_BTN_W0) + S(UNS_BTN_W1) + S(UNS_BTN_W2)
+               + 2*S(DLG_BTN_GAP) + 2*S(DLG_PAD_H);
+    int textW  = contW - 2*S(DLG_PAD_H);
+    int textH  = MeasureDialogTextHeight(msgExpanded, textW);
+    if (textH < S(20)) textH = S(20);
+
+    int clientW = contW;
+    int clientH = S(DLG_PAD_T) + textH + S(DLG_GAP_TB) + S(DLG_BTN_H) + S(DLG_PAD_B);
+    RECT wrc = { 0, 0, clientW, clientH };
+    AdjustWindowRectEx(&wrc, WS_POPUP|WS_CAPTION|WS_SYSMENU, FALSE, WS_EX_DLGMODALFRAME);
+    int width  = wrc.right  - wrc.left;
+    int height = wrc.bottom - wrc.top;
+
     // Get title from locale
     auto itTitle = locale.find(L"close_unsaved_title");
     std::wstring title = (itTitle != locale.end()) ? itTitle->second : L"Unsaved Changes";
-    
-    // Calculate centered position
+
+    // Centre on parent, clamp to work area
     RECT rcParent;
-    if (hwndParent && GetWindowRect(hwndParent, &rcParent)) {
-        // Center on parent
-    } else {
-        // Center on screen work area
+    if (!hwndParent || !GetWindowRect(hwndParent, &rcParent))
         SystemParametersInfoW(SPI_GETWORKAREA, 0, &rcParent, 0);
-    }
-    
-    int width = 620, height = 205;
-    int x = rcParent.left + (rcParent.right - rcParent.left - width) / 2;
-    int y = rcParent.top + (rcParent.bottom - rcParent.top - height) / 2;
-    
-    // Ensure dialog is visible on screen
-    RECT rcWork;
-    SystemParametersInfoW(SPI_GETWORKAREA, 0, &rcWork, 0);
+    int x = rcParent.left + (rcParent.right  - rcParent.left - width)  / 2;
+    int y = rcParent.top  + (rcParent.bottom - rcParent.top  - height) / 2;
+    RECT rcWork; SystemParametersInfoW(SPI_GETWORKAREA, 0, &rcWork, 0);
     if (x < rcWork.left) x = rcWork.left;
-    if (y < rcWork.top) y = rcWork.top;
-    if (x + width > rcWork.right) x = rcWork.right - width;
+    if (y < rcWork.top)  y = rcWork.top;
+    if (x + width  > rcWork.right)  x = rcWork.right  - width;
     if (y + height > rcWork.bottom) y = rcWork.bottom - height;
-    
-    // Create a non-const copy of locale to pass as parameter
-    std::map<std::wstring, std::wstring>* pLocaleCopy = 
+
+    // Inject pre-computed values and expanded message
+    std::map<std::wstring, std::wstring>* pLocaleCopy =
         new std::map<std::wstring, std::wstring>(locale);
-    
-    // Reset result to safe default before showing dialog
+    (*pLocaleCopy)[L"close_unsaved_message"] = msgExpanded;
+    (*pLocaleCopy)[L"__dlg_textH"]           = std::to_wstring(textH);
+
     g_unsavedChangesDialogResult = 0;
     
     HWND hDlg = CreateWindowExW(
@@ -640,4 +826,15 @@ int ShowUnsavedChangesDialog(HWND hwndParent, const std::map<std::wstring, std::
     
     delete pLocaleCopy;
     return g_unsavedChangesDialogResult;
+}
+
+// ── Generic yes/no confirm dialog (reuses ShowQuitDialog infrastructure) ──────
+bool ShowConfirmDeleteDialog(HWND hwndParent, const std::wstring& title,
+                             const std::wstring& message,
+                             const std::map<std::wstring, std::wstring>& locale)
+{
+    std::map<std::wstring, std::wstring> patched = locale;
+    patched[L"quit_title"]   = title;
+    patched[L"quit_message"] = message;
+    return ShowQuitDialog(hwndParent, patched);
 }

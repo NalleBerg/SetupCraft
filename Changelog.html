@@ -1,6 +1,16 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 12 March 2026 &mdash; v2026.03.12.08<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 12 March 2026 &mdash; v2026.03.12.11<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.12.11</span></h3>
+<p><strong>All custom dialogs fully DPI-aware &mdash; no hardcoded pixel values (12.03.2026, 11:20):</strong></p>
+<ul>
+<li><strong>All custom dialogs: measure-then-create pattern, no hardcoded pixel values:</strong> Every custom dialog in <code>ctrlw.cpp</code> (Quit, Duplicate Project, Rename Project, Unsaved Changes) and <code>mainwindow.cpp</code> (Registry Key, Add Key, Add Value, Edit Folder) now uses named layout constants for every dimension, wraps all pixel values in <code>S()</code>, and derives outer window size from <code>AdjustWindowRectEx</code> rather than a fixed pixel pair. Dialogs are visually correct at 100%, 125%, 150%, 175%, and 200%+ DPI with no clipping or oversizing.</li>
+<li><strong>Button widths generous for translation:</strong> All dialog buttons use layout constants sized at 150&ndash;200 design-px so translated labels (which can be 30&ndash;50% longer than English) are never clipped at any DPI.</li>
+<li><strong>Edit Folder cascade hint: height measured at creation time:</strong> The <code>CompFolderEditDlgProc</code> creation site measures the cascade-hint text height inline with <code>GetDC(NULL)</code> + <code>DrawTextW(DT_CALCRECT&nbsp;|&nbsp;DT_WORDBREAK)</code> and stores the result in <code>CompFolderDlgData::hintH</code>. The dialog window is then sized exactly to the measured text &mdash; the hint label never clips regardless of locale or DPI.</li>
+</ul>
+
+<h3 style="text-align: center;">&nbsp;</h3>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.12.08</span></h3>
 <p><strong>Required-folder icon switched to shell32.dll&nbsp;#110 (12.03.2026, 08:32):</strong></p>

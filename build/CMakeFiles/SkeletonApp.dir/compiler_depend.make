@@ -1610,7 +1610,8 @@ CMakeFiles/SkeletonApp.dir/ctrlw.cpp.obj: C:/Users/NalleBerg/Documents/C++/Works
   C:/mingw64/x86_64-w64-mingw32/include/wtypes.h \
   C:/mingw64/x86_64-w64-mingw32/include/wtypesbase.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/button.h \
-  C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/ctrlw.h
+  C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/ctrlw.h \
+  C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/dpi.h
 
 CMakeFiles/SkeletonApp.dir/db.cpp.obj: C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/db.cpp \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/adxintrin.h \
@@ -3710,6 +3711,7 @@ CMakeFiles/SkeletonApp.dir/mainwindow.cpp.obj: C:/Users/NalleBerg/Documents/C++/
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stringfwd.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/uniform_int_dist.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/unordered_map.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/unordered_set.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/uses_allocator.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/uses_allocator_args.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/utility.h \
@@ -3757,6 +3759,7 @@ CMakeFiles/SkeletonApp.dir/mainwindow.cpp.obj: C:/Users/NalleBerg/Documents/C++/
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/type_traits \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/typeinfo \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/unordered_map \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/unordered_set \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/utility \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/vector \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/x86_64-w64-mingw32/bits/atomic_word.h \
@@ -5974,7 +5977,11 @@ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_multiset.h:
 
 C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_set.h:
 
+C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/unordered_set.h:
+
 C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/set:
+
+C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/unordered_set:
 
 C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/spinner_dialog.h:
 
