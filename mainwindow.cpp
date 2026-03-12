@@ -2412,19 +2412,17 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
                         ReleaseDC(NULL, hdc);
                     }
                     if (hBadge) { ImageList_AddIcon(hCompIL, hBadge); DestroyIcon(hBadge); }
-                    FreeLibrary(hShell32);
-                    // Required-folder icon: imageres.dll sequential index 110
-                    // (folder with blue checkmark badge). ExtractIconExW is documented,
-                    // already available via shellapi.h, and takes the same 0-based
-                    // sequential index as PrivateExtractIconsW.
+                    // Required-folder icon: shell32.dll sequential index 110
+                    // (yellow folder with blue checkmark badge — verified in IconViewer).
                     {
-                        wchar_t imgresPath[MAX_PATH];
-                        GetSystemDirectoryW(imgresPath, MAX_PATH);
-                        wcscat_s(imgresPath, L"\\imageres.dll");
+                        wchar_t shell32Path[MAX_PATH];
+                        GetSystemDirectoryW(shell32Path, MAX_PATH);
+                        wcscat_s(shell32Path, L"\\shell32.dll");
                         HICON hReq = NULL;
-                        ExtractIconExW(imgresPath, 110, &hReq, NULL, 1);
+                        ExtractIconExW(shell32Path, 110, &hReq, NULL, 1);
                         if (hReq) { ImageList_AddIcon(hCompIL, hReq); DestroyIcon(hReq); }
                     }
+                    FreeLibrary(hShell32);
                 }
                 TreeView_SetImageList(s_hCompTreeView, hCompIL, TVSIL_NORMAL);
                 TreeView_SetItemHeight(s_hCompTreeView, 34);

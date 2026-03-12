@@ -2,6 +2,11 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.03.12.08] - 2026-03-12
+
+### Changed
+- **Components page: Required-folder icon source switched to `shell32.dll` #110** — previously loaded from `imageres.dll` sequential index 110 (folder with blue circular badge). Changed to `shell32.dll` sequential index 110 (classic yellow folder with blue checkmark badge) — subtle, recognisable, and visually consistent with Windows Explorer. Path built via `GetSystemDirectoryW` + `\shell32.dll`, extracted with `ExtractIconExW`.
+
 ## [2026.03.11.10] - 2026-03-11
 
 ### Fixed

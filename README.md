@@ -2,7 +2,7 @@
 
 An installer creation tool for making your developed packages distributable. Designed to be simple to use with a clean, native Windows interface.
 
-**Current Release:** Version 2026.03.11.10 (Published: 11.03.2026 10:00)
+**Current Release:** Version 2026.03.12.08 (Published: 12.03.2026 08:32)
 
 > Note: This project is in active development. Entry screen and main window Files management page are complete with proper page switching.
 
@@ -13,7 +13,7 @@ An installer creation tool for making your developed packages distributable. Des
 - **Bold Page Titles**: Each page has a prominent semi-bold heading rendered with a dedicated `s_hPageTitleFont` (150% NONCLIENTMETRICS) — correctly applied via `WM_CTLCOLORSTATIC` ID check so the body-font override no longer clobbers it
 - **Two-Row Toolbar**: 12 buttons in two compact rows — Row 1: Files, Components, Registry, Shortcuts, Dependencies, Dialogs; Row 2: Settings, Scripts, Test, Build, Save, Close Project, Exit. About «i» icon centered vertically at the right end
 - **Components Page**: Full component-based installation page — enable/disable toggle, split-pane TreeView + ListView layout (mirrors Files page), VFS folder tree on the left, file list on the right, Edit actions, modal edit dialog with auto-fill and dependency selection, DB-backed persistence
-- **Required-Folder Icon**: Folders in the Components tree where every file (recursively) carries the Required flag are shown with a blue-checkmark badge icon (`imageres.dll` sequential index 110), loaded via `ExtractIconExW`. The icon is assigned by `UpdateCompTreeRequiredIcons()` after each tree build or Edit Folder operation and reverts automatically when any file inside loses the Required flag. Subfolders with no registered component entries inherit the badge from their parent folder via `parentIsRequired` propagation
+- **Required-Folder Icon**: Folders in the Components tree where every file (recursively) carries the Required flag are shown with `shell32.dll` sequential index 110 — the classic yellow folder with blue checkmark badge, loaded via `ExtractIconExW`. Assigned by `UpdateCompTreeRequiredIcons()` after each tree build or Edit Folder operation; reverts automatically when any file inside loses the Required flag. Subfolders with no registered component entries inherit the badge from their parent via `parentIsRequired` propagation
 - **Required-Folder Hover Tooltip**: Hovering over a required-folder icon in the Components tree shows a "Required" tooltip via `CompTree_TooltipSubclassProc` — uses `TreeView_HitTest` to detect the hovered item and `ShowMultilingualTooltip` for display
 - **Native Blue Multi-Select (Files page)**: Checkboxes removed (`TVS_CHECKBOXES`). Multi-selection is tracked in `s_filesTreeMultiSel` (`std::set<HTREEITEM>`). Ctrl+Click toggles items, Shift+Click selects a contiguous range, plain click clears the selection. `NM_CUSTOMDRAW` paints selected items with the system highlight colour — identical to Windows Explorer. Remove iterates the entire selection set
 - **Components Folder TreeView**: Left pane of the Components page shows the virtual folder tree (VFS snapshots) from the Files page; selecting a folder instantly shows its files with component metadata in the right pane

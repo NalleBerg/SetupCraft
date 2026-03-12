@@ -70,6 +70,8 @@
                                                Comp page TreeView image list
     5     Open folder (yellow, open lid)       Files page / Comp page selected
   109     No-drop cursor icon                  Drag-and-drop module
+  110     Folder with blue checkmark badge     Comp tree image list index 3
+                                               Shown on fully-required folders
   131     Red X / close icon                   Close Project button, OK/Cancel
   221     Information / About (i)              About icon button
   300     Can-drop / move cursor icon          Drag-and-drop module
@@ -86,13 +88,10 @@
   Index   Description                          Where used
   ──────────────────────────────────────────────────────────────────────────────
   109     Edit / settings gear                 Comp page Edit button (IDC_COMP_EDIT)
-  110     Folder with blue checkmark badge     Comp tree image list index 3
-                                               Shown on fully-required folders
   244     Warning / shield exclamation         Registry page warning icon
 
-  IMPORTANT: Resource IDs in imageres.dll do NOT match sequential indices.
-  Always use the sequential index with ExtractIconExW, never
-  LoadImageW(hModule, MAKEINTRESOURCEW(n), ...).
+  NOTE: imageres.dll sequential #110 (folder with blue dot/badge) was tried
+  but replaced — see shell32.dll §3 below for the preferred required-folder icon.
 
 ================================================================================
   §5  Loading icons into a TreeView ImageList
