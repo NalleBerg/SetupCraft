@@ -3108,7 +3108,7 @@ LRESULT CALLBACK RegKeyDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
         // Registry path edit (read-only, multiline so long paths word-wrap)
         int editY = S(RK_PAD_T) + S(RK_LBL_H) + S(RK_GAP_LE);
         HWND hEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", pData->regPath.c_str(),
-            WS_CHILD | WS_VISIBLE | ES_LEFT | ES_READONLY | ES_MULTILINE | ES_AUTOHSCROLL | WS_VSCROLL,
+            WS_CHILD | WS_VISIBLE | ES_LEFT | ES_READONLY | ES_MULTILINE | ES_AUTOHSCROLL | WS_HSCROLL,
             S(RK_PAD_H), editY, contW, S(RK_EDIT_H),
             hwnd, (HMENU)IDC_REGKEY_DLG_EDIT, hInst, NULL);
 
@@ -3254,6 +3254,14 @@ LRESULT CALLBACK RegKeyDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
         break;
     }
     
+    case WM_CTLCOLORSTATIC: {
+        // Make the read-only label and read-only edit background match the white dialog background
+        HDC hdc = (HDC)wParam;
+        SetBkColor(hdc, GetSysColor(COLOR_WINDOW));
+        SetTextColor(hdc, GetSysColor(COLOR_WINDOWTEXT));
+        return (LRESULT)GetSysColorBrush(COLOR_WINDOW);
+    }
+
     case WM_CLOSE:
         DestroyWindow(hwnd);
         s_hRegKeyDialog = NULL;

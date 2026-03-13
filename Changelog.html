@@ -1,6 +1,15 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 12 March 2026 &mdash; v2026.03.12.11<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 13 March 2026 &mdash; v2026.03.13.07<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.13.07</span></h3>
+<p><strong>Registry Key Path dialog polish (13.03.2026, 07:34):</strong></p>
+<ul>
+<li><strong>Registry Key Path dialog: gray label background eliminated:</strong> The static label inside the Registry Key Path dialog was rendered on the default gray <code>COLOR_BTNFACE</code> brush returned by <code>DefWindowProc</code> for <code>WM_CTLCOLORSTATIC</code>, creating a visible gray band against the white dialog background. A <code>WM_CTLCOLORSTATIC</code> handler has been added to <code>RegKeyDialogProc</code> that sets the text colour to <code>COLOR_WINDOWTEXT</code>, the background colour to <code>COLOR_WINDOW</code>, and returns <code>GetSysColorBrush(COLOR_WINDOW)</code> &mdash; the label now blends seamlessly with the surrounding white area.</li>
+<li><strong>Registry Key Path dialog: horizontal scrollbar replaces vertical:</strong> The registry path edit was created with <code>WS_VSCROLL</code>, which placed a useless up/down scrollbar on a single-line-height field. Replaced with <code>WS_HSCROLL</code> so the user can scroll the full path left and right. <code>ES_AUTOHSCROLL</code> was already present and continues to drive the caret.</li>
+</ul>
+
+<h3 style="text-align: center;">&nbsp;</h3>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.12.11</span></h3>
 <p><strong>All custom dialogs fully DPI-aware &mdash; no hardcoded pixel values (12.03.2026, 11:20):</strong></p>

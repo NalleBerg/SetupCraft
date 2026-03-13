@@ -148,6 +148,28 @@ The pattern for multi-button dialogs is the same except:
   - Same AdjustWindowRectEx call with matching styles.
 
 ================================================================================
+WM_CTLCOLORSTATIC IN WHITE-BACKGROUND DIALOGS
+================================================================================
+
+Dialogs registered with hbrBackground = (HBRUSH)(COLOR_WINDOW + 1) have a white
+client area. However, STATIC controls (labels) are painted by DefWindowProc's
+WM_CTLCOLORSTATIC handler, which returns GetSysColorBrush(COLOR_BTNFACE) — the
+system gray. This creates a visible gray band around every label in an otherwise
+white dialog.
+
+Fix: add an explicit WM_CTLCOLORSTATIC handler in the dialog's WndProc:
+
+    case WM_CTLCOLORSTATIC: {
+        HDC hdc = (HDC)wParam;
+        SetBkColor(hdc, GetSysColor(COLOR_WINDOW));
+        SetTextColor(hdc, GetSysColor(COLOR_WINDOWTEXT));
+        return (LRESULT)GetSysColorBrush(COLOR_WINDOW);
+    }
+
+This must be added to every dialogs that uses COLOR_WINDOW as its background
+and contains STATIC child controls. Affected dialogs: RegKeyDialogProc.
+
+================================================================================
 PITFALLS
 ================================================================================
 
