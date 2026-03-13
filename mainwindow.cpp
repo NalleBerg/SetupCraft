@@ -18,6 +18,7 @@
 #include "tooltip.h"
 #include "about_icon.h"
 #include "dragdrop.h"
+#include "checkbox.h"
 #include <fstream>
 
 // (no extra declarations needed — ExtractIconExW is in shellapi.h)
@@ -1138,52 +1139,23 @@ static std::set<HTREEITEM> s_filesTreeMultiSel;
 static LRESULT CALLBACK FilesTree_CtrlClickProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
     if (msg == WM_LBUTTONDOWN) {
-        bool ctrl  = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
-        bool shift = (GetKeyState(VK_SHIFT)   & 0x8000) != 0;
-        if (ctrl || shift) {
-            TVHITTESTINFO ht = {};
-            ht.pt.x = GET_X_LPARAM(lParam);
-            ht.pt.y = GET_Y_LPARAM(lParam);
-            HTREEITEM hHit = TreeView_HitTest(hwnd, &ht);
-            if (hHit && (ht.flags & (TVHT_ONITEM | TVHT_ONITEMICON | TVHT_ONITEMLABEL))) {
-                if (ctrl) {
-                    if (s_filesTreeMultiSel.count(hHit))
-                        s_filesTreeMultiSel.erase(hHit);
-                    else
-                        s_filesTreeMultiSel.insert(hHit);
-                } else {
-                    HTREEITEM hCur = TreeView_GetSelection(hwnd);
-                    s_filesTreeMultiSel.clear();
-                    if (hCur && hCur != hHit) {
-                        bool collecting = false;
-                        std::function<void(HTREEITEM)> Walk = [&](HTREEITEM h) {
-                            while (h) {
-                                if (h == hCur || h == hHit) {
-                                    s_filesTreeMultiSel.insert(h);
-                                    if (collecting) return;
-                                    collecting = true;
-                                } else if (collecting) {
-                                    s_filesTreeMultiSel.insert(h);
-                                }
-                                if (TreeView_GetItemState(hwnd, h, TVIS_EXPANDED) & TVIS_EXPANDED)
-                                    Walk(TreeView_GetChild(hwnd, h));
-                                if (collecting && s_filesTreeMultiSel.count(hCur) && s_filesTreeMultiSel.count(hHit))
-                                    return;
-                                h = TreeView_GetNextSibling(hwnd, h);
-                            }
-                        };
-                        Walk(TreeView_GetRoot(hwnd));
-                    } else {
-                        s_filesTreeMultiSel.insert(hHit);
-                    }
-                }
-                InvalidateRect(hwnd, NULL, FALSE);
-                return 0;
-            }
+        TVHITTESTINFO ht = {};
+        ht.pt.x = GET_X_LPARAM(lParam);
+        ht.pt.y = GET_Y_LPARAM(lParam);
+        HTREEITEM hHit = TreeView_HitTest(hwnd, &ht);
+        if (hHit && (ht.flags & TVHT_ONITEMSTATEICON)) {
+            // Let the original proc toggle the native TVS_CHECKBOXES state,
+            // then sync our tracking set from the resulting check state.
+            LRESULT r = CallWindowProcW(g_origFilesTreeProc, hwnd, msg, wParam, lParam);
+            UINT state = TreeView_GetItemState(hwnd, hHit, TVIS_STATEIMAGEMASK);
+            bool nowChecked = ((state >> 12) == 2); // state image index 2 = checked
+            if (nowChecked)
+                s_filesTreeMultiSel.insert(hHit);
+            else
+                s_filesTreeMultiSel.erase(hHit);
+            InvalidateRect(hwnd, NULL, FALSE);
+            return r;
         }
-        // Plain click: clear multi-selection
-        s_filesTreeMultiSel.clear();
-        InvalidateRect(hwnd, NULL, FALSE);
     }
     if (msg == WM_NCDESTROY) {
         if (g_origFilesTreeProc)
@@ -1545,26 +1517,35 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         CreateCustomButtonWithIcon(hwnd, IDC_BROWSE_INSTALL_DIR, L"...", ButtonColor::Blue,
             L"shell32.dll", 4, rc.right - S(55), s_toolbarHeight + S(82), S(35), S(22), hInst);
 
-        // Ask-at-install checkbox below install folder
+        // Ask-at-install custom checkbox below install folder
         auto itAskUser = s_locale.find(L"files_ask_user_install");
         std::wstring askUserText = (itAskUser != s_locale.end()) ? itAskUser->second : L"Ask end user at install (Per-user / All-users)";
-        HWND hAskChk = CreateWindowExW(0, L"BUTTON", askUserText.c_str(),
-            WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
-            S(395), pageY + S(110), S(360), S(22),
-            hwnd, (HMENU)IDC_ASK_AT_INSTALL, hInst, NULL);
-        // Reflect current state
+        HWND hAskChk = CreateCustomCheckbox(hwnd, IDC_ASK_AT_INSTALL, askUserText,
+            s_askAtInstallEnabled,
+            S(395), pageY + S(110), S(360), S(22), hInst);
         if (s_scaledFont) SendMessageW(hAskChk, WM_SETFONT, (WPARAM)s_scaledFont, TRUE);
-        SendMessageW(hAskChk, BM_SETCHECK, s_askAtInstallEnabled ? BST_CHECKED : BST_UNCHECKED, 0);
         
+        // Hint label: explains how checkbox multi-select works
+        {
+            auto itHint = s_locale.find(L"files_remove_hint");
+            std::wstring hintText = (itHint != s_locale.end()) ? itHint->second
+                : L"Tick items to select for removal. Multiple items can be ticked at once.";
+            HWND hHint = CreateWindowExW(0, L"STATIC", hintText.c_str(),
+                WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
+                S(20), s_toolbarHeight + S(138), rc.right - S(40), S(18),
+                hwnd, NULL, hInst, NULL);
+            if (s_scaledFont) SendMessageW(hHint, WM_SETFONT, (WPARAM)s_scaledFont, TRUE);
+        }
+
         // Calculate split pane dimensions (TreeView 30%, ListView 70%)
-        int viewTop = S(150);  // Moved down to make room for Remove button
-        int viewHeight = pageHeight - S(160);
+        int viewTop = S(165);  // Moved down to make room for Remove button and hint label
+        int viewHeight = pageHeight - S(175);
         int treeWidth = (int)((rc.right - S(50)) * 0.3);
         int listWidth = (rc.right - S(50)) - treeWidth - S(5); // 5px gap
         
         // TreeView on the left (folder hierarchy) - child of main window to receive notifications
         s_hTreeView = CreateWindowExW(WS_EX_CLIENTEDGE, WC_TREEVIEW, NULL,
-            WS_CHILD | WS_VISIBLE | WS_BORDER | TVS_HASLINES | TVS_HASBUTTONS | TVS_LINESATROOT | TVS_SHOWSELALWAYS | TVS_EDITLABELS,
+            WS_CHILD | WS_VISIBLE | WS_BORDER | TVS_HASLINES | TVS_HASBUTTONS | TVS_LINESATROOT | TVS_SHOWSELALWAYS | TVS_EDITLABELS | TVS_CHECKBOXES,
             S(20), s_toolbarHeight + viewTop, treeWidth, viewHeight,
             hwnd, (HMENU)102, hInst, NULL);
         
@@ -1572,62 +1553,83 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         TreeView_SetIndent(s_hTreeView, S(19));
         if (s_scaledFont) SendMessageW(s_hTreeView, WM_SETFONT, (WPARAM)s_scaledFont, TRUE);
 
-        // Ctrl+Click subclass for checkbox multi-select
+        // Checkbox-click subclass: syncs s_filesTreeMultiSel with TVS_CHECKBOXES state
         if (!g_origFilesTreeProc)
             g_origFilesTreeProc = (WNDPROC)SetWindowLongPtrW(
                 s_hTreeView, GWLP_WNDPROC, (LONG_PTR)FilesTree_CtrlClickProc);
-        HIMAGELIST hImageList = ImageList_Create(32, 32, ILC_COLOR32 | ILC_MASK, 2, 2);
+        // Image list is 36 px wide (32 px icon + 4 px transparent left padding) so
+        // there is a visible gap between the TVS_CHECKBOXES checkbox and the folder icon.
+        HIMAGELIST hImageList = ImageList_Create(36, 32, ILC_COLOR32 | ILC_MASK, 3, 1);
         if (hImageList) {
+            // Helper: draw hIco (32×32) into a 36×32 transparent DIB at x=4,
+            // then add the DIB to the image list — this is what creates the gap.
+            auto AddIconPadded = [&](HICON hIco) {
+                if (!hIco) return;
+                HDC hScreen = GetDC(NULL);
+                BITMAPINFO bmi = {};
+                bmi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
+                bmi.bmiHeader.biWidth       = 36;
+                bmi.bmiHeader.biHeight      = -32;  // top-down
+                bmi.bmiHeader.biPlanes      = 1;
+                bmi.bmiHeader.biBitCount    = 32;
+                bmi.bmiHeader.biCompression = BI_RGB;
+                void* pBits = nullptr;
+                HBITMAP hPad = CreateDIBSection(hScreen, &bmi, DIB_RGB_COLORS, &pBits, NULL, 0);
+                if (hPad && pBits) {
+                    memset(pBits, 0, 36 * 32 * 4);  // fully transparent
+                    HDC hMem = CreateCompatibleDC(hScreen);
+                    HBITMAP hOld = (HBITMAP)SelectObject(hMem, hPad);
+                    DrawIconEx(hMem, 4, 0, hIco, 32, 32, 0, NULL, DI_NORMAL);
+                    SelectObject(hMem, hOld);
+                    DeleteDC(hMem);
+                    ImageList_Add(hImageList, hPad, NULL);
+                    DeleteObject(hPad);
+                }
+                ReleaseDC(NULL, hScreen);
+            };
+
             // Load folder icons from shell32.dll
             HMODULE hShell32 = LoadLibraryW(L"shell32.dll");
             if (hShell32) {
                 HICON hFolderClosed = (HICON)LoadImageW(hShell32, MAKEINTRESOURCEW(4), IMAGE_ICON, 32, 32, 0);
-                HICON hFolderOpen = (HICON)LoadImageW(hShell32, MAKEINTRESOURCEW(5), IMAGE_ICON, 32, 32, 0);
-                if (hFolderClosed) ImageList_AddIcon(hImageList, hFolderClosed);
-                if (hFolderOpen) ImageList_AddIcon(hImageList, hFolderOpen);
-                // Create a small badge icon (solid blue circle) programmatically
+                HICON hFolderOpen   = (HICON)LoadImageW(hShell32, MAKEINTRESOURCEW(5), IMAGE_ICON, 32, 32, 0);
+                AddIconPadded(hFolderClosed);
+                AddIconPadded(hFolderOpen);
+                // Create the AskAtInstall badge icon (solid blue circle) programmatically
                 HICON hBadge = NULL;
                 {
-                    // Create 32-bit DIB section for icon
                     HDC hdc = GetDC(NULL);
                     HBITMAP hBmp = CreateCompatibleBitmap(hdc, 32, 32);
                     HDC hMem = CreateCompatibleDC(hdc);
                     HBITMAP hOld = (HBITMAP)SelectObject(hMem, hBmp);
-                    // Fill transparent background
-                    HBRUSH hBrush = CreateSolidBrush(RGB(0,0,0));
-                    RECT rc = {0,0,32,32};
-                    FillRect(hMem, &rc, (HBRUSH)GetStockObject(NULL_BRUSH));
-                    // Draw a blue filled circle scaled to 32x32
+                    RECT rcBmp = {0,0,32,32};
+                    FillRect(hMem, &rcBmp, (HBRUSH)GetStockObject(NULL_BRUSH));
                     HBRUSH hCircle = CreateSolidBrush(RGB(65,105,225));
                     HBRUSH hOldBrush = (HBRUSH)SelectObject(hMem, hCircle);
                     Ellipse(hMem, 6, 6, 26, 26);
                     SelectObject(hMem, hOldBrush);
                     DeleteObject(hCircle);
-                    DeleteObject(hBrush);
-
                     ICONINFO ii = {};
-                    ii.fIcon = TRUE;
-                    ii.xHotspot = 0;
-                    ii.yHotspot = 0;
-                    ii.hbmMask = hBmp; // using same bitmap for mask (no transparency)
+                    ii.fIcon    = TRUE;
+                    ii.hbmMask  = hBmp;
                     ii.hbmColor = hBmp;
                     hBadge = CreateIconIndirect(&ii);
-
                     SelectObject(hMem, hOld);
                     DeleteDC(hMem);
                     ReleaseDC(NULL, hdc);
-                    // Keep hBmp alive for icon (OS owns a copy)
                 }
-                if (hBadge) ImageList_AddIcon(hImageList, hBadge);
+                AddIconPadded(hBadge);
                 if (hFolderClosed) DestroyIcon(hFolderClosed);
-                if (hFolderOpen) DestroyIcon(hFolderOpen);
-                if (hBadge) DestroyIcon(hBadge);
+                if (hFolderOpen)   DestroyIcon(hFolderOpen);
+                if (hBadge)        DestroyIcon(hBadge);
                 FreeLibrary(hShell32);
             }
             TreeView_SetImageList(s_hTreeView, hImageList, TVSIL_NORMAL);
             // Ensure rows are tall enough for 32x32 icons
             TreeView_SetItemHeight(s_hTreeView, 34);
         }
+        // Replace the native TVS_CHECKBOXES images with our custom themed ones.
+        UpdateTreeViewCheckboxImages(s_hTreeView, S(16));
         
         // ListView on the right (current folder contents - files only) - child of main window
         s_hListView = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEW, NULL,
@@ -4577,21 +4579,9 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         // Drag-and-drop begin notifications are superseded by the dragdrop
         // module (subclass-based threshold detection).  No action needed here.
 
-        // NM_CUSTOMDRAW: paint multi-selected items in system highlight colour
-        if (nmhdr->idFrom == 102 && nmhdr->code == NM_CUSTOMDRAW) {
-            NMTVCUSTOMDRAW* pcd = (NMTVCUSTOMDRAW*)lParam;
-            if (pcd->nmcd.dwDrawStage == CDDS_PREPAINT)
-                return CDRF_NOTIFYITEMDRAW;
-            if (pcd->nmcd.dwDrawStage == CDDS_ITEMPREPAINT) {
-                HTREEITEM hItem = (HTREEITEM)pcd->nmcd.dwItemSpec;
-                if (s_filesTreeMultiSel.count(hItem)) {
-                    pcd->clrText   = GetSysColor(COLOR_HIGHLIGHTTEXT);
-                    pcd->clrTextBk = GetSysColor(COLOR_HIGHLIGHT);
-                    return CDRF_NEWFONT;
-                }
-            }
+        // NM_CUSTOMDRAW: no visual override — ticked items use native row colours.
+        if (nmhdr->idFrom == 102 && nmhdr->code == NM_CUSTOMDRAW)
             return CDRF_DODEFAULT;
-        }
 
         // Handle TreeView label edit
         if (nmhdr->idFrom == 102 && nmhdr->code == TVN_BEGINLABELEDIT) {
@@ -6842,6 +6832,14 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         }
 
         case IDM_TREEVIEW_REMOVE_FOLDER: {
+            // If the right-clicked item belongs to a multi-selection, delegate to the
+            // Remove button handler so all ticked items are deleted together.
+            if (s_rightClickedItem && !s_filesTreeMultiSel.empty() &&
+                s_filesTreeMultiSel.count(s_rightClickedItem)) {
+                s_rightClickedItem = NULL;
+                SendMessageW(hwnd, WM_COMMAND, MAKEWPARAM(IDC_FILES_REMOVE, BN_CLICKED), 0);
+                return 0;
+            }
             // Remove the right-clicked folder from the tree
             if (s_rightClickedItem && s_rightClickedItem != s_hProgramFilesRoot) {
                 // Check if folder has children
@@ -7361,7 +7359,14 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         }
         break;
     }
-    
+
+    case WM_SETTINGCHANGE:
+        // Repaint custom checkboxes and rebuild TreeView state images for new theme.
+        OnCheckboxSettingChange(hwnd);
+        if (s_hTreeView && IsWindow(s_hTreeView))
+            UpdateTreeViewCheckboxImages(s_hTreeView, S(16));
+        break;
+
     case WM_CLOSE: {
         if (s_hasUnsavedChanges) {
             int result = ShowUnsavedChangesDialog(hwnd, s_locale);
@@ -7390,6 +7395,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
     
     case WM_DRAWITEM: {
         LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
+        // Custom checkboxes are handled first and take priority.
+        if (DrawCustomCheckbox(dis)) return TRUE;
         // Draw the save indicator part of the status bar
         if (dis->CtlID == IDC_STATUS_BAR && (int)dis->itemID == 1) {
             bool saved = !s_hasUnsavedChanges;

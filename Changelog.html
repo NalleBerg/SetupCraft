@@ -1,6 +1,17 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 13 March 2026 &mdash; v2026.03.13.07<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 13 March 2026 &mdash; v2026.03.13.08<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.13.08</span></h3>
+<p><strong>Custom theme-aware checkboxes &mdash; Files TreeView multi-select (13.03.2026, 08:51):</strong></p>
+<ul>
+<li><strong>Custom checkbox component (<code>checkbox.h/.cpp</code>):</strong> New reusable owner-draw checkbox that draws its own box and U+2714 heavy tick glyph from Segoe UI Symbol. The tick is sized 1.4&times; the box height and shifted upward so the right ascending stroke crosses the top border, giving a hand-written feel. Colour palettes adapt automatically to Light, Dark, HC Black, and HC White themes; theme is re-read on every paint via <code>DetectCbTheme()</code> so live switches take effect without a restart. Checked state is stored as a window property, BM_GETCHECK/BM_SETCHECK are intercepted by a subclass proc &mdash; drop-in replacement for BS_AUTOCHECKBOX.</li>
+<li><strong>TreeView state image list (<code>CreateCheckboxStateImageList</code> / <code>UpdateTreeViewCheckboxImages</code>):</strong> Two new exported functions in <code>checkbox.cpp</code> replace the native <code>TVS_CHECKBOXES</code> bitmaps with GDI-drawn equivalents that match the custom checkbox appearance. <code>UpdateTreeViewCheckboxImages</code> (re)creates the HIMAGELIST and assigns it via <code>TreeView_SetImageList(TVSIL_STATE)</code>; called once at creation and again from <code>WM_SETTINGCHANGE</code> so the images update when the user switches theme.</li>
+<li><strong>Files TreeView multi-select:</strong> Folders can be ticked for batch removal by clicking their checkbox. A subclass proc intercepts <code>TVHT_ONITEMSTATEICON</code> clicks and syncs <code>s_filesTreeMultiSel</code>. A hint label between the toolbar and the tree explains the feature. Right-clicking a ticked item routes to the multi-delete path; right-clicking an un-ticked item uses the single-item dialog.</li>
+<li><strong>4 px gap between TreeView checkbox and folder icon:</strong> The normal image list is 36&thinsp;px wide (32&thinsp;px icon + 4&thinsp;px transparent left pad) so there is breathing room between the state checkbox and the folder icon at all DPI settings.</li>
+</ul>
+
+<h3 style="text-align: center;">&nbsp;</h3>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.13.07</span></h3>
 <p><strong>Registry Key Path dialog polish (13.03.2026, 07:34):</strong></p>

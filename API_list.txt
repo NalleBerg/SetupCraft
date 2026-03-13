@@ -44,4 +44,13 @@
                                     GetClientRect layout, and per-dialog status
                                     (which dialogs have been converted).
 
+  checkbox_API.txt                  Custom theme-aware checkbox — CreateCustomCheckbox,
+                                    DrawCustomCheckbox, OnCheckboxSettingChange,
+                                    CreateCheckboxStateImageList,
+                                    UpdateTreeViewCheckboxImages, colour palettes for
+                                    Light/Dark/HC Black/HC White themes, BM_GETCHECK/
+                                    BM_SETCHECK compatibility, and step-by-step guide
+                                    for adding a new checkbox or TreeView state image
+                                    list.
+
 ================================================================================

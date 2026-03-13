@@ -208,6 +208,30 @@ button.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/button.cpp.s
 .PHONY : button.cpp.s
 
+checkbox.obj: checkbox.cpp.obj
+.PHONY : checkbox.obj
+
+# target to build an object file
+checkbox.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/checkbox.cpp.obj
+.PHONY : checkbox.cpp.obj
+
+checkbox.i: checkbox.cpp.i
+.PHONY : checkbox.i
+
+# target to preprocess a source file
+checkbox.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/checkbox.cpp.i
+.PHONY : checkbox.cpp.i
+
+checkbox.s: checkbox.cpp.s
+.PHONY : checkbox.s
+
+# target to generate assembly for a file
+checkbox.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/checkbox.cpp.s
+.PHONY : checkbox.cpp.s
+
 ctrlw.obj: ctrlw.cpp.obj
 .PHONY : ctrlw.obj
 
@@ -443,6 +467,9 @@ help:
 	@echo ... button.obj
 	@echo ... button.i
 	@echo ... button.s
+	@echo ... checkbox.obj
+	@echo ... checkbox.i
+	@echo ... checkbox.s
 	@echo ... ctrlw.obj
 	@echo ... ctrlw.i
 	@echo ... ctrlw.s

@@ -1,0 +1,248 @@
+================================================================================
+  SetupCraft — Custom Checkbox API Reference
+================================================================================
+
+FILES
+  checkbox.h   — Public header (include in any translation unit that creates or
+                 draws custom checkboxes).
+  checkbox.cpp — Implementation; add to CMakeLists.txt sources.
+
+================================================================================
+OVERVIEW
+================================================================================
+
+A theme-aware owner-drawn checkbox that replaces the native BS_AUTOCHECKBOX.
+It draws its own box + ✔ glyph (U+2714 Heavy Check Mark from Segoe UI Symbol) and adapts its
+colour palette to the active Windows theme without any extra code in the caller.
+
+Supported themes detected automatically at paint time:
+  Light mode   — white box, gray border, Forest Green tick (RGB 34,139,34)
+  Dark mode    — dark box, lighter border, Lime Green tick  (RGB 102,204,102)
+  HC Black     — system COLOR_WINDOW box, COLOR_HOTLIGHT tick and hover
+  HC White     — system COLOR_WINDOW box, Dark Green tick   (RGB 0,100,0)
+
+Theme is re-read from the registry and SystemParametersInfoW on every WM_PAINT
+(via DrawCustomCheckbox), so a live theme switch takes effect on the next paint
+without restarting the application. Call OnCheckboxSettingChange() from
+WM_SETTINGCHANGE to force an immediate repaint.
+
+================================================================================
+PUBLIC API
+================================================================================
+
+────────────────────────────────────────────────────────────────────────────────
+HWND CreateCustomCheckbox(
+    HWND            hwndParent,
+    int             id,
+    const std::wstring& label,
+    bool            initiallyChecked,
+    int x, int y, int width, int height,
+    HINSTANCE       hInst)
+────────────────────────────────────────────────────────────────────────────────
+Creates a custom checkbox as a child of hwndParent.
+
+Parameters
+  hwndParent       — parent window that receives WM_COMMAND BN_CLICKED.
+  id               — control ID; identifies the control in WM_COMMAND.
+  label            — text shown to the right of the box; retrieved from the
+                     control window text, so UpdateButtonText / SetWindowTextW
+                     can update it at runtime.
+  initiallyChecked — true → box is ticked at creation. false → box is empty.
+  x, y             — position in DPI-scaled pixels. Use S(designPx) for every
+                     value so the layout is correct at all DPI settings.
+  width, height    — size. A height of S(22) is recommended; the box is
+                     S(15)×S(15) and vertically centres inside the row.
+  hInst            — module instance (same as passed to CreateWindowExW).
+
+Returns  HWND of the new control, or NULL on failure.
+
+Notes
+  • Call SendMessageW(hChk, WM_SETFONT, (WPARAM)hFont, TRUE) immediately after
+    creation so the label uses the application body font.
+  • The control handles BM_GETCHECK and BM_SETCHECK identically to a native
+    BS_AUTOCHECKBOX: drop-in replacement in any BN_CLICKED handler.
+  • WS_TABSTOP is set automatically; the control participates in Tab-key focus
+    order. Space bar toggles the state when the control has focus.
+
+────────────────────────────────────────────────────────────────────────────────
+BOOL DrawCustomCheckbox(LPDRAWITEMSTRUCT dis)
+────────────────────────────────────────────────────────────────────────────────
+Call from the parent window's WM_DRAWITEM handler.
+
+Returns TRUE  if dis->hwndItem is a custom checkbox — it has been fully drawn,
+               the caller should return TRUE immediately.
+Returns FALSE if dis->hwndItem is not a custom checkbox — the caller falls
+               through to its own drawing code normally.
+
+Typical usage in the parent:
+
+  case WM_DRAWITEM: {
+      LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
+      if (DrawCustomCheckbox(dis)) return TRUE;
+      // ... handle other WM_DRAWITEM cases (buttons, status bar, etc.)
+  }
+
+────────────────────────────────────────────────────────────────────────────────
+void OnCheckboxSettingChange(HWND hwndParent)
+────────────────────────────────────────────────────────────────────────────────
+Enumerates all custom checkboxes that are children of hwndParent and invalidates
+them so they repaint with the correct colours for the newly active theme.
+
+Call from the parent's WM_SETTINGCHANGE handler:
+
+  case WM_SETTINGCHANGE:
+      OnCheckboxSettingChange(hwnd);
+      break;
+
+Windows posts WM_SETTINGCHANGE with lParam pointing to "ImmersiveColorSet"
+when the user switches between light and dark mode; this call ensures the
+checkboxes redraw without requiring a page reload or restart.
+
+────────────────────────────────────────────────────────────────────────────────
+HIMAGELIST CreateCheckboxStateImageList(int sizePx)
+────────────────────────────────────────────────────────────────────────────────
+Builds a 3-entry HIMAGELIST drawn entirely in GDI using the current theme
+colours. Intended for use as a TreeView TVSIL_STATE image list to replace the
+native TVS_CHECKBOXES bitmaps.
+
+Parameters
+  sizePx — width and height of each bitmap in DPI-scaled pixels. Pass S(16)
+           for a standard 16×16 state image at 96 DPI; scales correctly at
+           higher DPI settings.
+
+Returns  A new HIMAGELIST with indices:
+           [0] blank (background fill only — used when state index == 0)
+           [1] unchecked box (bordered, empty)
+           [2] checked box  (same box + U+2714 heavy tick, shifted upward so
+                             the right ascending stroke crosses the top border)
+         Returns NULL on failure.
+
+The caller owns the returned handle and must destroy it with ImageList_Destroy()
+when no longer needed (or let UpdateTreeViewCheckboxImages manage lifetime).
+
+────────────────────────────────────────────────────────────────────────────────
+void UpdateTreeViewCheckboxImages(HWND hTreeView, int sizePx)
+────────────────────────────────────────────────────────────────────────────────
+Convenience wrapper that calls CreateCheckboxStateImageList(sizePx), assigns
+the result to hTreeView via TreeView_SetImageList(..., TVSIL_STATE), and
+destroys the previous state image list if one existed.
+
+Parameters
+  hTreeView — handle to a TreeView control created with TVS_CHECKBOXES.
+  sizePx    — passed directly to CreateCheckboxStateImageList. Use S(16).
+
+Call once after the TreeView is created:
+
+  UpdateTreeViewCheckboxImages(s_hTreeView, S(16));
+
+Call again from WM_SETTINGCHANGE to rebuild the images for the new theme:
+
+  case WM_SETTINGCHANGE:
+      OnCheckboxSettingChange(hwnd);
+      if (s_hTreeView && IsWindow(s_hTreeView))
+          UpdateTreeViewCheckboxImages(s_hTreeView, S(16));
+      break;
+
+================================================================================
+CHECKED STATE (BM_GETCHECK / BM_SETCHECK)
+================================================================================
+
+The control is a drop-in replacement for BS_AUTOCHECKBOX:
+
+  Read:   BOOL checked = (SendMessageW(hChk, BM_GETCHECK, 0, 0) == BST_CHECKED);
+  Write:  SendMessageW(hChk, BM_SETCHECK, BST_CHECKED,   0);
+          SendMessageW(hChk, BM_SETCHECK, BST_UNCHECKED, 0);
+
+Click behaviour
+  Mouse click: state is toggled BEFORE BN_CLICKED is sent to the parent.
+               BM_GETCHECK inside the BN_CLICKED handler returns the NEW value.
+  Space bar:   identical — state toggles before BN_CLICKED.
+  Drag-off:   if the user presses the button but releases outside the control
+               rect, state is NOT toggled (standard Windows cancel-gesture).
+
+================================================================================
+HOW IT WORKS (INTERNALS)
+================================================================================
+
+Owner-draw flow
+  CreateCustomCheckbox creates a WS_CHILD | WS_VISIBLE | WS_TABSTOP |
+  BS_OWNERDRAW BUTTON. The default BUTTON class sends WM_DRAWITEM to the parent
+  on every paint request. The parent forwards it to DrawCustomCheckbox().
+
+State storage
+  Checked and hover states are stored as window properties (SetPropW) with names
+  "CbChecked" and "CbHovered". A marker property "CustomCheckbox" is used by
+  DrawCustomCheckbox to detect non-checkbox DRAWITEM notifications and return
+  FALSE without drawing anything.
+
+Subclass
+  CheckboxSubclassProc (installed via SetWindowSubclass) intercepts:
+    BM_GETCHECK / BM_SETCHECK — read/write the CbChecked property.
+    WM_LBUTTONUP              — toggle state, then let DefSubclassProc send
+                                BN_CLICKED to the parent.
+    WM_KEYUP (VK_SPACE)       — same toggle + BN_CLICKED path.
+    WM_MOUSEMOVE / MOUSELEAVE — maintain CbHovered; arm TrackMouseEvent.
+    WM_SETFOCUS / KILLFOCUS   — invalidate for focus-rectangle repaint.
+    WM_NCDESTROY              — remove subclass and clean up all properties.
+
+Font
+  The tick glyph uses a temporary Segoe UI Symbol font sized to (boxSz * 1.4),
+  intentionally larger than the box so the heavy U+2714 stroke crosses the right
+  border for a hand-written effect. Font is created and destroyed per draw call.
+  The label uses the font set by the parent via WM_SETFONT (retrieved via
+  WM_GETFONT on the control).
+
+================================================================================
+THEME DETECTION
+================================================================================
+
+DetectCbTheme() is called inside DrawCustomCheckbox on every paint:
+
+  1. SystemParametersInfoW(SPI_GETHIGHCONTRAST) — if HCF_HIGHCONTRASTON is set,
+     the luminance of COLOR_WINDOW determines HCBlack vs HCWhite.
+
+  2. Otherwise: HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize
+     value AppsUseLightTheme (REG_DWORD).
+       1 (or absent) → CbTheme::Light
+       0             → CbTheme::Dark
+
+================================================================================
+COLOUR REFERENCE
+================================================================================
+
+  Theme     paneBg           boxBg            border           hover
+  ────────  ───────────────  ───────────────  ───────────────  ───────────────
+  Light     COLOR_WINDOW     255,255,255      102,102,102      0,120,215
+  Dark       32, 32, 32       45, 45, 45      150,150,150      0,150,255
+  HC Black  COLOR_WINDOW     COLOR_WINDOW     WINDOWTEXT       HOTLIGHT
+  HC White  COLOR_WINDOW     COLOR_WINDOW     WINDOWTEXT       HOTLIGHT
+
+  Theme     tick             label
+  ────────  ───────────────  ──────────────────
+  Light      34,139, 34      COLOR_WINDOWTEXT
+  Dark      102,204,102      240,240,240
+  HC Black  COLOR_HOTLIGHT   COLOR_WINDOWTEXT
+  HC White    0,100,  0      COLOR_WINDOWTEXT
+
+================================================================================
+ADDING A NEW CUSTOM CHECKBOX — STEP BY STEP
+================================================================================
+
+  1. Pick a control ID (e.g. #define IDC_MY_CHECKBOX 5099) in mainwindow.cpp.
+
+  2. Create the control during page setup:
+       HWND hChk = CreateCustomCheckbox(hwnd, IDC_MY_CHECKBOX, L"My option",
+                       /*initiallyChecked=*/false,
+                       S(10), S(30), S(300), S(22), hInst);
+       if (s_scaledFont) SendMessageW(hChk, WM_SETFONT, (WPARAM)s_scaledFont, TRUE);
+
+  3. Handle it in WM_COMMAND:
+       case IDC_MY_CHECKBOX:
+           myFlag = (SendMessageW(GetDlgItem(hwnd, IDC_MY_CHECKBOX),
+                                  BM_GETCHECK, 0, 0) == BST_CHECKED);
+           break;
+
+  4. No changes needed to WM_DRAWITEM or WM_SETTINGCHANGE if they already call
+     DrawCustomCheckbox(dis) and OnCheckboxSettingChange(hwnd) respectively.
+
+================================================================================

@@ -17,6 +17,7 @@ add_executable(SkeletonApp WIN32
     languages.cpp
     db.cpp
     button.cpp
+    checkbox.cpp
     ctrlw.cpp
     mainwindow.cpp
     spinner_dialog.cpp
