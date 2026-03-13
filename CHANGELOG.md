@@ -2,6 +2,12 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.03.13.09] - 2026-03-13
+
+### Changed
+- **Files TreeView: ticking a parent auto-ticks all sub-folders** — `FilesTree_CtrlClickProc` now recursively applies the same check state to every descendant, both the native `TVIS_STATEIMAGEMASK` and `s_filesTreeMultiSel`. Unticking a parent unticks all children.
+- **Remove confirm dialog is context-aware** — when the deduplicated delete list is exactly 1 item that has sub-folders, the message reads "Remove 1 folder and all its sub-folders?" (new locale key `confirm_remove_folder_subtree`). Single leaf-folder and multi-folder messages are unchanged.
+
 ## [2026.03.13.08] - 2026-03-13
 
 ### Added

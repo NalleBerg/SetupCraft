@@ -1,6 +1,15 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 13 March 2026 &mdash; v2026.03.13.08<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 13 March 2026 &mdash; v2026.03.13.09<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.13.09</span></h3>
+<p><strong>Files TreeView multi-select: recursive child ticking and smarter confirm dialog (13.03.2026, 09:03):</strong></p>
+<ul>
+<li><strong>Ticking a parent folder now auto-ticks all its sub-folders:</strong> <code>FilesTree_CtrlClickProc</code> recursively walks the entire subtree and sets the same check state (including the native <code>TVIS_STATEIMAGEMASK</code>) on every descendant, keeping <code>s_filesTreeMultiSel</code> in sync. Unticking a parent unticks all children the same way.</li>
+<li><strong>Confirm dialog wording is now context-aware:</strong> When the deduplicated delete list contains exactly one item that has sub-folders, the message reads &ldquo;Remove 1 folder and all its sub-folders?&rdquo; instead of the generic &ldquo;Remove 1 selected folder?&rdquo;, so the user always knows what they are about to delete. New locale key <code>confirm_remove_folder_subtree</code> added to all locale files.</li>
+</ul>
+
+<h3 style="text-align: center;">&nbsp;</h3>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.13.08</span></h3>
 <p><strong>Custom theme-aware checkboxes &mdash; Files TreeView multi-select (13.03.2026, 08:51):</strong></p>

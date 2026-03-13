@@ -1149,10 +1149,29 @@ static LRESULT CALLBACK FilesTree_CtrlClickProc(HWND hwnd, UINT msg, WPARAM wPar
             LRESULT r = CallWindowProcW(g_origFilesTreeProc, hwnd, msg, wParam, lParam);
             UINT state = TreeView_GetItemState(hwnd, hHit, TVIS_STATEIMAGEMASK);
             bool nowChecked = ((state >> 12) == 2); // state image index 2 = checked
+
+            // Helper: recursively apply the same check state to all descendants.
+            std::function<void(HTREEITEM, bool)> SetChildrenChecked =
+                [&](HTREEITEM hItem, bool checked) {
+                HTREEITEM hChild = TreeView_GetChild(hwnd, hItem);
+                while (hChild) {
+                    UINT idx = checked ? 2 : 1;
+                    TreeView_SetItemState(hwnd, hChild,
+                        INDEXTOSTATEIMAGEMASK(idx), TVIS_STATEIMAGEMASK);
+                    if (checked)
+                        s_filesTreeMultiSel.insert(hChild);
+                    else
+                        s_filesTreeMultiSel.erase(hChild);
+                    SetChildrenChecked(hChild, checked);
+                    hChild = TreeView_GetNextSibling(hwnd, hChild);
+                }
+            };
+
             if (nowChecked)
                 s_filesTreeMultiSel.insert(hHit);
             else
                 s_filesTreeMultiSel.erase(hHit);
+            SetChildrenChecked(hHit, nowChecked);
             InvalidateRect(hwnd, NULL, FALSE);
             return r;
         }
@@ -5369,9 +5388,13 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                             toDelete.push_back(hI);
                     }
                     int n = (int)toDelete.size();
-                    std::wstring msg = (n == 1)
-                        ? LocFmt(s_locale, L"confirm_remove_folder")
-                        : LocFmt(s_locale, L"confirm_remove_folders", std::to_wstring(n));
+                    std::wstring msg;
+                    if (n == 1)
+                        msg = TreeView_GetChild(s_hTreeView, toDelete[0])
+                            ? LocFmt(s_locale, L"confirm_remove_folder_subtree")
+                            : LocFmt(s_locale, L"confirm_remove_folder");
+                    else
+                        msg = LocFmt(s_locale, L"confirm_remove_folders", std::to_wstring(n));
                     if (ShowConfirmDeleteDialog(hwnd, LocFmt(s_locale, L"confirm_remove_title"), msg, s_locale)) {
                         // Collect file paths BEFORE wiping s_virtualFolderFiles,
                         // then remove orphaned component rows from the DB.

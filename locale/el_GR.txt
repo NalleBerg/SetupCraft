@@ -1,4 +1,4 @@
-﻿app_name=SetupCraft
+app_name=SetupCraft
 search_btn=🔍 Αναζήτηση
 select_language=Επιλέξτε γλώσσα για το έργο σας
 about_setupcraft=Σχετικά με το SetupCraft
