@@ -63,7 +63,7 @@ namespace DB {
     std::vector<RegistryEntryRow> GetRegistryEntriesForProject(int projectId);
     bool DeleteRegistryEntriesForProject(int projectId);
     // Component persistence
-    bool InsertComponent(const ComponentRow &comp);
+    int  InsertComponent(const ComponentRow &comp);
     bool UpdateComponent(const ComponentRow &comp);
     std::vector<ComponentRow> GetComponentsForProject(int projectId);
     bool DeleteComponentsForProject(int projectId);

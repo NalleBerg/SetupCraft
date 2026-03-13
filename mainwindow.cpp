@@ -334,8 +334,15 @@ HWND MainWindow::Create(HINSTANCE hInstance, const ProjectRow &project, const st
     s_treeSnapshot_AskAtInstall.clear();
     s_virtualFolderFiles.clear();
     s_filesPageHasContent = false;
+    s_components.clear();   // load once here, never on page switch
     s_currentProject = project;
     s_locale = locale;
+
+    // Load components for existing projects into memory now.
+    // They stay in memory for the lifetime of the project window;
+    // DB is only written when the user explicitly saves.
+    if (project.id > 0)
+        s_components = DB::GetComponentsForProject(project.id);
 
     // Restore ask-at-install preference for this project
     if (project.id > 0) {
@@ -1288,6 +1295,7 @@ static void UpdateCompTreeRequiredIcons(HWND hTree, HTREEITEM hItem,
             // don't prevent a parent folder from receiving the required icon.
             bool anyFound     = false;
             bool allRequired  = true;
+            // Match file-type components by individual file paths from the snapshot.
             for (const auto& p : paths) {
                 for (const auto& c : s_components) {
                     if (c.source_path != p) continue;
@@ -1297,6 +1305,17 @@ static void UpdateCompTreeRequiredIcons(HWND hTree, HTREEITEM hItem,
                     break;
                 }
                 if (!allRequired) break;
+            }
+            // Also match folder-type components by the snapshot's own fullPath
+            // (source_type="folder" components store the folder path, not individual files).
+            if (!snap->fullPath.empty()) {
+                for (const auto& c : s_components) {
+                    if (c.source_path != snap->fullPath) continue;
+                    if (!c.dest_path.empty() && c.dest_path != mySection) continue;
+                    anyFound = true;
+                    if (!c.is_required) allRequired = false;
+                    break;
+                }
             }
             if (anyFound)
                 useIcon = allRequired ? 3 : 0;
@@ -1443,8 +1462,10 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         DestroyWindow(s_hCompTreeView);
     }
     s_hCompTreeView = NULL;
-    s_components.clear();
-    
+    // NOTE: s_components is intentionally NOT cleared here.
+    // It lives in memory for the full project session and is only written
+    // to DB on explicit Save (IDM_FILE_SAVE).  SwitchPage(9) reads it directly.
+
     // Clear registry values map
     s_registryValues.clear();
     
@@ -2551,10 +2572,14 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
             col.pszText = (LPWSTR)cPath.c_str(); col.cx = listW - S(510 + 20); ListView_InsertColumn(s_hCompListView, colIdx++, &col);
         }
 
-        // Load components from DB
-        if (s_currentProject.id > 0) {
+        // s_components is loaded once when the project opens (MainWindow::Create).
+        // On subsequent visits to this page it is used as-is from memory.
+        // Only load from DB on the very first visit (empty guard) so that a plain
+        // page switch never overwrites unsaved in-memory changes.
+        if (s_components.empty() && s_currentProject.id > 0) {
             s_components = DB::GetComponentsForProject(s_currentProject.id);
-
+        }
+        if (s_currentProject.id > 0) {
             // Repair legacy rows that have dest_path=="" by inferring their section
             // from the VFS snapshots.  The VFS snapshots are always built in the same
             // section order as the initial auto-populate (PF → PD → AD → AAI), so
@@ -2585,15 +2610,12 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
                         if (!comp.dest_path.empty()) continue;
                         int idx = pathUsed[comp.source_path]++;
                         auto it = sectionSeq.find(comp.source_path);
-                        if (it != sectionSeq.end() && idx < (int)it->second.size()) {
+                        if (it != sectionSeq.end() && idx < (int)it->second.size())
                             comp.dest_path = it->second[idx];
-                            DB::UpdateComponent(comp);   // persist so fix runs only once
-                        }
+                        // No DB write here — dest_path repair is in-memory only until Save.
                     }
                 }
             }
-        } else {
-            s_components.clear();
         }
 
         // Build folder tree from the 4 VFS snapshots
@@ -5344,15 +5366,17 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                     }
                 }
                 // Remove all selected items from ListView
+                HTREEITEM hFolder = s_hTreeView ? TreeView_GetSelection(s_hTreeView) : NULL;
+                std::unordered_set<std::wstring> removedPaths;
                 int count = ListView_GetItemCount(s_hListView);
                 for (int i = count - 1; i >= 0; i--) {
                     if (ListView_GetItemState(s_hListView, i, LVIS_SELECTED) & LVIS_SELECTED) {
-                        // Free the stored path memory
                         LVITEM lvi = {};
                         lvi.mask = LVIF_PARAM;
                         lvi.iItem = i;
                         if (ListView_GetItem(s_hListView, &lvi) && lvi.lParam) {
                             wchar_t* path = (wchar_t*)lvi.lParam;
+                            removedPaths.insert(path);
                             free(path);
                         }
                         ListView_DeleteItem(s_hListView, i);
@@ -5360,7 +5384,23 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                     }
                 }
                 if (removedSomething) {
+                    // Sync the virtual-folder cache so the snapshot (and Comp tree)
+                    // no longer includes the deleted files.
+                    if (hFolder) {
+                        auto vit = s_virtualFolderFiles.find(hFolder);
+                        if (vit != s_virtualFolderFiles.end()) {
+                            auto& vf = vit->second;
+                            vf.erase(std::remove_if(vf.begin(), vf.end(),
+                                [&](const VirtualFolderFile& f) {
+                                    return removedPaths.count(f.sourcePath) > 0;
+                                }), vf.end());
+                        }
+                    }
+                    // Remove the corresponding component rows from DB and refresh.
+                    PurgeComponentRowsByPaths(s_currentProject.id, removedPaths);
+                    s_components = DB::GetComponentsForProject(s_currentProject.id);
                     UpdateComponentsButtonState(hwnd);
+                    MarkAsModified();
                     return 0;
                 }
             }
@@ -5403,6 +5443,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                             for (HTREEITEM hI : toDelete)
                                 CollectSubtreePaths(s_hTreeView, hI, delPaths);
                             PurgeComponentRowsByPaths(s_currentProject.id, delPaths);
+                            s_components = DB::GetComponentsForProject(s_currentProject.id);
                         }
                         std::function<void(HTREEITEM)> CleanupVF = [&](HTREEITEM hI) {
                             s_virtualFolderFiles.erase(hI);
@@ -5454,6 +5495,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                             std::unordered_set<std::wstring> delPaths;
                             CollectSubtreePaths(s_hTreeView, hSel, delPaths);
                             PurgeComponentRowsByPaths(s_currentProject.id, delPaths);
+                            s_components = DB::GetComponentsForProject(s_currentProject.id);
                         }
                         std::function<void(HTREEITEM)> CleanupVF = [&](HTREEITEM hItem) {
                             s_virtualFolderFiles.erase(hItem);
@@ -6452,19 +6494,18 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             HWND hChk = GetDlgItem(hwnd, IDC_COMP_ENABLE);
             int checked = (hChk && SendMessageW(hChk, BM_GETCHECK, 0, 0) == BST_CHECKED) ? 1 : 0;
             s_currentProject.use_components = checked;
-            DB::UpdateProject(s_currentProject);
+            // NOTE: DB::UpdateProject intentionally NOT called here — Save does it.
             if (checked) {
                 // Auto-populate from VFS snapshots only if there are no components yet
-                if (DB::GetComponentsForProject(s_currentProject.id).empty()) {
-                    std::vector<ComponentRow> toAdd;
-                    CollectAllFiles(s_treeSnapshot_ProgramFiles,  s_currentProject.id, toAdd, L"Program Files");
-                    CollectAllFiles(s_treeSnapshot_ProgramData,   s_currentProject.id, toAdd, L"ProgramData");
-                    CollectAllFiles(s_treeSnapshot_AppData,       s_currentProject.id, toAdd, L"AppData (Roaming)");
-                    CollectAllFiles(s_treeSnapshot_AskAtInstall,  s_currentProject.id, toAdd, L"AskAtInstall");
-                    for (auto& c : toAdd) DB::InsertComponent(c);
+                if (s_components.empty()) {
+                    CollectAllFiles(s_treeSnapshot_ProgramFiles,  s_currentProject.id, s_components, L"Program Files");
+                    CollectAllFiles(s_treeSnapshot_ProgramData,   s_currentProject.id, s_components, L"ProgramData");
+                    CollectAllFiles(s_treeSnapshot_AppData,       s_currentProject.id, s_components, L"AppData (Roaming)");
+                    CollectAllFiles(s_treeSnapshot_AskAtInstall,  s_currentProject.id, s_components, L"AskAtInstall");
+                    // IDs will be assigned by the DB on Save; use 0 for new rows.
                 }
             } else {
-                DB::DeleteComponentsForProject(s_currentProject.id);
+                s_components.clear();
             }
             SwitchPage(hwnd, 9);
             MarkAsModified();
@@ -6520,6 +6561,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             if (pickData.okClicked && !pickData.results.empty()) {
                 for (const auto& r : pickData.results) {
                     ComponentRow comp;
+                    comp.id           = 0;   // assigned by DB on Save
                     comp.project_id   = s_currentProject.id;
                     comp.display_name = r.displayName;
                     comp.description  = L"";
@@ -6527,7 +6569,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                     comp.source_type  = r.sourceType;
                     comp.source_path  = r.sourcePath;
                     comp.dest_path    = L"";
-                    DB::InsertComponent(comp);
+                    s_components.push_back(comp);  // memory only — written to DB on Save
                 }
                 SwitchPage(hwnd, 9);
                 MarkAsModified();
@@ -6604,16 +6646,12 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 TranslateMessage(&msgComp2); DispatchMessageW(&msgComp2);
             }
             if (dlgData2.okClicked) {
-                ComponentRow updated = cmp;
-                updated.display_name = dlgData2.outName;
-                updated.description  = dlgData2.outDesc;
-                updated.is_required  = dlgData2.outRequired;
-                updated.source_path  = dlgData2.outSourcePath;
-                DB::UpdateComponent(updated);
-                // Save dependency selections
-                DB::DeleteDependenciesForComponent(updated.id);
-                for (int depId : dlgData2.outDependencyIds)
-                    DB::InsertComponentDependency(updated.id, depId);
+                // Update in memory only — written to DB on Save.
+                s_components[selIdx].display_name = dlgData2.outName;
+                s_components[selIdx].description  = dlgData2.outDesc;
+                s_components[selIdx].is_required  = dlgData2.outRequired;
+                s_components[selIdx].source_path  = dlgData2.outSourcePath;
+                // Dependency edits are deferred together with the component row.
                 SwitchPage(hwnd, 9);
                 MarkAsModified();
             }
@@ -6638,7 +6676,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             auto itCnf = s_locale.find(L"comp_confirm_remove");
             std::wstring cnfMsg = (itCnf != s_locale.end()) ? itCnf->second : L"Remove selected component?";
             if (MessageBoxW(hwnd, cnfMsg.c_str(), L"", MB_YESNO | MB_ICONQUESTION) == IDYES) {
-                DB::DeleteComponent(s_components[selIdx].id);
+                s_components.erase(s_components.begin() + selIdx);  // memory only — written to DB on Save
                 SwitchPage(hwnd, 9);
                 MarkAsModified();
             }
@@ -6744,6 +6782,17 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             SaveTreeToDb(s_currentProject.id, s_treeSnapshot_ProgramData,   L"ProgramData");
             SaveTreeToDb(s_currentProject.id, s_treeSnapshot_AppData,       L"AppData (Roaming)");
             SaveTreeToDb(s_currentProject.id, s_treeSnapshot_AskAtInstall,  L"AskAtInstall");
+
+            // Persist components: replace all rows then re-insert from memory.
+            // This is the ONLY place component data is written to DB.
+            if (s_currentProject.use_components) {
+                DB::DeleteComponentsForProject(s_currentProject.id);
+                for (auto& comp : s_components) {
+                    comp.project_id = s_currentProject.id;
+                    int newId = DB::InsertComponent(comp);
+                    if (newId > 0) comp.id = newId;  // update in-memory ID so deps can reference it
+                }
+            }
 
             // Persist ask-at-install preference
             DB::SetSetting(L"ask_at_install_" + std::to_wstring(s_currentProject.id),
@@ -6896,6 +6945,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                         std::unordered_set<std::wstring> delPaths;
                         CollectSubtreePaths(s_hTreeView, s_rightClickedItem, delPaths);
                         PurgeComponentRowsByPaths(s_currentProject.id, delPaths);
+                        s_components = DB::GetComponentsForProject(s_currentProject.id);
                     }
 
                     // Clean up virtual folder files recursively before deleting
@@ -7205,16 +7255,25 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                     // Cascade required flag to all ComponentRows matching the collected paths,
                     // restricted to the same section so AskAtInstall entries are not affected
                     // when cascading a Program Files folder (and vice-versa).
+                    // Update in memory only — written to DB on Save.
                     for (const auto& path : paths) {
                         for (auto& cmp : s_components) {
                             if (cmp.source_path != path) continue;
                             if (!cmp.dest_path.empty() && cmp.dest_path != section) continue;
                             cmp.is_required = fd.outRequired;
-                            DB::UpdateComponent(cmp);
                             break;
                         }
                     }
-                    // Refresh required-folder icons without a full page rebuild
+                    // Also cascade to folder-type components (source_path == folder itself).
+                    if (!snap->fullPath.empty()) {
+                        for (auto& cmp : s_components) {
+                            if (cmp.source_path != snap->fullPath) continue;
+                            if (!cmp.dest_path.empty() && cmp.dest_path != section) continue;
+                            cmp.is_required = fd.outRequired;
+                            break;
+                        }
+                    }
+                    // Refresh required-folder icons without a full page rebuild.
                     UpdateCompTreeRequiredIcons(s_hCompTreeView, TreeView_GetRoot(s_hCompTreeView));
                     MarkAsModified();
                 }

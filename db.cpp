@@ -581,16 +581,16 @@ std::vector<RegistryEntryRow> DB::GetRegistryEntriesForProject(int projectId) {
 
 // ─── Component persistence ───────────────────────────────────────────────────
 
-bool DB::InsertComponent(const ComponentRow &comp) {
+int DB::InsertComponent(const ComponentRow &comp) {
     std::wstring dbPath = GetAppDataDbPath();
     std::string dbPathUtf8 = WToUtf8(dbPath);
     void *db = NULL;
     int flags = 0x00000002 | 0x00000004;
-    if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return false;
+    if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return 0;
 
     const char *sql = "INSERT INTO components (project_id, display_name, description, is_required, source_type, source_path, dest_path) VALUES (?,?,?,?,?,?,?);";
     void *stmt = NULL;
-    if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return false; }
+    if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return 0; }
     std::string sProjId  = std::to_string(comp.project_id);
     std::string sName    = WToUtf8(comp.display_name);
     std::string sDesc    = WToUtf8(comp.description);
@@ -606,9 +606,10 @@ bool DB::InsertComponent(const ComponentRow &comp) {
     if (p_bind_text) p_bind_text(stmt, 6, sSrc.c_str(),    -1, NULL);
     if (p_bind_text) p_bind_text(stmt, 7, sDst.c_str(),    -1, NULL);
     int rc = p_step(stmt); (void)rc;
+    int newId = (p_last_insert && p_finalize) ? (int)p_last_insert(db) : 0;
     if (p_finalize) p_finalize(stmt);
     p_close(db);
-    return true;
+    return newId;
 }
 
 bool DB::UpdateComponent(const ComponentRow &comp) {

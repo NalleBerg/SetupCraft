@@ -217,9 +217,11 @@
     block infers the correct section for each row by matching source paths
     against the four VFS snapshots (in the same insertion order used by
     CollectAllFiles: Program Files → ProgramData → AppData → AskAtInstall),
-    assigns the section, and writes it back via DB::UpdateComponent.  After
-    that single pass the repair condition (anyLegacy) is false and the block
-    is skipped on every subsequent load.
+    assigns the section in memory only — DB::UpdateComponent is NOT called.
+    The corrected dest_path values are written to the DB the next time the
+    developer explicitly saves (IDM_FILE_SAVE).  After that single pass the
+    repair condition (anyLegacy) is false and the block is skipped on
+    every subsequent load.
 
   Helper: GetCompTreeItemSection(HWND hTree, HTREEITEM hItem)
     Walks parent chain up to the section root (lParam == 0) and returns its
@@ -400,6 +402,26 @@
   Matching rule used in cascade and UpdateCompTreeRequiredIcons:
     if (!cmp.dest_path.empty() && cmp.dest_path != section) continue; // skip wrong section
     // empty dest_path = legacy row (created before this change) — treated as match
+
+  Folder-type component matching:
+    Components added as a whole folder have source_type=L"folder" and
+    source_path equal to the folder's disk path (e.g. C:\MyApp\data).
+    CollectSnapshotPaths returns individual file paths, so these rows were
+    never matched by the file-path loop.  Both UpdateCompTreeRequiredIcons
+    and the Required cascade now perform a second check for folder nodes:
+
+      if (!snap->fullPath.empty()) {
+          for (auto& cmp : s_components) {
+              if (cmp.source_path != snap->fullPath) continue;
+              if (!cmp.dest_path.empty() && cmp.dest_path != section) continue;
+              // match found — update is_required or set icon
+          }
+      }
+
+  Required cascade is memory-only:
+    The cascade right-click handler updates cmp.is_required in s_components
+    directly.  It does NOT call DB::UpdateComponent.  Changes are persisted
+    to the DB only when the developer explicitly saves (IDM_FILE_SAVE).
 
   Helper: GetCompTreeItemSection(HWND hTree, HTREEITEM hItem)
     Walks the TreeView parent chain from hItem up to the section root (whose
