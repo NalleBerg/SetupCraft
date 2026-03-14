@@ -155,32 +155,72 @@
   §7  Required-folder icon logic in UpdateCompTreeRequiredIcons
 ================================================================================
 
-  A folder in the comp tree receives icon index 3 (required badge) when:
-  - At least one file under it (recursively) IS registered in s_components, AND
-  - ALL registered files found under it have is_required == 1.
+  Decision uses TWO phases so that folder-type components (whole-folder rows)
+  take priority over per-file scanning:
 
-  Files that exist on disk but are NOT in s_components are ignored — they do not
-  prevent a parent folder from showing the required icon.  This handles the
-  common case where a folder contains files that were never added to the
-  component registry.
+  PHASE 1 — folder-type component row (authoritative):
+    If a row exists in s_components with source_type="folder" AND
+    source_path == snap->fullPath (AND dest_path matches the section),
+    that row's is_required value is used directly as the result.
+    No file scan is performed.  This is the primary path for folders
+    registered via "Add Folder" or auto-created by the right-click cascade.
 
-  Code pattern:
-    bool anyFound    = false;
-    bool allRequired = true;
-    for (const auto& p : paths) {
+  PHASE 2 — file-type scan (fallback, only when no folder-type row exists):
+    Collect all file paths under the folder recursively (CollectSnapshotPaths).
+    For each path:
+      - If a matching component row is found: contribute anyFound=true and
+        allRequired &= row.is_required.
+      - If NO matching row is found: set allRequired=false.
+        (An unregistered file means we cannot confirm the folder is fully
+        required.  anyFound is NOT touched, so a folder with only unregistered
+        files still falls through to the parentIsRequired inheritance below.)
+
+  FINAL decision:
+    anyFound=true  → useIcon = allRequired ? 3 : 0
+    anyFound=false → useIcon = parentIsRequired ? 3 : 0
+      (component-less subfolders, e.g. img/, locale/, inherit parent state)
+
+  Code pattern (Phase 1 then Phase 2):
+    bool anyFound       = false;
+    bool allRequired    = true;
+    bool folderTypeUsed = false;
+
+    // Phase 1: folder-type component row
+    if (!snap->fullPath.empty()) {
         for (const auto& c : s_components) {
-            if (c.source_path != p) continue;
+            if (c.source_path != snap->fullPath) continue;
+            if (c.source_type  != L"folder")      continue;
             if (!c.dest_path.empty() && c.dest_path != mySection) continue;
-            anyFound = true;
+            folderTypeUsed = true;
+            anyFound       = true;
             if (!c.is_required) allRequired = false;
             break;
         }
-        if (!allRequired) break;
     }
-    // anyFound=false → inherit parent's resolved state (parentIsRequired).
-    // This handles subfolders (img/, locale/ etc.) that have no component rows
-    // but should display the badge when their parent is fully required.
+    // Phase 2: file-type scan (skipped when folder-type row found)
+    if (!folderTypeUsed) {
+        for (const auto& p : paths) {
+            bool found = false;
+            for (const auto& c : s_components) {
+                if (c.source_path != p) continue;
+                if (!c.dest_path.empty() && c.dest_path != mySection) continue;
+                found = true; anyFound = true;
+                if (!c.is_required) allRequired = false;
+                break;
+            }
+            if (!found) allRequired = false;   // unregistered file = not all required
+            if (!allRequired) break;
+        }
+    }
     int useIcon = anyFound ? (allRequired ? 3 : 0) : (parentIsRequired ? 3 : 0);
+
+  Right-click cascade auto-upserts folder-type row:
+    When the user right-clicks a folder and clicks OK in the Edit Folder dialog,
+    the cascade searches s_components for a folder-type row with matching
+    source_path.  If found, is_required is updated; if not found, a new row is
+    inserted (source_type="folder", source_path=snap->fullPath, dest_path=section).
+    This ensures Phase 1 finds the row on the very next UpdateCompTreeRequiredIcons
+    call, so the icon persists across page switches without requiring a Save first.
 
   UpdateCompTreeRequiredIcons signature:
     static void UpdateCompTreeRequiredIcons(HWND hTree, HTREEITEM hItem,

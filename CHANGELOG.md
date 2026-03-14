@@ -2,6 +2,13 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.03.14.08] - 2026-03-14
+
+### Fixed
+- **Required state no longer lost after Files page deletion** — All four deletion paths (`IDC_FILES_REMOVE` ListView, multi-select tree, single-item tree, `IDM_TREEVIEW_REMOVE_FOLDER`) called `PurgeComponentRowsByPaths` then immediately reloaded `s_components` from DB via `DB::GetComponentsForProject`, wiping all unsaved `is_required=1` flags. `PurgeComponentRowsByPaths` is now memory-only (`std::remove_if` on `s_components`, no DB access, parameter `int projectId` removed). The four `s_components = DB::GetComponentsForProject(...)` reload lines are removed. Required state survives any number of Files page edits.
+- **Any folder can be marked Required, not just the first** — Right-click "Edit Folder" previously did nothing for folders with no existing component rows. Two fixes: (1) Guard `if (paths.empty()) return 0` changed to `if (paths.empty() && snap->fullPath.empty()) return 0` so whole-folder (folder-type) components open the dialog. (2) A folder-type row (`source_type="folder"`, `source_path=snap->fullPath`) is now always upserted into `s_components` on OK — created if absent, `is_required` updated if present.
+- **`UpdateCompTreeRequiredIcons`: two-phase matching, icon survives page switch** — Old logic scanned per-file paths and treated unregistered files as "skip", causing container folders with mixed registered+unregistered files to appear all-required and cascade incorrectly. New Phase 1: if a folder-type component row exists for `snap->fullPath`, use it as the authoritative answer (no file scan). Phase 2 (file-type only): an unregistered file now explicitly sets `allRequired=false`, preventing false positives on container folders while still allowing component-less subfolders to inherit parent state via `anyFound=false`.
+
 ## [2026.03.13.10] - 2026-03-13
 
 ### Changed

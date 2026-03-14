@@ -1006,13 +1006,19 @@ static void CollectSubtreePaths(HWND hTree, HTREEITEM hItem,
 }
 
 // Delete all file-type component rows whose source_path is in pathSet from the DB.
-static void PurgeComponentRowsByPaths(int projectId,
-                                       const std::unordered_set<std::wstring>& pathSet)
+static void PurgeComponentRowsByPaths(const std::unordered_set<std::wstring>& pathSet)
 {
-    if (projectId <= 0 || pathSet.empty()) return;
-    for (const auto& c : DB::GetComponentsForProject(projectId))
-        if (c.source_type == L"file" && pathSet.count(c.source_path))
-            DB::DeleteComponent(c.id);
+    // Remove component rows whose source path is in the deleted set.
+    // Works purely on the in-memory s_components vector — no DB access.
+    // The DB is only written when the developer explicitly saves (IDM_FILE_SAVE),
+    // so the Required flags on surviving rows are preserved intact.
+    if (pathSet.empty()) return;
+    s_components.erase(
+        std::remove_if(s_components.begin(), s_components.end(),
+            [&](const ComponentRow& c) {
+                return c.source_type == L"file" && pathSet.count(c.source_path);
+            }),
+        s_components.end());
 }
 
 // Look up a locale key and substitute {0} with val (leave as-is if no placeholder).
@@ -1132,6 +1138,13 @@ static void SaveTreeToDb(int projectId,
 static void VFSPicker_AddSubtree(HWND hTree, HTREEITEM hParent,
                                  const std::vector<TreeNodeSnapshot>& nodes);
 static void CollectSnapshotPaths(const TreeNodeSnapshot& snap, std::vector<std::wstring>& out);
+// Same as CollectSnapshotPaths but does NOT recurse into children.
+// Used by UpdateCompTreeRequiredIcons so that each tree node is judged only by
+// its OWN direct files; intermediate container folders (like WinProgramSuite)
+// will have anyFound=false and will not steal the required icon from a single
+// required child subtree (WinProgramManager) and propagate it to unrelated
+// sibling subtrees (WinUpdate, assets).
+static void CollectSnapshotPathsLocal(const TreeNodeSnapshot& snap, std::vector<std::wstring>& out);
 static void CollectAllFiles(const std::vector<TreeNodeSnapshot>& nodes,
                             int projectId, std::vector<ComponentRow>& out,
                             const std::wstring& sectionRoot);
@@ -1290,31 +1303,44 @@ static void UpdateCompTreeRequiredIcons(HWND hTree, HTREEITEM hItem,
         if (snap) {
             std::vector<std::wstring> paths;
             CollectSnapshotPaths(*snap, paths);
-            // Only consider files that ARE registered as components.
-            // Files not in s_components (unregistered) are ignored so they
-            // don't prevent a parent folder from receiving the required icon.
-            bool anyFound     = false;
-            bool allRequired  = true;
-            // Match file-type components by individual file paths from the snapshot.
-            for (const auto& p : paths) {
-                for (const auto& c : s_components) {
-                    if (c.source_path != p) continue;
-                    if (!c.dest_path.empty() && c.dest_path != mySection) continue;
-                    anyFound = true;
-                    if (!c.is_required) allRequired = false;
-                    break;
-                }
-                if (!allRequired) break;
-            }
-            // Also match folder-type components by the snapshot's own fullPath
-            // (source_type="folder" components store the folder path, not individual files).
+            bool anyFound       = false;
+            bool allRequired    = true;
+            bool folderTypeUsed = false;
+
+            // Phase 1: folder-type component — stored as a single row whose
+            // source_path is the folder itself (not individual files within it).
+            // Check this first so that a folder-type required component always
+            // wins, regardless of whether its individual files are registered.
             if (!snap->fullPath.empty()) {
                 for (const auto& c : s_components) {
                     if (c.source_path != snap->fullPath) continue;
                     if (!c.dest_path.empty() && c.dest_path != mySection) continue;
-                    anyFound = true;
+                    folderTypeUsed = true;
+                    anyFound       = true;
                     if (!c.is_required) allRequired = false;
                     break;
+                }
+            }
+
+            // Phase 2: file-type components — only when there is no folder-type
+            // row covering this exact folder.  An unregistered file (not found in
+            // s_components) means the folder cannot be considered fully required,
+            // which prevents a container folder (e.g. WinProgramSuite) from
+            // incorrectly inheriting all-required when only one of its child
+            // subtrees has required components and the rest are unregistered.
+            if (!folderTypeUsed) {
+                for (const auto& p : paths) {
+                    bool found = false;
+                    for (const auto& c : s_components) {
+                        if (c.source_path != p) continue;
+                        if (!c.dest_path.empty() && c.dest_path != mySection) continue;
+                        found    = true;
+                        anyFound = true;
+                        if (!c.is_required) allRequired = false;
+                        break;
+                    }
+                    if (!found) allRequired = false;
+                    if (!allRequired) break;
                 }
             }
             if (anyFound)
@@ -3954,6 +3980,32 @@ static void CollectSnapshotPaths(const TreeNodeSnapshot& snap, std::vector<std::
         CollectSnapshotPaths(child, out);
 }
 
+// Non-recursive variant of CollectSnapshotPaths: collects only the files that
+// belong DIRECTLY to this node (virtualFiles or an immediate disk scan) without
+// descending into snap.children.  Used by UpdateCompTreeRequiredIcons so that
+// each folder is evaluated on its own files alone; child folders are walked
+// separately by the TreeView traversal and may inherit via parentIsRequired.
+static void CollectSnapshotPathsLocal(const TreeNodeSnapshot& snap, std::vector<std::wstring>& out)
+{
+    if (!snap.virtualFiles.empty()) {
+        for (const auto& vf : snap.virtualFiles)
+            if (!vf.sourcePath.empty()) out.push_back(vf.sourcePath);
+    } else if (!snap.fullPath.empty()) {
+        std::wstring sp = snap.fullPath + L"\\*";
+        WIN32_FIND_DATAW fd = {};
+        HANDLE hFind = FindFirstFileW(sp.c_str(), &fd);
+        if (hFind != INVALID_HANDLE_VALUE) {
+            do {
+                if (wcscmp(fd.cFileName, L".") == 0 || wcscmp(fd.cFileName, L"..") == 0) continue;
+                if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+                out.push_back(snap.fullPath + L"\\" + fd.cFileName);
+            } while (FindNextFileW(hFind, &fd));
+            FindClose(hFind);
+        }
+    }
+    // Intentionally no recursion into snap.children.
+}
+
 // Recursively collect all VirtualFolderFiles from a snapshot tree into ComponentRow vector.
 // Falls back to disk scan for real-path nodes whose virtualFiles were never populated.
 static void CollectAllFiles(const std::vector<TreeNodeSnapshot>& nodes,
@@ -5396,9 +5448,9 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                                 }), vf.end());
                         }
                     }
-                    // Remove the corresponding component rows from DB and refresh.
-                    PurgeComponentRowsByPaths(s_currentProject.id, removedPaths);
-                    s_components = DB::GetComponentsForProject(s_currentProject.id);
+                    // Remove the corresponding component rows from memory
+                    // (in-memory only — DB is written only on explicit Save).
+                    PurgeComponentRowsByPaths(removedPaths);
                     UpdateComponentsButtonState(hwnd);
                     MarkAsModified();
                     return 0;
@@ -5437,13 +5489,12 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                         msg = LocFmt(s_locale, L"confirm_remove_folders", std::to_wstring(n));
                     if (ShowConfirmDeleteDialog(hwnd, LocFmt(s_locale, L"confirm_remove_title"), msg, s_locale)) {
                         // Collect file paths BEFORE wiping s_virtualFolderFiles,
-                        // then remove orphaned component rows from the DB.
+                        // then remove orphaned component rows from memory.
                         {
                             std::unordered_set<std::wstring> delPaths;
                             for (HTREEITEM hI : toDelete)
                                 CollectSubtreePaths(s_hTreeView, hI, delPaths);
-                            PurgeComponentRowsByPaths(s_currentProject.id, delPaths);
-                            s_components = DB::GetComponentsForProject(s_currentProject.id);
+                            PurgeComponentRowsByPaths(delPaths);
                         }
                         std::function<void(HTREEITEM)> CleanupVF = [&](HTREEITEM hI) {
                             s_virtualFolderFiles.erase(hI);
@@ -5490,12 +5541,11 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                     }
                     if (shouldDelete) {
                         // Collect file paths BEFORE wiping s_virtualFolderFiles,
-                        // then remove orphaned component rows from the DB.
+                        // then remove orphaned component rows from memory.
                         {
                             std::unordered_set<std::wstring> delPaths;
                             CollectSubtreePaths(s_hTreeView, hSel, delPaths);
-                            PurgeComponentRowsByPaths(s_currentProject.id, delPaths);
-                            s_components = DB::GetComponentsForProject(s_currentProject.id);
+                            PurgeComponentRowsByPaths(delPaths);
                         }
                         std::function<void(HTREEITEM)> CleanupVF = [&](HTREEITEM hItem) {
                             s_virtualFolderFiles.erase(hItem);
@@ -6940,12 +6990,11 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                     bool wasUnderProgramFiles = (hParent == s_hProgramFilesRoot);
 
                     // Collect file paths BEFORE wiping s_virtualFolderFiles,
-                    // then remove orphaned component rows from the DB.
+                    // then remove orphaned component rows from memory.
                     {
                         std::unordered_set<std::wstring> delPaths;
                         CollectSubtreePaths(s_hTreeView, s_rightClickedItem, delPaths);
-                        PurgeComponentRowsByPaths(s_currentProject.id, delPaths);
-                        s_components = DB::GetComponentsForProject(s_currentProject.id);
+                        PurgeComponentRowsByPaths(delPaths);
                     }
 
                     // Clean up virtual folder files recursively before deleting
@@ -7165,10 +7214,14 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             DestroyMenu(hMenu);
 
             if (cmd == IDM_COMP_TREE_CTX_EDIT) {
-                // Collect all file paths under this folder and its subfolders
+                // Collect all file paths under this folder and its subfolders.
                 std::vector<std::wstring> paths;
                 CollectSnapshotPaths(*snap, paths);
-                if (paths.empty()) return 0;
+                // A folder-type component (source_type="folder") has no individual
+                // file paths in s_components — only a single row whose source_path
+                // is the folder itself.  Allow through when fullPath is non-empty
+                // so the dialog opens and the cascade can reach the folder row.
+                if (paths.empty() && snap->fullPath.empty()) return 0;
 
                 // Determine which section (Program Files / AskAtInstall etc.) this node
                 // belongs to, so the cascade doesn't bleed into other sections.
@@ -7187,6 +7240,16 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                     }
                 }
                 mixed_done:
+                // If no file-type components found, check for a folder-type component
+                // covering this exact folder (source_path == snap->fullPath).
+                if (reqState == -1 && !snap->fullPath.empty()) {
+                    for (const auto& cmp : s_components) {
+                        if (cmp.source_path != snap->fullPath) continue;
+                        if (!cmp.dest_path.empty() && cmp.dest_path != section) continue;
+                        reqState = cmp.is_required;
+                        break;
+                    }
+                }
 
                 CompFolderDlgData fd;
                 fd.folderName    = snap->text;
@@ -7264,13 +7327,34 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                             break;
                         }
                     }
-                    // Also cascade to folder-type components (source_path == folder itself).
+                    // Upsert the folder-type component row for this folder.
+                    // A folder-type row (source_path == folder path) is the authoritative
+                    // record for the folder's Required state.  Without it, Phase 2 of
+                    // UpdateCompTreeRequiredIcons must account for every file in the subtree,
+                    // and a single unregistered file clears allRequired — causing the icon to
+                    // disappear after a page switch even though the folder was marked required.
+                    // We only do this when fullPath is available (real-disk nodes).
                     if (!snap->fullPath.empty()) {
+                        bool folderRowFound = false;
                         for (auto& cmp : s_components) {
                             if (cmp.source_path != snap->fullPath) continue;
+                            if (cmp.source_type  != L"folder")      continue;
                             if (!cmp.dest_path.empty() && cmp.dest_path != section) continue;
-                            cmp.is_required = fd.outRequired;
+                            cmp.is_required  = fd.outRequired;
+                            folderRowFound   = true;
                             break;
+                        }
+                        if (!folderRowFound) {
+                            ComponentRow newComp;
+                            newComp.id           = 0;
+                            newComp.project_id   = s_currentProject.id;
+                            newComp.display_name = snap->text;
+                            newComp.description  = L"";
+                            newComp.is_required  = fd.outRequired;
+                            newComp.source_type  = L"folder";
+                            newComp.source_path  = snap->fullPath;
+                            newComp.dest_path    = section;
+                            s_components.push_back(newComp);
                         }
                     }
                     // Refresh required-folder icons without a full page rebuild.
