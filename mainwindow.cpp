@@ -7705,6 +7705,18 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 selIdx = (int)lvi.lParam;
             }
             if (selIdx < 0 || selIdx >= (int)s_components.size()) {
+                // No list selection — try the selected tree folder
+                if (s_hCompTreeView && IsWindow(s_hCompTreeView)) {
+                    HTREEITEM hTreeSel = TreeView_GetSelection(s_hCompTreeView);
+                    if (hTreeSel) {
+                        TVITEMW tviChk = {}; tviChk.hItem = hTreeSel; tviChk.mask = TVIF_PARAM;
+                        TreeView_GetItem(s_hCompTreeView, &tviChk);
+                        if (tviChk.lParam != 0) {
+                            SendMessageW(hwnd, WM_COMMAND, MAKEWPARAM(IDM_COMP_TREE_CTX_EDIT, 0), 0);
+                            return 0;
+                        }
+                    }
+                }
                 auto itNoSel = s_locale.find(L"comp_no_selection");
                 std::wstring noSelMsg = (itNoSel != s_locale.end()) ? itNoSel->second : L"Please select a component first.";
                 MessageBoxW(hwnd, noSelMsg.c_str(), L"", MB_OK | MB_ICONINFORMATION);
@@ -7799,6 +7811,208 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             if (MessageBoxW(hwnd, cnfMsg.c_str(), L"", MB_YESNO | MB_ICONQUESTION) == IDYES) {
                 s_components.erase(s_components.begin() + selIdx);  // memory only — written to DB on Save
                 SwitchPage(hwnd, 9);
+                MarkAsModified();
+            }
+            return 0;
+        }
+
+        case IDM_COMP_TREE_CTX_EDIT: {
+            if (!s_hCompTreeView || !IsWindow(s_hCompTreeView)) return 0;
+            HTREEITEM hSel = TreeView_GetSelection(s_hCompTreeView);
+            if (!hSel) return 0;
+            TVITEMW tviSel = {}; tviSel.hItem = hSel; tviSel.mask = TVIF_PARAM;
+            TreeView_GetItem(s_hCompTreeView, &tviSel);
+            const TreeNodeSnapshot* snap = (const TreeNodeSnapshot*)tviSel.lParam;
+            if (!snap) return 0;  // section root
+
+            auto LS = [&](const wchar_t* k, const wchar_t* fb) -> std::wstring {
+                auto it = s_locale.find(k); return (it != s_locale.end()) ? it->second : fb;
+            };
+
+            std::vector<std::wstring> paths;
+            CollectSnapshotPaths(*snap, paths);
+            if (paths.empty() && snap->fullPath.empty()) return 0;
+
+            std::wstring section = GetCompTreeItemSection(s_hCompTreeView, hSel);
+
+            int reqState = -1;
+            for (const auto& path : paths) {
+                for (const auto& cmp : s_components) {
+                    if (cmp.source_path != path) continue;
+                    if (!cmp.dest_path.empty() && cmp.dest_path != section) continue;
+                    if (reqState == -1) reqState = cmp.is_required;
+                    else if (reqState != cmp.is_required) { reqState = -1; goto mixed_done; }
+                    break;
+                }
+            }
+            mixed_done:
+            if (reqState == -1 && !snap->fullPath.empty()) {
+                for (const auto& cmp : s_components) {
+                    if (cmp.source_path != snap->fullPath) continue;
+                    if (!cmp.dest_path.empty() && cmp.dest_path != section) continue;
+                    reqState = cmp.is_required;
+                    break;
+                }
+            }
+
+            int preselState = -1;
+            for (const auto& path : paths) {
+                for (const auto& cmp : s_components) {
+                    if (cmp.source_path != path) continue;
+                    if (!cmp.dest_path.empty() && cmp.dest_path != section) continue;
+                    if (preselState == -1) preselState = cmp.is_preselected;
+                    else if (preselState != cmp.is_preselected) { preselState = -1; goto presel_mixed_done; }
+                    break;
+                }
+            }
+            presel_mixed_done:
+            if (preselState == -1 && !snap->fullPath.empty()) {
+                for (const auto& cmp : s_components) {
+                    if (cmp.source_path != snap->fullPath) continue;
+                    if (cmp.source_type  != L"folder")     continue;
+                    if (!cmp.dest_path.empty() && cmp.dest_path != section) continue;
+                    preselState = cmp.is_preselected;
+                    break;
+                }
+            }
+
+            CompFolderDlgData fd;
+            fd.folderName       = snap->text;
+            fd.initRequired     = (reqState    == 1) ? 1 : 0;
+            fd.initPreselected  = (preselState == 1) ? 1 : 0;
+            fd.titleText        = LS(L"comp_folder_edit_title",  L"Edit Folder");
+            fd.requiredLabel    = LS(L"comp_required_label",     L"Required (always installed)");
+            fd.preselectedLabel = LS(L"comp_preselected_label",  L"Pre-selected (ticked by default at install)");
+            fd.cascadeHint      = LS(L"comp_folder_cascade_hint",
+                L"Applies to all files and subfolders. You can still override individual subfolders afterwards.");
+            fd.depsLabel        = LS(L"comp_deps_label",         L"Dependencies:");
+            fd.chooseDepsText   = LS(L"comp_choose_deps",        L"Choose...");
+            fd.okText           = LS(L"ok",     L"OK");
+            fd.cancelText       = LS(L"cancel", L"Cancel");
+            fd.excludeNode      = snap;
+            fd.sectionName      = section;
+
+            for (const auto& oc : s_components) {
+                if (!snap->fullPath.empty()) {
+                    bool sameSection = oc.dest_path.empty() || oc.dest_path == section;
+                    if (sameSection && oc.source_path == snap->fullPath) continue;
+                    if (sameSection &&
+                        oc.source_path.size() > snap->fullPath.size() &&
+                        _wcsnicmp(oc.source_path.c_str(), snap->fullPath.c_str(),
+                                  snap->fullPath.size()) == 0 &&
+                        (oc.source_path[snap->fullPath.size()] == L'\\' ||
+                         oc.source_path[snap->fullPath.size()] == L'/')) continue;
+                }
+                fd.otherComponents.push_back(oc);
+            }
+            if (!snap->fullPath.empty()) {
+                for (const auto& cmp : s_components) {
+                    if (cmp.source_path != snap->fullPath) continue;
+                    if (cmp.source_type  != L"folder")     continue;
+                    if (!cmp.dest_path.empty() && cmp.dest_path != section) continue;
+                    fd.initDependencyIds = cmp.dependencies.empty() && cmp.id > 0
+                        ? DB::GetDependenciesForComponent(cmp.id)
+                        : cmp.dependencies;
+                    fd.initNotesRtf = cmp.notes_rtf;
+                    break;
+                }
+            }
+
+            WNDCLASSEXW wcFd = {};
+            wcFd.cbSize = sizeof(wcFd);
+            if (!GetClassInfoExW(GetModuleHandleW(NULL), L"CompFolderEditDialog", &wcFd)) {
+                wcFd.lpfnWndProc   = CompFolderEditDlgProc;
+                wcFd.hInstance     = GetModuleHandleW(NULL);
+                wcFd.lpszClassName = L"CompFolderEditDialog";
+                wcFd.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+                wcFd.hCursor       = LoadCursor(NULL, IDC_ARROW);
+                RegisterClassExW(&wcFd);
+            }
+            {
+                NONCLIENTMETRICSW ncmH = {}; ncmH.cbSize = sizeof(ncmH);
+                SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncmH), &ncmH, 0);
+                if (ncmH.lfMessageFont.lfHeight < 0)
+                    ncmH.lfMessageFont.lfHeight = (LONG)(ncmH.lfMessageFont.lfHeight * 1.2f);
+                ncmH.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+                HFONT hMF = CreateFontIndirectW(&ncmH.lfMessageFont);
+                HDC hdc = GetDC(NULL);
+                HFONT hOld = (HFONT)SelectObject(hdc, hMF);
+                int hintMaxW = S(CFE_CONT_W);
+                RECT rcHint = { 0, 0, hintMaxW, 0 };
+                DrawTextW(hdc, fd.cascadeHint.c_str(), -1, &rcHint,
+                          DT_CALCRECT | DT_WORDBREAK | DT_LEFT | DT_NOPREFIX);
+                SelectObject(hdc, hOld);
+                ReleaseDC(NULL, hdc);
+                DeleteObject(hMF);
+                fd.hintH = rcHint.bottom > 0 ? rcHint.bottom : S(42);
+            }
+            int clientW3 = S(CFE_PAD_H)+S(CFE_CONT_W)+S(CFE_PAD_H);
+            int clientH3 = S(CFE_PAD_T)
+                         + S(CFE_NAME_H)+S(CFE_GAP_NR)
+                         + S(CFE_CHECK_H)+S(CFE_GAP_RPS)
+                         + S(CFE_CHECK_H)+S(CFE_GAP_RC)
+                         + fd.hintH+S(CFE_GAP_CD)
+                         + S(CFE_DEPS_ROW_H)+S(CFE_GAP_LD)
+                         + S(CFE_DEPLIST_H)+S(CFE_GAP_DN)
+                         + S(CFE_NOTES_BTN_H)+S(CFE_GAP_NB2)
+                         + S(CFE_BTN_H)+S(CFE_PAD_B);
+            RECT wrc3 = {0,0,clientW3,clientH3};
+            AdjustWindowRectEx(&wrc3, WS_POPUP|WS_CAPTION|WS_SYSMENU, FALSE,
+                               WS_EX_TOPMOST|WS_EX_TOOLWINDOW);
+            int dlgW3 = wrc3.right-wrc3.left, dlgH3 = wrc3.bottom-wrc3.top;
+            RECT rcMain3; GetWindowRect(hwnd, &rcMain3);
+            int xFd = rcMain3.left + (rcMain3.right-rcMain3.left-dlgW3)/2;
+            int yFd = rcMain3.top  + (rcMain3.bottom-rcMain3.top-dlgH3)/2;
+            HWND hFd = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+                L"CompFolderEditDialog", fd.titleText.c_str(),
+                WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
+                xFd, yFd, dlgW3, dlgH3, hwnd, NULL, GetModuleHandleW(NULL), &fd);
+            MSG msgFd;
+            while (GetMessageW(&msgFd, NULL, 0, 0) > 0) {
+                if (!IsWindow(hFd)) break;
+                TranslateMessage(&msgFd); DispatchMessageW(&msgFd);
+            }
+
+            if (fd.okClicked) {
+                for (const auto& path : paths) {
+                    for (auto& cmp : s_components) {
+                        if (cmp.source_path != path) continue;
+                        if (!cmp.dest_path.empty() && cmp.dest_path != section) continue;
+                        cmp.is_required    = fd.outRequired;
+                        cmp.is_preselected = fd.outPreselected;
+                        break;
+                    }
+                }
+                if (!snap->fullPath.empty()) {
+                    bool folderRowFound = false;
+                    for (auto& cmp : s_components) {
+                        if (cmp.source_path != snap->fullPath) continue;
+                        if (cmp.source_type  != L"folder")      continue;
+                        if (!cmp.dest_path.empty() && cmp.dest_path != section) continue;
+                        cmp.is_required    = fd.outRequired;
+                        cmp.is_preselected = fd.outPreselected;
+                        cmp.dependencies   = fd.outDependencyIds;
+                        cmp.notes_rtf      = fd.outNotesRtf;
+                        folderRowFound     = true;
+                        break;
+                    }
+                    if (!folderRowFound) {
+                        ComponentRow newComp;
+                        newComp.id             = 0;
+                        newComp.project_id     = s_currentProject.id;
+                        newComp.display_name   = snap->text;
+                        newComp.description    = L"";
+                        newComp.is_required    = fd.outRequired;
+                        newComp.is_preselected = fd.outPreselected;
+                        newComp.source_type    = L"folder";
+                        newComp.source_path    = snap->fullPath;
+                        newComp.dest_path      = section;
+                        newComp.dependencies   = fd.outDependencyIds;
+                        newComp.notes_rtf      = fd.outNotesRtf;
+                        s_components.push_back(newComp);
+                    }
+                }
+                UpdateCompTreeRequiredIcons(s_hCompTreeView, TreeView_GetRoot(s_hCompTreeView));
                 MarkAsModified();
             }
             return 0;
@@ -8313,226 +8527,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             int cmd = (int)TrackPopupMenu(hMenu, TPM_RIGHTBUTTON | TPM_RETURNCMD, xPos, yPos, 0, hwnd, NULL);
             DestroyMenu(hMenu);
 
-            if (cmd == IDM_COMP_TREE_CTX_EDIT) {
-                // Collect all file paths under this folder and its subfolders.
-                std::vector<std::wstring> paths;
-                CollectSnapshotPaths(*snap, paths);
-                // A folder-type component (source_type="folder") has no individual
-                // file paths in s_components — only a single row whose source_path
-                // is the folder itself.  Allow through when fullPath is non-empty
-                // so the dialog opens and the cascade can reach the folder row.
-                if (paths.empty() && snap->fullPath.empty()) return 0;
-
-                // Determine which section (Program Files / AskAtInstall etc.) this node
-                // belongs to, so the cascade doesn't bleed into other sections.
-                std::wstring section = GetCompTreeItemSection(s_hCompTreeView, hHit);
-
-                // Determine current required state
-                // -1 = not yet set, then 0/1; if mixed outcomes -> use 0
-                int reqState = -1;
-                for (const auto& path : paths) {
-                    for (const auto& cmp : s_components) {
-                        if (cmp.source_path != path) continue;
-                        if (!cmp.dest_path.empty() && cmp.dest_path != section) continue;
-                        if (reqState == -1) reqState = cmp.is_required;
-                        else if (reqState != cmp.is_required) { reqState = -1; goto mixed_done; }
-                        break;
-                    }
-                }
-                mixed_done:
-                // If no file-type components found, check for a folder-type component
-                // covering this exact folder (source_path == snap->fullPath).
-                if (reqState == -1 && !snap->fullPath.empty()) {
-                    for (const auto& cmp : s_components) {
-                        if (cmp.source_path != snap->fullPath) continue;
-                        if (!cmp.dest_path.empty() && cmp.dest_path != section) continue;
-                        reqState = cmp.is_required;
-                        break;
-                    }
-                }
-
-                // Determine current pre-selected state (mirrors required logic)
-                int preselState = -1;
-                for (const auto& path : paths) {
-                    for (const auto& cmp : s_components) {
-                        if (cmp.source_path != path) continue;
-                        if (!cmp.dest_path.empty() && cmp.dest_path != section) continue;
-                        if (preselState == -1) preselState = cmp.is_preselected;
-                        else if (preselState != cmp.is_preselected) { preselState = -1; goto presel_mixed_done; }
-                        break;
-                    }
-                }
-                presel_mixed_done:
-                if (preselState == -1 && !snap->fullPath.empty()) {
-                    for (const auto& cmp : s_components) {
-                        if (cmp.source_path != snap->fullPath) continue;
-                        if (cmp.source_type  != L"folder")     continue;
-                        if (!cmp.dest_path.empty() && cmp.dest_path != section) continue;
-                        preselState = cmp.is_preselected;
-                        break;
-                    }
-                }
-
-                CompFolderDlgData fd;
-                fd.folderName       = snap->text;
-                fd.initRequired     = (reqState    == 1) ? 1 : 0;
-                fd.initPreselected  = (preselState == 1) ? 1 : 0;
-                fd.titleText        = LS(L"comp_folder_edit_title",  L"Edit Folder");
-                fd.requiredLabel    = LS(L"comp_required_label",     L"Required (always installed)");
-                fd.preselectedLabel = LS(L"comp_preselected_label",  L"Pre-selected (ticked by default at install)");
-                fd.cascadeHint      = LS(L"comp_folder_cascade_hint",
-                    L"Applies to all files and subfolders. You can still override individual subfolders afterwards.");
-                fd.depsLabel        = LS(L"comp_deps_label",         L"Dependencies:");
-                fd.chooseDepsText   = LS(L"comp_choose_deps",        L"Choose...");
-                fd.okText           = LS(L"ok",     L"OK");
-                fd.cancelText       = LS(L"cancel", L"Cancel");
-                fd.excludeNode      = snap;  // pointer identity used to exclude this folder from the dep picker
-                fd.sectionName   = section;
-
-                // Populate other-components list: exclude the edited folder itself and
-                // files/subfolders inside it — but only within the SAME section.  A
-                // component in a different section that happens to share the same source
-                // path (e.g. the same folder installed under both Program Files AND
-                // AskAtInstall) is a distinct component and may be a valid dependency.
-                for (const auto& oc : s_components) {
-                    if (!snap->fullPath.empty()) {
-                        bool sameSection = oc.dest_path.empty() || oc.dest_path == section;
-                        if (sameSection && oc.source_path == snap->fullPath) continue;
-                        if (sameSection &&
-                            oc.source_path.size() > snap->fullPath.size() &&
-                            _wcsnicmp(oc.source_path.c_str(), snap->fullPath.c_str(),
-                                      snap->fullPath.size()) == 0 &&
-                            (oc.source_path[snap->fullPath.size()] == L'\\' ||
-                             oc.source_path[snap->fullPath.size()] == L'/')) continue;
-                    }
-                    fd.otherComponents.push_back(oc);
-                }
-                // Load initial dep IDs from the folder-type row for this folder (in-memory)
-                if (!snap->fullPath.empty()) {
-                    for (const auto& cmp : s_components) {
-                        if (cmp.source_path != snap->fullPath) continue;
-                        if (cmp.source_type  != L"folder")     continue;
-                        if (!cmp.dest_path.empty() && cmp.dest_path != section) continue;
-                        fd.initDependencyIds = cmp.dependencies.empty() && cmp.id > 0
-                            ? DB::GetDependenciesForComponent(cmp.id)
-                            : cmp.dependencies;
-                        fd.initNotesRtf = cmp.notes_rtf;
-                        break;
-                    }
-                }
-
-                // Register and show the dialog
-                WNDCLASSEXW wcFd = {};
-                wcFd.cbSize = sizeof(wcFd);
-                if (!GetClassInfoExW(GetModuleHandleW(NULL), L"CompFolderEditDialog", &wcFd)) {
-                    wcFd.lpfnWndProc   = CompFolderEditDlgProc;
-                    wcFd.hInstance     = GetModuleHandleW(NULL);
-                    wcFd.lpszClassName = L"CompFolderEditDialog";
-                    wcFd.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
-                    wcFd.hCursor       = LoadCursor(NULL, IDC_ARROW);
-                    RegisterClassExW(&wcFd);
-                }
-                // Measure cascade hint so the dialog sizes to it
-                {
-                    NONCLIENTMETRICSW ncmH = {}; ncmH.cbSize = sizeof(ncmH);
-                    SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncmH), &ncmH, 0);
-                    if (ncmH.lfMessageFont.lfHeight < 0)
-                        ncmH.lfMessageFont.lfHeight = (LONG)(ncmH.lfMessageFont.lfHeight * 1.2f);
-                    ncmH.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
-                    HFONT hMF = CreateFontIndirectW(&ncmH.lfMessageFont);
-                    HDC hdc = GetDC(NULL);
-                    HFONT hOld = (HFONT)SelectObject(hdc, hMF);
-                    int hintMaxW = S(CFE_CONT_W);
-                    RECT rcHint = { 0, 0, hintMaxW, 0 };
-                    DrawTextW(hdc, fd.cascadeHint.c_str(), -1, &rcHint,
-                              DT_CALCRECT | DT_WORDBREAK | DT_LEFT | DT_NOPREFIX);
-                    SelectObject(hdc, hOld);
-                    ReleaseDC(NULL, hdc);
-                    DeleteObject(hMF);
-                    fd.hintH = rcHint.bottom > 0 ? rcHint.bottom : S(42);
-                }
-                int clientW3 = S(CFE_PAD_H)+S(CFE_CONT_W)+S(CFE_PAD_H);
-                int clientH3 = S(CFE_PAD_T)
-                             + S(CFE_NAME_H)+S(CFE_GAP_NR)
-                             + S(CFE_CHECK_H)+S(CFE_GAP_RPS)
-                             + S(CFE_CHECK_H)+S(CFE_GAP_RC)
-                             + fd.hintH+S(CFE_GAP_CD)
-                             + S(CFE_DEPS_ROW_H)+S(CFE_GAP_LD)
-                             + S(CFE_DEPLIST_H)+S(CFE_GAP_DN)
-                             + S(CFE_NOTES_BTN_H)+S(CFE_GAP_NB2)
-                             + S(CFE_BTN_H)+S(CFE_PAD_B);
-                RECT wrc3 = {0,0,clientW3,clientH3};
-                AdjustWindowRectEx(&wrc3, WS_POPUP|WS_CAPTION|WS_SYSMENU, FALSE,
-                                   WS_EX_TOPMOST|WS_EX_TOOLWINDOW);
-                int dlgW3 = wrc3.right-wrc3.left, dlgH3 = wrc3.bottom-wrc3.top;
-                RECT rcMain3; GetWindowRect(hwnd, &rcMain3);
-                int xFd = rcMain3.left + (rcMain3.right-rcMain3.left-dlgW3)/2;
-                int yFd = rcMain3.top  + (rcMain3.bottom-rcMain3.top-dlgH3)/2;
-                HWND hFd = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
-                    L"CompFolderEditDialog", fd.titleText.c_str(),
-                    WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
-                    xFd, yFd, dlgW3, dlgH3, hwnd, NULL, GetModuleHandleW(NULL), &fd);
-                MSG msgFd;
-                while (GetMessageW(&msgFd, NULL, 0, 0) > 0) {
-                    if (!IsWindow(hFd)) break;
-                    TranslateMessage(&msgFd); DispatchMessageW(&msgFd);
-                }
-
-                if (fd.okClicked) {
-                    // Cascade required + pre-selected flag to all ComponentRows matching the collected paths,
-                    // restricted to the same section so AskAtInstall entries are not affected
-                    // when cascading a Program Files folder (and vice-versa).
-                    // Update in memory only — written to DB on Save.
-                    for (const auto& path : paths) {
-                        for (auto& cmp : s_components) {
-                            if (cmp.source_path != path) continue;
-                            if (!cmp.dest_path.empty() && cmp.dest_path != section) continue;
-                            cmp.is_required    = fd.outRequired;
-                            cmp.is_preselected = fd.outPreselected;
-                            break;
-                        }
-                    }
-                    // Upsert the folder-type component row for this folder.
-                    // A folder-type row (source_path == folder path) is the authoritative
-                    // record for the folder's Required state.  Without it, Phase 2 of
-                    // UpdateCompTreeRequiredIcons must account for every file in the subtree,
-                    // and a single unregistered file clears allRequired — causing the icon to
-                    // disappear after a page switch even though the folder was marked required.
-                    // We only do this when fullPath is available (real-disk nodes).
-                    if (!snap->fullPath.empty()) {
-                        bool folderRowFound = false;
-                        for (auto& cmp : s_components) {
-                            if (cmp.source_path != snap->fullPath) continue;
-                            if (cmp.source_type  != L"folder")      continue;
-                            if (!cmp.dest_path.empty() && cmp.dest_path != section) continue;
-                            cmp.is_required    = fd.outRequired;
-                            cmp.is_preselected = fd.outPreselected;
-                            cmp.dependencies   = fd.outDependencyIds; // save deps in memory
-                            cmp.notes_rtf      = fd.outNotesRtf;      // save notes in memory
-                            folderRowFound     = true;
-                            break;
-                        }
-                        if (!folderRowFound) {
-                            ComponentRow newComp;
-                            newComp.id           = 0;
-                            newComp.project_id   = s_currentProject.id;
-                            newComp.display_name = snap->text;
-                            newComp.description  = L"";
-                            newComp.is_required    = fd.outRequired;
-                            newComp.is_preselected = fd.outPreselected;
-                            newComp.source_type  = L"folder";
-                            newComp.source_path  = snap->fullPath;
-                            newComp.dest_path    = section;
-                            newComp.dependencies = fd.outDependencyIds;
-                            newComp.notes_rtf    = fd.outNotesRtf;
-                            s_components.push_back(newComp);
-                        }
-                    }
-                    // Refresh required-folder icons without a full page rebuild.
-                    UpdateCompTreeRequiredIcons(s_hCompTreeView, TreeView_GetRoot(s_hCompTreeView));
-                    MarkAsModified();
-                }
-            }
+            if (cmd == IDM_COMP_TREE_CTX_EDIT)
+                SendMessageW(hwnd, WM_COMMAND, MAKEWPARAM(IDM_COMP_TREE_CTX_EDIT, 0), 0);
             return 0;
         }
 

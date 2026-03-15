@@ -4,6 +4,9 @@ All notable changes to SetupCraft will be documented in this file.
 
 ## [2026.03.15.08] - 2026-03-15
 
+### Fixed
+- **Edit button now opens folder-edit dialog for tree-selected folders** — `IDC_COMP_EDIT` previously only inspected the ListView for a selected row and showed "Please select a component first" even when a folder was selected in the Components tree. The button now falls back to the tree selection and calls `IDM_COMP_TREE_CTX_EDIT`. The entire folder-edit flow is consolidated into a single `WM_COMMAND` case; the right-click context menu delegates to it via `SendMessageW` (no more duplicated inline logic).
+
 ### Added
 - **Pre-selected checkbox in folder-edit dialog** — new `is_preselected` field on `ComponentRow` and `components` table (migration: `ALTER TABLE components ADD COLUMN is_preselected INTEGER DEFAULT 0`). The folder-edit dialog shows a "Pre-selected (ticked by default at install)" checkbox directly below Required. Checking Required force-ticks and disables Pre-selected; unchecking Required re-enables it. Cascades to all files in the folder (section-scoped) and persists to DB on Save.
 - **Custom checkbox disabled visual** — `DrawCustomCheckbox` now checks `ODS_DISABLED` in `dis->itemState`; border, tick, and label all grey out when `EnableWindow(hCtrl, FALSE)` is called. Hover highlight is suppressed. Works across all four themes.
