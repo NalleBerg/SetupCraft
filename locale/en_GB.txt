@@ -186,6 +186,7 @@ comp_edit_title=Edit Component
 comp_name_label=Display Name:
 comp_desc_label=Description:
 comp_required_label=Required (always installed)
+comp_preselected_label=Pre-selected (ticked by default at install)
 comp_type_folder=Folder
 comp_type_file=File
 comp_source_label=Source Path:
@@ -193,6 +194,16 @@ comp_dest_label=Destination Path:
 comp_browse=Browse...
 comp_no_selection=Please select a component first.
 comp_confirm_remove=Remove selected component?
+
+# Folder-edit dialog
+comp_folder_edit_title=Edit Folder
+comp_folder_cascade_hint=Applies to all files and subfolders. You can still override individual subfolders afterwards.
+comp_deps_label=Dependencies:
+comp_choose_deps=Choose...
+comp_select_deps_title=Select Dependencies
+comp_deps_unsaved_title=Save First
+comp_deps_unsaved_msg=The project has not been saved yet. Components need a permanent ID before dependencies can be assigned. Save now and continue?
+comp_deps_saved_reopen=Project saved. Please press Choose again to select dependencies.
 
 # Entry page button tooltips
 new_project_hint=Create a new installer project

@@ -34,6 +34,7 @@ set(CMAKE_DEPENDS_DEPENDENCY_FILES
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/languages.cpp" "CMakeFiles/SkeletonApp.dir/languages.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/languages.cpp.obj.d"
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/main.cpp" "CMakeFiles/SkeletonApp.dir/main.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/main.cpp.obj.d"
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/mainwindow.cpp" "CMakeFiles/SkeletonApp.dir/mainwindow.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/mainwindow.cpp.obj.d"
+  "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/notes_editor.cpp" "CMakeFiles/SkeletonApp.dir/notes_editor.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/notes_editor.cpp.obj.d"
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/spinner_dialog.cpp" "CMakeFiles/SkeletonApp.dir/spinner_dialog.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/spinner_dialog.cpp.obj.d"
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/tooltip.cpp" "CMakeFiles/SkeletonApp.dir/tooltip.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/tooltip.cpp.obj.d"
   )

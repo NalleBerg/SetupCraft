@@ -26,6 +26,7 @@ add_executable(SkeletonApp WIN32
     tooltip.cpp
     dragdrop.cpp
     dpi.cpp
+    notes_editor.cpp
     ${RESOURCE_FILES}
 )
 
@@ -34,6 +35,7 @@ set_target_properties(SkeletonApp PROPERTIES OUTPUT_NAME "SetupCraft")
 
 target_link_libraries(SkeletonApp
     comctl32
+    comdlg32
     user32
     gdi32
     gdiplus

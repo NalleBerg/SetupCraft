@@ -132,7 +132,8 @@ Per-dialog layout constant sets (all in mainwindow.cpp before their proc):
       AV_GAP_R1/R2/RB, AV_BTN_H/W0/W1, AV_BTN_GAP
   AK_PAD_H/T/B, AK_LBL_W, AK_FLD_GAP, AK_EDIT_W, AK_ROW_H,
       AK_GAP_EB, AK_BTN_H/W0/W1, AK_BTN_GAP
-  CFE_PAD_H/T/B, CFE_CONT_W, CFE_NAME_H, CFE_GAP_NR, CFE_CHECK_H, CFE_GAP_RC,
+  CFE_PAD_H/T/B, CFE_CONT_W, CFE_NAME_H, CFE_GAP_NR, CFE_CHECK_H,
+      CFE_GAP_RPS (gap: Required → Pre-selected), CFE_GAP_RC (gap: Pre-selected → hint),
       CFE_GAP_HB, CFE_BTN_H/W0/W1, CFE_BTN_GAP
 
 Notes on CompFolderEdit hint measurement:
@@ -141,6 +142,14 @@ Notes on CompFolderEdit hint measurement:
   GetDC(NULL) + DrawTextW(DT_CALCRECT|DT_WORDBREAK). The result is stored in
   CompFolderDlgData::hintH (int, already DPI-scaled) so WM_CREATE can use it
   directly via pData->hintH.
+
+CompFolderDlgData fields of note:
+  hintH           — pre-measured cascade-hint height (DPI-scaled px)
+  initRequired    — 0/1, drives Required checkbox initial state
+  initPreselected — 0/1, drives Pre-selected checkbox initial state
+                    (pre-ticked and locked when initRequired == 1)
+  sectionName     — VFS section ("Program Files" / "AskAtInstall" etc.)
+                    forwarded to dep-picker exclusion rebuild after save-first
 
 The pattern for multi-button dialogs is the same except:
   - totalBtnW = N × DLG_BTN_W + (N-1) × DLG_BTN_GAP

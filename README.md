@@ -2,7 +2,7 @@
 
 An installer creation tool for making your developed packages distributable. Designed to be simple to use with a clean, native Windows interface.
 
-**Current Release:** Version 2026.03.14.08 (Published: 14.03.2026 08:58)
+**Current Release:** Version 2026.03.15.08 (Published: 15.03.2026 08:08)
 
 > Note: This project is in active development. Entry screen and main window Files management page are complete with proper page switching.
 
@@ -51,6 +51,7 @@ An installer creation tool for making your developed packages distributable. Des
 - **Per-Button Hover Tooltips**: `SetButtonTooltip(hBtn, text)` registers a plain-text tooltip on any enabled toolbar button; `ButtonSubclassProc` shows it on first hover and hides on mouse-leave with no extra tracking state
 - **Picker Last-Folder Memory**: Add Folder and Add Files both remember the last used directory per project in the DB (`last_picker_folder_<id>` / `last_picker_files_<id>`). File picker first-use falls back to `%USERPROFILE%` to prevent cross-picker shell state sharing
 - **Drag-and-Drop (Files Page)**: Fully working tree node drag-and-drop — move a folder anywhere in the tree, or drop onto a same-named folder to Merge (files carried across, recursively), Overwrite, or Cancel. Drop-target highlight, cursor feedback (no-drop / can-drop cursors), and freeze-free selection (nodes are always virtualized after a drop so `TVN_SELCHANGED` never blocks on a disk scan). Capture is deferred until the drag threshold is exceeded so toolbar hover is never blocked
+- **Folder-Level Pre-selected Flag**: Each folder component can be marked "Pre-selected" — ticked by default in the installer so the end-user sees it enabled but can still uncheck it if it is not required. Checking the Required flag automatically force-ticks and locks Pre-selected (a required component is always pre-selected); unchecking Required releases the lock. Stored in the new `is_preselected` column in the components table, persisted on Save, and cascaded to all files in the section-scoped subtree alongside the Required flag
 - **Folder-Level Required Flag**: Right-click any folder in the Components tree to cascade the Required flag to all files inside it and all subfolders via a single compact dialog. Cascade is section-scoped (`dest_path` in `ComponentRow`) so AskAtInstall entries are never touched when cascading a Program Files folder and vice-versa. Legacy rows with empty `dest_path` are repaired automatically on page load
 - **Entry Page Button Tooltips**: All four entry-screen buttons (New Project, Open Project, Delete Project, Exit) show hover tooltips via `SetButtonTooltip()`, i18n-ready via locale keys `new_project_hint` etc., refreshed on language switch
 - **UTF-8 BOM Fix**: `LoadLocaleFile` now strips the 3-byte BOM (`EF BB BF`) from the first line of every locale file — all 20 bundled locales were BOM-encoded, causing the first key in each file to silently fail lookup. Cyrillic, Greek, emoji and all other non-ASCII characters now display correctly across every language

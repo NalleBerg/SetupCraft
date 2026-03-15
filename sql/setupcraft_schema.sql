@@ -43,7 +43,9 @@ CREATE TABLE IF NOT EXISTS components (
     project_id INTEGER NOT NULL,
     display_name TEXT NOT NULL DEFAULT '',   -- Developer-set name shown to end user
     description TEXT DEFAULT '',
+    notes_rtf TEXT DEFAULT '',               -- RTF-encoded rich notes shown as installer tooltip
     is_required INTEGER DEFAULT 0,           -- 1 = always installed, 0 = optional
+    is_preselected INTEGER DEFAULT 0,         -- 1 = ticked by default at install
     source_type TEXT DEFAULT 'folder',       -- 'folder' or 'file'
     source_path TEXT DEFAULT '',
     dest_path TEXT DEFAULT '',

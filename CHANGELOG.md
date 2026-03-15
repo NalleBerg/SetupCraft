@@ -2,6 +2,19 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.03.15.08] - 2026-03-15
+
+### Added
+- **Pre-selected checkbox in folder-edit dialog** — new `is_preselected` field on `ComponentRow` and `components` table (migration: `ALTER TABLE components ADD COLUMN is_preselected INTEGER DEFAULT 0`). The folder-edit dialog shows a "Pre-selected (ticked by default at install)" checkbox directly below Required. Checking Required force-ticks and disables Pre-selected; unchecking Required re-enables it. Cascades to all files in the folder (section-scoped) and persists to DB on Save.
+- **Custom checkbox disabled visual** — `DrawCustomCheckbox` now checks `ODS_DISABLED` in `dis->itemState`; border, tick, and label all grey out when `EnableWindow(hCtrl, FALSE)` is called. Hover highlight is suppressed. Works across all four themes.
+
+### Fixed
+- **Dep picker: folders no longer auto-expand** — `TreeView_Expand` call removed from `addVFS`; sub-folders start collapsed so AskAtInstall is always visible without scrolling.
+- **Dep picker: virtual folder files reliably placed** — replaced `handledFilePaths`/`virtualFiles`-in-`addVFS` with a `virtualFilePaths` map (`sourcePath → HTREEITEM`); second pass checks exact virtual match first, then deepest-real-path-prefix, then section header. Files placed correctly even when `snap.virtualFiles` is empty (DB-loaded projects).
+- **Dep picker: auto-check ancestor folders** — ticking a file/folder fires a 1 ms timer that walks parents and auto-checks any ancestor with a `ComponentRow` (`lParam > 0`).
+- **Dep picker: otherComponents rebuilt after save-first** — after save, `pData->otherComponents` is rebuilt from `s_components` immediately and the picker opens without the "press Choose again" message.
+- **`CompFolderDlgData`: `sectionName` field added** — forwards VFS section name to save-first rebuild for correct section-aware exclusion.
+
 ## [2026.03.14.08] - 2026-03-14
 
 ### Fixed

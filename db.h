@@ -32,10 +32,13 @@ struct ComponentRow {
     int project_id = 0;
     std::wstring display_name;
     std::wstring description;
-    int is_required = 0;           // 1 = always installed, 0 = optional
+    std::wstring notes_rtf;         // RTF-encoded rich notes (stored in DB, shown as installer tooltip)
+    int is_required    = 0;        // 1 = always installed, 0 = optional
+    int is_preselected = 0;        // 1 = ticked by default at install (implied when is_required==1)
     std::wstring source_type;      // L"folder" or L"file"
     std::wstring source_path;
     std::wstring dest_path;
+    std::vector<int> dependencies; // in-memory dep IDs; persisted on Save
 };
 
 struct FileRow {

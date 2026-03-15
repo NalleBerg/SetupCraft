@@ -19,6 +19,9 @@
 #include "about_icon.h"
 #include "dragdrop.h"
 #include "checkbox.h"
+#include "notes_editor.h"
+#include <richedit.h>
+#include <commdlg.h>
 #include <fstream>
 
 // (no extra declarations needed — ExtractIconExW is in shellapi.h)
@@ -207,7 +210,18 @@ static bool s_filesPageHasContent = false; // tracks whether Files page has any 
 #define IDM_COMP_CTX_EDIT       6200
 #define IDM_COMP_CTX_REMOVE     6201
 #define IDM_COMP_TREE_CTX_EDIT  6202
-#define IDC_FOLDER_DLG_REQUIRED 320
+#define IDC_FOLDER_DLG_REQUIRED    320
+#define IDC_FOLDER_DLG_DEPS_LIST   321   // read-only listbox showing selected dep names
+#define IDC_FOLDER_DLG_CHOOSE_DEPS 322   // "Choose..." button
+// Folder dependency picker dialog (CompFolderDepPicker)
+#define IDC_FDDP_TREE              323
+#define IDC_FDDP_OK                324
+#define IDC_FDDP_CANCEL            325
+#define IDC_FOLDER_DLG_PRESELECTED 326  // Pre-selected checkbox (locked when Required is checked)
+
+// Notes button inside folder edit and component edit dialogs
+#define IDC_FOLDER_DLG_NOTES       340
+#define IDC_COMPDLG_NOTES          341
 
 // Files dialog button IDs
 #define IDC_FILES_ADD_DIR   5020
@@ -341,8 +355,12 @@ HWND MainWindow::Create(HINSTANCE hInstance, const ProjectRow &project, const st
     // Load components for existing projects into memory now.
     // They stay in memory for the lifetime of the project window;
     // DB is only written when the user explicitly saves.
-    if (project.id > 0)
+    if (project.id > 0) {
         s_components = DB::GetComponentsForProject(project.id);
+        for (auto& comp : s_components)
+            if (comp.id > 0)
+                comp.dependencies = DB::GetDependenciesForComponent(comp.id);
+    }
 
     // Restore ask-at-install preference for this project
     if (project.id > 0) {
@@ -2604,6 +2622,9 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         // page switch never overwrites unsaved in-memory changes.
         if (s_components.empty() && s_currentProject.id > 0) {
             s_components = DB::GetComponentsForProject(s_currentProject.id);
+            for (auto& comp : s_components)
+                if (comp.id > 0)
+                    comp.dependencies = DB::GetDependenciesForComponent(comp.id);
         }
         if (s_currentProject.id > 0) {
             // Repair legacy rows that have dest_path=="" by inferring their section
@@ -3817,6 +3838,414 @@ LRESULT CALLBACK AddKeyDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
     return DefWindowProcW(hwnd, msg, wParam, lParam);
 }
 
+// ─── Notes / Description Rich-Text Editor Dialog ────────────────────────────
+// Popup RichEdit editor for per-component tooltip notes shown during install.
+// Supports: Bold, Italic, Underline, Subscript, Superscript, Font size, Color.
+// Plain-text length is capped at 500 characters.  Saves to memory only; the
+// main Save button persists to DB (via notes_rtf on ComponentRow).
+
+struct CompNotesEditorData {
+    std::wstring initRtf;    // existing RTF to show on open (empty = blank)
+    std::wstring outRtf;     // RTF written back on OK
+    bool         okClicked = false;
+    // i18n strings
+    std::wstring titleText;
+    std::wstring okText;
+    std::wstring cancelText;
+    std::wstring charsLeftFmt; // e.g. L"%d characters left"
+};
+
+// RichEdit stream helpers ─────────────────────────────────────────────────────
+struct RtfStreamBuf { const std::string *src; size_t pos; };
+
+static DWORD CALLBACK NotesRtfReadCb(DWORD_PTR cookie, LPBYTE buf, LONG cb, LONG *pcb) {
+    RtfStreamBuf *rb = (RtfStreamBuf*)cookie;
+    size_t rem = rb->src->size() - rb->pos;
+    LONG   n   = (LONG)(rem < (size_t)cb ? rem : (size_t)cb);
+    if (n > 0) { memcpy(buf, rb->src->c_str() + rb->pos, n); rb->pos += n; }
+    *pcb = n;
+    return 0;
+}
+
+static DWORD CALLBACK NotesRtfWriteCb(DWORD_PTR cookie, LPBYTE buf, LONG cb, LONG *pcb) {
+    std::string *s = (std::string*)cookie;
+    s->append((char*)buf, cb);
+    *pcb = cb;
+    return 0;
+}
+
+// Load RTF into a RichEdit -  wstring (UTF-8 compatible RTF) → stream in
+static void NotesEditor_StreamIn(HWND hEdit, const std::wstring& wrtf) {
+    if (wrtf.empty()) { SetWindowTextW(hEdit, L""); return; }
+    // RTF is ASCII-safe; convert wstring→string via WToUtf8
+    std::string rtf;
+    int n = WideCharToMultiByte(CP_UTF8, 0, wrtf.c_str(), -1, NULL, 0, NULL, NULL);
+    if (n > 1) { rtf.resize(n - 1); WideCharToMultiByte(CP_UTF8, 0, wrtf.c_str(), -1, &rtf[0], n, NULL, NULL); }
+    RtfStreamBuf rb = { &rtf, 0 };
+    EDITSTREAM es   = {};
+    es.dwCookie     = (DWORD_PTR)&rb;
+    es.pfnCallback  = NotesRtfReadCb;
+    SendMessageW(hEdit, EM_STREAMIN, SF_RTF, (LPARAM)&es);
+}
+
+// Dump RichEdit content to wstring RTF
+static std::wstring NotesEditor_StreamOut(HWND hEdit) {
+    std::string rtf;
+    EDITSTREAM es  = {};
+    es.dwCookie    = (DWORD_PTR)&rtf;
+    es.pfnCallback = NotesRtfWriteCb;
+    SendMessageW(hEdit, EM_STREAMOUT, SF_RTF, (LPARAM)&es);
+    if (rtf.empty()) return L"";
+    int n = MultiByteToWideChar(CP_UTF8, 0, rtf.c_str(), -1, NULL, 0);
+    if (n <= 1) return L"";
+    std::wstring out(n - 1, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, rtf.c_str(), -1, &out[0], n);
+    return out;
+}
+
+// Get plain-text character count from RichEdit (for the 500-char status)
+static int NotesEditor_PlainLen(HWND hEdit) {
+    GETTEXTLENGTHEX gtl = {};
+    gtl.flags    = GTL_NUMCHARS | GTL_PRECISE;
+    gtl.codepage = 1200; // Unicode
+    return (int)SendMessageW(hEdit, EM_GETTEXTLENGTHEX, (WPARAM)&gtl, 0);
+}
+
+// Toggle a CHARFORMAT2 effect bit on the current selection
+static void NotesEditor_ToggleEffect(HWND hEdit, DWORD maskBit, DWORD effectBit) {
+    CHARFORMAT2W cf = {};
+    cf.cbSize = sizeof(cf);
+    cf.dwMask = maskBit;
+    SendMessageW(hEdit, EM_GETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf);
+    bool isOn = (cf.dwEffects & effectBit) != 0;
+    cf.dwEffects = isOn ? 0 : effectBit;
+    SendMessageW(hEdit, EM_SETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf);
+}
+
+// Toggle sub/super (they are mutually exclusive and share CFM_SUBSCRIPT mask)
+static void NotesEditor_ToggleScript(HWND hEdit, DWORD wantBit) {
+    CHARFORMAT2W cf = {};
+    cf.cbSize  = sizeof(cf);
+    cf.dwMask  = CFM_SUBSCRIPT; // == CFM_SUPERSCRIPT == CFE_SUBSCRIPT|CFE_SUPERSCRIPT
+    SendMessageW(hEdit, EM_GETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf);
+    bool isOn = (cf.dwEffects & wantBit) != 0;
+    cf.dwEffects = isOn ? 0 : wantBit; // toggle: off clears both
+    SendMessageW(hEdit, EM_SETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf);
+}
+
+// Update the char-count label on the status region of the notes dialog
+static void NotesEditor_UpdateStatus(HWND hwnd, HWND hEdit,
+                                     const std::wstring& fmtStr) {
+    int plainLen = NotesEditor_PlainLen(hEdit);
+    int left     = 500 - plainLen;
+    if (left < 0) left = 0;
+    wchar_t buf[80];
+    if (!fmtStr.empty())
+        swprintf(buf, 80, fmtStr.c_str(), left);
+    else
+        swprintf(buf, 80, L"%d characters left", left);
+    HWND hStatus = GetDlgItem(hwnd, IDC_STATUS_BAR); // re-used ID for inner label
+    if (hStatus) SetWindowTextW(hStatus, buf);
+}
+
+// Font sizes offered in the combo (stored as pt values)
+static const int s_notesFontSizes[] = { 8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 36 };
+static const int s_notesFontSizeDefault = 10; // index of default (10 pt)
+
+LRESULT CALLBACK CompNotesEditorDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    static HMODULE s_hRichEdit = NULL;
+
+    switch (msg) {
+    case WM_CREATE: {
+        CREATESTRUCTW*       cs    = (CREATESTRUCTW*)lParam;
+        HINSTANCE            hInst = cs->hInstance;
+        CompNotesEditorData* pData = (CompNotesEditorData*)cs->lpCreateParams;
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)pData);
+
+        // Load RichEdit DLL (try Msftedit first for RichEdit 4.1, fall back to 2.0)
+        if (!s_hRichEdit) {
+            s_hRichEdit = LoadLibraryW(L"Msftedit.dll");
+            if (!s_hRichEdit) s_hRichEdit = LoadLibraryW(L"Riched20.dll");
+        }
+        const wchar_t* reClass = L"RichEdit20W";
+        // Msftedit provides "RICHEDIT50W"; Riched20 provides "RichEdit20W"
+        WNDCLASSEXW wce = {}; wce.cbSize = sizeof(wce);
+        if (s_hRichEdit && GetClassInfoExW(s_hRichEdit, L"RICHEDIT50W", &wce))
+            reClass = L"RICHEDIT50W";
+
+        RECT rcC; GetClientRect(hwnd, &rcC);
+        int cW = rcC.right, cH = rcC.bottom;
+        int pad = S(10);
+
+        // ── Row 1: toolbar buttons ────────────────────────────────────────────
+        int tbY = pad;
+        int btnSz  = S(28); // square toolbar button
+        int btnGap = S(4);
+        int x = pad;
+
+        // Bold / Italic / Underline
+        HWND hBold = CreateWindowExW(0, L"BUTTON", L"B",
+            WS_CHILD|WS_VISIBLE|BS_PUSHBUTTON,
+            x, tbY, btnSz, btnSz, hwnd, (HMENU)IDC_NOTES_BOLD, hInst, NULL);
+        x += btnSz + btnGap;
+        HWND hItalic = CreateWindowExW(0, L"BUTTON", L"I",
+            WS_CHILD|WS_VISIBLE|BS_PUSHBUTTON,
+            x, tbY, btnSz, btnSz, hwnd, (HMENU)IDC_NOTES_ITALIC, hInst, NULL);
+        x += btnSz + btnGap;
+        HWND hUnder = CreateWindowExW(0, L"BUTTON", L"U",
+            WS_CHILD|WS_VISIBLE|BS_PUSHBUTTON,
+            x, tbY, btnSz, btnSz, hwnd, (HMENU)IDC_NOTES_UNDERLINE, hInst, NULL);
+        x += btnSz + S(10); // wider gap before script buttons
+
+        // Subscript / Superscript
+        HWND hSub = CreateWindowExW(0, L"BUTTON", L"X\u2082",   // X₂
+            WS_CHILD|WS_VISIBLE|BS_PUSHBUTTON,
+            x, tbY, btnSz+S(6), btnSz, hwnd, (HMENU)IDC_NOTES_SUBSCRIPT, hInst, NULL);
+        x += btnSz+S(6) + btnGap;
+        HWND hSup = CreateWindowExW(0, L"BUTTON", L"X\u00B2",   // X²
+            WS_CHILD|WS_VISIBLE|BS_PUSHBUTTON,
+            x, tbY, btnSz+S(6), btnSz, hwnd, (HMENU)IDC_NOTES_SUPERSCRIPT, hInst, NULL);
+        x += btnSz+S(6) + S(10);
+
+        // Font size combo
+        int comboW = S(70);
+        HWND hFontSize = CreateWindowExW(0, L"COMBOBOX", L"",
+            WS_CHILD|WS_VISIBLE|CBS_DROPDOWNLIST|WS_VSCROLL,
+            x, tbY, comboW, S(200), hwnd, (HMENU)IDC_NOTES_FONTSIZE, hInst, NULL);
+        for (int i = 0; i < (int)(sizeof(s_notesFontSizes)/sizeof(s_notesFontSizes[0])); i++) {
+            wchar_t sz[8]; swprintf(sz, 8, L"%d", s_notesFontSizes[i]);
+            SendMessageW(hFontSize, CB_ADDSTRING, 0, (LPARAM)sz);
+        }
+        SendMessageW(hFontSize, CB_SETCURSEL, s_notesFontSizeDefault, 0);
+        x += comboW + S(6);
+
+        // Color button
+        HWND hColor = CreateWindowExW(0, L"BUTTON", L"A\u25BC",
+            WS_CHILD|WS_VISIBLE|BS_PUSHBUTTON,
+            x, tbY, btnSz+S(10), btnSz, hwnd, (HMENU)IDC_NOTES_COLOR, hInst, NULL);
+        (void)hColor;
+
+        // ── Row 2: RichEdit ───────────────────────────────────────────────────
+        int editY = tbY + btnSz + btnGap;
+        int statusH = S(22);
+        int btnRowH = S(38);
+        int editH = cH - editY - S(6) - statusH - S(6) - btnRowH - pad;
+        HWND hEdit = CreateWindowExW(WS_EX_CLIENTEDGE, reClass, L"",
+            WS_CHILD|WS_VISIBLE|WS_VSCROLL|ES_MULTILINE|ES_WANTRETURN|ES_AUTOVSCROLL,
+            pad, editY, cW - 2*pad, editH,
+            hwnd, (HMENU)IDC_NOTES_EDIT, hInst, NULL);
+        // Limit to 500 plain-text chars
+        SendMessageW(hEdit, EM_EXLIMITTEXT, 0, 500);
+        // Default font: Segoe UI 10pt
+        CHARFORMAT2W cfDef = {};
+        cfDef.cbSize      = sizeof(cfDef);
+        cfDef.dwMask      = CFM_FACE | CFM_SIZE | CFM_CHARSET;
+        cfDef.yHeight     = 10 * 20; // 10pt in twips (half-points*2)
+        cfDef.bCharSet    = DEFAULT_CHARSET;
+        wcscpy_s(cfDef.szFaceName, L"Segoe UI");
+        SendMessageW(hEdit, EM_SETCHARFORMAT, SCF_ALL, (LPARAM)&cfDef);
+        // Load existing RTF
+        if (!pData->initRtf.empty())
+            NotesEditor_StreamIn(hEdit, pData->initRtf);
+        // Enable change notification
+        SendMessageW(hEdit, EM_SETEVENTMASK, 0, ENM_CHANGE);
+
+        // ── Row 3: status bar (char count) ───────────────────────────────────
+        int statusY = editY + editH + S(6);
+        CreateWindowExW(WS_EX_STATICEDGE, L"STATIC", L"",
+            WS_CHILD|WS_VISIBLE|SS_LEFT|SS_CENTERIMAGE,
+            pad, statusY, cW - 2*pad, statusH,
+            hwnd, (HMENU)IDC_STATUS_BAR, hInst, NULL);
+        NotesEditor_UpdateStatus(hwnd, hEdit, pData->charsLeftFmt);
+
+        // ── Row 4: OK / Cancel ────────────────────────────────────────────────
+        int btnY2 = statusY + statusH + S(6);
+        int btnW  = S(130);
+        int totalBtnW = 2*btnW + S(10);
+        int startX    = (cW - totalBtnW) / 2;
+        std::wstring okTxt  = pData->okText.empty()     ? L"Save"   : pData->okText;
+        std::wstring canTxt = pData->cancelText.empty() ? L"Cancel" : pData->cancelText;
+        CreateCustomButtonWithIcon(hwnd, IDC_NOTES_OK,     okTxt.c_str(),  ButtonColor::Green,
+            L"imageres.dll", 89,  startX,             btnY2, btnW, S(38), hInst);
+        CreateCustomButtonWithIcon(hwnd, IDC_NOTES_CANCEL, canTxt.c_str(), ButtonColor::Red,
+            L"shell32.dll",  131, startX+btnW+S(10),  btnY2, btnW, S(38), hInst);
+
+        // Tooltips for toolbar buttons
+        SetButtonTooltip(hBold,   L"Bold");
+        SetButtonTooltip(hItalic, L"Italic");
+        SetButtonTooltip(hUnder,  L"Underline");
+        SetButtonTooltip(hSub,    L"Subscript (e.g. H\u2082O)");
+        SetButtonTooltip(hSup,    L"Superscript (e.g. m\u00B2)");
+        SetButtonTooltip(hFontSize, L"Font size");
+        SetButtonTooltip(GetDlgItem(hwnd, IDC_NOTES_COLOR), L"Text color");
+
+        // Apply system UI font to toolbar controls (not the richedit)
+        NONCLIENTMETRICSW ncm = {}; ncm.cbSize = sizeof(ncm);
+        SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+        ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+        HFONT hF = CreateFontIndirectW(&ncm.lfMessageFont);
+        if (hF) {
+            // Apply to all children except the richedit (it manages its own font)
+            auto applyFont = [](HWND hC, LPARAM lp) -> BOOL {
+                wchar_t cls[64] = {};
+                GetClassNameW(hC, cls, 64);
+                if (_wcsicmp(cls, L"RichEdit20W") != 0 && _wcsicmp(cls, L"RICHEDIT50W") != 0)
+                    SendMessageW(hC, WM_SETFONT, (WPARAM)(HFONT)lp, TRUE);
+                return TRUE;
+            };
+            EnumChildWindows(hwnd, applyFont, (LPARAM)hF);
+            // Bold font for Bold button
+            NONCLIENTMETRICSW ncmB = ncm;
+            ncmB.lfMessageFont.lfWeight = FW_BOLD;
+            HFONT hFB = CreateFontIndirectW(&ncmB.lfMessageFont);
+            if (hFB) { SendMessageW(hBold, WM_SETFONT, (WPARAM)hFB, TRUE); SetPropW(hwnd, L"hNotesBoldFont", hFB); }
+            // Italic font for Italic button
+            NONCLIENTMETRICSW ncmI = ncm;
+            ncmI.lfMessageFont.lfItalic = TRUE;
+            HFONT hFI = CreateFontIndirectW(&ncmI.lfMessageFont);
+            if (hFI) { SendMessageW(hItalic, WM_SETFONT, (WPARAM)hFI, TRUE); SetPropW(hwnd, L"hNotesItalicFont", hFI); }
+            SetPropW(hwnd, L"hNotesFont", hF);
+        }
+        SetFocus(hEdit);
+        return 0;
+    }
+
+    case WM_COMMAND: {
+        CompNotesEditorData* pData = (CompNotesEditorData*)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+        if (!pData) break;
+        HWND hEdit = GetDlgItem(hwnd, IDC_NOTES_EDIT);
+        int  wmId  = LOWORD(wParam);
+        int  wmEv  = HIWORD(wParam);
+
+        if (wmId == IDC_NOTES_CANCEL || wmId == IDCANCEL) {
+            DestroyWindow(hwnd); return 0;
+        }
+        if (wmId == IDC_NOTES_OK) {
+            pData->outRtf     = hEdit ? NotesEditor_StreamOut(hEdit) : L"";
+            pData->okClicked  = true;
+            DestroyWindow(hwnd); return 0;
+        }
+        if (wmId == IDC_NOTES_BOLD      && hEdit) { NotesEditor_ToggleEffect(hEdit, CFM_BOLD,      CFE_BOLD);      return 0; }
+        if (wmId == IDC_NOTES_ITALIC    && hEdit) { NotesEditor_ToggleEffect(hEdit, CFM_ITALIC,    CFE_ITALIC);    return 0; }
+        if (wmId == IDC_NOTES_UNDERLINE && hEdit) { NotesEditor_ToggleEffect(hEdit, CFM_UNDERLINE, CFE_UNDERLINE); return 0; }
+        if (wmId == IDC_NOTES_SUBSCRIPT   && hEdit) { NotesEditor_ToggleScript(hEdit, CFE_SUBSCRIPT);   return 0; }
+        if (wmId == IDC_NOTES_SUPERSCRIPT && hEdit) { NotesEditor_ToggleScript(hEdit, CFE_SUPERSCRIPT); return 0; }
+        if (wmId == IDC_NOTES_COLOR && hEdit) {
+            CHOOSECOLORW cc = {};
+            static COLORREF s_custColors[16] = {};
+            cc.lStructSize  = sizeof(cc);
+            cc.hwndOwner    = hwnd;
+            cc.lpCustColors = s_custColors;
+            cc.Flags        = CC_FULLOPEN | CC_RGBINIT;
+            // Seed with current selection colour
+            CHARFORMAT2W cfC = {}; cfC.cbSize = sizeof(cfC); cfC.dwMask = CFM_COLOR;
+            SendMessageW(hEdit, EM_GETCHARFORMAT, SCF_SELECTION, (LPARAM)&cfC);
+            cc.rgbResult = cfC.crTextColor;
+            if (ChooseColorW(&cc)) {
+                CHARFORMAT2W cfSet = {}; cfSet.cbSize = sizeof(cfSet);
+                cfSet.dwMask     = CFM_COLOR;
+                cfSet.crTextColor = cc.rgbResult;
+                cfSet.dwEffects  = 0; // clear CFE_AUTOCOLOR
+                SendMessageW(hEdit, EM_SETCHARFORMAT, SCF_SELECTION, (LPARAM)&cfSet);
+            }
+            return 0;
+        }
+        if (wmId == IDC_NOTES_FONTSIZE && wmEv == CBN_SELCHANGE) {
+            HWND hCombo = GetDlgItem(hwnd, IDC_NOTES_FONTSIZE);
+            int  sel    = (int)SendMessageW(hCombo, CB_GETCURSEL, 0, 0);
+            if (sel >= 0 && sel < (int)(sizeof(s_notesFontSizes)/sizeof(s_notesFontSizes[0]))) {
+                CHARFORMAT2W cfSz = {}; cfSz.cbSize = sizeof(cfSz);
+                cfSz.dwMask = CFM_SIZE;
+                cfSz.yHeight = s_notesFontSizes[sel] * 20; // twips
+                SendMessageW(hEdit, EM_SETCHARFORMAT, SCF_SELECTION, (LPARAM)&cfSz);
+            }
+            return 0;
+        }
+        // EN_CHANGE from RichEdit  → update status
+        if (wmId == IDC_NOTES_EDIT && wmEv == EN_CHANGE && hEdit) {
+            NotesEditor_UpdateStatus(hwnd, hEdit, pData->charsLeftFmt);
+        }
+        break;
+    }
+
+    case WM_DRAWITEM: {
+        LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
+        if (dis->CtlID == IDC_NOTES_OK || dis->CtlID == IDC_NOTES_CANCEL) {
+            ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
+            NONCLIENTMETRICSW ncm = {}; ncm.cbSize = sizeof(ncm);
+            SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+            if (ncm.lfMessageFont.lfHeight < 0)
+                ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
+            ncm.lfMessageFont.lfWeight  = FW_BOLD;
+            ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+            HFONT hFont = CreateFontIndirectW(&ncm.lfMessageFont);
+            LRESULT res = DrawCustomButton(dis, color, hFont);
+            if (hFont) DeleteObject(hFont);
+            return res;
+        }
+        break;
+    }
+
+    case WM_CTLCOLORSTATIC: {
+        HDC hdc = (HDC)wParam;
+        SetBkColor(hdc, GetSysColor(COLOR_WINDOW));
+        SetTextColor(hdc, GetSysColor(COLOR_WINDOWTEXT));
+        return (LRESULT)GetSysColorBrush(COLOR_WINDOW);
+    }
+
+    case WM_DESTROY: {
+        HFONT hF  = (HFONT)GetPropW(hwnd, L"hNotesFont");      if (hF)  { DeleteObject(hF);  RemovePropW(hwnd, L"hNotesFont"); }
+        HFONT hFB = (HFONT)GetPropW(hwnd, L"hNotesBoldFont");  if (hFB) { DeleteObject(hFB); RemovePropW(hwnd, L"hNotesBoldFont"); }
+        HFONT hFI = (HFONT)GetPropW(hwnd, L"hNotesItalicFont");if (hFI) { DeleteObject(hFI); RemovePropW(hwnd, L"hNotesItalicFont"); }
+        break;
+    }
+    case WM_CLOSE:
+        DestroyWindow(hwnd); return 0;
+    }
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+// Helper: open the notes editor as a modal popup.
+// Returns true and writes RTF into outRtf if the user clicked Save.
+static bool OpenNotesEditor(HWND hwndParent, const std::wstring& initRtf,
+                             std::wstring& outRtf, const std::wstring& title)
+{
+    CompNotesEditorData nd;
+    nd.initRtf       = initRtf;
+    nd.titleText     = title.empty() ? L"Edit Notes" : title;
+    nd.okText        = L"Save";
+    nd.cancelText    = L"Cancel";
+    nd.charsLeftFmt  = L"%d characters left";
+
+    WNDCLASSEXW wc = {}; wc.cbSize = sizeof(wc);
+    if (!GetClassInfoExW(GetModuleHandleW(NULL), L"CompNotesEditor", &wc)) {
+        wc.lpfnWndProc   = CompNotesEditorDlgProc;
+        wc.hInstance     = GetModuleHandleW(NULL);
+        wc.lpszClassName = L"CompNotesEditor";
+        wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+        wc.hCursor       = LoadCursor(NULL, IDC_ARROW);
+        RegisterClassExW(&wc);
+    }
+
+    int dlgW = S(560), dlgH = S(440);
+    RECT rcPar; GetWindowRect(hwndParent, &rcPar);
+    int x = rcPar.left + (rcPar.right  - rcPar.left - dlgW) / 2;
+    int y = rcPar.top  + (rcPar.bottom - rcPar.top  - dlgH) / 2;
+    HWND hDlg = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+        L"CompNotesEditor", nd.titleText.c_str(),
+        WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
+        x, y, dlgW, dlgH, hwndParent, NULL, GetModuleHandleW(NULL), &nd);
+
+    MSG m;
+    while (GetMessageW(&m, NULL, 0, 0) > 0) {
+        if (!IsWindow(hDlg)) break;
+        TranslateMessage(&m); DispatchMessageW(&m);
+    }
+    if (nd.okClicked) { outRtf = nd.outRtf; return true; }
+    return false;
+}
+
 // ─── Folder Component Edit Dialog ───────────────────────────────────────────
 // Lightweight dialog for editing the required-state of an entire folder subtree.
 
@@ -3826,11 +4255,27 @@ struct CompFolderDlgData {
     std::wstring titleText;
     std::wstring requiredLabel;
     std::wstring cascadeHint;
+    std::wstring depsLabel;
+    std::wstring chooseDepsText;
     std::wstring okText;
     std::wstring cancelText;
     bool okClicked   = false;
-    int  outRequired = 0;
-    int  hintH       = 0; // pre-measured hint text height (px, already DPI-scaled)
+    int  outRequired    = 0;
+    int  outPreselected = 0;
+    int  hintH          = 0; // pre-measured hint text height (px, already DPI-scaled)
+    // Dependencies
+    std::vector<ComponentRow> otherComponents;    // other comps in project for picker
+    std::vector<int>          initDependencyIds;  // pre-selected dep IDs
+    std::vector<int>          outDependencyIds;   // working state (updated by picker)
+    // Notes (rich text)
+    std::wstring initNotesRtf;  // loaded from component row
+    std::wstring outNotesRtf;   // result after editor OK
+    // Pre-selected state
+    int          initPreselected = 0;  // 1 = pre-selected
+    std::wstring preselectedLabel;
+    // Identity of the folder being edited — forwarded to the dep picker for exclusion.
+    const TreeNodeSnapshot* excludeNode = nullptr;
+    std::wstring            sectionName; // VFS section owning this folder (for dep picker exclusion)
 };
 
 // ── CompFolderEdit dialog layout constants (design-px at 96 DPI) ──────────────
@@ -3841,60 +4286,280 @@ static const int CFE_CONT_W   = 520; // content width (label, checkbox, hint)
 static const int CFE_NAME_H   = 28;  // folder name label height
 static const int CFE_GAP_NR   = 10;  // gap: name → required checkbox
 static const int CFE_CHECK_H  = 26;  // checkbox height
-static const int CFE_GAP_RC   = 10;  // gap: checkbox → hint
-static const int CFE_GAP_HB   = 14;  // gap: hint → buttons
+static const int CFE_GAP_RPS  = 6;   // gap: Required → Pre-selected
+static const int CFE_GAP_RC   = 10;  // gap: Pre-selected → hint
+static const int CFE_GAP_HB   = 14;  // gap: deps listbox → buttons
 static const int CFE_BTN_H    = 38;
 static const int CFE_BTN_W0   = 155; // OK
 static const int CFE_BTN_W1   = 155; // Cancel
 static const int CFE_BTN_GAP  = 10;
+// Dependencies section (between cascade hint and buttons)
+static const int CFE_GAP_CD       = 14;  // gap: cascade hint → deps label row
+static const int CFE_DEPS_ROW_H   = 26;  // deps label / Choose button row height
+static const int CFE_GAP_LD       = 6;   // gap: deps row → deps listbox
+static const int CFE_DEPLIST_H    = 60;  // deps listbox height (~3 items)
+static const int CFE_GAP_DN       = 10;  // gap: deps listbox → notes button
+static const int CFE_NOTES_BTN_H  = 32;  // Notes button height
+static const int CFE_GAP_NB2      = 14;  // gap: notes button → OK/Cancel
 
-LRESULT CALLBACK CompFolderEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+// ─── Folder Dependency Picker Dialog ─────────────────────────────────────────
+// Popup tree-view dialog that lets the user pick one or more OTHER components as
+// dependencies of the current folder component.  Components are grouped by their
+// destination section (dest_path) as root nodes; each component is a child node
+// with a TVS_CHECKBOXES checkbox.  Section header nodes have their checkbox
+// hidden (state-image set to 0) so they act as visual groups only.
+
+struct CompFolderDepPickerData {
+    const std::vector<ComponentRow>* components; // other components for file-level rows
+    std::vector<int>                 initDeps;   // pre-checked component IDs
+    const TreeNodeSnapshot*          excludeNode = nullptr; // VFS snapshot node to exclude (+ its subtree)
+    bool                             okClicked = false;
+    std::vector<int>                 outDeps;    // result IDs
+};
+
+// Helper: rebuild the deps display listbox (IDC_FOLDER_DLG_DEPS_LIST) in the
+// folder-edit dialog from pData->outDependencyIds + pData->otherComponents.
+static void RefreshFolderDepsListbox(HWND hwndFolderDlg, CompFolderDlgData* pData)
+{
+    HWND hList = GetDlgItem(hwndFolderDlg, IDC_FOLDER_DLG_DEPS_LIST);
+    if (!hList) return;
+    SendMessageW(hList, LB_RESETCONTENT, 0, 0);
+    for (int depId : pData->outDependencyIds) {
+        for (const auto& oc : pData->otherComponents) {
+            if (oc.id == depId) {
+                SendMessageW(hList, LB_ADDSTRING, 0, (LPARAM)oc.display_name.c_str());
+                break;
+            }
+        }
+    }
+    // If empty show a placeholder so the listbox area is not blank
+    if (pData->outDependencyIds.empty()) {
+        SendMessageW(hList, LB_ADDSTRING, 0, (LPARAM)L"(none)");
+    }
+}
+
+LRESULT CALLBACK CompFolderDepPickerDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
     switch (msg) {
     case WM_CREATE: {
-        CREATESTRUCTW*      cs    = (CREATESTRUCTW*)lParam;
-        HINSTANCE           hInst = cs->hInstance;
-        CompFolderDlgData*  pData = (CompFolderDlgData*)cs->lpCreateParams;
+        CREATESTRUCTW*           cs    = (CREATESTRUCTW*)lParam;
+        HINSTANCE                hInst = cs->hInstance;
+        CompFolderDepPickerData* pData = (CompFolderDepPickerData*)cs->lpCreateParams;
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)pData);
 
         RECT rcC; GetClientRect(hwnd, &rcC);
-        int cW   = rcC.right;
-        int cH   = rcC.bottom;
-        int contW = cW - 2*S(CFE_PAD_H); // content width fills client minus padding
+        int cW = rcC.right, cH = rcC.bottom;
+        int pad = S(10), btnH = S(36), btnW = S(130);
 
-        // Hint text height is stored in __hintH passed via the data struct
-        int hintH = pData->hintH > 0 ? pData->hintH : S(42);
+        // Tree view fills client minus padding and button row
+        int treeH = cH - 2*pad - btnH - pad;
+        HWND hTree = CreateWindowExW(WS_EX_CLIENTEDGE, WC_TREEVIEW, L"",
+            WS_CHILD | WS_VISIBLE | WS_VSCROLL |
+            TVS_HASLINES | TVS_HASBUTTONS | TVS_LINESATROOT |
+            TVS_SHOWSELALWAYS | TVS_CHECKBOXES,
+            pad, pad, cW - 2*pad, treeH,
+            hwnd, (HMENU)IDC_FDDP_TREE, hInst, NULL);
 
-        int y = S(CFE_PAD_T);
+        // Build icon image list: 0 = folder, 1 = generic file
+        {
+            int iconSz = GetSystemMetrics(SM_CXSMICON);
+            HIMAGELIST hImgList = ImageList_Create(iconSz, iconSz, ILC_COLOR32 | ILC_MASK, 2, 0);
+            if (hImgList) {
+                SHFILEINFOW sfi = {};
+                SHGetFileInfoW(L"x", FILE_ATTRIBUTE_DIRECTORY, &sfi, sizeof(sfi),
+                    SHGFI_ICON | SHGFI_SMALLICON | SHGFI_USEFILEATTRIBUTES);
+                if (sfi.hIcon) { ImageList_AddIcon(hImgList, sfi.hIcon); DestroyIcon(sfi.hIcon); }
+                ZeroMemory(&sfi, sizeof(sfi));
+                SHGetFileInfoW(L"x", FILE_ATTRIBUTE_NORMAL, &sfi, sizeof(sfi),
+                    SHGFI_ICON | SHGFI_SMALLICON | SHGFI_USEFILEATTRIBUTES);
+                if (sfi.hIcon) { ImageList_AddIcon(hImgList, sfi.hIcon); DestroyIcon(sfi.hIcon); }
+                TreeView_SetImageList(hTree, hImgList, TVSIL_NORMAL);
+                SetPropW(hwnd, L"hFDPImgList", (HANDLE)hImgList);
+            }
+        }
 
-        // Folder name (read-only label)
-        CreateWindowExW(0, L"STATIC", pData->folderName.c_str(),
-            WS_CHILD | WS_VISIBLE | SS_LEFT,
-            S(CFE_PAD_H), y, contW, S(CFE_NAME_H), hwnd, NULL, hInst, NULL);
-        y += S(CFE_NAME_H) + S(CFE_GAP_NR);
+        // Populate from the live VFS snapshots so the full folder hierarchy is visible
+        // even when folders have no ComponentRow yet.  The folder being edited
+        // (excludeNode) is identified by pointer identity into s_treeSnapshot_*.
+        // Its entire subtree is suppressed by skipping the recursive descent.
+        {
+            // The 4 canonical sections wired to the global VFS snapshots.
+            struct SecDef { const wchar_t* label; const std::vector<TreeNodeSnapshot>* snaps; };
+            const SecDef secDefs[] = {
+                { L"Program Files",     &s_treeSnapshot_ProgramFiles },
+                { L"ProgramData",       &s_treeSnapshot_ProgramData  },
+                { L"AppData (Roaming)", &s_treeSnapshot_AppData      },
+                { L"AskAtInstall",      &s_treeSnapshot_AskAtInstall },
+            };
 
-        // Required checkbox
-        HWND hReq = CreateWindowExW(0, L"BUTTON", pData->requiredLabel.c_str(),
-            WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
-            S(CFE_PAD_H), y, contW, S(CFE_CHECK_H),
-            hwnd, (HMENU)IDC_FOLDER_DLG_REQUIRED, hInst, NULL);
-        if (pData->initRequired == 1) SendMessageW(hReq, BM_SETCHECK, BST_CHECKED, 0);
-        y += S(CFE_CHECK_H) + S(CFE_GAP_RC);
+            // Helper: set or clear checkbox state on a tree item.
+            auto setStateImg = [&](HTREEITEM h, int idx) {
+                TVITEMW t = {}; t.mask = TVIF_STATE; t.hItem = h;
+                t.stateMask = TVIS_STATEIMAGEMASK; t.state = INDEXTOSTATEIMAGEMASK(idx);
+                TreeView_SetItem(hTree, &t);
+            };
 
-        // Cascade hint (may wrap over multiple lines)
-        CreateWindowExW(0, L"STATIC", pData->cascadeHint.c_str(),
-            WS_CHILD | WS_VISIBLE | SS_LEFT,
-            S(CFE_PAD_H), y, contW, hintH, hwnd, NULL, hInst, NULL);
-        y += hintH + S(CFE_GAP_HB);
+            // Path-based exclusion for file ComponentRows (which have no snapshot pointer).
+            const std::wstring& exPath = pData->excludeNode ? pData->excludeNode->fullPath : L"";
+            auto fileIsExcluded = [&](const std::wstring& fp) -> bool {
+                if (exPath.empty() || fp.empty()) return false;
+                size_t bLen = exPath.size();
+                return fp.size() >= bLen &&
+                       _wcsnicmp(fp.c_str(), exPath.c_str(), bLen) == 0 &&
+                       (fp.size() == bLen || fp[bLen] == L'\\' || fp[bLen] == L'/');
+            };
 
-        // OK / Cancel — centred
-        int totalBtnW = S(CFE_BTN_W0) + S(CFE_BTN_GAP) + S(CFE_BTN_W1);
-        int startX    = (cW - totalBtnW) / 2;
-        CreateCustomButtonWithIcon(hwnd, IDC_COMPDLG_OK,     pData->okText.c_str(),     ButtonColor::Green,
-            L"imageres.dll", 89,  startX, y, S(CFE_BTN_W0), S(CFE_BTN_H), hInst);
-        CreateCustomButtonWithIcon(hwnd, IDC_COMPDLG_CANCEL, pData->cancelText.c_str(), ButtonColor::Red,
-            L"shell32.dll",  131, startX + S(CFE_BTN_W0) + S(CFE_BTN_GAP), y,
-            S(CFE_BTN_W1), S(CFE_BTN_H), hInst);
+            for (const auto& sd : secDefs) {
+                if (!sd.snaps || sd.snaps->empty()) continue;
+
+                // Create non-checkable section header.
+                TVINSERTSTRUCTW tvSec = {};
+                tvSec.hParent = TVI_ROOT; tvSec.hInsertAfter = TVI_LAST;
+                tvSec.item.mask = TVIF_TEXT|TVIF_PARAM|TVIF_IMAGE|TVIF_SELECTEDIMAGE;
+                tvSec.item.pszText = const_cast<LPWSTR>(sd.label);
+                tvSec.item.lParam  = (LPARAM)-1;
+                tvSec.item.iImage  = 0; tvSec.item.iSelectedImage = 0;
+                HTREEITEM hSec = TreeView_InsertItem(hTree, &tvSec);
+                if (!hSec) continue;
+                setStateImg(hSec, 0);
+
+                // real-path VFS folder nodes: fullPath → HTREEITEM (for path-prefix file matching)
+                std::vector<std::pair<std::wstring, HTREEITEM>> vfsNodes;
+                // virtual folder file mapping: each virtualFile sourcePath → parent HTREEITEM
+                // built from snap.virtualFiles during addVFS so the second pass can place
+                // virtual-section files (e.g. AskAtInstall) under the correct folder.
+                std::unordered_map<std::wstring, HTREEITEM> virtualFilePaths;
+
+                // Helper: insert one file component as a checkable child of hParent.
+                auto insertFileNode = [&](HTREEITEM hParent, const ComponentRow& c) {
+                    TVINSERTSTRUCTW tvF = {};
+                    tvF.hParent = hParent; tvF.hInsertAfter = TVI_LAST;
+                    tvF.item.mask = TVIF_TEXT|TVIF_PARAM|TVIF_IMAGE|TVIF_SELECTEDIMAGE;
+                    tvF.item.pszText = const_cast<LPWSTR>(c.display_name.c_str());
+                    tvF.item.lParam  = (LPARAM)c.id;
+                    tvF.item.iImage  = 1; tvF.item.iSelectedImage = 1;
+                    HTREEITEM hFile = TreeView_InsertItem(hTree, &tvF);
+                    if (hFile) {
+                        bool chk = false;
+                        for (int d : pData->initDeps) if (d == c.id) { chk=true; break; }
+                        setStateImg(hFile, chk ? 2 : 1);
+                    }
+                };
+
+                // Recursive lambda: walk VFS snapshot tree, skip excludeNode and its subtree.
+                // Folders are NOT auto-expanded — the user expands what they need.
+                std::function<void(HTREEITEM, const std::vector<TreeNodeSnapshot>&)> addVFS;
+                addVFS = [&](HTREEITEM hParent, const std::vector<TreeNodeSnapshot>& nodes) {
+                    for (const auto& snap : nodes) {
+                        // Pointer-identity check: skip the exact excluded node (+ subtree).
+                        if (&snap == pData->excludeNode) continue;
+
+                        // Find a folder-type ComponentRow for this VFS node.
+                        // Real-path nodes: match by source_path.
+                        // Virtual nodes (e.g. AskAtInstall folders, fullPath==""): match by display_name.
+                        int compId = 0;
+                        if (pData->components) {
+                            for (const auto& c : *pData->components) {
+                                if (c.source_type != L"folder") continue;
+                                if (!snap.fullPath.empty()) {
+                                    if (_wcsicmp(c.source_path.c_str(),
+                                                 snap.fullPath.c_str()) == 0) {
+                                        compId = c.id; break;
+                                    }
+                                } else if (!snap.text.empty()) {
+                                    if (_wcsicmp(c.display_name.c_str(),
+                                                 snap.text.c_str()) == 0) {
+                                        compId = c.id; break;
+                                    }
+                                }
+                            }
+                        }
+
+                        LPARAM lp = (compId > 0) ? (LPARAM)compId : (LPARAM)-2;
+                        TVINSERTSTRUCTW tv = {};
+                        tv.hParent = hParent; tv.hInsertAfter = TVI_LAST;
+                        tv.item.mask = TVIF_TEXT|TVIF_PARAM|TVIF_IMAGE|TVIF_SELECTEDIMAGE;
+                        std::wstring label = snap.text.empty() ? snap.fullPath : snap.text;
+                        tv.item.pszText = const_cast<LPWSTR>(label.c_str());
+                        tv.item.lParam  = lp;
+                        tv.item.iImage  = 0; tv.item.iSelectedImage = 0;
+                        HTREEITEM hNode = TreeView_InsertItem(hTree, &tv);
+                        if (!hNode) continue;
+
+                        if (lp > 0) {
+                            bool chk = false;
+                            for (int d : pData->initDeps) if (d == compId) { chk=true; break; }
+                            setStateImg(hNode, chk ? 2 : 1);
+                        } else {
+                            setStateImg(hNode, 0); // structural: no checkbox
+                        }
+
+                        if (!snap.fullPath.empty()) {
+                            // Real-path node: register for path-prefix file matching.
+                            vfsNodes.push_back({snap.fullPath, hNode});
+                        } else {
+                            // Virtual node: register each of its known files so the second
+                            // pass can place them under this node by exact source-path lookup.
+                            for (const auto& vf : snap.virtualFiles)
+                                if (!vf.sourcePath.empty())
+                                    virtualFilePaths[vf.sourcePath] = hNode;
+                        }
+
+                        addVFS(hNode, snap.children);
+                        // intentionally NOT expanding — user expands as needed
+                    }
+                };
+                addVFS(hSec, *sd.snaps);
+
+                // Second pass: attach all file-type ComponentRows under the correct node.
+                // Priority: (1) exact virtual-file path match, (2) deepest real-path prefix,
+                // (3) section header as fallback.
+                if (pData->components) {
+                    for (const auto& c : *pData->components) {
+                        if (c.source_type != L"file" || c.source_path.empty()) continue;
+                        if (fileIsExcluded(c.source_path)) continue;
+                        if (!c.dest_path.empty() && c.dest_path != sd.label) continue;
+
+                        HTREEITEM hBest = hSec;
+
+                        // (1) Virtual-section lookup (e.g. AskAtInstall files)
+                        auto vit = virtualFilePaths.find(c.source_path);
+                        if (vit != virtualFilePaths.end()) {
+                            hBest = vit->second;
+                        } else {
+                            // (2) Deepest real-path VFS ancestor
+                            size_t bestLen = 0;
+                            for (const auto& vn : vfsNodes) {
+                                size_t vLen = vn.first.size();
+                                if (vLen > 0 &&
+                                    c.source_path.size() > vLen &&
+                                    _wcsnicmp(c.source_path.c_str(),
+                                              vn.first.c_str(), vLen) == 0 &&
+                                    (c.source_path[vLen] == L'\\' ||
+                                     c.source_path[vLen] == L'/') &&
+                                    vLen > bestLen) {
+                                    hBest   = vn.second;
+                                    bestLen = vLen;
+                                }
+                            }
+                        }
+
+                        insertFileNode(hBest, c);
+                    }
+                }
+
+                TreeView_Expand(hTree, hSec, TVE_EXPAND);
+            }
+        }
+
+        // OK / Cancel buttons
+        int totalBtnW = 2*btnW + S(10);
+        int startX = (cW - totalBtnW) / 2;
+        int btnY = cH - pad - btnH;
+        CreateCustomButtonWithIcon(hwnd, IDC_FDDP_OK,     L"OK",     ButtonColor::Green,
+            L"imageres.dll", 89,  startX,           btnY, btnW, btnH, hInst);
+        CreateCustomButtonWithIcon(hwnd, IDC_FDDP_CANCEL, L"Cancel", ButtonColor::Red,
+            L"shell32.dll",  131, startX + btnW + S(10), btnY, btnW, btnH, hInst);
 
         // Font
         NONCLIENTMETRICSW ncm = {}; ncm.cbSize = sizeof(ncm);
@@ -3907,27 +4572,393 @@ LRESULT CALLBACK CompFolderEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
             EnumChildWindows(hwnd, [](HWND hC, LPARAM lp) -> BOOL {
                 SendMessageW(hC, WM_SETFONT, (WPARAM)(HFONT)lp, TRUE); return TRUE;
             }, (LPARAM)hF);
+            SetPropW(hwnd, L"hFDPFont", (HANDLE)hF);
+        }
+        return 0;
+    }
+
+    case WM_COMMAND: {
+        CompFolderDepPickerData* pData =
+            (CompFolderDepPickerData*)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+        if (!pData) break;
+        int wmId = LOWORD(wParam);
+
+        if (wmId == IDC_FDDP_CANCEL || wmId == IDCANCEL) {
+            pData->okClicked = false;
+            DestroyWindow(hwnd); return 0;
+        }
+        if (wmId == IDC_FDDP_OK) {
+            // Iterative DFS: collect every checked item with lParam > 0 at any depth.
+            // Section headers have lParam == -1 so they are naturally skipped.
+            HWND hTree = GetDlgItem(hwnd, IDC_FDDP_TREE);
+            pData->outDeps.clear();
+            if (hTree) {
+                std::vector<HTREEITEM> stk;
+                HTREEITEM hRoot = TreeView_GetRoot(hTree);
+                while (hRoot) { stk.push_back(hRoot); hRoot = TreeView_GetNextSibling(hTree, hRoot); }
+                while (!stk.empty()) {
+                    HTREEITEM hItem = stk.back(); stk.pop_back();
+                    TVITEMW tv = {}; tv.mask = TVIF_STATE|TVIF_PARAM;
+                    tv.hItem = hItem; tv.stateMask = TVIS_STATEIMAGEMASK;
+                    TreeView_GetItem(hTree, &tv);
+                    if (((tv.state & TVIS_STATEIMAGEMASK) >> 12) == 2 && tv.lParam > 0)
+                        pData->outDeps.push_back((int)tv.lParam);
+                    HTREEITEM hChild = TreeView_GetChild(hTree, hItem);
+                    while (hChild) { stk.push_back(hChild); hChild = TreeView_GetNextSibling(hTree, hChild); }
+                }
+            }
+            pData->okClicked = true;
+            DestroyWindow(hwnd); return 0;
+        }
+        break;
+    }
+
+    case WM_DRAWITEM: {
+        LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
+        if (dis->CtlID == IDC_FDDP_OK || dis->CtlID == IDC_FDDP_CANCEL) {
+            ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
+            NONCLIENTMETRICSW ncm = {}; ncm.cbSize = sizeof(ncm);
+            SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+            if (ncm.lfMessageFont.lfHeight < 0)
+                ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
+            ncm.lfMessageFont.lfWeight  = FW_BOLD;
+            ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+            HFONT hFont = CreateFontIndirectW(&ncm.lfMessageFont);
+            LRESULT res = DrawCustomButton(dis, color, hFont);
+            if (hFont) DeleteObject(hFont);
+            return res;
+        }
+        break;
+    }
+
+    case WM_NOTIFY: {
+        NMHDR* pnm = (NMHDR*)lParam;
+        if (pnm->idFrom == IDC_FDDP_TREE && pnm->code == NM_CLICK) {
+            HWND hTree2 = GetDlgItem(hwnd, IDC_FDDP_TREE);
+            DWORD mp = GetMessagePos();
+            TVHITTESTINFO ht = {};
+            ht.pt.x = GET_X_LPARAM(mp); ht.pt.y = GET_Y_LPARAM(mp);
+            ScreenToClient(hTree2, &ht.pt);
+            HTREEITEM hHit = TreeView_HitTest(hTree2, &ht);
+            if (hHit && (ht.flags & TVHT_ONITEMSTATEICON)) {
+                TVITEMW tvi = {}; tvi.mask = TVIF_PARAM; tvi.hItem = hHit;
+                TreeView_GetItem(hTree2, &tvi);
+                if (tvi.lParam == -1 || tvi.lParam == -2) {
+                    // Non-checkable node: defer reset after the tree applies the click.
+                    SetTimer(hwnd, 1, 1, NULL);
+                    SetPropW(hwnd, L"hFixItem", (HANDLE)hHit);
+                } else if (tvi.lParam > 0) {
+                    // Checkable item: defer ancestor auto-check after state settles.
+                    SetTimer(hwnd, 2, 1, NULL);
+                    SetPropW(hwnd, L"hAutoCheck", (HANDLE)hHit);
+                }
+            }
+        }
+        break;
+    }
+    case WM_TIMER: {
+        if (wParam == 1) {
+            KillTimer(hwnd, 1);
+            HWND hTree2 = GetDlgItem(hwnd, IDC_FDDP_TREE);
+            HTREEITEM hFix = (HTREEITEM)GetPropW(hwnd, L"hFixItem");
+            if (hTree2 && hFix) {
+                TVITEMW tvi = {}; tvi.mask = TVIF_STATE; tvi.hItem = hFix;
+                tvi.stateMask = TVIS_STATEIMAGEMASK;
+                tvi.state = INDEXTOSTATEIMAGEMASK(0);
+                TreeView_SetItem(hTree2, &tvi);
+            }
+            RemovePropW(hwnd, L"hFixItem");
+        }
+        if (wParam == 2) {
+            // Auto-check all ancestor folder nodes (that have a ComponentRow) when a
+            // file or folder is checked — selecting a file implies its parent folders.
+            KillTimer(hwnd, 2);
+            HWND hTree2 = GetDlgItem(hwnd, IDC_FDDP_TREE);
+            HTREEITEM hItem = (HTREEITEM)GetPropW(hwnd, L"hAutoCheck");
+            if (hTree2 && hItem) {
+                TVITEMW tvi = {}; tvi.mask = TVIF_STATE; tvi.hItem = hItem;
+                tvi.stateMask = TVIS_STATEIMAGEMASK;
+                TreeView_GetItem(hTree2, &tvi);
+                if (((tvi.state & TVIS_STATEIMAGEMASK) >> 12) == 2) {
+                    // Item was checked: walk up and check every ancestor with lParam > 0.
+                    HTREEITEM hP = TreeView_GetParent(hTree2, hItem);
+                    while (hP) {
+                        TVITEMW tp = {}; tp.mask = TVIF_PARAM; tp.hItem = hP;
+                        TreeView_GetItem(hTree2, &tp);
+                        if (tp.lParam > 0) {
+                            tp.mask = TVIF_STATE; tp.stateMask = TVIS_STATEIMAGEMASK;
+                            tp.state = INDEXTOSTATEIMAGEMASK(2);
+                            TreeView_SetItem(hTree2, &tp);
+                        }
+                        hP = TreeView_GetParent(hTree2, hP);
+                    }
+                }
+            }
+            RemovePropW(hwnd, L"hAutoCheck");
+        }
+        break;
+    }
+
+    case WM_DESTROY: {
+        KillTimer(hwnd, 1); KillTimer(hwnd, 2); // safety
+        HIMAGELIST hIL = (HIMAGELIST)GetPropW(hwnd, L"hFDPImgList");
+        if (hIL) { ImageList_Destroy(hIL); RemovePropW(hwnd, L"hFDPImgList"); }
+        HFONT hF = (HFONT)GetPropW(hwnd, L"hFDPFont");
+        if (hF) { DeleteObject(hF); RemovePropW(hwnd, L"hFDPFont"); }
+        break;
+    }
+    case WM_CLOSE:
+        DestroyWindow(hwnd); return 0;
+    }
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+LRESULT CALLBACK CompFolderEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    switch (msg) {
+    case WM_CREATE: {
+        CREATESTRUCTW*      cs    = (CREATESTRUCTW*)lParam;
+        HINSTANCE           hInst = cs->hInstance;
+        CompFolderDlgData*  pData = (CompFolderDlgData*)cs->lpCreateParams;
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)pData);
+
+        // Initialise working deps state from initDependencyIds
+        pData->outDependencyIds = pData->initDependencyIds;
+        // Initialise working notes from initNotesRtf
+        pData->outNotesRtf = pData->initNotesRtf;
+
+        RECT rcC; GetClientRect(hwnd, &rcC);
+        int cW   = rcC.right;
+        int cH   = rcC.bottom;
+        int contW = cW - 2*S(CFE_PAD_H); // content width fills client minus padding
+
+        int hintH = pData->hintH > 0 ? pData->hintH : S(42);
+        int y = S(CFE_PAD_T);
+
+        // Folder name (read-only label)
+        CreateWindowExW(0, L"STATIC", pData->folderName.c_str(),
+            WS_CHILD | WS_VISIBLE | SS_LEFT,
+            S(CFE_PAD_H), y, contW, S(CFE_NAME_H), hwnd, NULL, hInst, NULL);
+        y += S(CFE_NAME_H) + S(CFE_GAP_NR);
+
+        // Required — custom checkbox (replaces native BS_AUTOCHECKBOX)
+        CreateCustomCheckbox(hwnd, IDC_FOLDER_DLG_REQUIRED, pData->requiredLabel,
+            pData->initRequired == 1,
+            S(CFE_PAD_H), y, contW, S(CFE_CHECK_H), hInst);
+        y += S(CFE_CHECK_H) + S(CFE_GAP_RPS);
+
+        // Pre-selected — locked (checked + disabled) whenever Required is active.
+        // The developer can uncheck it only while Required is off.
+        bool preselInited = (pData->initRequired == 1) || (pData->initPreselected == 1);
+        std::wstring psLabel = pData->preselectedLabel.empty()
+            ? L"Pre-selected (ticked by default at install)" : pData->preselectedLabel;
+        HWND hPresel = CreateCustomCheckbox(hwnd, IDC_FOLDER_DLG_PRESELECTED, psLabel,
+            preselInited, S(CFE_PAD_H), y, contW, S(CFE_CHECK_H), hInst);
+        if (pData->initRequired == 1 && hPresel)
+            EnableWindow(hPresel, FALSE);  // can't un-tick while Required is on
+        y += S(CFE_CHECK_H) + S(CFE_GAP_RC);
+
+        // Cascade hint (may wrap over multiple lines)
+        CreateWindowExW(0, L"STATIC", pData->cascadeHint.c_str(),
+            WS_CHILD | WS_VISIBLE | SS_LEFT,
+            S(CFE_PAD_H), y, contW, hintH, hwnd, NULL, hInst, NULL);
+        y += hintH + S(CFE_GAP_CD);
+
+        // Dependencies section: label (left) + "Choose..." button (right)
+        int depLabelW  = S(160);
+        int chooseBtnW = S(110);
+        std::wstring depsLbl = pData->depsLabel.empty() ? L"Dependencies:" : pData->depsLabel;
+        std::wstring chooseT = pData->chooseDepsText.empty() ? L"Choose..." : pData->chooseDepsText;
+        CreateWindowExW(0, L"STATIC", depsLbl.c_str(),
+            WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
+            S(CFE_PAD_H), y, depLabelW, S(CFE_DEPS_ROW_H), hwnd, NULL, hInst, NULL);
+        CreateWindowExW(0, L"BUTTON", chooseT.c_str(),
+            WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+            S(CFE_PAD_H) + contW - chooseBtnW, y, chooseBtnW, S(CFE_DEPS_ROW_H),
+            hwnd, (HMENU)IDC_FOLDER_DLG_CHOOSE_DEPS, hInst, NULL);
+        y += S(CFE_DEPS_ROW_H) + S(CFE_GAP_LD);
+
+        // Deps display listbox (read-only, no selection highlight)
+        CreateWindowExW(WS_EX_CLIENTEDGE, L"LISTBOX", L"",
+            WS_CHILD | WS_VISIBLE | WS_VSCROLL | LBS_NOSEL | LBS_NOINTEGRALHEIGHT,
+            S(CFE_PAD_H), y, contW, S(CFE_DEPLIST_H),
+            hwnd, (HMENU)IDC_FOLDER_DLG_DEPS_LIST, hInst, NULL);
+        y += S(CFE_DEPLIST_H) + S(CFE_GAP_DN);
+
+        // Notes button — full width, opens rich-text notes editor
+        HWND hNotesBtn = CreateWindowExW(0, L"BUTTON", L"Notes / Description...",
+            WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+            S(CFE_PAD_H), y, contW, S(CFE_NOTES_BTN_H),
+            hwnd, (HMENU)IDC_FOLDER_DLG_NOTES, hInst, NULL);
+        SetButtonTooltip(hNotesBtn, L"Edit rich-text notes shown as a tooltip during installation (max 500 characters)");
+        y += S(CFE_NOTES_BTN_H) + S(CFE_GAP_NB2);
+
+        // OK / Cancel — centred
+        int totalBtnW = S(CFE_BTN_W0) + S(CFE_BTN_GAP) + S(CFE_BTN_W1);
+        int startX    = (cW - totalBtnW) / 2;
+        CreateCustomButtonWithIcon(hwnd, IDC_COMPDLG_OK,     pData->okText.c_str(),     ButtonColor::Green,
+            L"imageres.dll", 89,  startX, y, S(CFE_BTN_W0), S(CFE_BTN_H), hInst);
+        CreateCustomButtonWithIcon(hwnd, IDC_COMPDLG_CANCEL, pData->cancelText.c_str(), ButtonColor::Red,
+            L"shell32.dll",  131, startX + S(CFE_BTN_W0) + S(CFE_BTN_GAP), y,
+            S(CFE_BTN_W1), S(CFE_BTN_H), hInst);
+
+        // Font — set on all children (including the custom checkbox handle)
+        NONCLIENTMETRICSW ncm = {}; ncm.cbSize = sizeof(ncm);
+        SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+        if (ncm.lfMessageFont.lfHeight < 0)
+            ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
+        ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+        HFONT hF = CreateFontIndirectW(&ncm.lfMessageFont);
+        if (hF) {
+            EnumChildWindows(hwnd, [](HWND hC, LPARAM lp) -> BOOL {
+                SendMessageW(hC, WM_SETFONT, (WPARAM)(HFONT)lp, TRUE); return TRUE;
+            }, (LPARAM)hF);
             SetPropW(hwnd, L"hFolderDlgFont", (HANDLE)hF);
         }
+
+        // Populate deps listbox with initial selection
+        RefreshFolderDepsListbox(hwnd, pData);
         return 0;
     }
     case WM_COMMAND: {
         CompFolderDlgData* pData = (CompFolderDlgData*)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
         if (!pData) break;
         int wmId = LOWORD(wParam);
+
+        if (wmId == IDC_FOLDER_DLG_REQUIRED) {
+            // When Required is toggled on, Pre-selected must also be on and is locked.
+            // When Required is toggled off, Pre-selected becomes free again.
+            bool reqOn = (SendDlgItemMessageW(hwnd, IDC_FOLDER_DLG_REQUIRED,
+                                              BM_GETCHECK, 0, 0) == BST_CHECKED);
+            HWND hPs = GetDlgItem(hwnd, IDC_FOLDER_DLG_PRESELECTED);
+            if (hPs) {
+                if (reqOn) {
+                    SendMessageW(hPs, BM_SETCHECK, BST_CHECKED, 0);
+                    EnableWindow(hPs, FALSE);
+                } else {
+                    EnableWindow(hPs, TRUE);
+                }
+                InvalidateRect(hPs, NULL, TRUE);
+            }
+            return 0;
+        }
         if (wmId == IDC_COMPDLG_CANCEL || wmId == IDCANCEL) {
             DestroyWindow(hwnd); return 0;
         }
         if (wmId == IDC_COMPDLG_OK) {
-            pData->outRequired = (SendDlgItemMessageW(hwnd, IDC_FOLDER_DLG_REQUIRED,
-                                                      BM_GETCHECK, 0, 0) == BST_CHECKED) ? 1 : 0;
+            pData->outRequired    = (SendDlgItemMessageW(hwnd, IDC_FOLDER_DLG_REQUIRED,
+                                         BM_GETCHECK, 0, 0) == BST_CHECKED) ? 1 : 0;
+            pData->outPreselected = (SendDlgItemMessageW(hwnd, IDC_FOLDER_DLG_PRESELECTED,
+                                         BM_GETCHECK, 0, 0) == BST_CHECKED) ? 1 : 0;
             pData->okClicked   = true;
             DestroyWindow(hwnd); return 0;
+        }
+        if (wmId == IDC_FOLDER_DLG_NOTES) {
+            NotesEditorData nd;
+            nd.initRtf      = pData->outNotesRtf;
+            nd.titleText    = L"Edit Notes";
+            nd.okText       = L"Save";
+            nd.cancelText   = L"Cancel";
+            nd.charsLeftFmt = L"%d characters left";
+            if (OpenNotesEditor(hwnd, nd))
+                pData->outNotesRtf = nd.outRtf;
+            return 0;
+        }
+        if (wmId == IDC_FOLDER_DLG_CHOOSE_DEPS) {
+            // If any component has id==0 it has never been saved and has no stable DB id.
+            // Dependencies stored against id=0 would be lost during the Save ID-remap.
+            // Ask the user to save first; if they agree, save immediately then continue.
+            {
+                bool anyUnsaved = false;
+                for (const auto& c : pData->otherComponents)
+                    if (c.id == 0) { anyUnsaved = true; break; }
+                if (anyUnsaved) {
+                    const auto& loc = MainWindow::GetLocale();
+                    auto L2 = [&](const wchar_t* k, const wchar_t* fb) -> const wchar_t* {
+                        auto it = loc.find(k);
+                        return (it != loc.end()) ? it->second.c_str() : fb;
+                    };
+                    int res = MessageBoxW(hwnd,
+                        L2(L"comp_deps_unsaved_msg",
+                            L"The project has not been saved yet. Components need a permanent "
+                            L"ID before dependencies can be assigned.\n\n"
+                            L"Save now and continue?"),
+                        L2(L"comp_deps_unsaved_title", L"Save First"),
+                        MB_YESNO | MB_ICONQUESTION);
+                    if (res != IDYES) return 0;
+                    // Save via the main window (parent of this dialog).
+                    HWND hMain = GetParent(hwnd);
+                    SendMessageW(hMain, WM_COMMAND, MAKEWPARAM(IDM_FILE_SAVE, 0), 0);
+                    // Refresh otherComponents from the now-saved s_components so ids are valid.
+                    // The caller already filtered out the current folder, so we re-populate here.
+                    // For simplicity: tell caller to re-open; the user can press Choose again.
+                    // Rebuild otherComponents from the freshly-saved s_components so that
+                    // all IDs are now valid and Choose will work immediately.
+                    {
+                        const std::wstring& exPath =
+                            pData->excludeNode ? pData->excludeNode->fullPath : L"";
+                        pData->otherComponents.clear();
+                        for (const auto& oc : s_components) {
+                            if (!exPath.empty()) {
+                                if (oc.source_path == exPath) continue;
+                                if (oc.source_path.size() > exPath.size() &&
+                                    _wcsnicmp(oc.source_path.c_str(),
+                                              exPath.c_str(), exPath.size()) == 0 &&
+                                    (oc.source_path[exPath.size()] == L'\\' ||
+                                     oc.source_path[exPath.size()] == L'/')) continue;
+                            }
+                            pData->otherComponents.push_back(oc);
+                        }
+                    }
+                    return 0;
+                }
+            }
+            // Open the dep picker popup
+            HINSTANCE hInst = (HINSTANCE)GetWindowLongPtrW(hwnd, GWLP_HINSTANCE);
+            CompFolderDepPickerData pickerData;
+            pickerData.components  = &pData->otherComponents;
+            pickerData.initDeps    = pData->outDependencyIds;
+            pickerData.excludeNode = pData->excludeNode;
+
+            WNDCLASSEXW wcPk = {};
+            wcPk.cbSize = sizeof(wcPk);
+            if (!GetClassInfoExW(GetModuleHandleW(NULL), L"CompFolderDepPicker", &wcPk)) {
+                wcPk.lpfnWndProc   = CompFolderDepPickerDlgProc;
+                wcPk.hInstance     = GetModuleHandleW(NULL);
+                wcPk.lpszClassName = L"CompFolderDepPicker";
+                wcPk.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
+                wcPk.hCursor       = LoadCursor(NULL, IDC_ARROW);
+                RegisterClassExW(&wcPk);
+            }
+            int pkW = S(420), pkH = S(380);
+            RECT rcParent; GetWindowRect(hwnd, &rcParent);
+            int xPk = rcParent.left + (rcParent.right - rcParent.left - pkW) / 2;
+            int yPk = rcParent.top  + (rcParent.bottom - rcParent.top  - pkH) / 2;
+            const auto& loc2 = MainWindow::GetLocale();
+            auto it2 = loc2.find(L"comp_select_deps_title");
+            std::wstring pickerTitle = (it2 != loc2.end())
+                ? it2->second : L"Select Dependencies";
+            HWND hPk = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+                L"CompFolderDepPicker", pickerTitle.c_str(),
+                WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
+                xPk, yPk, pkW, pkH, hwnd, NULL, GetModuleHandleW(NULL), &pickerData);
+            MSG msgPk;
+            while (GetMessageW(&msgPk, NULL, 0, 0) > 0) {
+                if (!IsWindow(hPk)) break;
+                TranslateMessage(&msgPk); DispatchMessageW(&msgPk);
+            }
+            if (pickerData.okClicked) {
+                pData->outDependencyIds = pickerData.outDeps;
+                RefreshFolderDepsListbox(hwnd, pData);
+            }
+            return 0;
         }
         break;
     }
     case WM_DRAWITEM: {
         LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
+        // Let custom checkbox handle its own drawing first
+        if (DrawCustomCheckbox(dis)) return TRUE;
         if (dis->CtlID == IDC_COMPDLG_OK || dis->CtlID == IDC_COMPDLG_CANCEL) {
             ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
             NONCLIENTMETRICSW ncm = {}; ncm.cbSize = sizeof(ncm);
@@ -3943,6 +4974,15 @@ LRESULT CALLBACK CompFolderEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
         }
         break;
     }
+    case WM_CTLCOLORSTATIC: {
+        HDC hdc = (HDC)wParam;
+        SetBkColor(hdc, GetSysColor(COLOR_WINDOW));
+        SetTextColor(hdc, GetSysColor(COLOR_WINDOWTEXT));
+        return (LRESULT)GetSysColorBrush(COLOR_WINDOW);
+    }
+    case WM_SETTINGCHANGE:
+        OnCheckboxSettingChange(hwnd);
+        break;
     case WM_DESTROY: {
         HFONT hF = (HFONT)GetPropW(hwnd, L"hFolderDlgFont");
         if (hF) { DeleteObject(hF); RemovePropW(hwnd, L"hFolderDlgFont"); }
@@ -4353,6 +5393,9 @@ struct CompDlgData {
     int outRequired = 0;
     std::wstring outSourcePath;
     std::vector<int> outDependencyIds;
+    // Notes (rich text) — in/out
+    std::wstring initNotesRtf;
+    std::wstring outNotesRtf;
 };
 
 LRESULT CALLBACK CompEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -4362,6 +5405,8 @@ LRESULT CALLBACK CompEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
         HINSTANCE hInst = cs->hInstance;
         CompDlgData *pData = (CompDlgData *)cs->lpCreateParams;
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)pData);
+        // Initialise working notes from initNotesRtf
+        pData->outNotesRtf = pData->initNotesRtf;
 
         int y = 20;
         int labelW = 150, editX = 175, editW = 400;
@@ -4430,6 +5475,15 @@ LRESULT CALLBACK CompEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
             L"imageres.dll", 89, 20, y, 140, 38, hInst);
         CreateCustomButtonWithIcon(hwnd, IDC_COMPDLG_CANCEL, pData->cancelText.c_str(), ButtonColor::Red,
             L"shell32.dll", 131, 175, y, 150, 38, hInst);
+
+        // Notes button
+        {
+            int notesX = 175 + 150 + 14;
+            HWND hNotesBtn = CreateWindowExW(0, L"BUTTON", L"Notes / Description...",
+                WS_CHILD|WS_VISIBLE|BS_PUSHBUTTON,
+                notesX, y, 180, 38, hwnd, (HMENU)IDC_COMPDLG_NOTES, hInst, NULL);
+            SetButtonTooltip(hNotesBtn, L"Edit rich-text notes shown as a tooltip during installation (max 500 characters)");
+        }
 
         // Apply system font
         {
@@ -4518,8 +5572,21 @@ LRESULT CALLBACK CompEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
                     }
                 }
             }
+            // outNotesRtf is already updated by IDC_COMPDLG_NOTES handler
             pData->okClicked = true;
             DestroyWindow(hwnd);
+            return 0;
+        }
+
+        if (wmId == IDC_COMPDLG_NOTES) {
+            NotesEditorData nd;
+            nd.initRtf      = pData->outNotesRtf;
+            nd.titleText    = L"Edit Notes";
+            nd.okText       = L"Save";
+            nd.cancelText   = L"Cancel";
+            nd.charsLeftFmt = L"%d characters left";
+            if (OpenNotesEditor(hwnd, nd))
+                pData->outNotesRtf = nd.outRtf;
             return 0;
         }
 
@@ -6644,8 +7711,10 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 return 0;
             }
             const ComponentRow &cmp = s_components[selIdx];
-            // Load existing dependencies and build other-components list
-            std::vector<int>         currentDeps = DB::GetDependenciesForComponent(cmp.id);
+            // Use in-memory deps if available (already edited this session), else fall back to DB
+            std::vector<int> currentDeps = cmp.dependencies.empty() && cmp.id > 0
+                ? DB::GetDependenciesForComponent(cmp.id)
+                : cmp.dependencies;
             std::vector<ComponentRow> otherComps;
             for (const auto& oc : s_components)
                 if (oc.id != cmp.id) otherComps.push_back(oc);
@@ -6661,6 +7730,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             dlgData2.initSourcePath    = cmp.source_path;
             dlgData2.otherComponents   = otherComps;
             dlgData2.initDependencyIds = currentDeps;
+            dlgData2.initNotesRtf      = cmp.notes_rtf;
             dlgData2.titleText     = lstrE(L"comp_edit_title",    L"Edit Component");
             dlgData2.nameLabel     = lstrE(L"comp_name_label",    L"Display Name:");
             dlgData2.descLabel     = lstrE(L"comp_desc_label",    L"Description:");
@@ -6701,7 +7771,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 s_components[selIdx].description  = dlgData2.outDesc;
                 s_components[selIdx].is_required  = dlgData2.outRequired;
                 s_components[selIdx].source_path  = dlgData2.outSourcePath;
-                // Dependency edits are deferred together with the component row.
+                s_components[selIdx].dependencies = dlgData2.outDependencyIds;
+                s_components[selIdx].notes_rtf    = dlgData2.outNotesRtf;
                 SwitchPage(hwnd, 9);
                 MarkAsModified();
             }
@@ -6836,11 +7907,40 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             // Persist components: replace all rows then re-insert from memory.
             // This is the ONLY place component data is written to DB.
             if (s_currentProject.use_components) {
+                // Step 1: capture old IDs and clean up existing dep rows before
+                //         components are deleted (avoids orphaned dep rows).
+                std::vector<int> oldCompIds(s_components.size());
+                for (int ci = 0; ci < (int)s_components.size(); ci++) oldCompIds[ci] = s_components[ci].id;
+                for (int oid : oldCompIds)
+                    if (oid > 0) DB::DeleteDependenciesForComponent(oid);
+
+                // Step 2: delete and re-insert all components (new IDs assigned).
                 DB::DeleteComponentsForProject(s_currentProject.id);
                 for (auto& comp : s_components) {
                     comp.project_id = s_currentProject.id;
                     int newId = DB::InsertComponent(comp);
                     if (newId > 0) comp.id = newId;  // update in-memory ID so deps can reference it
+                }
+
+                // Step 3: build old→new ID map, persist all in-memory dependencies to
+                // the DB, and update comp.dependencies in memory so that the dep picker
+                // keeps showing the correct pre-checked state after a Save.
+                std::map<int,int> idMap;
+                for (int ci = 0; ci < (int)s_components.size(); ci++) {
+                    if (oldCompIds[ci] > 0) idMap[oldCompIds[ci]] = s_components[ci].id;
+                }
+                for (auto& comp : s_components) {
+                    if (comp.dependencies.empty()) continue;
+                    std::vector<int> newDeps;
+                    for (int depOldId : comp.dependencies) {
+                        auto it = idMap.find(depOldId);
+                        int  depNewId = (it != idMap.end()) ? it->second : 0;
+                        if (depNewId > 0) {
+                            DB::InsertComponentDependency(comp.id, depNewId);
+                            newDeps.push_back(depNewId);
+                        }
+                    }
+                    comp.dependencies = std::move(newDeps); // keep in-memory IDs in sync
                 }
             }
 
@@ -7251,15 +8351,75 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                     }
                 }
 
+                // Determine current pre-selected state (mirrors required logic)
+                int preselState = -1;
+                for (const auto& path : paths) {
+                    for (const auto& cmp : s_components) {
+                        if (cmp.source_path != path) continue;
+                        if (!cmp.dest_path.empty() && cmp.dest_path != section) continue;
+                        if (preselState == -1) preselState = cmp.is_preselected;
+                        else if (preselState != cmp.is_preselected) { preselState = -1; goto presel_mixed_done; }
+                        break;
+                    }
+                }
+                presel_mixed_done:
+                if (preselState == -1 && !snap->fullPath.empty()) {
+                    for (const auto& cmp : s_components) {
+                        if (cmp.source_path != snap->fullPath) continue;
+                        if (cmp.source_type  != L"folder")     continue;
+                        if (!cmp.dest_path.empty() && cmp.dest_path != section) continue;
+                        preselState = cmp.is_preselected;
+                        break;
+                    }
+                }
+
                 CompFolderDlgData fd;
-                fd.folderName    = snap->text;
-                fd.initRequired  = (reqState == 1) ? 1 : 0;
-                fd.titleText     = LS(L"comp_folder_edit_title",  L"Edit Folder");
-                fd.requiredLabel = LS(L"comp_required_label",     L"Required (always installed)");
-                fd.cascadeHint   = LS(L"comp_folder_cascade_hint",
+                fd.folderName       = snap->text;
+                fd.initRequired     = (reqState    == 1) ? 1 : 0;
+                fd.initPreselected  = (preselState == 1) ? 1 : 0;
+                fd.titleText        = LS(L"comp_folder_edit_title",  L"Edit Folder");
+                fd.requiredLabel    = LS(L"comp_required_label",     L"Required (always installed)");
+                fd.preselectedLabel = LS(L"comp_preselected_label",  L"Pre-selected (ticked by default at install)");
+                fd.cascadeHint      = LS(L"comp_folder_cascade_hint",
                     L"Applies to all files and subfolders. You can still override individual subfolders afterwards.");
-                fd.okText        = LS(L"ok",     L"OK");
-                fd.cancelText    = LS(L"cancel", L"Cancel");
+                fd.depsLabel        = LS(L"comp_deps_label",         L"Dependencies:");
+                fd.chooseDepsText   = LS(L"comp_choose_deps",        L"Choose...");
+                fd.okText           = LS(L"ok",     L"OK");
+                fd.cancelText       = LS(L"cancel", L"Cancel");
+                fd.excludeNode      = snap;  // pointer identity used to exclude this folder from the dep picker
+                fd.sectionName   = section;
+
+                // Populate other-components list: exclude the edited folder itself and
+                // files/subfolders inside it — but only within the SAME section.  A
+                // component in a different section that happens to share the same source
+                // path (e.g. the same folder installed under both Program Files AND
+                // AskAtInstall) is a distinct component and may be a valid dependency.
+                for (const auto& oc : s_components) {
+                    if (!snap->fullPath.empty()) {
+                        bool sameSection = oc.dest_path.empty() || oc.dest_path == section;
+                        if (sameSection && oc.source_path == snap->fullPath) continue;
+                        if (sameSection &&
+                            oc.source_path.size() > snap->fullPath.size() &&
+                            _wcsnicmp(oc.source_path.c_str(), snap->fullPath.c_str(),
+                                      snap->fullPath.size()) == 0 &&
+                            (oc.source_path[snap->fullPath.size()] == L'\\' ||
+                             oc.source_path[snap->fullPath.size()] == L'/')) continue;
+                    }
+                    fd.otherComponents.push_back(oc);
+                }
+                // Load initial dep IDs from the folder-type row for this folder (in-memory)
+                if (!snap->fullPath.empty()) {
+                    for (const auto& cmp : s_components) {
+                        if (cmp.source_path != snap->fullPath) continue;
+                        if (cmp.source_type  != L"folder")     continue;
+                        if (!cmp.dest_path.empty() && cmp.dest_path != section) continue;
+                        fd.initDependencyIds = cmp.dependencies.empty() && cmp.id > 0
+                            ? DB::GetDependenciesForComponent(cmp.id)
+                            : cmp.dependencies;
+                        fd.initNotesRtf = cmp.notes_rtf;
+                        break;
+                    }
+                }
 
                 // Register and show the dialog
                 WNDCLASSEXW wcFd = {};
@@ -7268,7 +8428,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                     wcFd.lpfnWndProc   = CompFolderEditDlgProc;
                     wcFd.hInstance     = GetModuleHandleW(NULL);
                     wcFd.lpszClassName = L"CompFolderEditDialog";
-                    wcFd.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
+                    wcFd.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
                     wcFd.hCursor       = LoadCursor(NULL, IDC_ARROW);
                     RegisterClassExW(&wcFd);
                 }
@@ -7294,8 +8454,12 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 int clientW3 = S(CFE_PAD_H)+S(CFE_CONT_W)+S(CFE_PAD_H);
                 int clientH3 = S(CFE_PAD_T)
                              + S(CFE_NAME_H)+S(CFE_GAP_NR)
+                             + S(CFE_CHECK_H)+S(CFE_GAP_RPS)
                              + S(CFE_CHECK_H)+S(CFE_GAP_RC)
-                             + fd.hintH+S(CFE_GAP_HB)
+                             + fd.hintH+S(CFE_GAP_CD)
+                             + S(CFE_DEPS_ROW_H)+S(CFE_GAP_LD)
+                             + S(CFE_DEPLIST_H)+S(CFE_GAP_DN)
+                             + S(CFE_NOTES_BTN_H)+S(CFE_GAP_NB2)
                              + S(CFE_BTN_H)+S(CFE_PAD_B);
                 RECT wrc3 = {0,0,clientW3,clientH3};
                 AdjustWindowRectEx(&wrc3, WS_POPUP|WS_CAPTION|WS_SYSMENU, FALSE,
@@ -7315,7 +8479,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 }
 
                 if (fd.okClicked) {
-                    // Cascade required flag to all ComponentRows matching the collected paths,
+                    // Cascade required + pre-selected flag to all ComponentRows matching the collected paths,
                     // restricted to the same section so AskAtInstall entries are not affected
                     // when cascading a Program Files folder (and vice-versa).
                     // Update in memory only — written to DB on Save.
@@ -7323,7 +8487,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                         for (auto& cmp : s_components) {
                             if (cmp.source_path != path) continue;
                             if (!cmp.dest_path.empty() && cmp.dest_path != section) continue;
-                            cmp.is_required = fd.outRequired;
+                            cmp.is_required    = fd.outRequired;
+                            cmp.is_preselected = fd.outPreselected;
                             break;
                         }
                     }
@@ -7340,8 +8505,11 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                             if (cmp.source_path != snap->fullPath) continue;
                             if (cmp.source_type  != L"folder")      continue;
                             if (!cmp.dest_path.empty() && cmp.dest_path != section) continue;
-                            cmp.is_required  = fd.outRequired;
-                            folderRowFound   = true;
+                            cmp.is_required    = fd.outRequired;
+                            cmp.is_preselected = fd.outPreselected;
+                            cmp.dependencies   = fd.outDependencyIds; // save deps in memory
+                            cmp.notes_rtf      = fd.outNotesRtf;      // save notes in memory
+                            folderRowFound     = true;
                             break;
                         }
                         if (!folderRowFound) {
@@ -7350,10 +8518,13 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                             newComp.project_id   = s_currentProject.id;
                             newComp.display_name = snap->text;
                             newComp.description  = L"";
-                            newComp.is_required  = fd.outRequired;
+                            newComp.is_required    = fd.outRequired;
+                            newComp.is_preselected = fd.outPreselected;
                             newComp.source_type  = L"folder";
                             newComp.source_path  = snap->fullPath;
                             newComp.dest_path    = section;
+                            newComp.dependencies = fd.outDependencyIds;
+                            newComp.notes_rtf    = fd.outNotesRtf;
                             s_components.push_back(newComp);
                         }
                     }

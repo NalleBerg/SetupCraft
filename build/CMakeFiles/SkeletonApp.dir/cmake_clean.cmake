@@ -22,6 +22,8 @@ file(REMOVE_RECURSE
   "CMakeFiles/SkeletonApp.dir/main.cpp.obj.d"
   "CMakeFiles/SkeletonApp.dir/mainwindow.cpp.obj"
   "CMakeFiles/SkeletonApp.dir/mainwindow.cpp.obj.d"
+  "CMakeFiles/SkeletonApp.dir/notes_editor.cpp.obj"
+  "CMakeFiles/SkeletonApp.dir/notes_editor.cpp.obj.d"
   "CMakeFiles/SkeletonApp.dir/spinner_dialog.cpp.obj"
   "CMakeFiles/SkeletonApp.dir/spinner_dialog.cpp.obj.d"
   "CMakeFiles/SkeletonApp.dir/tooltip.cpp.obj"

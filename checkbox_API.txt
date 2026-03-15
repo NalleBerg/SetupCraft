@@ -74,6 +74,22 @@ Returns TRUE  if dis->hwndItem is a custom checkbox — it has been fully drawn,
 Returns FALSE if dis->hwndItem is not a custom checkbox — the caller falls
                through to its own drawing code normally.
 
+Disabled state
+  When EnableWindow(hCtrl, FALSE) has been called, Windows sets the ODS_DISABLED
+  bit in dis->itemState. DrawCustomCheckbox detects this and mutes the painting:
+    border    → RGB(190,190,190)
+    tick      → RGB(160,160,160)
+    label     → GetSysColor(COLOR_GRAYTEXT)
+    hover     → suppressed (no blue hover border)
+  The behaviour is identical across Light, Dark, HC Black, and HC White themes.
+  Typical use: lock a checkbox that must stay checked while another checkbox is
+  on (e.g. "Pre-selected" locked while "Required" is ticked):
+
+    HWND hPs = GetDlgItem(hwnd, IDC_FOLDER_DLG_PRESELECTED);
+    SendMessageW(hPs, BM_SETCHECK, BST_CHECKED, 0);
+    EnableWindow(hPs, FALSE);          // greyed out
+    InvalidateRect(hPs, NULL, TRUE);   // force immediate repaint
+
 Typical usage in the parent:
 
   case WM_DRAWITEM: {

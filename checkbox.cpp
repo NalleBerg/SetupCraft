@@ -227,10 +227,19 @@ BOOL DrawCustomCheckbox(LPDRAWITEMSTRUCT dis)
     if (!GetPropW(dis->hwndItem, CBP_MARKER))
         return FALSE;
 
-    CbTheme  theme   = DetectCbTheme();
-    CbColors c       = GetCbColors(theme);
-    bool     checked = (GetPropW(dis->hwndItem, CBP_CHECKED) != NULL);
-    bool     hovered = (GetPropW(dis->hwndItem, CBP_HOVERED) != NULL);
+    CbTheme  theme    = DetectCbTheme();
+    CbColors c        = GetCbColors(theme);
+    bool     checked  = (GetPropW(dis->hwndItem, CBP_CHECKED) != NULL);
+    bool     hovered  = (GetPropW(dis->hwndItem, CBP_HOVERED) != NULL);
+    // When the control is disabled (e.g. Pre-selected locked by Required), mute all
+    // colours so it reads as unavailable — both border and text go to system grey.
+    if (dis->itemState & ODS_DISABLED) {
+        c.border = RGB(190, 190, 190);
+        c.hover  = RGB(190, 190, 190);
+        c.tick   = RGB(160, 160, 160);
+        c.label  = GetSysColor(COLOR_GRAYTEXT);
+        hovered  = false; // no hover highlight on disabled control
+    }
 
     HDC  hdc  = dis->hDC;
     RECT rcAll = dis->rcItem;

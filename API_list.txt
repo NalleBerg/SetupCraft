@@ -44,6 +44,13 @@
                                     GetClientRect layout, and per-dialog status
                                     (which dialogs have been converted).
 
+  notes_editor_API.txt              Rich-text Notes/Description editor popup —
+                                    OpenNotesEditor() API, NotesEditorData struct,
+                                    RTF stream in/out, 500-char limit, Bold/Italic/
+                                    Underline/Subscript/Superscript/Font size/Color
+                                    toolbar, i18n string fields, comdlg32 colour
+                                    picker, DPI-aware layout.
+
   checkbox_API.txt                  Custom theme-aware checkbox — CreateCustomCheckbox,
                                     DrawCustomCheckbox, OnCheckboxSettingChange,
                                     CreateCheckboxStateImageList,
