@@ -62,6 +62,8 @@ static bool s_mouseTracking = false; // General mouse tracking flag for tooltip
 static HTREEITEM s_lastHoveredTreeItem = NULL;
 static WNDPROC s_prevTreeProc = NULL;
 static WNDPROC s_prevWarnIconProc = NULL;
+static WNDPROC s_prevCompInfoIconProc = NULL;
+static bool    s_compInfoTooltipTracking = false;
 static HFONT s_scaledFont = NULL;     // Scaled default GUI font for labels/edits/checkboxes
 static HFONT s_hPageTitleFont = NULL; // Larger bold system font used for all page headlines (i18n-safe, NONCLIENTMETRICS-based)
 // Forward declarations for functions defined later
@@ -188,6 +190,7 @@ static bool s_filesPageHasContent = false; // tracks whether Files page has any 
 #define IDC_COMP_TREEVIEW     5063
 #define IDC_COMP_EDIT         5064
 #define IDC_COMP_REMOVE       5065
+#define IDC_COMP_INFO_ICON    5066
 
 // Components edit dialog control IDs (scoped to CompEditDlg window)
 #define IDC_COMPDLG_NAME     301
@@ -279,6 +282,78 @@ static bool s_filesPageHasContent = false; // tracks whether Files page has any 
 #define IDC_ADDKEY_NAME     5070
 #define IDC_ADDKEY_OK       5071
 #define IDC_ADDKEY_CANCEL   5072
+
+// Subclass proc for the Components-page info icon (shell32 #258).
+// Shows a simple single-line tooltip explaining that files/folders only appear
+// after the project is saved.
+static LRESULT CALLBACK CompInfoIcon_SubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+    case WM_ERASEBKGND: {
+        RECT rc; GetClientRect(hwnd, &rc);
+        FillRect((HDC)wParam, &rc, GetSysColorBrush(COLOR_BTNFACE));
+        return TRUE;
+    }
+    case WM_PAINT: {
+        PAINTSTRUCT ps;
+        HDC hdc = BeginPaint(hwnd, &ps);
+        RECT rc; GetClientRect(hwnd, &rc);
+        FillRect(hdc, &rc, GetSysColorBrush(COLOR_BTNFACE));
+        int w = rc.right, h = rc.bottom;
+        // Draw the floppy-disk icon (icon handle stored in GWLP_USERDATA)
+        HICON hIco = (HICON)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+        if (hIco) DrawIconEx(hdc, 0, 0, hIco, w, h, 0, NULL, DI_NORMAL);
+        // Overlay "FYI!" on the white label strip (upper body of the diskette)
+        // Label area: ~9-88% wide, 18-54% tall (proportional to icon size)
+        RECT labelRc = { (LONG)(w*9/100), (LONG)(h*19/100),
+                         (LONG)(w*89/100), (LONG)(h*55/100) };
+        int fh = -(labelRc.bottom - labelRc.top - 1); // fill label height
+        HFONT hFont = CreateFontW(fh, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Arial");
+        HFONT hOld = (HFONT)SelectObject(hdc, hFont);
+        SetBkMode(hdc, TRANSPARENT);
+        SetTextColor(hdc, RGB(20, 20, 120)); // dark navy, readable on light label
+        DrawTextW(hdc, L"FYI!", -1, &labelRc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        SelectObject(hdc, hOld);
+        DeleteObject(hFont);
+        EndPaint(hwnd, &ps);
+        return 0;
+    }
+    case WM_MOUSEMOVE: {
+        if (!IsTooltipVisible()) {
+            auto it = MainWindow::GetLocale().find(L"comp_info_tooltip");
+            std::wstring text = (it != MainWindow::GetLocale().end()) ? it->second
+                : L"Files and folders will not appear in the dependency picker\nuntil the project has been saved at least once.";
+            // Convert escaped newlines into real CR/LF
+            size_t p = 0;
+            while ((p = text.find(L"\\r\\n", p)) != std::wstring::npos) { text.replace(p, 4, L"\r\n"); p += 2; }
+            p = 0;
+            while ((p = text.find(L"\\n",   p)) != std::wstring::npos) { text.replace(p, 2, L"\r\n"); p += 2; }
+            std::vector<std::pair<std::wstring,std::wstring>> entry = {{L"", text}};
+            RECT rc; GetWindowRect(hwnd, &rc);
+            ShowMultilingualTooltip(entry, rc.left, rc.bottom + 5, GetParent(hwnd));
+            s_currentTooltipIcon = hwnd;
+        }
+        if (!s_compInfoTooltipTracking) {
+            TRACKMOUSEEVENT tme = {};
+            tme.cbSize = sizeof(tme); tme.dwFlags = TME_LEAVE; tme.hwndTrack = hwnd;
+            TrackMouseEvent(&tme);
+            s_compInfoTooltipTracking = true;
+        }
+        break;
+    }
+    case WM_MOUSELEAVE: {
+        HideTooltip();
+        s_currentTooltipIcon = NULL;
+        s_compInfoTooltipTracking = false;
+        break;
+    }
+    case WM_NCDESTROY:
+        SetWindowLongPtrW(hwnd, GWLP_WNDPROC, (LONG_PTR)s_prevCompInfoIconProc);
+        break;
+    }
+    return CallWindowProcW(s_prevCompInfoIconProc, hwnd, msg, wParam, lParam);
+}
 
 // Subclass proc for the registry warning icon
 static LRESULT CALLBACK WarningIcon_SubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -1156,6 +1231,7 @@ static void SaveTreeToDb(int projectId,
 static void VFSPicker_AddSubtree(HWND hTree, HTREEITEM hParent,
                                  const std::vector<TreeNodeSnapshot>& nodes);
 static void CollectSnapshotPaths(const TreeNodeSnapshot& snap, std::vector<std::wstring>& out);
+static void PopulateSnapshotFilesFromDisk(std::vector<TreeNodeSnapshot>& nodes);
 // Same as CollectSnapshotPaths but does NOT recurse into children.
 // Used by UpdateCompTreeRequiredIcons so that each tree node is judged only by
 // its OWN direct files; intermediate container folders (like WinProgramSuite)
@@ -2498,7 +2574,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         std::wstring hintText = (itHint != s_locale.end()) ? itHint->second : L"When unchecked, all files are installed as one complete package.";
         HWND hHintLabel = CreateWindowExW(0, L"STATIC", hintText.c_str(),
             WS_CHILD | WS_VISIBLE | SS_LEFT,
-            S(20), pageY + S(94), rc.right - S(40), S(22),
+            S(20), pageY + S(94), rc.right - S(74), S(22),
             hwnd, NULL, hInst, NULL);
 
         // Separator
@@ -2506,6 +2582,33 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
             WS_CHILD | WS_VISIBLE | SS_ETCHEDHORZ,
             S(20), pageY + S(124), rc.right - S(40), S(2),
             hwnd, NULL, hInst, NULL);
+
+        // Info icon to the right, vertically centred in the space above the separator.
+        // shell32.dll icon #258 = floppy disk ("save" hint).
+        // Do NOT use SS_ICON — it auto-resizes the control on STM_SETICON.
+        // Instead use a plain SS_NOTIFY static, extract icon via PrivateExtractIconsW,
+        // store in GWLP_USERDATA, and draw manually in WM_PAINT.
+        {
+            int iconSz = S(26);
+            int iconX  = rc.right - S(20) - iconSz;
+            int iconY  = pageY + S(93); // below checkbox (ends at pageY+S(88)), aligned with hint label row; hint label narrowed to not reach icon X
+            HWND hInfo = CreateWindowExW(0, L"STATIC", NULL,
+                WS_CHILD | WS_VISIBLE | SS_NOTIFY,
+                iconX, iconY, iconSz, iconSz,
+                hwnd, (HMENU)IDC_COMP_INFO_ICON, hInst, NULL);
+            if (hInfo) {
+                wchar_t shell32Path[MAX_PATH];
+                GetSystemDirectoryW(shell32Path, MAX_PATH);
+                wcscat_s(shell32Path, L"\\shell32.dll");
+                HICON hIco = NULL;
+                PrivateExtractIconsW(shell32Path, 258, iconSz, iconSz, &hIco, NULL, 1, 0);
+                if (!hIco) ExtractIconExW(shell32Path, 258, NULL, &hIco, 1);
+                // Store icon in GWLP_USERDATA so WM_PAINT can draw it at our exact size
+                SetWindowLongPtrW(hInfo, GWLP_USERDATA, (LONG_PTR)hIco);
+                s_prevCompInfoIconProc = (WNDPROC)SetWindowLongPtrW(
+                    hInfo, GWLP_WNDPROC, (LONG_PTR)CompInfoIcon_SubclassProc);
+            }
+        }
 
         // Button row: Edit only
         auto itEditBtn = s_locale.find(L"comp_edit");
@@ -4276,6 +4379,7 @@ struct CompFolderDlgData {
     // Identity of the folder being edited — forwarded to the dep picker for exclusion.
     const TreeNodeSnapshot* excludeNode = nullptr;
     std::wstring            sectionName; // VFS section owning this folder (for dep picker exclusion)
+    int                     projectId = 0; // for dep picker auto-component creation
 };
 
 // ── CompFolderEdit dialog layout constants (design-px at 96 DPI) ──────────────
@@ -4315,6 +4419,13 @@ struct CompFolderDepPickerData {
     const TreeNodeSnapshot*          excludeNode = nullptr; // VFS snapshot node to exclude (+ its subtree)
     bool                             okClicked = false;
     std::vector<int>                 outDeps;    // result IDs
+
+    // VFS files that have no corresponding file-type ComponentRow yet.
+    // On OK, a real component is auto-created for each selected entry.
+    struct AutoFile { std::wstring srcPath; std::wstring dispName; std::wstring destSection; };
+    std::vector<AutoFile> autoFiles;
+    static constexpr int kAutoFileBase = 1000000; // synthetic lParam range start
+    int projectId = 0;   // current project (for auto-creating file components)
 };
 
 // Helper: rebuild the deps display listbox (IDC_FOLDER_DLG_DEPS_LIST) in the
@@ -4360,19 +4471,55 @@ LRESULT CALLBACK CompFolderDepPickerDlgProc(HWND hwnd, UINT msg, WPARAM wParam, 
             pad, pad, cW - 2*pad, treeH,
             hwnd, (HMENU)IDC_FDDP_TREE, hInst, NULL);
 
-        // Build icon image list: 0 = folder, 1 = generic file
+        // Replace native TVS_CHECKBOXES bitmaps with custom theme-aware GDI images.
+        UpdateTreeViewCheckboxImages(hTree, S(16));
+
+        // Build icon image list: 0 = folder, 1 = generic file.
+        // Each entry is (iconSz + 4) px wide with the icon drawn at x=4, leaving a
+        // 4 px transparent gap between the TVS_CHECKBOXES checkbox and the icon.
         {
-            int iconSz = GetSystemMetrics(SM_CXSMICON);
-            HIMAGELIST hImgList = ImageList_Create(iconSz, iconSz, ILC_COLOR32 | ILC_MASK, 2, 0);
+            int iconSz  = GetSystemMetrics(SM_CXSMICON);
+            int bmpW    = iconSz + 4;  // extra left padding = gap after checkbox
+            HIMAGELIST hImgList = ImageList_Create(bmpW, iconSz, ILC_COLOR32 | ILC_MASK, 2, 0);
             if (hImgList) {
+                // Helper: add an icon to the list with 4 px left padding.
+                auto AddPadded = [&](HICON hIco) {
+                    if (!hIco) return;
+                    HDC hScreen = GetDC(NULL);
+                    BITMAPINFO bmi = {};
+                    bmi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
+                    bmi.bmiHeader.biWidth       = bmpW;
+                    bmi.bmiHeader.biHeight      = -iconSz;  // top-down
+                    bmi.bmiHeader.biPlanes      = 1;
+                    bmi.bmiHeader.biBitCount    = 32;
+                    bmi.bmiHeader.biCompression = BI_RGB;
+                    void* pBits = nullptr;
+                    HBITMAP hPad = CreateDIBSection(hScreen, &bmi, DIB_RGB_COLORS, &pBits, NULL, 0);
+                    if (hPad && pBits) {
+                        memset(pBits, 0, bmpW * iconSz * 4);  // fully transparent
+                        HDC hMem = CreateCompatibleDC(hScreen);
+                        HBITMAP hOld = (HBITMAP)SelectObject(hMem, hPad);
+                        DrawIconEx(hMem, 4, 0, hIco, iconSz, iconSz, 0, NULL, DI_NORMAL);
+                        SelectObject(hMem, hOld);
+                        DeleteDC(hMem);
+                        ImageList_Add(hImgList, hPad, NULL);
+                        DeleteObject(hPad);
+                    }
+                    ReleaseDC(NULL, hScreen);
+                };
+
                 SHFILEINFOW sfi = {};
                 SHGetFileInfoW(L"x", FILE_ATTRIBUTE_DIRECTORY, &sfi, sizeof(sfi),
                     SHGFI_ICON | SHGFI_SMALLICON | SHGFI_USEFILEATTRIBUTES);
-                if (sfi.hIcon) { ImageList_AddIcon(hImgList, sfi.hIcon); DestroyIcon(sfi.hIcon); }
+                AddPadded(sfi.hIcon);
+                if (sfi.hIcon) DestroyIcon(sfi.hIcon);
+
                 ZeroMemory(&sfi, sizeof(sfi));
                 SHGetFileInfoW(L"x", FILE_ATTRIBUTE_NORMAL, &sfi, sizeof(sfi),
                     SHGFI_ICON | SHGFI_SMALLICON | SHGFI_USEFILEATTRIBUTES);
-                if (sfi.hIcon) { ImageList_AddIcon(hImgList, sfi.hIcon); DestroyIcon(sfi.hIcon); }
+                AddPadded(sfi.hIcon);
+                if (sfi.hIcon) DestroyIcon(sfi.hIcon);
+
                 TreeView_SetImageList(hTree, hImgList, TVSIL_NORMAL);
                 SetPropW(hwnd, L"hFDPImgList", (HANDLE)hImgList);
             }
@@ -4382,6 +4529,20 @@ LRESULT CALLBACK CompFolderDepPickerDlgProc(HWND hwnd, UINT msg, WPARAM wParam, 
         // even when folders have no ComponentRow yet.  The folder being edited
         // (excludeNode) is identified by pointer identity into s_treeSnapshot_*.
         // Its entire subtree is suppressed by skipping the recursive descent.
+        //
+        // If the user hasn't visited the Files page this session the snapshots may be
+        // empty — rebuild them from DB now so AskAtInstall sub-folders and files
+        // always appear.
+        MainWindow::EnsureTreeSnapshotsFromDb();
+        // Ensure every snapshot node has virtualFiles populated before walking:
+        //   Virtual/AskAtInstall nodes → already filled from DB above.
+        //   Real-path disk folders     → filled here via disk scan (fallback).
+        // Running for all 4 sections means already-loaded snapshots (Files page
+        // visited this session) are also covered, not just DB-rebuilt ones.
+        PopulateSnapshotFilesFromDisk(s_treeSnapshot_ProgramFiles);
+        PopulateSnapshotFilesFromDisk(s_treeSnapshot_ProgramData);
+        PopulateSnapshotFilesFromDisk(s_treeSnapshot_AppData);
+        PopulateSnapshotFilesFromDisk(s_treeSnapshot_AskAtInstall);
         {
             // The 4 canonical sections wired to the global VFS snapshots.
             struct SecDef { const wchar_t* label; const std::vector<TreeNodeSnapshot>* snaps; };
@@ -4392,27 +4553,33 @@ LRESULT CALLBACK CompFolderDepPickerDlgProc(HWND hwnd, UINT msg, WPARAM wParam, 
                 { L"AskAtInstall",      &s_treeSnapshot_AskAtInstall },
             };
 
-            // Helper: set or clear checkbox state on a tree item.
+            // Helper: set checkbox state on a tree item.
             auto setStateImg = [&](HTREEITEM h, int idx) {
                 TVITEMW t = {}; t.mask = TVIF_STATE; t.hItem = h;
                 t.stateMask = TVIS_STATEIMAGEMASK; t.state = INDEXTOSTATEIMAGEMASK(idx);
                 TreeView_SetItem(hTree, &t);
             };
 
-            // Path-based exclusion for file ComponentRows (which have no snapshot pointer).
-            const std::wstring& exPath = pData->excludeNode ? pData->excludeNode->fullPath : L"";
-            auto fileIsExcluded = [&](const std::wstring& fp) -> bool {
-                if (exPath.empty() || fp.empty()) return false;
-                size_t bLen = exPath.size();
-                return fp.size() >= bLen &&
-                       _wcsnicmp(fp.c_str(), exPath.c_str(), bLen) == 0 &&
-                       (fp.size() == bLen || fp[bLen] == L'\\' || fp[bLen] == L'/');
+            // Helper: insert one file component as a checkable child of hParent.
+            auto insertFileNode = [&](HTREEITEM hParent, const ComponentRow& c) {
+                TVINSERTSTRUCTW tvF = {};
+                tvF.hParent = hParent; tvF.hInsertAfter = TVI_LAST;
+                tvF.item.mask = TVIF_TEXT|TVIF_PARAM|TVIF_IMAGE|TVIF_SELECTEDIMAGE;
+                tvF.item.pszText = const_cast<LPWSTR>(c.display_name.c_str());
+                tvF.item.lParam  = (LPARAM)c.id;
+                tvF.item.iImage  = 1; tvF.item.iSelectedImage = 1;
+                HTREEITEM hFile = TreeView_InsertItem(hTree, &tvF);
+                if (hFile) {
+                    bool chk = false;
+                    for (int d : pData->initDeps) if (d == c.id) { chk=true; break; }
+                    setStateImg(hFile, chk ? 2 : 1);
+                }
             };
 
             for (const auto& sd : secDefs) {
                 if (!sd.snaps || sd.snaps->empty()) continue;
 
-                // Create non-checkable section header.
+                // Create non-checkable section header (lParam == -1).
                 TVINSERTSTRUCTW tvSec = {};
                 tvSec.hParent = TVI_ROOT; tvSec.hInsertAfter = TVI_LAST;
                 tvSec.item.mask = TVIF_TEXT|TVIF_PARAM|TVIF_IMAGE|TVIF_SELECTEDIMAGE;
@@ -4423,40 +4590,25 @@ LRESULT CALLBACK CompFolderDepPickerDlgProc(HWND hwnd, UINT msg, WPARAM wParam, 
                 if (!hSec) continue;
                 setStateImg(hSec, 0);
 
-                // real-path VFS folder nodes: fullPath → HTREEITEM (for path-prefix file matching)
-                std::vector<std::pair<std::wstring, HTREEITEM>> vfsNodes;
-                // virtual folder file mapping: each virtualFile sourcePath → parent HTREEITEM
-                // built from snap.virtualFiles during addVFS so the second pass can place
-                // virtual-section files (e.g. AskAtInstall) under the correct folder.
-                std::unordered_map<std::wstring, HTREEITEM> virtualFilePaths;
-
-                // Helper: insert one file component as a checkable child of hParent.
-                auto insertFileNode = [&](HTREEITEM hParent, const ComponentRow& c) {
-                    TVINSERTSTRUCTW tvF = {};
-                    tvF.hParent = hParent; tvF.hInsertAfter = TVI_LAST;
-                    tvF.item.mask = TVIF_TEXT|TVIF_PARAM|TVIF_IMAGE|TVIF_SELECTEDIMAGE;
-                    tvF.item.pszText = const_cast<LPWSTR>(c.display_name.c_str());
-                    tvF.item.lParam  = (LPARAM)c.id;
-                    tvF.item.iImage  = 1; tvF.item.iSelectedImage = 1;
-                    HTREEITEM hFile = TreeView_InsertItem(hTree, &tvF);
-                    if (hFile) {
-                        bool chk = false;
-                        for (int d : pData->initDeps) if (d == c.id) { chk=true; break; }
-                        setStateImg(hFile, chk ? 2 : 1);
-                    }
-                };
-
-                // Recursive lambda: walk VFS snapshot tree, skip excludeNode and its subtree.
-                // Folders are NOT auto-expanded — the user expands what they need.
-                std::function<void(HTREEITEM, const std::vector<TreeNodeSnapshot>&)> addVFS;
-                addVFS = [&](HTREEITEM hParent, const std::vector<TreeNodeSnapshot>& nodes) {
+                // Walk the VFS snapshot and insert folder nodes with their file children
+                // inline — no separate second pass.  This guarantees that each file
+                // appears under exactly the folder it belongs to in the Files page tree.
+                std::function<void(HTREEITEM, const std::vector<TreeNodeSnapshot>&, const std::wstring&)> addVFS;
+                addVFS = [&](HTREEITEM hParent, const std::vector<TreeNodeSnapshot>& nodes, const std::wstring& secLabel) {
                     for (const auto& snap : nodes) {
-                        // Pointer-identity check: skip the exact excluded node (+ subtree).
-                        if (&snap == pData->excludeNode) continue;
+                        // Skip the folder being edited (and its entire subtree).
+                        // Path comparison is robust after Save (pointer may be stale).
+                        if (pData->excludeNode) {
+                            const std::wstring& xp = pData->excludeNode->fullPath;
+                            if (!xp.empty()) {
+                                if (!snap.fullPath.empty() &&
+                                    _wcsicmp(snap.fullPath.c_str(), xp.c_str()) == 0)
+                                    continue;
+                            } else if (&snap == pData->excludeNode) continue;
+                        }
 
-                        // Find a folder-type ComponentRow for this VFS node.
-                        // Real-path nodes: match by source_path.
-                        // Virtual nodes (e.g. AskAtInstall folders, fullPath==""): match by display_name.
+                        // ── Folder node ──────────────────────────────────────────────
+                        // Find the folder-type ComponentRow so the node is checkable.
                         int compId = 0;
                         if (pData->components) {
                             for (const auto& c : *pData->components) {
@@ -4491,62 +4643,59 @@ LRESULT CALLBACK CompFolderDepPickerDlgProc(HWND hwnd, UINT msg, WPARAM wParam, 
                             for (int d : pData->initDeps) if (d == compId) { chk=true; break; }
                             setStateImg(hNode, chk ? 2 : 1);
                         } else {
-                            setStateImg(hNode, 0); // structural: no checkbox
+                            setStateImg(hNode, 1); // structural folder — show unchecked
                         }
 
-                        if (!snap.fullPath.empty()) {
-                            // Real-path node: register for path-prefix file matching.
-                            vfsNodes.push_back({snap.fullPath, hNode});
-                        } else {
-                            // Virtual node: register each of its known files so the second
-                            // pass can place them under this node by exact source-path lookup.
-                            for (const auto& vf : snap.virtualFiles)
-                                if (!vf.sourcePath.empty())
-                                    virtualFilePaths[vf.sourcePath] = hNode;
-                        }
+                        // ── Inline file children ─────────────────────────────────────
+                        // snap.virtualFiles is always populated by this point:
+                        //   Virtual/AskAtInstall nodes → from DB via EnsureTreeSnapshotsFromDb
+                        //   Real-path disk folders     → from PopulateSnapshotFilesFromDisk
+                        // For each entry match against a ComponentRow (use it) or
+                        // insert an auto-file node (component auto-created on OK).
+                        {
+                            auto insertAutoFileNode = [&](HTREEITEM hP,
+                                                          const std::wstring& srcPath,
+                                                          const std::wstring& sec) {
+                                std::wstring fname = srcPath;
+                                size_t sl = fname.rfind(L'\\');
+                                if (sl != std::wstring::npos) fname = fname.substr(sl + 1);
+                                else { sl = fname.rfind(L'/'); if (sl != std::wstring::npos) fname = fname.substr(sl + 1); }
+                                int autoIdx = (int)pData->autoFiles.size();
+                                pData->autoFiles.push_back({srcPath, fname, sec});
+                                TVINSERTSTRUCTW tvF = {};
+                                tvF.hParent = hP; tvF.hInsertAfter = TVI_LAST;
+                                tvF.item.mask = TVIF_TEXT|TVIF_PARAM|TVIF_IMAGE|TVIF_SELECTEDIMAGE;
+                                tvF.item.pszText = const_cast<LPWSTR>(fname.c_str());
+                                tvF.item.lParam  = (LPARAM)(CompFolderDepPickerData::kAutoFileBase + autoIdx);
+                                tvF.item.iImage  = 1; tvF.item.iSelectedImage = 1;
+                                HTREEITEM hF = TreeView_InsertItem(hTree, &tvF);
+                                if (hF) setStateImg(hF, 1);
+                            };
 
-                        addVFS(hNode, snap.children);
-                        // intentionally NOT expanding — user expands as needed
-                    }
-                };
-                addVFS(hSec, *sd.snaps);
-
-                // Second pass: attach all file-type ComponentRows under the correct node.
-                // Priority: (1) exact virtual-file path match, (2) deepest real-path prefix,
-                // (3) section header as fallback.
-                if (pData->components) {
-                    for (const auto& c : *pData->components) {
-                        if (c.source_type != L"file" || c.source_path.empty()) continue;
-                        if (fileIsExcluded(c.source_path)) continue;
-                        if (!c.dest_path.empty() && c.dest_path != sd.label) continue;
-
-                        HTREEITEM hBest = hSec;
-
-                        // (1) Virtual-section lookup (e.g. AskAtInstall files)
-                        auto vit = virtualFilePaths.find(c.source_path);
-                        if (vit != virtualFilePaths.end()) {
-                            hBest = vit->second;
-                        } else {
-                            // (2) Deepest real-path VFS ancestor
-                            size_t bestLen = 0;
-                            for (const auto& vn : vfsNodes) {
-                                size_t vLen = vn.first.size();
-                                if (vLen > 0 &&
-                                    c.source_path.size() > vLen &&
-                                    _wcsnicmp(c.source_path.c_str(),
-                                              vn.first.c_str(), vLen) == 0 &&
-                                    (c.source_path[vLen] == L'\\' ||
-                                     c.source_path[vLen] == L'/') &&
-                                    vLen > bestLen) {
-                                    hBest   = vn.second;
-                                    bestLen = vLen;
+                            for (const auto& vf : snap.virtualFiles) {
+                                if (vf.sourcePath.empty()) continue;
+                                const ComponentRow* found = nullptr;
+                                if (pData->components) {
+                                    for (const auto& c : *pData->components) {
+                                        if (c.source_type == L"file" &&
+                                            _wcsicmp(c.source_path.c_str(),
+                                                     vf.sourcePath.c_str()) == 0) {
+                                            found = &c; break;
+                                        }
+                                    }
                                 }
+                                if (found)
+                                    insertFileNode(hNode, *found);
+                                else
+                                    insertAutoFileNode(hNode, vf.sourcePath, secLabel);
                             }
                         }
 
-                        insertFileNode(hBest, c);
+                        // Recurse into child folders (collapsed by default).
+                        addVFS(hNode, snap.children, secLabel);
                     }
-                }
+                };
+                addVFS(hSec, *sd.snaps, std::wstring(sd.label));
 
                 TreeView_Expand(hTree, hSec, TVE_EXPAND);
             }
@@ -4601,8 +4750,39 @@ LRESULT CALLBACK CompFolderDepPickerDlgProc(HWND hwnd, UINT msg, WPARAM wParam, 
                     TVITEMW tv = {}; tv.mask = TVIF_STATE|TVIF_PARAM;
                     tv.hItem = hItem; tv.stateMask = TVIS_STATEIMAGEMASK;
                     TreeView_GetItem(hTree, &tv);
-                    if (((tv.state & TVIS_STATEIMAGEMASK) >> 12) == 2 && tv.lParam > 0)
-                        pData->outDeps.push_back((int)tv.lParam);
+                    if (((tv.state & TVIS_STATEIMAGEMASK) >> 12) == 2 && tv.lParam > 0) {
+                        int lp = (int)tv.lParam;
+                        if (lp >= CompFolderDepPickerData::kAutoFileBase) {
+                            // VFS file without a pre-existing ComponentRow.
+                            // Find or auto-create the file component now.
+                            int idx = lp - CompFolderDepPickerData::kAutoFileBase;
+                            if (idx < (int)pData->autoFiles.size()) {
+                                const auto& af = pData->autoFiles[idx];
+                                int realId = 0;
+                                for (const auto& c : s_components)
+                                    if (c.source_type == L"file" &&
+                                        _wcsicmp(c.source_path.c_str(), af.srcPath.c_str()) == 0)
+                                        { realId = c.id; break; }
+                                if (realId == 0 && pData->projectId > 0) {
+                                    ComponentRow nc;
+                                    nc.project_id  = pData->projectId;
+                                    nc.display_name = af.dispName;
+                                    nc.source_type  = L"file";
+                                    nc.source_path  = af.srcPath;
+                                    nc.dest_path    = af.destSection;
+                                    nc.is_required  = 0;
+                                    realId = DB::InsertComponent(nc);
+                                    if (realId > 0) {
+                                        nc.id = realId;
+                                        s_components.push_back(nc);
+                                    }
+                                }
+                                if (realId > 0) pData->outDeps.push_back(realId);
+                            }
+                        } else {
+                            pData->outDeps.push_back(lp);
+                        }
+                    }
                     HTREEITEM hChild = TreeView_GetChild(hTree, hItem);
                     while (hChild) { stk.push_back(hChild); hChild = TreeView_GetNextSibling(hTree, hChild); }
                 }
@@ -4643,12 +4823,13 @@ LRESULT CALLBACK CompFolderDepPickerDlgProc(HWND hwnd, UINT msg, WPARAM wParam, 
             if (hHit && (ht.flags & TVHT_ONITEMSTATEICON)) {
                 TVITEMW tvi = {}; tvi.mask = TVIF_PARAM; tvi.hItem = hHit;
                 TreeView_GetItem(hTree2, &tvi);
-                if (tvi.lParam == -1 || tvi.lParam == -2) {
-                    // Non-checkable node: defer reset after the tree applies the click.
+                if (tvi.lParam == -1) {
+                    // Section root — not checkable; reset the state after the click settles.
                     SetTimer(hwnd, 1, 1, NULL);
                     SetPropW(hwnd, L"hFixItem", (HANDLE)hHit);
-                } else if (tvi.lParam > 0) {
-                    // Checkable item: defer ancestor auto-check after state settles.
+                } else {
+                    // Any folder (structural or with component) or file: run full
+                    // bidirectional cascade (down to children, up to parent folders).
                     SetTimer(hwnd, 2, 1, NULL);
                     SetPropW(hwnd, L"hAutoCheck", (HANDLE)hHit);
                 }
@@ -4670,17 +4851,44 @@ LRESULT CALLBACK CompFolderDepPickerDlgProc(HWND hwnd, UINT msg, WPARAM wParam, 
             RemovePropW(hwnd, L"hFixItem");
         }
         if (wParam == 2) {
-            // Auto-check all ancestor folder nodes (that have a ComponentRow) when a
-            // file or folder is checked — selecting a file implies its parent folders.
+            // Bidirectional cascade:
+            //   DOWN — when a folder is checked or unchecked, propagate the same
+            //          state to every descendant that has a visible checkbox
+            //          (lParam > 0 or lParam == -2; skip section roots lParam == -1).
+            //   UP   — when an item is checked, auto-check every ancestor folder
+            //          that has a real ComponentRow (lParam > 0).
             KillTimer(hwnd, 2);
             HWND hTree2 = GetDlgItem(hwnd, IDC_FDDP_TREE);
             HTREEITEM hItem = (HTREEITEM)GetPropW(hwnd, L"hAutoCheck");
+            RemovePropW(hwnd, L"hAutoCheck");
             if (hTree2 && hItem) {
                 TVITEMW tvi = {}; tvi.mask = TVIF_STATE; tvi.hItem = hItem;
                 tvi.stateMask = TVIS_STATEIMAGEMASK;
                 TreeView_GetItem(hTree2, &tvi);
-                if (((tvi.state & TVIS_STATEIMAGEMASK) >> 12) == 2) {
-                    // Item was checked: walk up and check every ancestor with lParam > 0.
+                bool checked = (((tvi.state & TVIS_STATEIMAGEMASK) >> 12) == 2);
+                int  newState = checked ? 2 : 1;
+
+                // Cascade DOWN: walk the entire subtree of the clicked node.
+                {
+                    std::vector<HTREEITEM> stk;
+                    HTREEITEM hC = TreeView_GetChild(hTree2, hItem);
+                    while (hC) { stk.push_back(hC); hC = TreeView_GetNextSibling(hTree2, hC); }
+                    while (!stk.empty()) {
+                        HTREEITEM h = stk.back(); stk.pop_back();
+                        TVITEMW td = {}; td.mask = TVIF_PARAM; td.hItem = h;
+                        TreeView_GetItem(hTree2, &td);
+                        if (td.lParam != -1) { // skip section roots
+                            td.mask = TVIF_STATE; td.stateMask = TVIS_STATEIMAGEMASK;
+                            td.state = INDEXTOSTATEIMAGEMASK(newState);
+                            TreeView_SetItem(hTree2, &td);
+                        }
+                        HTREEITEM hSub = TreeView_GetChild(hTree2, h);
+                        while (hSub) { stk.push_back(hSub); hSub = TreeView_GetNextSibling(hTree2, hSub); }
+                    }
+                }
+
+                // Cascade UP (check only): auto-check ancestor folders with a ComponentRow.
+                if (checked) {
                     HTREEITEM hP = TreeView_GetParent(hTree2, hItem);
                     while (hP) {
                         TVITEMW tp = {}; tp.mask = TVIF_PARAM; tp.hItem = hP;
@@ -4694,7 +4902,6 @@ LRESULT CALLBACK CompFolderDepPickerDlgProc(HWND hwnd, UINT msg, WPARAM wParam, 
                     }
                 }
             }
-            RemovePropW(hwnd, L"hAutoCheck");
         }
         break;
     }
@@ -4705,6 +4912,13 @@ LRESULT CALLBACK CompFolderDepPickerDlgProc(HWND hwnd, UINT msg, WPARAM wParam, 
         if (hIL) { ImageList_Destroy(hIL); RemovePropW(hwnd, L"hFDPImgList"); }
         HFONT hF = (HFONT)GetPropW(hwnd, L"hFDPFont");
         if (hF) { DeleteObject(hF); RemovePropW(hwnd, L"hFDPFont"); }
+        break;
+    }
+    case WM_SETTINGCHANGE: {
+        // Rebuild custom checkbox state images when the user switches theme.
+        HWND hTree2 = GetDlgItem(hwnd, IDC_FDDP_TREE);
+        if (hTree2 && IsWindow(hTree2))
+            UpdateTreeViewCheckboxImages(hTree2, S(16));
         break;
     }
     case WM_CLOSE:
@@ -4919,6 +5133,7 @@ LRESULT CALLBACK CompFolderEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
             pickerData.components  = &pData->otherComponents;
             pickerData.initDeps    = pData->outDependencyIds;
             pickerData.excludeNode = pData->excludeNode;
+            pickerData.projectId   = pData->projectId;
 
             WNDCLASSEXW wcPk = {};
             wcPk.cbSize = sizeof(wcPk);
@@ -5096,7 +5311,135 @@ static void CollectAllFiles(const std::vector<TreeNodeSnapshot>& nodes,
     }
 }
 
-// ─── VFS Picker Dialog ───────────────────────────────────────────────────────
+// ─── EnsureTreeSnapshotsFromDb ───────────────────────────────────────────────
+// Rebuilds any empty s_treeSnapshot_* vectors from the persisted DB rows so
+// the dep picker can show the full VFS hierarchy even when the user has not
+// visited the Files page in this session.  Safe to call multiple times — it
+// is a no-op once all four snapshots are non-empty.
+void MainWindow::EnsureTreeSnapshotsFromDb()
+{
+    if (s_currentProject.id <= 0) return;
+
+    // Record which sections need rebuilding at entry — do not re-check inside loops.
+    bool needRebuild[4] = {
+        s_treeSnapshot_ProgramFiles.empty(),
+        s_treeSnapshot_ProgramData.empty(),
+        s_treeSnapshot_AppData.empty(),
+        s_treeSnapshot_AskAtInstall.empty() && s_askAtInstallEnabled
+    };
+    if (!needRebuild[0] && !needRebuild[1] && !needRebuild[2] && !needRebuild[3]) return;
+
+    auto fileRows = DB::GetFilesForProject(s_currentProject.id);
+    if (fileRows.empty()) return;
+
+    const std::wstring secs[] = { L"Program Files", L"ProgramData",
+                                   L"AppData (Roaming)", L"AskAtInstall" };
+    std::vector<TreeNodeSnapshot>* snapVecs[] = {
+        &s_treeSnapshot_ProgramFiles, &s_treeSnapshot_ProgramData,
+        &s_treeSnapshot_AppData,      &s_treeSnapshot_AskAtInstall
+    };
+    std::map<std::wstring, int> secIdx;
+    for (int i = 0; i < 4; ++i) secIdx[secs[i]] = i;
+
+    // The section is always the first path component (e.g. "AskAtInstall").
+    auto findSection = [&](const std::wstring& destPath) -> std::wstring {
+        size_t sep = destPath.find(L'\\');
+        return (sep != std::wstring::npos) ? destPath.substr(0, sep) : L"";
+    };
+
+    // Step 1 — Build all folder nodes in a std::map for stable-reference storage.
+    std::map<std::wstring, TreeNodeSnapshot> nodeMap;
+    for (const auto& row : fileRows) {
+        if (row.install_scope != L"__folder__") continue;
+        size_t sep = row.destination_path.rfind(L'\\');
+        if (sep == std::wstring::npos) continue;
+        std::wstring sec = findSection(row.destination_path);
+        auto sit = secIdx.find(sec);
+        if (sit == secIdx.end() || !needRebuild[sit->second]) continue;
+
+        TreeNodeSnapshot& snap = nodeMap[row.destination_path];
+        snap.text     = row.destination_path.substr(sep + 1);
+        snap.fullPath = row.source_path;
+        snap.expanded = false;
+        snap.compExpanded = false;
+    }
+
+    // Step 2 — Attach virtual files to their parent nodes.
+    for (const auto& row : fileRows) {
+        if (row.install_scope == L"__folder__") continue;
+        size_t sep = row.destination_path.rfind(L'\\');
+        if (sep == std::wstring::npos) continue;
+        std::wstring parentPath = row.destination_path.substr(0, sep);
+        auto it = nodeMap.find(parentPath);
+        if (it == nodeMap.end()) continue;
+        VirtualFolderFile vf;
+        vf.sourcePath    = row.source_path;
+        vf.destination   = row.destination_path.substr(sep); // includes leading '\'
+        vf.install_scope = row.install_scope;
+        it->second.virtualFiles.push_back(std::move(vf));
+    }
+
+    // Step 3 — Link hierarchy bottom-up: deepest nodes first so each child is
+    // fully assembled before being moved into its parent.
+    std::vector<std::wstring> folderPaths;
+    for (const auto& kv : nodeMap) folderPaths.push_back(kv.first);
+    std::sort(folderPaths.begin(), folderPaths.end(), [](const std::wstring& a, const std::wstring& b) {
+        return std::count(a.begin(), a.end(), L'\\') > std::count(b.begin(), b.end(), L'\\');
+    });
+
+    for (const auto& destPath : folderPaths) {
+        auto it = nodeMap.find(destPath);
+        if (it == nodeMap.end()) continue; // already moved
+
+        std::wstring sec = findSection(destPath);
+        auto sit = secIdx.find(sec);
+        if (sit == secIdx.end()) continue;
+
+        size_t sep = destPath.rfind(L'\\');
+        std::wstring parentPath = destPath.substr(0, sep);
+
+        if (parentPath == sec) {
+            // Direct child of section root — move into the section vector.
+            snapVecs[sit->second]->push_back(std::move(it->second));
+        } else {
+            auto pit = nodeMap.find(parentPath);
+            if (pit != nodeMap.end())
+                pit->second.children.push_back(std::move(it->second));
+        }
+        nodeMap.erase(it);
+    }
+}
+
+// Recursively walk a snapshot vector and for every real-path folder node that has
+// no virtualFiles yet (neither from DB nor from a Files-page session), scan the
+// disk directory for direct-child files and populate virtualFiles from there.
+// This is the fallback for real-path folders whose individual files were never
+// explicitly tracked (disk is source of truth for those).  If the path does not
+// exist on this machine the scan produces no entries, which is correct — the
+// folder simply shows no file children in the picker on that machine.
+static void PopulateSnapshotFilesFromDisk(std::vector<TreeNodeSnapshot>& nodes)
+{
+    for (auto& snap : nodes) {
+        if (!snap.fullPath.empty() && snap.virtualFiles.empty()) {
+            std::wstring glob = snap.fullPath + L"\\*";
+            WIN32_FIND_DATAW wfd = {};
+            HANDLE hFind = FindFirstFileW(glob.c_str(), &wfd);
+            if (hFind != INVALID_HANDLE_VALUE) {
+                do {
+                    if (wcscmp(wfd.cFileName, L".") == 0 || wcscmp(wfd.cFileName, L"..") == 0) continue;
+                    if (wfd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+                    VirtualFolderFile vf;
+                    vf.sourcePath  = snap.fullPath + L"\\" + wfd.cFileName;
+                    vf.destination = std::wstring(L"\\") + wfd.cFileName;
+                    vf.install_scope = L"";
+                    snap.virtualFiles.push_back(std::move(vf));
+                } while (FindNextFileW(hFind, &wfd));
+                FindClose(hFind);
+            }
+        }
+        PopulateSnapshotFilesFromDisk(snap.children);
+    }
+}
 // Shows the virtual file system from the Files page (s_treeSnapshot_*) as a
 // split-pane tree/listview browser so the user can pick files or folders as
 // component sources without touching the real filesystem.
@@ -7891,6 +8234,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             fd.cancelText       = LS(L"cancel", L"Cancel");
             fd.excludeNode      = snap;
             fd.sectionName      = section;
+            fd.projectId        = s_currentProject.id;
 
             for (const auto& oc : s_components) {
                 if (!snap->fullPath.empty()) {
@@ -8014,6 +8358,22 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 }
                 UpdateCompTreeRequiredIcons(s_hCompTreeView, TreeView_GetRoot(s_hCompTreeView));
                 MarkAsModified();
+                // Refresh Required/Pre-selected columns in the component listview
+                // (the listview keeps stale values unless explicitly updated).
+                if (s_hCompListView && IsWindow(s_hCompListView)) {
+                    int nLVItems = ListView_GetItemCount(s_hCompListView);
+                    for (int i = 0; i < nLVItems; ++i) {
+                        LVITEMW lvi2 = {}; lvi2.mask = LVIF_PARAM; lvi2.iItem = i;
+                        ListView_GetItem(s_hCompListView, &lvi2);
+                        int ci = (int)lvi2.lParam;
+                        if (ci >= 0 && ci < (int)s_components.size()) {
+                            int req = s_components[ci].is_required;
+                            auto itR = s_locale.find(req ? L"yes" : L"no");
+                            std::wstring rs = (itR != s_locale.end()) ? itR->second : (req ? L"Yes" : L"No");
+                            ListView_SetItemText(s_hCompListView, i, 2, (LPWSTR)rs.c_str());
+                        }
+                    }
+                }
             }
             return 0;
         }

@@ -74,10 +74,46 @@
                                                Shown on fully-required folders
   131     Red X / close icon                   Close Project button, OK/Cancel
   221     Information / About (i)              About icon button
+  258     Floppy disk / Save                   Components page info icon
   300     Can-drop / move cursor icon          Drag-and-drop module
 
   NOTE: button_INTERNALS.txt "Verified shell32.dll icon indices" is the
   authoritative list for toolbar buttons.
+
+================================================================================
+  §3b  IMPORTANT: Do NOT use SS_ICON for fixed-size icon controls
+================================================================================
+
+  SS_ICON causes the Static control to auto-resize itself to the icon's
+  "natural" (large) size when STM_SETICON is called, regardless of the window
+  size specified at CreateWindowExW.  SetWindowPos after STM_SETICON is also
+  ignored because SS_ICON resizes synchronously inside the message.
+
+  CORRECT pattern for a fixed-size standalone icon control:
+
+    // 1. Create with SS_NOTIFY only — NO SS_ICON:
+    HWND hCtrl = CreateWindowExW(0, L"STATIC", NULL,
+        WS_CHILD | WS_VISIBLE | SS_NOTIFY,
+        x, y, iconSz, iconSz, hwndParent,
+        (HMENU)IDC_MY_ICON, hInst, NULL);
+
+    // 2. Load icon at exact pixel size with PrivateExtractIconsW:
+    HICON hIco = NULL;
+    PrivateExtractIconsW(dllPath, INDEX, iconSz, iconSz, &hIco, NULL, 1, 0);
+    if (!hIco) ExtractIconExW(dllPath, INDEX, NULL, &hIco, 1); // fallback
+
+    // 3. Store in GWLP_USERDATA — do NOT call STM_SETICON:
+    SetWindowLongPtrW(hCtrl, GWLP_USERDATA, (LONG_PTR)hIco);
+
+    // 4. Subclass the control; in WM_PAINT retrieve and draw:
+    //    HICON h = (HICON)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+    //    DrawIconEx(hdc, 0, 0, h, w, h_ctrl, 0, NULL, DI_NORMAL);
+
+    // 5. Handle WM_ERASEBKGND to paint the parent background colour:
+    //    FillRect((HDC)wParam, &rc, GetSysColorBrush(COLOR_BTNFACE));
+
+  This pattern is used for the Components page info icon
+  (IDC_COMP_INFO_ICON, CompInfoIcon_SubclassProc in mainwindow.cpp).
 
 ================================================================================
   §4  Verified icon indices — imageres.dll (sequential, 0-based)

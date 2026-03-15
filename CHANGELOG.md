@@ -2,6 +2,19 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.03.15.11] - 2026-03-15
+
+### Fixed
+- **Dep picker: AskAtInstall subfolders and files now visible** — `EnsureTreeSnapshotsFromDb()` completely rewritten. Old code had `if (!snapVecs[si]->empty()) continue` inside the folder loop, bailing after the first folder per section. New version uses a stable `std::map<wstring, TreeNodeSnapshot>` for node storage (no iterator invalidation). Three passes: (1) folder rows → nodeMap entries, (2) file rows → `nodeMap[parentPath].virtualFiles.push_back(vf)`, (3) sort deepest-first, link children into parents bottom-up, move section roots into snapshot vectors.
+- **Dep picker: real-path folder files visible (locale/, img/, WinUpdate etc.)** — new `PopulateSnapshotFilesFromDisk(std::vector<TreeNodeSnapshot>&)` walks the snapshot tree recursively; for any real-path node with empty `virtualFiles` it scans the disk directory with `FindFirstFileW` and populates `snap.virtualFiles`. Called once per dep-picker open for all four sections before `addVFS` traversal.
+- **Components info icon hidden by overlapping controls** — replaced `SS_ICON` style (which calls `STM_SETICON` and auto-resizes the control to the icon's natural size, overlapping adjacent controls) with a plain `SS_NOTIFY` static. `HICON` stored in `GWLP_USERDATA`; subclass proc's `WM_PAINT` calls `DrawIconEx` at the exact control size. `WM_ERASEBKGND` clears with `COLOR_BTNFACE` to prevent bleed-through.
+
+### Added
+- **Dep picker: auto-file nodes for files without a ComponentRow** — `addVFS` now inserts a synthetic auto-file node for every `snap.virtualFiles` entry that has no matching `ComponentRow` (lParam ≥ `kAutoFileBase = 1,000,000`). On picker OK the handler finds the component by source path or auto-creates one via `DB::InsertComponent`. No files silently skipped.
+- **Dep picker: DB-first unified `snap.virtualFiles` path in `addVFS`** — single code path iterating `snap.virtualFiles` only; no per-node disk I/O inside the render walk. DB rows take priority; `PopulateSnapshotFilesFromDisk` fills only nodes that remain empty after the DB pass.
+- **Components page info icon (shell32.dll #258)** — floppy-disk icon to the right of the hint label with tooltip "Files and folders will not appear in the dependency picker until the project has been saved at least once." (`comp_info_tooltip` locale key). Subclassed with `CompInfoIcon_SubclassProc`.
+- **"FYI!" text on diskette label** — `CompInfoIcon_SubclassProc` `WM_PAINT` overlays "FYI!" in dark navy bold Arial on the white label strip of the diskette graphic so the icon's purpose is readable at a glance.
+
 ## [2026.03.15.08] - 2026-03-15
 
 ### Fixed

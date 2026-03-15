@@ -236,6 +236,63 @@ db.cpp
   DB::DeleteFilesForProject()      – unchanged
 
 ================================================================================
+8b. EnsureTreeSnapshotsFromDb() AND PopulateSnapshotFilesFromDisk()
+    (Dep Picker population — added 2026-03-15)
+================================================================================
+
+EnsureTreeSnapshotsFromDb()  (public static MainWindow member, mainwindow.cpp ~5240)
+
+  Called at the start of CompFolderDepPickerDlgProc WM_CREATE to guarantee that
+  all four s_treeSnapshot_* vectors are non-empty so the dep picker has data.
+
+  PROBLEM solved: The old implementation had `if (!snapVecs[si]->empty()) continue`
+  inside the per-folder loop.  Once the first folder row was added to a section the
+  guard fired on every subsequent row, silently dropping all of them.
+
+  NEW ALGORITHM:
+    Step 1 — Check which sections need rebuilding (only those still empty).
+    Step 2 — Load DB::GetFilesForProject(id) for the project.
+    Step 3 — Pass 1: for every "__folder__" row create/update a
+             std::map<wstring, TreeNodeSnapshot> nodeMap entry.
+             Key = destination_path (full virtual path).
+             The map gives O(log n) lookup and stable references.
+    Step 4 — Pass 2: for every non-folder (file) row derive parentPath
+             (strip the last backslash segment from destination_path) and call
+             nodeMap[parentPath].virtualFiles.push_back(vf).
+    Step 5 — Pass 3: sort nodeMap keys deepest-first (most backslashes first).
+             For each key: if the node has no parent in nodeMap it is a section
+             root — append to snapVecs[si].  If it has a parent, move it into
+             nodeMap[parentKey].children.  This ensures children are fully
+             assembled before being inserted into their parent.
+
+  Result: all subfolders (AskAtInstall, nested WinUpdate children, etc.) and
+  all their file entries are correctly populated in the snapshot vectors.
+
+PopulateSnapshotFilesFromDisk()  (free static function, mainwindow.cpp ~5355)
+
+  Signature:
+    static void PopulateSnapshotFilesFromDisk(std::vector<TreeNodeSnapshot>& nodes)
+
+  Purpose: For any real-path node (snap.fullPath non-empty) whose virtualFiles
+  vector is STILL empty after EnsureTreeSnapshotsFromDb, perform a one-time
+  FindFirstFileW scan of direct child files and populate snap.virtualFiles.
+  Recurses into children.
+
+  This handles developer machines where real-path disk folders exist but have
+  not yet been saved (so no DB file rows exist yet) — locale/, img/, WinUpdate
+  subfiles etc. all become visible in the dep picker immediately.
+
+  DB-first principle: EnsureTreeSnapshotsFromDb runs first; this function is
+  a fallback only.  If the DB already populated virtualFiles it is skipped.
+
+  Called in CompFolderDepPickerDlgProc WM_CREATE, once per section:
+    MainWindow::EnsureTreeSnapshotsFromDb();
+    PopulateSnapshotFilesFromDisk(s_treeSnapshot_ProgramFiles);
+    PopulateSnapshotFilesFromDisk(s_treeSnapshot_ProgramData);
+    PopulateSnapshotFilesFromDisk(s_treeSnapshot_AppData);
+    PopulateSnapshotFilesFromDisk(s_treeSnapshot_AskAtInstall);
+
+================================================================================
 7. FILES PAGE MULTI-SELECT
 ================================================================================
 
