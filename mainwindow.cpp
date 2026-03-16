@@ -221,6 +221,9 @@ static bool s_filesPageHasContent = false; // tracks whether Files page has any 
 #define IDC_FDDP_OK                324
 #define IDC_FDDP_CANCEL            325
 #define IDC_FOLDER_DLG_PRESELECTED 326  // Pre-selected checkbox (locked when Required is checked)
+#define IDC_FOLDER_DLG_REMOVE_DEPS  327  // "Remove" button in fold-edit dep list
+#define IDM_DEPS_CTX_REMOVE         6210 // dep-list context menu: Remove
+#define IDM_DEPS_CTX_SHOWFILES      6211 // dep-list context menu: Show files…
 
 // Notes button inside folder edit and component edit dialogs
 #define IDC_FOLDER_DLG_NOTES       340
@@ -4401,7 +4404,9 @@ static const int CFE_BTN_GAP  = 10;
 static const int CFE_GAP_CD       = 14;  // gap: cascade hint → deps label row
 static const int CFE_DEPS_ROW_H   = 26;  // deps label / Choose button row height
 static const int CFE_GAP_LD       = 6;   // gap: deps row → deps listbox
-static const int CFE_DEPLIST_H    = 60;  // deps listbox height (~3 items)
+static const int CFE_DEPLIST_H      = 130;  // deps listview height (header + 5 rows)
+static const int CFE_DEP_BTNS_ROW_H = 34;   // Choose + Remove buttons row height
+static const int CFE_GAP_LB         = 6;    // gap: list → dep-buttons row
 static const int CFE_GAP_DN       = 10;  // gap: deps listbox → notes button
 static const int CFE_NOTES_BTN_H  = 32;  // Notes button height
 static const int CFE_GAP_NB2      = 14;  // gap: notes button → OK/Cancel
@@ -4428,24 +4433,114 @@ struct CompFolderDepPickerData {
     int projectId = 0;   // current project (for auto-creating file components)
 };
 
-// Helper: rebuild the deps display listbox (IDC_FOLDER_DLG_DEPS_LIST) in the
+// ─── GetVirtualPathForComp ───────────────────────────────────────────────────
+// Searches the live VFS snapshots to build a full virtual path string for the
+// given component  (e.g. "AskAtInstall\WinProgramManager\WinProgramManager.db").
+// Falls back to dest_path\display_name when not found in any snapshot.
+static std::wstring GetVirtualPathForComp(const ComponentRow& c)
+{
+    struct W {
+        static bool Find(const std::vector<TreeNodeSnapshot>& nodes,
+                         const std::wstring& srcPath, bool isFolder,
+                         const std::wstring& prefix, std::wstring& out)
+        {
+            for (const auto& snap : nodes) {
+                std::wstring p = prefix.empty() ? snap.text
+                                                : prefix + L"\\" + snap.text;
+                if (isFolder && !snap.fullPath.empty() &&
+                    _wcsicmp(snap.fullPath.c_str(), srcPath.c_str()) == 0) {
+                    out = p; return true;
+                }
+                if (!isFolder) {
+                    for (const auto& vf : snap.virtualFiles) {
+                        if (_wcsicmp(vf.sourcePath.c_str(), srcPath.c_str()) == 0) {
+                            size_t sep = srcPath.rfind(L'\\');
+                            std::wstring fname = (sep != std::wstring::npos)
+                                ? srcPath.substr(sep + 1) : srcPath;
+                            out = p + L"\\" + fname; return true;
+                        }
+                    }
+                }
+                if (Find(snap.children, srcPath, isFolder, p, out)) return true;
+            }
+            return false;
+        }
+    };
+    const struct { const wchar_t* label; const std::vector<TreeNodeSnapshot>* snaps; } secs[] = {
+        { L"Program Files",     &s_treeSnapshot_ProgramFiles },
+        { L"ProgramData",       &s_treeSnapshot_ProgramData  },
+        { L"AppData (Roaming)", &s_treeSnapshot_AppData      },
+        { L"AskAtInstall",      &s_treeSnapshot_AskAtInstall },
+    };
+    bool isFolder = (c.source_type == L"folder");
+    std::wstring out;
+    for (const auto& s : secs) {
+        if (W::Find(*s.snaps, c.source_path, isFolder, std::wstring(s.label), out))
+            return out;
+    }
+    // Fallback: section\leaf-name
+    return (c.dest_path.empty() ? L"" : c.dest_path + L"\\") + c.display_name;
+}
+
+// Helper: rebuild the deps display listview (IDC_FOLDER_DLG_DEPS_LIST) in the
 // folder-edit dialog from pData->outDependencyIds + pData->otherComponents.
 static void RefreshFolderDepsListbox(HWND hwndFolderDlg, CompFolderDlgData* pData)
 {
     HWND hList = GetDlgItem(hwndFolderDlg, IDC_FOLDER_DLG_DEPS_LIST);
     if (!hList) return;
-    SendMessageW(hList, LB_RESETCONTENT, 0, 0);
+    ListView_DeleteAllItems(hList);
+    const auto& loc = MainWindow::GetLocale();
+    auto locStr = [&](const wchar_t* k, const wchar_t* fb) -> std::wstring {
+        auto it = loc.find(k);
+        return (it != loc.end()) ? it->second : fb;
+    };
+    std::wstring lblFolder = locStr(L"comp_type_folder", L"Folder");
+    std::wstring lblFile   = locStr(L"comp_type_file",   L"File");
+
+    // Build the set of folder source-paths already in the dep list.
+    // File deps whose path sits inside one of these folders are hidden
+    // from the summary list (they can be seen via the double-click popup).
+    std::vector<std::wstring> depFolderPaths;
+    for (int did : pData->outDependencyIds)
+        for (const auto& oc : pData->otherComponents)
+            if (oc.id == did && oc.source_type == L"folder" && !oc.source_path.empty())
+                depFolderPaths.push_back(oc.source_path);
+
+    auto isCoveredByFolder = [&](const ComponentRow& fc) -> bool {
+        if (fc.source_type != L"file") return false;
+        for (const auto& fp : depFolderPaths) {
+            const std::wstring& sp = fc.source_path;
+            if (sp.size() > fp.size() &&
+                _wcsnicmp(sp.c_str(), fp.c_str(), fp.size()) == 0 &&
+                (sp[fp.size()] == L'\\' || sp[fp.size()] == L'/'))
+                return true;
+        }
+        return false;
+    };
+
+    int row = 0;
     for (int depId : pData->outDependencyIds) {
         for (const auto& oc : pData->otherComponents) {
-            if (oc.id == depId) {
-                SendMessageW(hList, LB_ADDSTRING, 0, (LPARAM)oc.display_name.c_str());
-                break;
-            }
+            if (oc.id != depId) continue;
+            if (isCoveredByFolder(oc)) break; // hidden under its folder row
+            LVITEMW lvi = {}; lvi.mask = LVIF_TEXT | LVIF_PARAM;
+            lvi.iItem   = row; lvi.iSubItem = 0;
+            lvi.pszText = const_cast<LPWSTR>(oc.display_name.c_str());
+            lvi.lParam  = (LPARAM)depId;
+            ListView_InsertItem(hList, &lvi);
+            std::wstring typeStr = (oc.source_type == L"folder") ? lblFolder : lblFile;
+            ListView_SetItemText(hList, row, 1, const_cast<LPWSTR>(typeStr.c_str()));
+            ++row;
+            break;
         }
     }
-    // If empty show a placeholder so the listbox area is not blank
-    if (pData->outDependencyIds.empty()) {
-        SendMessageW(hList, LB_ADDSTRING, 0, (LPARAM)L"(none)");
+    if (row == 0) {
+        std::wstring noneStr = locStr(L"comp_deps_none", L"(none)");
+        LVITEMW lvi = {}; lvi.mask = LVIF_TEXT | LVIF_PARAM;
+        lvi.iItem = 0; lvi.iSubItem = 0;
+        lvi.pszText = const_cast<LPWSTR>(noneStr.c_str());
+        lvi.lParam  = 0;
+        ListView_InsertItem(hList, &lvi);
     }
 }
 
@@ -4596,15 +4691,25 @@ LRESULT CALLBACK CompFolderDepPickerDlgProc(HWND hwnd, UINT msg, WPARAM wParam, 
                 std::function<void(HTREEITEM, const std::vector<TreeNodeSnapshot>&, const std::wstring&)> addVFS;
                 addVFS = [&](HTREEITEM hParent, const std::vector<TreeNodeSnapshot>& nodes, const std::wstring& secLabel) {
                     for (const auto& snap : nodes) {
-                        // Skip the folder being edited (and its entire subtree).
-                        // Path comparison is robust after Save (pointer may be stale).
+                        // The folder being edited must not be selectable as its own
+                        // dependency, but its children (subfolders/files) must still
+                        // appear — skip just this node's insertion and recurse into
+                        // its children under the current parent.
                         if (pData->excludeNode) {
                             const std::wstring& xp = pData->excludeNode->fullPath;
+                            bool isExcluded = false;
                             if (!xp.empty()) {
                                 if (!snap.fullPath.empty() &&
                                     _wcsicmp(snap.fullPath.c_str(), xp.c_str()) == 0)
-                                    continue;
-                            } else if (&snap == pData->excludeNode) continue;
+                                    isExcluded = true;
+                            } else if (&snap == pData->excludeNode) {
+                                isExcluded = true;
+                            }
+                            if (isExcluded) {
+                                // Still recurse so children are visible and selectable.
+                                addVFS(hParent, snap.children, secLabel);
+                                continue;
+                            }
                         }
 
                         // ── Folder node ──────────────────────────────────────────────
@@ -4887,13 +4992,16 @@ LRESULT CALLBACK CompFolderDepPickerDlgProc(HWND hwnd, UINT msg, WPARAM wParam, 
                     }
                 }
 
-                // Cascade UP (check only): auto-check ancestor folders with a ComponentRow.
+                // Cascade UP (check only): auto-check every ancestor folder up to
+                // (but not including) the section root. Covers both real folder
+                // components (lParam > 0) and structural VFS folders (lParam == -2).
+                // Section roots have lParam == -1 and no visible checkbox — skip them.
                 if (checked) {
                     HTREEITEM hP = TreeView_GetParent(hTree2, hItem);
                     while (hP) {
                         TVITEMW tp = {}; tp.mask = TVIF_PARAM; tp.hItem = hP;
                         TreeView_GetItem(hTree2, &tp);
-                        if (tp.lParam > 0) {
+                        if (tp.lParam != -1) { // -1 = section root, not checkable
                             tp.mask = TVIF_STATE; tp.stateMask = TVIS_STATEIMAGEMASK;
                             tp.state = INDEXTOSTATEIMAGEMASK(2);
                             TreeView_SetItem(hTree2, &tp);
@@ -4924,6 +5032,306 @@ LRESULT CALLBACK CompFolderDepPickerDlgProc(HWND hwnd, UINT msg, WPARAM wParam, 
     case WM_CLOSE:
         DestroyWindow(hwnd); return 0;
     }
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+// ─── Dep-list popup helpers ─────────────────────────────────────────────────
+static WNDPROC s_prevDepListProc = nullptr;
+
+static const TreeNodeSnapshot* FindDepSnapNode(
+    const std::vector<TreeNodeSnapshot>& nodes, const std::wstring& srcPath)
+{
+    for (const auto& snap : nodes) {
+        if (!snap.fullPath.empty() &&
+            _wcsicmp(snap.fullPath.c_str(), srcPath.c_str()) == 0)
+            return &snap;
+        const TreeNodeSnapshot* f = FindDepSnapNode(snap.children, srcPath);
+        if (f) return f;
+    }
+    return nullptr;
+}
+
+static void PopulateDepsFileTree(
+    HWND hTree, HTREEITEM hParent, const TreeNodeSnapshot& snap)
+{
+    for (const auto& vf : snap.virtualFiles) {
+        if (vf.sourcePath.empty()) continue;
+        size_t sl = vf.sourcePath.rfind(L'\\');
+        std::wstring fname = (sl != std::wstring::npos)
+            ? vf.sourcePath.substr(sl + 1) : vf.sourcePath;
+        TVINSERTSTRUCTW tv = {};
+        tv.hParent = hParent; tv.hInsertAfter = TVI_LAST;
+        tv.item.mask = TVIF_TEXT | TVIF_IMAGE | TVIF_SELECTEDIMAGE;
+        tv.item.pszText = const_cast<LPWSTR>(fname.c_str());
+        tv.item.iImage = 1; tv.item.iSelectedImage = 1;
+        TreeView_InsertItem(hTree, &tv);
+    }
+    for (const auto& child : snap.children) {
+        TVINSERTSTRUCTW tv = {};
+        tv.hParent = hParent; tv.hInsertAfter = TVI_LAST;
+        tv.item.mask = TVIF_TEXT | TVIF_IMAGE | TVIF_SELECTEDIMAGE | TVIF_STATE;
+        tv.item.pszText = const_cast<LPWSTR>(child.text.c_str());
+        tv.item.iImage = 0; tv.item.iSelectedImage = 0;
+        tv.item.stateMask = TVIS_EXPANDED; tv.item.state = TVIS_EXPANDED;
+        HTREEITEM hC = TreeView_InsertItem(hTree, &tv);
+        if (hC) PopulateDepsFileTree(hTree, hC, child);
+    }
+}
+
+static LRESULT CALLBACK DepFilePopupProc(
+    HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    switch (msg) {
+    case WM_COMMAND:
+        if (LOWORD(wParam) == IDOK || LOWORD(wParam) == IDCANCEL) {
+            bool* pDone = (bool*)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+            if (pDone) *pDone = true;
+            DestroyWindow(hwnd); return 0;
+        }
+        break;
+    case WM_CLOSE: {
+        bool* pDone = (bool*)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+        if (pDone) *pDone = true;
+        DestroyWindow(hwnd); return 0;
+    }
+    }
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+static void ShowDepsFileListPopup(
+    HWND hwndParent, const ComponentRow& folderComp)
+{
+    const std::vector<TreeNodeSnapshot>* secs[] = {
+        &s_treeSnapshot_ProgramFiles, &s_treeSnapshot_ProgramData,
+        &s_treeSnapshot_AppData,      &s_treeSnapshot_AskAtInstall
+    };
+    const TreeNodeSnapshot* snap = nullptr;
+    for (auto* sv : secs) {
+        snap = FindDepSnapNode(*sv, folderComp.source_path);
+        if (snap) break;
+    }
+
+    HINSTANCE hInst = GetModuleHandleW(NULL);
+    WNDCLASSEXW wc = {}; wc.cbSize = sizeof(wc);
+    if (!GetClassInfoExW(hInst, L"DepFileListPopup", &wc)) {
+        wc.lpfnWndProc   = DepFilePopupProc;
+        wc.hInstance     = hInst;
+        wc.lpszClassName = L"DepFileListPopup";
+        wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+        wc.hCursor       = LoadCursor(NULL, IDC_ARROW);
+        RegisterClassExW(&wc);
+    }
+    const auto& loc = MainWindow::GetLocale();
+    auto locS = [&](const wchar_t* k, const wchar_t* fb) -> std::wstring {
+        auto it = loc.find(k); return (it != loc.end()) ? it->second : fb;
+    };
+    std::wstring title  = locS(L"comp_deps_files_popup_title", L"Files in dependency");
+    std::wstring closeT = locS(L"comp_deps_files_popup_close", L"Close");
+
+    int popW = S(340), popH = S(360);
+    RECT rcP; GetWindowRect(hwndParent, &rcP);
+    int xP = rcP.left + (rcP.right  - rcP.left  - popW) / 2;
+    int yP = rcP.top  + (rcP.bottom - rcP.top   - popH) / 2;
+    bool done = false;
+    HWND hPop = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+        L"DepFileListPopup", title.c_str(),
+        WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
+        xP, yP, popW, popH, hwndParent, NULL, hInst, NULL);
+    if (!hPop) return;
+    SetWindowLongPtrW(hPop, GWLP_USERDATA, (LONG_PTR)&done);
+
+    RECT rcC; GetClientRect(hPop, &rcC);
+    int pad  = S(8);
+    int btnH = S(28), btnW = S(90);
+    int treeH = rcC.bottom - 2*pad - btnH - pad;
+
+    HIMAGELIST hImgList = NULL;
+    {
+        int iconSz = GetSystemMetrics(SM_CXSMICON);
+        hImgList = ImageList_Create(iconSz, iconSz, ILC_COLOR32 | ILC_MASK, 2, 0);
+        if (hImgList) {
+            wchar_t sysDir[MAX_PATH];
+            GetSystemDirectoryW(sysDir, MAX_PATH);
+            std::wstring sh32 = std::wstring(sysDir) + L"\\shell32.dll";
+            HICON hIco = NULL;
+            ExtractIconExW(sh32.c_str(), 3, NULL, &hIco, 1);
+            if (hIco) { ImageList_AddIcon(hImgList, hIco); DestroyIcon(hIco); hIco = NULL; }
+            ExtractIconExW(sh32.c_str(), 2, NULL, &hIco, 1);
+            if (hIco) { ImageList_AddIcon(hImgList, hIco); DestroyIcon(hIco); }
+        }
+    }
+
+    HWND hTree = CreateWindowExW(WS_EX_CLIENTEDGE, WC_TREEVIEW, L"",
+        WS_CHILD | WS_VISIBLE | WS_VSCROLL |
+        TVS_HASLINES | TVS_HASBUTTONS | TVS_LINESATROOT | TVS_SHOWSELALWAYS,
+        pad, pad, rcC.right - 2*pad, treeH, hPop, NULL, hInst, NULL);
+    if (hTree && hImgList)
+        TreeView_SetImageList(hTree, hImgList, TVSIL_NORMAL);
+
+    if (hTree) {
+        std::wstring root = folderComp.display_name.empty()
+            ? folderComp.source_path : folderComp.display_name;
+        TVINSERTSTRUCTW tvR = {};
+        tvR.hParent = TVI_ROOT; tvR.hInsertAfter = TVI_LAST;
+        tvR.item.mask = TVIF_TEXT | TVIF_IMAGE | TVIF_SELECTEDIMAGE | TVIF_STATE;
+        tvR.item.pszText = const_cast<LPWSTR>(root.c_str());
+        tvR.item.iImage = 0; tvR.item.iSelectedImage = 0;
+        tvR.item.stateMask = TVIS_EXPANDED; tvR.item.state = TVIS_EXPANDED;
+        HTREEITEM hRoot = TreeView_InsertItem(hTree, &tvR);
+        if (hRoot && snap) PopulateDepsFileTree(hTree, hRoot, *snap);
+    }
+
+    int btnX = (rcC.right - btnW) / 2;
+    int btnY = rcC.bottom - pad - btnH;
+    HWND hCloseBtn = CreateWindowExW(0, L"BUTTON", closeT.c_str(),
+        WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+        btnX, btnY, btnW, btnH, hPop, (HMENU)IDOK, hInst, NULL);
+
+    NONCLIENTMETRICSW ncmP = {}; ncmP.cbSize = sizeof(ncmP);
+    SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncmP), &ncmP, 0);
+    if (ncmP.lfMessageFont.lfHeight < 0)
+        ncmP.lfMessageFont.lfHeight = (LONG)(ncmP.lfMessageFont.lfHeight * 1.2f);
+    ncmP.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+    HFONT hFP = CreateFontIndirectW(&ncmP.lfMessageFont);
+    if (hFP) {
+        if (hTree)     SendMessageW(hTree,     WM_SETFONT, (WPARAM)hFP, TRUE);
+        if (hCloseBtn) SendMessageW(hCloseBtn, WM_SETFONT, (WPARAM)hFP, TRUE);
+    }
+
+    MSG msgP;
+    while (!done && GetMessageW(&msgP, NULL, 0, 0) > 0) {
+        if (!IsWindow(hPop)) break;
+        TranslateMessage(&msgP); DispatchMessageW(&msgP);
+    }
+    if (hFP) DeleteObject(hFP);
+    if (hImgList) ImageList_Destroy(hImgList);
+}
+
+// ListView subclass for CompFolderEditDlgProc's dep-summary list:
+// custom hover tooltip, double-click → ShowDepsFileListPopup,
+// right-click → context menu (Remove / Show files).
+static LRESULT CALLBACK DepListSubclassProc(
+    HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    CompFolderDlgData* pData =
+        (CompFolderDlgData*)GetWindowLongPtrW(GetParent(hwnd), GWLP_USERDATA);
+    switch (msg) {
+    case WM_MOUSEMOVE: {
+        if (!GetPropW(hwnd, L"DLTrack")) {
+            TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, hwnd, 0 };
+            TrackMouseEvent(&tme);
+            SetPropW(hwnd, L"DLTrack", (HANDLE)1);
+        }
+        LVHITTESTINFO ht = {};
+        ht.pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+        int idx  = ListView_HitTest(hwnd, &ht);
+        int last = (int)(INT_PTR)GetPropW(hwnd, L"DLLast") - 1;
+        if (idx != last) {
+            HideTooltip();
+            SetPropW(hwnd, L"DLLast", (HANDLE)(INT_PTR)(idx + 1));
+            if (idx >= 0 && (ht.flags & LVHT_ONITEM) && pData) {
+                LVITEMW lvi = {}; lvi.mask = LVIF_PARAM; lvi.iItem = idx;
+                ListView_GetItem(hwnd, &lvi);
+                int depId = (int)lvi.lParam;
+                if (depId > 0) {
+                    const auto& loc = MainWindow::GetLocale();
+                    std::wstring tip;
+                    for (const auto& oc : pData->otherComponents) {
+                        if (oc.id != depId) continue;
+                        if (oc.source_type == L"folder") {
+                            auto it = loc.find(L"comp_deps_folder_dblclick");
+                            tip = (it != loc.end()) ? it->second
+                                                    : L"Double-click to see files";
+                        } else {
+                            tip = GetVirtualPathForComp(oc);
+                        }
+                        break;
+                    }
+                    if (!tip.empty()) {
+                        POINT pt = ht.pt; ClientToScreen(hwnd, &pt);
+                        std::vector<TooltipEntry> te = {{L"", tip}};
+                        ShowMultilingualTooltip(te, pt.x + S(12), pt.y + S(18),
+                                                GetParent(hwnd));
+                    }
+                }
+            }
+        }
+        break;
+    }
+    case WM_MOUSELEAVE:
+        HideTooltip();
+        RemovePropW(hwnd, L"DLTrack");
+        SetPropW(hwnd, L"DLLast", NULL);
+        break;
+    case WM_LBUTTONDBLCLK: {
+        LVHITTESTINFO ht2 = {};
+        ht2.pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+        ListView_HitTest(hwnd, &ht2);
+        if (ht2.iItem >= 0 && pData) {
+            LVITEMW lv = {}; lv.mask = LVIF_PARAM; lv.iItem = ht2.iItem;
+            ListView_GetItem(hwnd, &lv);
+            for (const auto& oc : pData->otherComponents)
+                if (oc.id == (int)lv.lParam && oc.source_type == L"folder") {
+                    ShowDepsFileListPopup(GetParent(hwnd), oc); break;
+                }
+        }
+        return 0;
+    }
+    case WM_RBUTTONUP: {
+        LVHITTESTINFO ht3 = {};
+        ht3.pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+        ListView_HitTest(hwnd, &ht3);
+        int selCount = ListView_GetSelectedCount(hwnd);
+        bool hasFolderSel = false;
+        int  firstFolderDepId = 0;
+        if (pData && selCount == 1) {
+            int s = ListView_GetNextItem(hwnd, -1, LVNI_SELECTED);
+            if (s >= 0) {
+                LVITEMW lv = {}; lv.mask = LVIF_PARAM; lv.iItem = s;
+                ListView_GetItem(hwnd, &lv);
+                for (const auto& oc : pData->otherComponents)
+                    if (oc.id == (int)lv.lParam && oc.source_type == L"folder")
+                        { hasFolderSel = true; firstFolderDepId = oc.id; break; }
+            }
+        }
+        const auto& loc  = MainWindow::GetLocale();
+        auto locSC = [&](const wchar_t* k, const wchar_t* fb) -> std::wstring {
+            auto it = loc.find(k); return (it != loc.end()) ? it->second : fb;
+        };
+        HMENU hMenu = CreatePopupMenu();
+        AppendMenuW(hMenu,
+            (selCount > 0) ? MF_STRING : (MF_STRING | MF_GRAYED),
+            IDM_DEPS_CTX_REMOVE,
+            locSC(L"comp_deps_ctx_remove", L"Remove").c_str());
+        if (hasFolderSel)
+            AppendMenuW(hMenu, MF_STRING, IDM_DEPS_CTX_SHOWFILES,
+                locSC(L"comp_deps_ctx_showfiles", L"Show files\u2026").c_str());
+        POINT ptS = ht3.pt; ClientToScreen(hwnd, &ptS);
+        int cmd = (int)TrackPopupMenu(hMenu, TPM_RIGHTBUTTON | TPM_RETURNCMD,
+            ptS.x, ptS.y, 0, GetParent(hwnd), NULL);
+        DestroyMenu(hMenu);
+        if (cmd == IDM_DEPS_CTX_REMOVE)
+            SendMessageW(GetParent(hwnd), WM_COMMAND,
+                         MAKEWPARAM(IDC_FOLDER_DLG_REMOVE_DEPS, BN_CLICKED), 0);
+        else if (cmd == IDM_DEPS_CTX_SHOWFILES && hasFolderSel && pData)
+            for (const auto& oc : pData->otherComponents)
+                if (oc.id == firstFolderDepId && oc.source_type == L"folder")
+                    { ShowDepsFileListPopup(GetParent(hwnd), oc); break; }
+        return 0;
+    }
+    case WM_NCDESTROY: {
+        HideTooltip();
+        RemovePropW(hwnd, L"DLTrack");
+        RemovePropW(hwnd, L"DLLast");
+        WNDPROC prev = s_prevDepListProc;
+        s_prevDepListProc = nullptr;
+        SetWindowLongPtrW(hwnd, GWLP_WNDPROC, (LONG_PTR)prev);
+        if (prev) return CallWindowProcW(prev, hwnd, msg, wParam, lParam);
+        return 0;
+    }
+    }
+    if (s_prevDepListProc)
+        return CallWindowProcW(s_prevDepListProc, hwnd, msg, wParam, lParam);
     return DefWindowProcW(hwnd, msg, wParam, lParam);
 }
 
@@ -4978,26 +5386,67 @@ LRESULT CALLBACK CompFolderEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
             S(CFE_PAD_H), y, contW, hintH, hwnd, NULL, hInst, NULL);
         y += hintH + S(CFE_GAP_CD);
 
-        // Dependencies section: label (left) + "Choose..." button (right)
-        int depLabelW  = S(160);
-        int chooseBtnW = S(110);
-        std::wstring depsLbl = pData->depsLabel.empty() ? L"Dependencies:" : pData->depsLabel;
-        std::wstring chooseT = pData->chooseDepsText.empty() ? L"Choose..." : pData->chooseDepsText;
-        CreateWindowExW(0, L"STATIC", depsLbl.c_str(),
-            WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
-            S(CFE_PAD_H), y, depLabelW, S(CFE_DEPS_ROW_H), hwnd, NULL, hInst, NULL);
-        CreateWindowExW(0, L"BUTTON", chooseT.c_str(),
-            WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-            S(CFE_PAD_H) + contW - chooseBtnW, y, chooseBtnW, S(CFE_DEPS_ROW_H),
-            hwnd, (HMENU)IDC_FOLDER_DLG_CHOOSE_DEPS, hInst, NULL);
+        // Dependencies section: label only (Choose + Remove buttons are below the list)
+        {
+            std::wstring depsLbl = pData->depsLabel.empty() ? L"Dependencies:" : pData->depsLabel;
+            CreateWindowExW(0, L"STATIC", depsLbl.c_str(),
+                WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
+                S(CFE_PAD_H), y, contW, S(CFE_DEPS_ROW_H), hwnd, NULL, hInst, NULL);
+        }
         y += S(CFE_DEPS_ROW_H) + S(CFE_GAP_LD);
 
-        // Deps display listbox (read-only, no selection highlight)
-        CreateWindowExW(WS_EX_CLIENTEDGE, L"LISTBOX", L"",
-            WS_CHILD | WS_VISIBLE | WS_VSCROLL | LBS_NOSEL | LBS_NOINTEGRALHEIGHT,
-            S(CFE_PAD_H), y, contW, S(CFE_DEPLIST_H),
-            hwnd, (HMENU)IDC_FOLDER_DLG_DEPS_LIST, hInst, NULL);
-        y += S(CFE_DEPLIST_H) + S(CFE_GAP_DN);
+        // Deps display list view — 2 columns: Name | Type
+        // Multiselect; tooltip/double-click/context-menu via DepListSubclassProc.
+        {
+            HWND hDL = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEW, L"",
+                WS_CHILD | WS_VISIBLE | WS_VSCROLL |
+                LVS_REPORT | LVS_NOSORTHEADER | LVS_SHOWSELALWAYS,
+                S(CFE_PAD_H), y, contW, S(CFE_DEPLIST_H),
+                hwnd, (HMENU)IDC_FOLDER_DLG_DEPS_LIST, hInst, NULL);
+            if (hDL) {
+                ListView_SetExtendedListViewStyle(hDL, LVS_EX_FULLROWSELECT);
+                const auto& locC = MainWindow::GetLocale();
+                LVCOLUMNW col = {}; col.mask = LVCF_TEXT | LVCF_WIDTH | LVCF_FMT;
+                col.fmt = LVCFMT_LEFT;
+                auto itN = locC.find(L"comp_deps_col_name");
+                std::wstring cnN = (itN != locC.end()) ? itN->second : L"Name";
+                col.cx      = (contW * 3) / 4;
+                col.pszText = const_cast<LPWSTR>(cnN.c_str());
+                ListView_InsertColumn(hDL, 0, &col);
+                auto itT = locC.find(L"comp_deps_col_type");
+                std::wstring cnT = (itT != locC.end()) ? itT->second : L"Type";
+                col.cx      = contW - (contW * 3) / 4;
+                col.pszText = const_cast<LPWSTR>(cnT.c_str());
+                ListView_InsertColumn(hDL, 1, &col);
+                // Subclass for tooltip, double-click, and context menu.
+                s_prevDepListProc = (WNDPROC)SetWindowLongPtrW(
+                    hDL, GWLP_WNDPROC, (LONG_PTR)DepListSubclassProc);
+            }
+        }
+        y += S(CFE_DEPLIST_H) + S(CFE_GAP_LB);
+
+        // Dep action buttons — right-aligned below list: [Remove] [Choose…]
+        {
+            const auto& locB = MainWindow::GetLocale();
+            auto locSB = [&](const wchar_t* k, const wchar_t* fb) -> std::wstring {
+                auto it = locB.find(k); return (it != locB.end()) ? it->second : fb;
+            };
+            int cW2 = S(120), rW = S(100), btnGap = S(6);
+            int cX  = S(CFE_PAD_H) + contW - cW2;
+            int rX  = cX - btnGap - rW;
+            std::wstring chooseT = pData->chooseDepsText.empty()
+                ? locSB(L"comp_choose_deps", L"Choose\u2026") : pData->chooseDepsText;
+            std::wstring removeT = locSB(L"comp_deps_remove", L"Remove");
+            CreateCustomButtonWithIcon(hwnd, IDC_FOLDER_DLG_CHOOSE_DEPS, chooseT,
+                ButtonColor::Blue, L"shell32.dll", 87,
+                cX, y, cW2, S(CFE_DEP_BTNS_ROW_H), hInst);
+            HWND hRemBtn = CreateCustomButtonWithIcon(
+                hwnd, IDC_FOLDER_DLG_REMOVE_DEPS, removeT,
+                ButtonColor::Red, L"shell32.dll", 131,
+                rX, y, rW, S(CFE_DEP_BTNS_ROW_H), hInst);
+            EnableWindow(hRemBtn, FALSE); // enabled by LVN_ITEMCHANGED
+        }
+        y += S(CFE_DEP_BTNS_ROW_H) + S(CFE_GAP_DN);
 
         // Notes button — full width, opens rich-text notes editor
         HWND hNotesBtn = CreateWindowExW(0, L"BUTTON", L"Notes / Description...",
@@ -5078,10 +5527,52 @@ LRESULT CALLBACK CompFolderEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
                 pData->outNotesRtf = nd.outRtf;
             return 0;
         }
+        if (wmId == IDC_FOLDER_DLG_REMOVE_DEPS) {
+            // Remove selected dep IDs; cascade-remove covered file deps too.
+            HWND hLV = GetDlgItem(hwnd, IDC_FOLDER_DLG_DEPS_LIST);
+            if (hLV && pData) {
+                std::vector<int> removeIds;
+                int sel = -1;
+                while ((sel = ListView_GetNextItem(hLV, sel, LVNI_SELECTED)) >= 0) {
+                    LVITEMW lv2 = {}; lv2.mask = LVIF_PARAM; lv2.iItem = sel;
+                    ListView_GetItem(hLV, &lv2);
+                    if ((int)lv2.lParam > 0) removeIds.push_back((int)lv2.lParam);
+                }
+                // For each folder being removed, also collect its covered file deps.
+                for (int rid : removeIds) {
+                    for (const auto& oc : pData->otherComponents) {
+                        if (oc.id != rid || oc.source_type != L"folder") continue;
+                        const std::wstring& fp = oc.source_path;
+                        for (int d : pData->outDependencyIds) {
+                            if (std::find(removeIds.begin(), removeIds.end(), d)
+                                    != removeIds.end()) continue;
+                            for (const auto& fc : pData->otherComponents) {
+                                if (fc.id != d || fc.source_type != L"file") continue;
+                                const std::wstring& sp = fc.source_path;
+                                if (!fp.empty() && sp.size() > fp.size() &&
+                                    _wcsnicmp(sp.c_str(), fp.c_str(), fp.size()) == 0 &&
+                                    (sp[fp.size()] == L'\\' || sp[fp.size()] == L'/'))
+                                    removeIds.push_back(d);
+                                break;
+                            }
+                        }
+                        break;
+                    }
+                }
+                std::vector<int> newDeps;
+                for (int d : pData->outDependencyIds)
+                    if (std::find(removeIds.begin(), removeIds.end(), d) == removeIds.end())
+                        newDeps.push_back(d);
+                pData->outDependencyIds = std::move(newDeps);
+                RefreshFolderDepsListbox(hwnd, pData);
+            }
+            return 0;
+        }
         if (wmId == IDC_FOLDER_DLG_CHOOSE_DEPS) {
             // If any component has id==0 it has never been saved and has no stable DB id.
             // Dependencies stored against id=0 would be lost during the Save ID-remap.
-            // Ask the user to save first; if they agree, save immediately then continue.
+            // Ask the user to save first; if they agree, save immediately then open the
+            // picker in the same gesture (no need to press "Choose" a second time).
             {
                 bool anyUnsaved = false;
                 for (const auto& c : pData->otherComponents)
@@ -5101,11 +5592,8 @@ LRESULT CALLBACK CompFolderEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
                     // Save via the main window (parent of this dialog).
                     HWND hMain = GetParent(hwnd);
                     SendMessageW(hMain, WM_COMMAND, MAKEWPARAM(IDM_FILE_SAVE, 0), 0);
-                    // Refresh otherComponents from the now-saved s_components so ids are valid.
-                    // The caller already filtered out the current folder, so we re-populate here.
-                    // For simplicity: tell caller to re-open; the user can press Choose again.
                     // Rebuild otherComponents from the freshly-saved s_components so that
-                    // all IDs are now valid and Choose will work immediately.
+                    // all IDs are now valid and the picker opens immediately below.
                     {
                         const std::wstring& exPath =
                             pData->excludeNode ? pData->excludeNode->fullPath : L"";
@@ -5122,7 +5610,11 @@ LRESULT CALLBACK CompFolderEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
                             pData->otherComponents.push_back(oc);
                         }
                     }
-                    return 0;
+                    // IDs were remapped during save — any prior outDependencyIds are stale.
+                    // Clear them so the picker opens with a clean slate.
+                    pData->outDependencyIds.clear();
+                    RefreshFolderDepsListbox(hwnd, pData);
+                    // Fall through to open the dep picker immediately.
                 }
             }
             // Open the dep picker popup
@@ -5168,11 +5660,25 @@ LRESULT CALLBACK CompFolderEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
         }
         break;
     }
+    case WM_NOTIFY: {
+        NMHDR* pnm2 = (NMHDR*)lParam;
+        // Enable/disable the Remove button as selection changes.
+        if (pnm2->idFrom == IDC_FOLDER_DLG_DEPS_LIST &&
+            pnm2->code   == LVN_ITEMCHANGED) {
+            HWND hLV2 = GetDlgItem(hwnd, IDC_FOLDER_DLG_DEPS_LIST);
+            HWND hRem = GetDlgItem(hwnd, IDC_FOLDER_DLG_REMOVE_DEPS);
+            if (hLV2 && hRem)
+                EnableWindow(hRem, (ListView_GetSelectedCount(hLV2) > 0) ? TRUE : FALSE);
+        }
+        break;
+    }
     case WM_DRAWITEM: {
         LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
         // Let custom checkbox handle its own drawing first
         if (DrawCustomCheckbox(dis)) return TRUE;
-        if (dis->CtlID == IDC_COMPDLG_OK || dis->CtlID == IDC_COMPDLG_CANCEL) {
+        if (dis->CtlID == IDC_COMPDLG_OK     || dis->CtlID == IDC_COMPDLG_CANCEL ||
+            dis->CtlID == IDC_FOLDER_DLG_CHOOSE_DEPS ||
+            dis->CtlID == IDC_FOLDER_DLG_REMOVE_DEPS) {
             ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
             NONCLIENTMETRICSW ncm = {}; ncm.cbSize = sizeof(ncm);
             SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
@@ -8253,9 +8759,10 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                     if (cmp.source_path != snap->fullPath) continue;
                     if (cmp.source_type  != L"folder")     continue;
                     if (!cmp.dest_path.empty() && cmp.dest_path != section) continue;
-                    fd.initDependencyIds = cmp.dependencies.empty() && cmp.id > 0
-                        ? DB::GetDependenciesForComponent(cmp.id)
-                        : cmp.dependencies;
+                    // Always use in-memory deps — they are loaded from DB at project
+                    // open and kept in sync. Never fall back to DB here, as that
+                    // would discard in-memory edits the user just made.
+                    fd.initDependencyIds = cmp.dependencies;
                     fd.initNotesRtf = cmp.notes_rtf;
                     break;
                 }
@@ -8296,7 +8803,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                          + S(CFE_CHECK_H)+S(CFE_GAP_RC)
                          + fd.hintH+S(CFE_GAP_CD)
                          + S(CFE_DEPS_ROW_H)+S(CFE_GAP_LD)
-                         + S(CFE_DEPLIST_H)+S(CFE_GAP_DN)
+                         + S(CFE_DEPLIST_H)+S(CFE_GAP_LB)
+                         + S(CFE_DEP_BTNS_ROW_H)+S(CFE_GAP_DN)
                          + S(CFE_NOTES_BTN_H)+S(CFE_GAP_NB2)
                          + S(CFE_BTN_H)+S(CFE_PAD_B);
             RECT wrc3 = {0,0,clientW3,clientH3};

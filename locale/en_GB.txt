@@ -204,6 +204,17 @@ comp_select_deps_title=Select Dependencies
 comp_deps_unsaved_title=Save First
 comp_deps_unsaved_msg=The project has not been saved yet. Components need a permanent ID before dependencies can be assigned. Save now and continue?
 comp_deps_saved_reopen=Project saved. Please press Choose again to select dependencies.
+comp_deps_col_name=Name
+comp_deps_col_type=Type
+comp_type_folder=Folder
+comp_type_file=File
+comp_deps_none=(none)
+comp_deps_remove=Remove
+comp_deps_folder_dblclick=Double-click to see files
+comp_deps_ctx_remove=Remove
+comp_deps_ctx_showfiles=Show files…
+comp_deps_files_popup_title=Files in dependency
+comp_deps_files_popup_close=Close
 comp_info_icon_label=FYI!
 comp_info_tooltip=Files and folders will not appear in the dependency picker until the project has been saved at least once.
 

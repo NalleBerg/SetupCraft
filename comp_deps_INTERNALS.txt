@@ -1,0 +1,232 @@
+================================================================================
+  SetupCraft — Component Dependencies Internals
+================================================================================
+
+  Describes the dependency-summary panel inside CompFolderEditDlgProc (the
+  edit dialog for a Components-page folder component), and all helpers that
+  drive it.  Source file: mainwindow.cpp.
+
+================================================================================
+1. OVERVIEW
+================================================================================
+
+  Each folder or file component can declare other components as dependencies.
+  The IDs are stored in ComponentRow::dependencies (vector<int>).  When the
+  user opens the edit dialog for a folder component, the bottom section of the
+  dialog shows a summary ListView of the current dependencies.
+
+  Buttons below the list:
+    Remove  — remove selected row(s); cascade-removes covered file deps.
+    Choose  — opens CompFolderDepPickerDlgProc (the dep-picker tree).
+
+  The panel supports:
+    • Multiselect (Shift/Ctrl click)
+    • Hover tooltip — virtual path for files; "Double-click to see files"
+      for folder deps.
+    • Double-click — opens ShowDepsFileListPopup for folder dep rows.
+    • Right-click context menu — Remove / Show files…
+
+================================================================================
+2. LAYOUT CONSTANTS  (all values are logical pixels, scaled via S())
+================================================================================
+
+  CFE_DEPLIST_H      = 130   ListView height (header + ~5 visible rows)
+  CFE_DEP_BTNS_ROW_H = 34    Height of the Remove + Choose button row below the list
+  CFE_GAP_LB         = 6     Gap between list bottom and button row top
+
+  Both buttons are right-aligned inside the button row and sized at
+  CFE_BTN_W × CFE_DEP_BTNS_ROW_H - S(4).  Remove sits to the left of Choose.
+
+================================================================================
+3. CONTROL IDs
+================================================================================
+
+  IDC_FOLDER_DLG_DEPS_LABEL    = 326   Static label ("Dependencies:")
+  IDC_FOLDER_DLG_CHOOSE_DEPS   = 315   Choose button  (shell32.dll icon index 87)
+  IDC_FOLDER_DLG_REMOVE_DEPS   = 327   Remove button  (shell32.dll icon index 131)
+
+  Context-menu command IDs:
+  IDM_DEPS_CTX_REMOVE    = 6210
+  IDM_DEPS_CTX_SHOWFILES = 6211
+
+================================================================================
+4. LISTVIEW: two columns
+================================================================================
+
+  Column 0 — "Name"  (locale key: comp_deps_col_name)
+             Displays ComponentRow::display_name (or source_path fallback).
+             lParam = ComponentRow::id  (used for all hit-test logic).
+
+  Column 1 — "Type"  (locale key: comp_deps_col_type)
+             "Folder" (comp_type_folder) or "File" (comp_type_file).
+
+  Styles: WS_CHILD | WS_VISIBLE | WS_BORDER | LVS_REPORT | LVS_SHOWSELALWAYS
+  Extended: LVS_EX_FULLROWSELECT
+  No LVS_SINGLESEL — multiselect is intentional.
+
+  When there are no deps, a single row with lParam=0 is inserted showing the
+  locale string comp_deps_none ("(none)").
+
+================================================================================
+5. FOLDER-COVERAGE FILTER  (RefreshFolderDepsListbox)
+================================================================================
+
+  If dep A is a folder component and dep B is a file whose source_path begins
+  with dep A's source_path, then B is "covered" by A.  Covered file deps are
+  silently omitted from the list (they are still stored internally).
+
+  The filter uses a two-pass lambda:
+    isCoveredByFolder(fileComp) — returns true if any other dep in
+    outDependencyIds is a folder whose source_path is a prefix of
+    fileComp.source_path.
+
+================================================================================
+6. DepListSubclassProc
+================================================================================
+
+  Installed in WM_CREATE via:
+    s_prevDepListProc = (WNDPROC)SetWindowLongPtrW(
+        hDL, GWLP_WNDPROC, (LONG_PTR)DepListSubclassProc);
+
+  Restored and cleaned up in WM_NCDESTROY.
+
+  Message handling:
+
+  WM_MOUSEMOVE
+    Uses TRACKMOUSEEVENT (TME_LEAVE) — stored as window property "DLTrack".
+    Tracks last hovered row as "DLLast" (index+1 so 0 means none).
+    On row change: hides previous tooltip; for the new row calls
+    ShowMultilingualTooltip with a single TooltipEntry {L"", tip}.
+      • Folder dep → tip = comp_deps_folder_dblclick locale string.
+      • File dep   → tip = GetVirtualPathForComp(oc) full virtual path.
+
+  WM_MOUSELEAVE
+    Calls HideTooltip(), clears "DLTrack" and "DLLast" properties.
+
+  WM_LBUTTONDBLCLK
+    Hit-tests the click position; if a folder dep row is hit, calls
+    ShowDepsFileListPopup(GetParent(hwnd), folderComp).
+
+  WM_RBUTTONUP
+    Builds a HMENU popup:
+      Always: "Remove"    (grayed if nothing selected)
+      If single folder row selected: "Show files…"
+    Calls TrackPopupMenu(TPM_RETURNCMD).
+    Remove  → SendMessage(parent, WM_COMMAND, IDC_FOLDER_DLG_REMOVE_DEPS, …)
+    Show    → ShowDepsFileListPopup(parent, folderComp)
+
+  WM_NCDESTROY
+    Calls HideTooltip(), removes properties, restores s_prevDepListProc via
+    SetWindowLongPtrW, then forwards to the previous proc.
+
+================================================================================
+7. ShowDepsFileListPopup
+================================================================================
+
+  Blocking popup (has its own message loop) displayed centred on hwndParent.
+  Size: S(340) × S(360).  Window class: "DepFileListPopup" (registered once).
+
+  Contents:
+    • WC_TREEVIEW (TVS_HASLINES | TVS_HASBUTTONS | TVS_LINESATROOT)
+      ImageList with two icons extracted from shell32.dll (index 3 = folder,
+      index 2 = document).
+    • Close button (IDOK) centred at the bottom.
+
+  Tree population (PopulateDepsFileTree):
+    Recursively walks a TreeNodeSnapshot rooted at the selected folder dep.
+    The snapshot root is found by FindDepSnapNode which searches the four
+    global VFS snapshots (s_treeSnapshot_ProgramFiles, _ProgramData,
+    _AppData, _AskAtInstall) by source_path (case-insensitive).
+
+  Proc: DepFilePopupProc — handles IDOK / IDCANCEL / WM_CLOSE by setting
+  a local `done` flag and calling DestroyWindow; DefWindowProcW for all else.
+
+================================================================================
+8. WM_COMMAND — Remove handler (IDC_FOLDER_DLG_REMOVE_DEPS)
+================================================================================
+
+  1. Walk all selected ListView rows, collect lParam values (dep IDs).
+  2. For each dep ID that is a folder, also collect file dep IDs that are
+     covered by it (source_path prefix match) — cascade-remove.
+  3. Erase all collected IDs from outDependencyIds.
+  4. Call RefreshFolderDepsListbox to rebuild the list.
+  5. Disable the Remove button (no selection after rebuild).
+
+================================================================================
+9. LOCALE KEYS
+================================================================================
+
+  comp_deps_col_name           Column header: "Name"
+  comp_deps_col_type           Column header: "Type"
+  comp_type_folder             Type cell for folder dep: "Folder"
+  comp_type_file               Type cell for file dep: "File"
+  comp_deps_none               Placeholder row when list is empty: "(none)"
+  comp_deps_remove             Remove button label: "Remove"
+  comp_deps_folder_dblclick    Tooltip on folder row: "Double-click to see files"
+  comp_deps_ctx_remove         Context menu item: "Remove"
+  comp_deps_ctx_showfiles      Context menu item: "Show files…"
+  comp_deps_files_popup_title  File popup window title: "Files in dependency"
+  comp_deps_files_popup_close  File popup close button: "Close"
+
+================================================================================
+10. HELPER FUNCTION REFERENCE
+================================================================================
+
+  static WNDPROC s_prevDepListProc
+    Stores previous WNDPROC before subclassing the dep ListView.
+
+  static const TreeNodeSnapshot* FindDepSnapNode(
+      const std::vector<TreeNodeSnapshot>& nodes, const std::wstring& srcPath)
+    Recursively finds the snapshot node with fullPath == srcPath
+    (case-insensitive).  Returns nullptr if not found.
+
+  static void PopulateDepsFileTree(
+      HWND hTree, HTREEITEM hParent, const TreeNodeSnapshot& snap)
+    Recursively adds file and child-folder nodes under hParent.
+    Files → leaf nodes (icon index 1), child folders → expanded branch nodes
+    (icon index 0).
+
+  static LRESULT CALLBACK DepFilePopupProc(HWND, UINT, WPARAM, LPARAM)
+    Minimal proc for the "DepFileListPopup" window class.
+
+  static void ShowDepsFileListPopup(HWND hwndParent,
+      const ComponentRow& folderComp)
+    Creates and runs the blocking file-tree popup (see §7).
+
+  static LRESULT CALLBACK DepListSubclassProc(HWND, UINT, WPARAM, LPARAM)
+    ListView subclass proc (see §6).
+
+  static std::wstring GetVirtualPathForComp(const ComponentRow& comp)
+    Searches all four VFS snapshots for the component's virtual path.
+    Returns the full virtual path string (e.g. "[ProgramFiles]\App\file.dll")
+    or comp.source_path if no snapshot match is found.
+
+================================================================================
+11. KNOWN ISSUE — FOLDER DEP PERSISTENCE (as of v2026.03.16.11)
+================================================================================
+
+  SYMPTOM:
+    Folder dependencies added via the picker appear in the dep list
+    immediately, but are gone when the folder-edit dialog is closed and
+    reopened.
+
+  ROOT CAUSE:
+    CollectAllFiles (IDC_COMP_ENABLE auto-populate) creates only
+    source_type="file" ComponentRows.  The dep picker's addVFS lambda
+    searches for source_type="folder" rows — finding none, it assigns
+    lp = -2 to every folder tree node.  The picker OK handler only
+    writes items with lp > 0 to outDeps.  Folder nodes with lp == -2
+    are silently dropped, so outDeps is empty and nothing is persisted.
+
+  FIX PLAN (see here.txt for full code):
+    1. Add std::map<HTREEITEM, const TreeNodeSnapshot*> folderSnapMap
+       to CompFolderDepPickerData.
+    2. Populate it in addVFS for every inserted folder node.
+    3. In the picker OK handler, for checked nodes with lp == -2:
+       look up the snap, auto-create a folder-type ComponentRow in
+       s_components via DB::InsertComponent, and push the new ID to
+       outDeps.
+    4. After picker closes, rebuild pData->otherComponents from
+       s_components so the new folder-type comp appears in the listbox.
+
+================================================================================

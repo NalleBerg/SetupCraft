@@ -1,0 +1,293 @@
+================================================================================
+  SetupCraft — Button + Right-Click Combo Pattern Internals
+================================================================================
+
+  This file documents the recurring pattern used whenever a panel has both
+  explicit action buttons AND a right-click context menu on the same control.
+  The canonical implementation is the dependency-summary panel inside
+  CompFolderEditDlgProc (see also comp_deps_INTERNALS.txt).
+
+  Source file: mainwindow.cpp
+
+================================================================================
+1. WHEN TO USE THIS PATTERN
+================================================================================
+
+  Use this pattern whenever you need a ListView (or similar control) that:
+
+    1. Has one or more explicit buttons below (or beside) it for common actions.
+    2. Also exposes the same actions — and potentially more — via right-click.
+    3. Has context-sensitive items (e.g. "Show files" only if a folder is
+       selected) that are too rare to deserve a dedicated button.
+    4. Requires hover tooltips that differ per-row (custom text, not LVS_EX_INFOTIP).
+
+  The combo keeps the UI clean: trivial actions live on always-visible buttons;
+  power-user access to the same actions (plus extras) lives in a right-click menu.
+
+================================================================================
+2. ANATOMY OF THE COMBO
+================================================================================
+
+  ┌─────────────────────────────────────────────────────────┐
+  │  ListView (multi-select, WC_LISTVIEW + LVS_REPORT)      │
+  │  Subclassed: tooltip, dblclick, WM_RBUTTONUP → menu     │
+  └────────────────────────────────────┬────────────────────┘
+                                       │
+                          ┌────────────▼────────────────────┐
+                          │  [Remove]    [Choose…]          │
+                          │  Red btn     Blue btn            │
+                          │  (disabled   (always             │
+                          │  when empty) enabled)            │
+                          └────────────────────────────────┘
+
+  Right-click menu on the ListView:
+    Remove      ← calls same handler as the Remove button
+    Show files… ← only when a single folder-type row is selected
+
+================================================================================
+3. LISTVIEW CREATION
+================================================================================
+
+  Styles:
+    WS_CHILD | WS_VISIBLE | WS_VSCROLL
+    LVS_REPORT | LVS_NOSORTHEADER | LVS_SHOWSELALWAYS
+    (no LVS_SINGLESEL — multiselect is intentional)
+
+  Extended style (via `ListView_SetExtendedListViewStyle`):
+    LVS_EX_FULLROWSELECT only — no LVS_EX_INFOTIP (tooltip is done in subclass).
+
+  Column widths: name column takes ¾ of the control width; type column takes ¼.
+  lParam per row = ComponentRow::id (used by all hit-test and handler code).
+  An empty list → single placeholder row with lParam = 0.
+
+================================================================================
+4. BUTTON CREATION
+================================================================================
+
+  Both buttons are created with CreateCustomButtonWithIcon and are
+  right-aligned within the dialog's content area.
+
+  Remove button (destructive):
+    id       = IDC_FOLDER_DLG_REMOVE_DEPS  (327)
+    color    = ButtonColor::Red
+    icon     = shell32.dll, index 131  (red × / remove)
+    width    = S(100) — narrower, right-of-centre
+    Starts   = disabled (EnableWindow(hRemBtn, FALSE))
+
+  Choose button (neutral action):
+    id       = IDC_FOLDER_DLG_CHOOSE_DEPS  (322)
+    color    = ButtonColor::Blue
+    icon     = shell32.dll, index 87   (magnifier / search)
+    width    = S(120) — slightly wider, rightmost
+    Starts   = always enabled
+
+  Layout (right-aligned, computed inside WM_CREATE):
+    int cW2    = S(120);           // Choose width
+    int rW     = S(100);           // Remove width
+    int btnGap = S(6);             // gap between the two buttons
+    int cX     = S(CFE_PAD_H) + contW - cW2;   // Choose x
+    int rX     = cX - btnGap - rW;              // Remove x (left of Choose)
+
+  WM_DRAWITEM guard: the parent's WM_DRAWITEM must include both IDs:
+    case WM_DRAWITEM:
+        if (dis->CtlID == IDC_COMPDLG_OK      || dis->CtlID == IDC_COMPDLG_CANCEL ||
+            dis->CtlID == IDC_FOLDER_DLG_CHOOSE_DEPS ||
+            dis->CtlID == IDC_FOLDER_DLG_REMOVE_DEPS) {
+            ButtonColor col = (ButtonColor)GetWindowLongPtrW(dis->hwndItem, GWLP_USERDATA);
+            DrawCustomButton(dis, col, s_hFontUI);
+            return TRUE;
+        }
+
+================================================================================
+5. ENABLING / DISABLING THE REMOVE BUTTON
+================================================================================
+
+  The Remove button starts disabled.  It is enabled and disabled reactively
+  via LVN_ITEMCHANGED in WM_NOTIFY:
+
+    case WM_NOTIFY: {
+        NMHDR* nm = (NMHDR*)lParam;
+        if (nm->idFrom == IDC_FOLDER_DLG_DEPS_LIST &&
+            nm->code   == LVN_ITEMCHANGED) {
+            HWND hRem = GetDlgItem(hwnd, IDC_FOLDER_DLG_REMOVE_DEPS);
+            bool hasSel = ListView_GetSelectedCount(
+                              GetDlgItem(hwnd, IDC_FOLDER_DLG_DEPS_LIST)) > 0;
+            EnableWindow(hRem, hasSel);
+        }
+        break;
+    }
+
+  The right-click menu mirrors this: the Remove item is added with MF_GRAYED
+  when selCount == 0, so keyboard users see the same disabled state.
+
+================================================================================
+6. SUBCLASS PROC WIRING
+================================================================================
+
+  A static WNDPROC variable holds the original proc:
+    static WNDPROC s_prevDepListProc = nullptr;
+
+  Installed in WM_CREATE after the ListView is created:
+    s_prevDepListProc = (WNDPROC)SetWindowLongPtrW(
+        hDL, GWLP_WNDPROC, (LONG_PTR)DepListSubclassProc);
+
+  NOTE: SetWindowLongPtrW is used rather than the safer SetWindowSubclass
+  (commctrl SetWindowSubclass is not used anywhere in SetupCraft at present;
+  keep this consistent).
+
+  Restored and cleaned up in WM_NCDESTROY:
+    WNDPROC prev = s_prevDepListProc;
+    s_prevDepListProc = nullptr;
+    SetWindowLongPtrW(hwnd, GWLP_WNDPROC, (LONG_PTR)prev);
+    if (prev) return CallWindowProcW(prev, hwnd, msg, wParam, lParam);
+    return 0;
+
+  All unhandled messages are forwarded:
+    if (s_prevDepListProc)
+        return CallWindowProcW(s_prevDepListProc, hwnd, msg, wParam, lParam);
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
+
+================================================================================
+7. SUBCLASS PROC — RIGHT-CLICK MENU (WM_RBUTTONUP)
+================================================================================
+
+  1. Hit-test to get mouse position (even though the menu is built from the
+     selection state, not the hovered row).
+
+  2. Collect selection state:
+       int selCount = ListView_GetSelectedCount(hwnd);
+       // Check if the single selected item is a folder-type component:
+       bool hasFolderSel = false;
+       int  firstFolderDepId = 0;
+       if (pData && selCount == 1) { ... LVIF_PARAM lookup ... }
+
+  3. Build HMENU:
+       HMENU hMenu = CreatePopupMenu();
+       AppendMenuW(hMenu,
+           (selCount > 0) ? MF_STRING : (MF_STRING | MF_GRAYED),
+           IDM_DEPS_CTX_REMOVE,
+           locSC(L"comp_deps_ctx_remove", L"Remove").c_str());
+       if (hasFolderSel)
+           AppendMenuW(hMenu, MF_STRING, IDM_DEPS_CTX_SHOWFILES,
+               locSC(L"comp_deps_ctx_showfiles", L"Show files\u2026").c_str());
+
+  4. Show and get result:
+       POINT ptS = ht3.pt; ClientToScreen(hwnd, &ptS);
+       int cmd = (int)TrackPopupMenu(hMenu,
+           TPM_RIGHTBUTTON | TPM_RETURNCMD,
+           ptS.x, ptS.y, 0, GetParent(hwnd), NULL);
+       DestroyMenu(hMenu);
+
+     TPM_RETURNCMD is essential — without it TrackPopupMenu posts a WM_COMMAND
+     to the parent rather than returning the selected command ID.  Using
+     TPM_RETURNCMD avoids re-entrancy issues and keeps dispatch explicit.
+
+  5. Dispatch:
+       if (cmd == IDM_DEPS_CTX_REMOVE)
+           SendMessageW(GetParent(hwnd), WM_COMMAND,
+                        MAKEWPARAM(IDC_FOLDER_DLG_REMOVE_DEPS, BN_CLICKED), 0);
+       else if (cmd == IDM_DEPS_CTX_SHOWFILES && hasFolderSel && pData)
+           for (const auto& oc : pData->otherComponents)
+               if (oc.id == firstFolderDepId && oc.source_type == L"folder")
+                   { ShowDepsFileListPopup(GetParent(hwnd), oc); break; }
+
+     KEY DESIGN RULE: the context menu does NOT duplicate the Remove logic
+     inline.  It sends a WM_COMMAND to the parent as if the Remove button had
+     been clicked.  This means the parent's WM_COMMAND Remove handler is the
+     single source of truth for the removal + cascade + refresh logic.
+
+================================================================================
+8. REMOVE HANDLER (WM_COMMAND — IDC_FOLDER_DLG_REMOVE_DEPS)
+================================================================================
+
+  Triggered by:
+    • The Remove button click
+    • The right-click menu item (via SendMessage from subclass proc)
+
+  Algorithm:
+    1. Enumerate all selected rows with ListView_GetNextItem(hwnd, i, LVNI_SELECTED),
+       collect their lParam values (dep component IDs) into `toRemove`.
+    2. For each folder dep ID in `toRemove`, scan outDependencyIds for file
+       dep IDs whose source_path starts with that folder's source_path
+       (cascade-remove of covered file deps).
+    3. Erase all IDs in `toRemove` from outDependencyIds.
+    4. Call RefreshFolderDepsListbox(hwnd, …) to rebuild the ListView.
+    5. Disable the Remove button (list may now be empty).
+
+================================================================================
+9. TOOLTIP INTEGRATION
+================================================================================
+
+  The combo uses the project's custom tooltip system (see tooltip_API.txt)
+  rather than LVS_EX_INFOTIP (which is not i18n-friendly and cannot show
+  variable content per-row).
+
+  Hover tooltip (WM_MOUSEMOVE in subclass proc):
+    • TME_LEAVE tracking stored as window property "DLTrack".
+    • Last hovered row index stored as "DLLast" (value = index+1, so 0 = none).
+    • On each new row: HideTooltip(), then ShowMultilingualTooltip with a
+      single TooltipEntry {L"", tip} where tip is:
+        Folder row → locale string comp_deps_folder_dblclick
+        File row   → GetVirtualPathForComp(oc)  (full virtual path)
+
+  WM_MOUSELEAVE:
+    HideTooltip(); RemovePropW "DLTrack"; SetPropW "DLLast" = NULL.
+
+  The tooltip is positioned just below and to the right of the cursor:
+    POINT pt = ht.pt; ClientToScreen(hwnd, &pt);
+    ShowMultilingualTooltip(te, pt.x + S(12), pt.y + S(18), GetParent(hwnd));
+
+================================================================================
+10. LOCALE KEYS FOR THIS PATTERN
+================================================================================
+
+  comp_deps_ctx_remove       Context menu: "Remove"
+  comp_deps_ctx_showfiles    Context menu: "Show files…"
+  comp_deps_remove           Remove button label: "Remove"
+  comp_choose_deps           Choose button label: "Choose…"
+
+  (Row-content and tooltip keys are documented in comp_deps_INTERNALS.txt §9.)
+
+================================================================================
+11. HOW TO REPLICATE THIS PATTERN IN A NEW DIALOG
+================================================================================
+
+  1. Define control IDs:
+       #define IDC_MY_LIST        <next available>
+       #define IDC_MY_REMOVE_BTN  <next available>
+       #define IDC_MY_ACTION_BTN  <next available>
+       #define IDM_MY_CTX_REMOVE  <next available, 6xxx block>
+       #define IDM_MY_CTX_EXTRA   <next available, 6xxx block>
+
+  2. Declare a static subclass proc variable near the other helpers:
+       static WNDPROC s_prevMyListProc = nullptr;
+
+  3. Write MyListSubclassProc following §6/§7/§9 above.
+       — WM_MOUSEMOVE + WM_MOUSELEAVE for tooltip
+       — WM_RBUTTONUP: CreatePopupMenu → AppendMenuW → TrackPopupMenu(TPM_RETURNCMD)
+         → SendMessage(parent, WM_COMMAND, MAKEWPARAM(IDC_MY_REMOVE_BTN, BN_CLICKED), 0)
+       — WM_NCDESTROY: restore s_prevMyListProc
+
+  4. In WM_CREATE:
+       a. Create WC_LISTVIEW with LVS_REPORT | LVS_SHOWSELALWAYS (no LVS_SINGLESEL).
+       b. ListView_SetExtendedListViewStyle(hList, LVS_EX_FULLROWSELECT).
+       c. Insert columns, set item lParams to meaningful IDs.
+       d. Subclass: s_prevMyListProc = SetWindowLongPtrW(hList, GWLP_WNDPROC,
+                                           (LONG_PTR)MyListSubclassProc);
+       e. Create Remove button (ButtonColor::Red, disabled), Action button
+          (ButtonColor::Blue, enabled). Right-align both using the formula in §4.
+
+  5. In WM_NOTIFY:
+       LVN_ITEMCHANGED → EnableWindow(hRemoveBtn, ListView_GetSelectedCount > 0)
+
+  6. In WM_COMMAND:
+       IDC_MY_REMOVE_BTN: collect selected lParams, mutate data, refresh list,
+       disable button. (Context menu delegates to this handler via SendMessage.)
+
+  7. In WM_DRAWITEM:
+       Add || dis->CtlID == IDC_MY_REMOVE_BTN || dis->CtlID == IDC_MY_ACTION_BTN
+       to the existing guard before calling DrawCustomButton.
+
+  8. Add locale keys for the button labels and menu items.
+
+================================================================================

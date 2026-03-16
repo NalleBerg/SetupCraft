@@ -1,177 +1,145 @@
 ========================================================================
   SetupCraft — Session State & Where We Are
-  Written: 08.03.2026 — End of day
+  Written: 16.03.2026 — End of day
 ========================================================================
 
 ── FEATURES COMPLETE (built, working) ──────────────────────────────────
 
- 1. Close Project toolbar button (v2026.03.08.09)
-    - IDC_TB_CLOSE_PROJECT = 5083, shell32 icon 131, red button
-    - Per-button tooltip via SetButtonTooltip() / ButtonSubclassProc
-    - Documented in button_INTERNALS.txt
-    - Released, committed, pushed.
+ 1. Component dependencies panel inside the folder-edit dialog
+    (v2026.03.16.09, with partial fixes applied in same session)
 
- 2. Picker last-folder memory (v2026.03.08.10)
-    - Add Folder remembers last parent directory per project.
-      DB key: "last_picker_folder_<projectId>"
-    - Add Files remembers last directory per project.
-      DB key: "last_picker_files_<projectId>"
-    - First-time Add Files defaults to %USERPROFILE% to prevent
-      Windows shell cross-contaminating the two pickers.
-    - PickerFolderCallback (SHBrowseForFolderW BFFM_SETSELECTION)
-      navigates to stored path on open.
-    - Built clean. Released in this session (v2026.03.08.10).
+    WHAT WORKS:
+      - Two-column ListView (Name | Type) showing current deps.
+      - Hover tooltip: file rows show virtual path; folder rows show
+        "Double-click to see files".
+      - Double-click on a folder dep row opens ShowDepsFileListPopup
+        (blocking window with a VFS file-tree of that dep folder).
+      - Remove button (shell32 #131, red) cascade-removes selected deps
+        AND any covered file deps under them.
+        Enabled only when rows are selected (LVN_ITEMCHANGED).
+      - Choose button (shell32 #87, blue) opens the dep-picker tree.
+      - Right-click context menu: Remove + "Show files…".
+      - Folder-coverage filter (file deps under a folder dep are hidden
+        but kept in memory).
 
-── FEATURE IN PROGRESS (not working yet) ────────────────────────────────
+    DOCUMENTED IN:
+      comp_deps_INTERNALS.txt, button_rightclick_combo_INTERNALS.txt
+      (both in API_list.txt).
 
- 3. Drag-and-drop — TreeView folder drag and ListView file drag
+    PARTIAL FIXES APPLIED THIS SESSION:
+      Fix A — Excluded folder's children now visible in picker:
+        addVFS had `continue` for the excluded node, skipping its
+        entire subtree.  Fixed to recurse into children:
+          addVFS(hParent, snap.children, secLabel); continue;
 
-   CURRENT SYMPTOM (end of day):
-     After the second attempt at fixing it, neither folders nor
-     files react to drag at all. The cursor never changes and no
-     drop-target highlighting appears.
+      Fix B — Dep init reads from memory, never falls back to DB:
+        fd.initDependencyIds = cmp.dependencies directly (in-memory).
 
-   HISTORY OF ATTEMPTS:
-     Attempt 1 (original):
-       Used TVN_BEGINDRAG / LVN_BEGINDRAG + ImageList_DragEnter()
-       for a ghost image.
-       Symptom: Folder got a partial blue flicker/artifact.
-       Files did not react.
+      Fix C — "Choose" after auto-save opens picker immediately:
+        anyUnsaved block previously returned 0 after rebuilding
+        otherComponents.  Now falls through, and outDependencyIds is
+        cleared so stale pre-save IDs are not carried over.
 
-     Attempt 2 (today's fix):
-       Removed all ImageList ghost code (DWM compositing makes
-       ImageList_DragEnter incompatible with modern Windows).
-       Added WM_PARENTNOTIFY to detect LMB press in child controls,
-       then tried to detect drag threshold in the parent's
-       WM_MOUSEMOVE.
-       Symptom: Nothing reacts at all now.
+── FEATURE IN PROGRESS — DEP PERSISTENCE (STILL BROKEN) ────────────────
 
-   ROOT CAUSE ANALYSIS:
-     The fundamental problem is WHERE mouse messages are delivered:
+ SYMPTOM:
+   User picks a folder in the dep picker, clicks OK, sees it in the
+   dep list — but closing and reopening the folder-edit dialog shows
+   an empty list.
 
-     A) Before SetCapture(hwnd) is called:
-        - LMB press lands in TreeView/ListView child window.
-        - Those child controls internally take mouse capture.
-        - Subsequent WM_MOUSEMOVE messages go to the CHILD, not
-          the parent (hwnd). So the parent's WM_MOUSEMOVE drag-
-          threshold check never runs until the cursor leaves the
-          child entirely.
-        - TVN_BEGINDRAG / LVN_BEGINDRAG fire from the child's
-          internal handling (after the child decides "this looks
-          like a drag"), but:
-            - TVS_EDITLABELS delays item selection (waits for
-              double-click timeout to know if user wants to edit).
-              This may delay or suppress TVN_BEGINDRAG.
-            - LVN_BEGINDRAG requires the ListView to internally
-              detect drag threshold too — if the hit-test isn't
-              exactly on the label area, it may not fire.
-     
-     B) WM_PARENTNOTIFY fallback (attempt 2):
-        WM_PARENTNOTIFY(WM_LBUTTONDOWN) fires on the parent, so
-        we correctly record the starting point and item. BUT the
-        threshold check is in the parent's WM_MOUSEMOVE, which
-        doesn't receive messages until hwnd has capture.
-        Chicken-and-egg: we need a drag to set capture, and we
-        need capture to detect a drag.
+ ROOT CAUSE (confirmed):
+   CollectAllFiles (IDC_COMP_ENABLE auto-populate) creates only
+   source_type="file" rows. No source_type="folder" rows are ever
+   auto-created.
 
-   THE CORRECT FIX FOR TOMORROW:
-     Subclass both s_hTreeView and s_hListView.
-     Give each its own drag-detection subclass proc:
+   addVFS in the dep picker searches for source_type="folder" comps.
+   None found → lp = -2 for all folder nodes.
 
-       TreeViewSubclassProc:
-         WM_LBUTTONDOWN:
-           - Hit-test the click position.
-           - If on a non-root folder item: store item + screen pt
-             as "potential drag" (s_dragPotTV, s_dragPotPt).
-           - Forward to original proc (TreeView needs to select).
-         WM_MOUSEMOVE:
-           - If LMB still down AND potential drag set:
-             - Check SM_CXDRAG/SM_CYDRAG threshold.
-             - If exceeded: set s_dragSource, s_dragTreeItem,
-               call SetCapture(hwndParent).
-             - Parent now receives all WM_MOUSEMOVE until drop.
-           - Always forward to original proc.
-         WM_LBUTTONUP:
-           - Clear potential drag state.
-           - Forward to original proc.
+   Picker OK handler only collects items where tv.lParam > 0.
+   Folder nodes with lp == -2 are silently dropped from outDeps.
+   outDeps is empty → nothing written → deps gone on reopen.
 
-       ListViewSubclassProc: same pattern, but check that the
-         selected tree node is in s_virtualFolderFiles before
-         allowing the drag.
+ THE FIX (four changes to mainwindow.cpp):
 
-     The main window's WM_MOUSEMOVE, WM_SETCURSOR, WM_LBUTTONUP,
-     and WM_CAPTURECHANGED handlers are then triggered correctly
-     once SetCapture(hwndParent) is called from the subclass.
+ CHANGE 1 — CompFolderDepPickerData struct (~line 4421):
+   Add a folderSnapMap field:
+     std::map<HTREEITEM, const TreeNodeSnapshot*> folderSnapMap;
 
-   IMPLEMENTATION STEPS:
-     1. In mainwindow.h:
-        - Declare static LRESULT CALLBACK TreeDragSubclassProc(...)
-        - Declare static LRESULT CALLBACK ListDragSubclassProc(...)
+ CHANGE 2 — addVFS lambda in WM_CREATE (~line 4739):
+   After inserting the folder HTREEITEM hNode, add:
+     if (hNode) pData->folderSnapMap[hNode] = &snap;
 
-     2. In mainwindow.cpp:
-        - After CreateWindowExW for s_hTreeView:
-            SetWindowSubclass(s_hTreeView, TreeDragSubclassProc, 1, 0)
-        - After CreateWindowExW for s_hListView:
-            SetWindowSubclass(s_hListView, ListDragSubclassProc, 1, 0)
-        - Remove WM_PARENTNOTIFY handler.
-        - Keep TVN_BEGINDRAG / LVN_BEGINDRAG handlers as secondary
-          trigger (belt and suspenders).
+ CHANGE 3 — OK handler in IDC_FDDP_OK (~line 4856):
+   After the existing `if (lp > 0) { ... }` block, add:
+     } else if (lp == -2) {
+       auto it = pData->folderSnapMap.find(hItem);
+       if (it != pData->folderSnapMap.end() && it->second) {
+         const TreeNodeSnapshot* fs = it->second;
+         if (!fs->fullPath.empty() && pData->projectId > 0) {
+           int foundId = 0;
+           for (const auto& c : s_components)
+             if (c.source_type == L"folder" &&
+                 _wcsicmp(c.source_path.c_str(), fs->fullPath.c_str()) == 0)
+               { foundId = c.id; break; }
+           if (foundId == 0) {
+             ComponentRow nc;
+             nc.project_id  = pData->projectId;
+             nc.display_name = fs->text.empty() ? fs->fullPath : fs->text;
+             nc.source_type = L"folder";
+             nc.source_path = fs->fullPath;
+             int newId = DB::InsertComponent(nc);
+             if (newId > 0) { nc.id = newId; s_components.push_back(nc); foundId = newId; }
+           }
+           if (foundId > 0) pData->outDeps.push_back(foundId);
+         }
+       }
+     }
 
-     3. Include <commctrl.h> for SetWindowSubclass (already included).
+ CHANGE 4 — After picker closes in IDC_FOLDER_DLG_CHOOSE_DEPS (~line 5654):
+   After `pData->outDependencyIds = pickerData.outDeps;`, rebuild
+   otherComponents so that any newly created folder-type comps appear
+   in the dep listbox:
+     {
+       const std::wstring& exPath =
+           pData->excludeNode ? pData->excludeNode->fullPath : L"";
+       pData->otherComponents.clear();
+       for (const auto& oc : s_components) {
+         if (!exPath.empty()) {
+           if (oc.source_path == exPath) continue;
+           if (oc.source_path.size() > exPath.size() &&
+               _wcsnicmp(oc.source_path.c_str(), exPath.c_str(),
+                         exPath.size()) == 0 &&
+               (oc.source_path[exPath.size()] == L'\\' ||
+                oc.source_path[exPath.size()] == L'/')) continue;
+         }
+         pData->otherComponents.push_back(oc);
+       }
+     }
 
-     4. BuildTreeSubclassProc and ListDragSubclassProc functions.
+ IMPORTANT: The anyUnsaved guard (before picker opens) already ensures
+   projectId > 0 when there are unsaved comps, so DB::InsertComponent
+   in Change 3 is safe for the normal case.
 
-   WHAT IS ALREADY CORRECT and can stay:
-     - CancelDrag() — clean, no image list, resets all state.
-     - WM_LBUTTONUP drop handler — correctly finds hDrop, validates,
-       moves tree nodes or virtual file entries.
-     - WM_SETCURSOR — correctly shows icon 109 / icon 300.
-     - WM_MOUSEMOVE drop-target highlight via TreeView_SelectDropTarget.
-     - IsDragDropValid() — correct rules.
-     - CloneTreeSubtree() — correct recursive move.
-     - WM_CAPTURECHANGED — now guarded against child-control capture.
+── FEATURES COMPLETE EARLIER (all committed) ────────────────────────────
 
-── REMINDER: ENTRY PAGE TOOLTIPS ───────────────────────────────────────
+ v2026.03.08.09 — Close Project toolbar button
+ v2026.03.08.10 — Picker last-folder memory per project
+ v2026.03.13.x  — Components in-memory architecture, Required flag,
+                   dep picker, pre-selected checkbox
+ v2026.03.14.08 — Required flag fully persistent after Files page edits
+ v2026.03.15.x  — Dep picker AskAtInstall populated, info icon, UX fixes
+ v2026.03.16.08 — Components enable checkbox, i18n save dialog
+ v2026.03.16.09 — Dep-summary panel UI (ListView, tooltip, dblclick,
+                   Remove/Choose, context menu, folder-coverage filter)
+                   Docs: comp_deps_INTERNALS.txt, btn_rightclick_combo
 
-  The entry/start page (the screen shown before any project is opened)
-  has visual elements (buttons? labels?) that need tooltip support
-  added or fixed.
+── PENDING / REMINDERS ─────────────────────────────────────────────────
 
-  Also: encoding issues on the entry page need attention.
-  (User flagged this — "fix the tooltips on the entry page visual and
-  encoding" — this has NOT been looked at yet.)
-
-  What to investigate:
-    - Which controls on the entry page currently show garbled or
-      missing text (encoding)?
-    - Which controls need tooltips and are missing them?
-    - Are locale strings being loaded correctly for the entry page?
-    - Is the entry page using the SetButtonTooltip() system already,
-      or does it have its own tooltip handling?
-
-── FILES CHANGED SINCE LAST COMMIT (v2026.03.08.09) ────────────────────
-
-  mainwindow.cpp:
-    - Add Folder handler: reads/saves "last_picker_folder_<id>"
-    - Add Files handler: reads/saves "last_picker_files_<id>",
-      USERPROFILE fallback for first use
-    - PickerFolderCallback: BFFM_SETSELECTION init
-    - Drag statics: DragSource enum, s_dragTreeItem, etc.
-    - TVN_BEGINDRAG handler in WM_NOTIFY
-    - LVN_BEGINDRAG handler in WM_NOTIFY
-    - WM_PARENTNOTIFY handler (fallback detection — needs rewrite)
-    - WM_LBUTTONUP drop handler
-    - WM_SETCURSOR cursor override during drag
-    - WM_MOUSEMOVE drag update block
-    - WM_CAPTURECHANGED guard
-    - CancelDrag(), EnsureDragCursors(), HitTestTreeView(),
-      IsDragDropValid(), CloneTreeSubtree(), IsTreeDescendant()
-
-  mainwindow.h:
-    - Public accessors: GetFilesTreeView(), GetProgramFilesRoot(),
-      GetProgramDataRoot(), GetAppDataRoot(), GetAskAtInstallRoot()
-    - AddTreeNode() moved from private to public
+ - Entry page: tooltip support and encoding issues (not started)
+ - Drag-and-drop: subclass-based implementation plan from old here.txt
+   (still in git history if needed)
 
 ========================================================================
   END OF SESSION STATE
 ========================================================================
+

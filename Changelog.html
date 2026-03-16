@@ -1,6 +1,16 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 16 March 2026 &mdash; v2026.03.16.08<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 16 March 2026 &mdash; v2026.03.16.11<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.16.11</span></h3>
+<p><strong>Dep picker fixes: excluded subtree, memory-only init, choose-after-save (16.03.2026, 11:41):</strong></p>
+<ul>
+<li><strong>Excluded folder&rsquo;s children now visible in dep picker:</strong> <code>addVFS</code> used a bare <code>continue</code> when it hit the node being edited, which silently skipped that node&rsquo;s entire subtree &mdash; leaving Program Files or AskAtInstall subfolders completely invisible in the picker. Fixed to recurse into children before skipping: <code>addVFS(hParent, snap.children, secLabel); continue;</code> The excluded folder itself is still not selectable (a folder cannot depend on itself), but all its contents appear normally.</li>
+<li><strong>Dep init always reads from in-memory state:</strong> <code>IDM_COMP_TREE_CTX_EDIT</code> initialised <code>fd.initDependencyIds</code> with a fallback to <code>DB::GetDependenciesForComponent</code> when <code>cmp.dependencies</code> was empty but <code>cmp.id &gt; 0</code>. This silently discarded any dependency edits made in memory since the last Save. Changed to assign <code>fd.initDependencyIds = cmp.dependencies</code> unconditionally, in line with the project&rsquo;s memory-first architecture.</li>
+<li><strong>&ldquo;Choose&rdquo; after auto-save opens picker immediately:</strong> When the dep picker detected unsaved components (any <code>id == 0</code>), it prompted to save, saved, rebuilt <code>otherComponents</code>, then returned 0 &mdash; closing without opening the picker. The user had to press Choose a second time. The <code>return 0</code> is removed; execution now falls through to the picker open. <code>outDependencyIds</code> is also cleared before the picker opens so that stale IDs from before the Save ID-remap are not pre-selected erroneously.</li>
+</ul>
+
+<h3 style="text-align: center;">&nbsp;</h3>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.16.08</span></h3>
 <p><strong>Components page: custom checkbox + enable-without-save fix + i18n dialog (16.03.2026, 08:04):</strong></p>

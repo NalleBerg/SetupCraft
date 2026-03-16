@@ -60,4 +60,22 @@
                                     for adding a new checkbox or TreeView state image
                                     list.
 
+  comp_deps_INTERNALS.txt           Component dependency-summary panel — two-column
+                                    ListView, DepListSubclassProc (hover tooltip via
+                                    project tooltip system, double-click file popup,
+                                    right-click context menu), ShowDepsFileListPopup
+                                    VFS file-tree viewer, Remove/Choose custom buttons,
+                                    folder-coverage filter, cascade-remove logic, and
+                                    full locale key reference.
+
+  button_rightclick_combo_INTERNALS.txt
+                                    Reusable pattern: ListView + explicit action
+                                    buttons + right-click context menu. Covers
+                                    subclass proc wiring (SetWindowLongPtrW),
+                                    TPM_RETURNCMD dispatch, Remove button enable/
+                                    disable via LVN_ITEMCHANGED, context menu
+                                    delegating to the button handler, tooltip
+                                    integration, and step-by-step guide for
+                                    replicating the pattern in a new dialog.
+
 ================================================================================

@@ -2,6 +2,30 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.03.16.11] - 2026-03-16
+
+### Fixed
+- **Dep picker: excluded folder's children now visible** — `addVFS` previously used a bare `continue` when it hit the excluded node, which skipped the node's entire subtree. Changed to `addVFS(hParent, snap.children, secLabel); continue;` so the excluded folder itself is not selectable (correct) but all its subfolders and files remain visible and checkable as dependencies.
+- **Dep init always reads from in-memory state** — `IDM_COMP_TREE_CTX_EDIT` previously used a DB fallback (`DB::GetDependenciesForComponent`) when `cmp.dependencies` was empty but `cmp.id > 0`. This discarded any in-memory edits made since the last save. Changed to always use `cmp.dependencies` directly.
+- **"Choose" after auto-save opens picker immediately** — the `anyUnsaved` path in `IDC_FOLDER_DLG_CHOOSE_DEPS` previously returned 0 after saving and rebuilding `otherComponents`, requiring the user to press "Choose" a second time. Now falls through to open the dep picker in the same gesture. `outDependencyIds` is cleared before opening so stale pre-save IDs (which would be invalid after the Save ID-remap) are not carried over.
+
+## [2026.03.16.09] - 2026-03-16
+
+### Added
+- **Component deps list: two columns (Name | Type)** — the dependency summary in the folder-edit dialog is now a proper `WC_LISTVIEW` with two columns (locale keys `comp_deps_col_name` / `comp_deps_col_type`). Type shows "Folder" or "File". An empty list shows a `(none)` placeholder row. The list supports multiselect.
+- **Dep list: custom hover tooltip** — `DepListSubclassProc` subclasses the ListView and uses the project's `ShowMultilingualTooltip` / `HideTooltip` system (`TME_LEAVE` tracking via window properties). Hovering a file row shows its full virtual path; hovering a folder row shows the locale string `comp_deps_folder_dblclick` ("Double-click to see files").
+- **Dep list: double-click opens file-tree popup** — double-clicking a folder dep row opens `ShowDepsFileListPopup`, a blocking popup with a `WC_TREEVIEW` showing the VFS contents of that folder dependency. The tree uses an ImageList built from shell32.dll (folder/document icons). Closes via the "Close" button or the title-bar X.
+- **Remove button beside Choose** — new `IDC_FOLDER_DLG_REMOVE_DEPS` button (shell32.dll icon index 131, `ButtonColor::Red`) removes all selected rows in the dep list; also cascade-removes covered file deps. Enabled only when one or more rows are selected (`LVN_ITEMCHANGED`).
+- **Choose button now custom-styled** — `CreateCustomButtonWithIcon` with shell32.dll icon index 87 (`ButtonColor::Blue`), consistent with all other action buttons in the app.
+- **Right-click context menu on dep list** — shows "Remove" (grayed if nothing selected) and, when a single folder row is selected, "Show files…". Commands delegate to the Remove handler and `ShowDepsFileListPopup` respectively.
+- **Folder-coverage filter** — if a folder component is in the dep list, file deps whose `source_path` begins with the folder's `source_path` are omitted from the list (they remain stored internally). Prevents visual duplication.
+- **`comp_deps_INTERNALS.txt`** — full internals reference: layout constants, control IDs, ListView columns, folder-coverage filter, `DepListSubclassProc` message handling, `ShowDepsFileListPopup` design, Remove handler cascade logic, and locale key table.
+- **`API_list.txt`** updated with `comp_deps_INTERNALS.txt` entry.
+
+### Fixed
+- **Dep picker cascade-up: structural folders no longer skipped** — the WM_TIMER ancestor-check block used `if (tp.lParam > 0)` to decide whether to auto-tick a parent node; this excluded nodes with `lParam == 0` (structural folder nodes without their own `ComponentRow`). Changed to `if (tp.lParam != -1)` so all ancestor nodes up to the section header are ticked, regardless of whether they have a component row.
+- **New locale keys added to `locale/en_GB.txt`**: `comp_deps_col_name`, `comp_deps_col_type`, `comp_type_folder`, `comp_type_file`, `comp_deps_none`, `comp_deps_remove`, `comp_deps_folder_dblclick`, `comp_deps_ctx_remove`, `comp_deps_ctx_showfiles`, `comp_deps_files_popup_title`, `comp_deps_files_popup_close`.
+
 ## [2026.03.16.08] - 2026-03-16
 
 ### Fixed
