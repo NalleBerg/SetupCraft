@@ -2,6 +2,14 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.03.16.08] - 2026-03-16
+
+### Fixed
+- **Components enable checkbox now uses the custom themed control** — the last native `BS_AUTOCHECKBOX` on the Components page replaced with `CreateCustomCheckbox`. Now theme-aware (Light/Dark/HC Black/HC White), owner-drawn with U+2714 tick and disabled visual via `ODS_DISABLED`, consistent with all other checkboxes in the app.
+- **Enable-components toggle works on unsaved projects** — `IDC_COMP_ENABLE` handler had `if (s_currentProject.id <= 0) return 0` blocking the toggle before first save. Guard removed; component tree and list now un-grey immediately after ticking, even with `id == 0`.
+- **"Save First" prompt replaced with custom i18n dialog** — `MessageBoxW` (native, no i18n buttons) replaced with `ShowConfirmDeleteDialog` using locale keys `comp_deps_unsaved_title` / `comp_deps_unsaved_msg`, proper themed Yes/No buttons, and `S()`-scaled layout.
+- **Missing locale keys added to `en_GB.txt`** — `comp_info_tooltip` and `comp_info_icon_label` were present as C++ fallback strings only. Both are now defined in `locale/en_GB.txt`. The floppy-disk WM_PAINT label is now read from locale at paint time.
+
 ## [2026.03.15.11] - 2026-03-15
 
 ### Fixed

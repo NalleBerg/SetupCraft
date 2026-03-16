@@ -313,7 +313,10 @@ static LRESULT CALLBACK CompInfoIcon_SubclassProc(HWND hwnd, UINT msg, WPARAM wP
         HFONT hOld = (HFONT)SelectObject(hdc, hFont);
         SetBkMode(hdc, TRANSPARENT);
         SetTextColor(hdc, RGB(20, 20, 120)); // dark navy, readable on light label
-        DrawTextW(hdc, L"FYI!", -1, &labelRc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        // Label text from locale — key "comp_info_icon_label", fallback "FYI!"
+        auto itLbl = MainWindow::GetLocale().find(L"comp_info_icon_label");
+        std::wstring lblText = (itLbl != MainWindow::GetLocale().end()) ? itLbl->second : L"FYI!";
+        DrawTextW(hdc, lblText.c_str(), -1, &labelRc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
         SelectObject(hdc, hOld);
         DeleteObject(hFont);
         EndPaint(hwnd, &ps);
@@ -2559,15 +2562,12 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
             hwnd, (HMENU)5100, hInst, NULL);
         if (s_hPageTitleFont) SendMessageW(hCompTitle, WM_SETFONT, (WPARAM)s_hPageTitleFont, TRUE);
 
-        // Enable-components checkbox
+        // Enable-components checkbox — use custom themed checkbox (same as all others)
         auto itEnable = s_locale.find(L"comp_enable");
         std::wstring enableText = (itEnable != s_locale.end()) ? itEnable->second : L"Use component-based installation";
-        HWND hCompEnable = CreateWindowExW(0, L"BUTTON", enableText.c_str(),
-            WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
-            S(20), pageY + S(60), rc.right - S(40), S(28),
-            hwnd, (HMENU)IDC_COMP_ENABLE, hInst, NULL);
-        if (s_currentProject.use_components)
-            SendMessageW(hCompEnable, BM_SETCHECK, BST_CHECKED, 0);
+        HWND hCompEnable = CreateCustomCheckbox(hwnd, IDC_COMP_ENABLE, enableText,
+            s_currentProject.use_components != 0,
+            S(20), pageY + S(60), rc.right - S(40), S(28), hInst);
 
         // Hint label
         auto itHint = s_locale.find(L"comp_enable_hint");
@@ -5088,18 +5088,16 @@ LRESULT CALLBACK CompFolderEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
                     if (c.id == 0) { anyUnsaved = true; break; }
                 if (anyUnsaved) {
                     const auto& loc = MainWindow::GetLocale();
-                    auto L2 = [&](const wchar_t* k, const wchar_t* fb) -> const wchar_t* {
+                    auto L2 = [&](const wchar_t* k, const wchar_t* fb) -> std::wstring {
                         auto it = loc.find(k);
-                        return (it != loc.end()) ? it->second.c_str() : fb;
+                        return (it != loc.end()) ? it->second : fb;
                     };
-                    int res = MessageBoxW(hwnd,
-                        L2(L"comp_deps_unsaved_msg",
-                            L"The project has not been saved yet. Components need a permanent "
-                            L"ID before dependencies can be assigned.\n\n"
-                            L"Save now and continue?"),
-                        L2(L"comp_deps_unsaved_title", L"Save First"),
-                        MB_YESNO | MB_ICONQUESTION);
-                    if (res != IDYES) return 0;
+                    std::wstring dlgTitle = L2(L"comp_deps_unsaved_title", L"Save First");
+                    std::wstring dlgMsg   = L2(L"comp_deps_unsaved_msg",
+                        L"The project has not been saved yet. Components need a permanent "
+                        L"ID before dependencies can be assigned.\n\nSave now and continue?");
+                    bool confirmed = ShowConfirmDeleteDialog(hwnd, dlgTitle, dlgMsg, loc);
+                    if (!confirmed) return 0;
                     // Save via the main window (parent of this dialog).
                     HWND hMain = GetParent(hwnd);
                     SendMessageW(hMain, WM_COMMAND, MAKEWPARAM(IDM_FILE_SAVE, 0), 0);
@@ -7950,7 +7948,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         // Components page handlers
         case IDC_COMP_ENABLE: {
             if (HIWORD(wParam) != BN_CLICKED) return 0;
-            if (s_currentProject.id <= 0) return 0;
+            // Allow toggle even for unsaved (id==0) projects — components can be
+            // configured in memory and saved later.
             HWND hChk = GetDlgItem(hwnd, IDC_COMP_ENABLE);
             int checked = (hChk && SendMessageW(hChk, BM_GETCHECK, 0, 0) == BST_CHECKED) ? 1 : 0;
             s_currentProject.use_components = checked;

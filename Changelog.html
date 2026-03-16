@@ -1,6 +1,17 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 15 March 2026 &mdash; v2026.03.15.11<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 16 March 2026 &mdash; v2026.03.16.08<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.16.08</span></h3>
+<p><strong>Components page: custom checkbox + enable-without-save fix + i18n dialog (16.03.2026, 08:04):</strong></p>
+<ul>
+<li><strong>Components enable checkbox now uses the custom themed control:</strong> The &ldquo;Use component-based installation&rdquo; checkbox was the last native <code>BS_AUTOCHECKBOX</code> on the Components page. It is now created with <code>CreateCustomCheckbox</code>, matching the style of every other checkbox in the application (theme-aware, owner-drawn, U+2714 tick, adapts to Light/Dark/HC themes, disabled visual via <code>ODS_DISABLED</code>).</li>
+<li><strong>Enable-components toggle now works on unsaved projects:</strong> The <code>IDC_COMP_ENABLE</code> handler had a guard <code>if (s_currentProject.id &lt;= 0) return 0</code> which silently blocked the toggle for any project that had never been saved. The guard is removed &mdash; the checkbox now populates <code>s_components</code> from the VFS snapshots (if empty) and calls <code>SwitchPage(9)</code> to un-grey the tree and list immediately, regardless of whether a DB id exists.</li>
+<li><strong>&ldquo;Save First&rdquo; prompt replaced with custom dialog:</strong> The native <code>MessageBoxW</code> that appeared when clicking <em>Choose&hellip;</em> before saving was replaced with <code>ShowConfirmDeleteDialog</code> &mdash; the same custom yes/no dialog used throughout SetupCraft. The dialog uses proper i18n strings from locale keys <code>comp_deps_unsaved_title</code> / <code>comp_deps_unsaved_msg</code>, themed <em>Yes</em>/<em>No</em> buttons, and the <code>S()</code>-scaled measure-then-create layout.</li>
+<li><strong>Missing locale keys added:</strong> <code>comp_info_tooltip</code> and <code>comp_info_icon_label</code> were used as C++ fallback strings but were never added to <code>locale/en_GB.txt</code>. Both keys are now present in the file. The floppy-disk icon label text (<code>comp_info_icon_label=FYI!</code>) and the tooltip text (<code>comp_info_tooltip=Files and folders will not appear&hellip;</code>) are read from locale at paint/hover time instead of being hardcoded.</li>
+</ul>
+
+<h3 style="text-align: center;">&nbsp;</h3>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.15.11</span></h3>
 <p><strong>Dep picker fully populated + Components info icon (15.03.2026, 11:10):</strong></p>
