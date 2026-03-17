@@ -2,6 +2,24 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.03.17.11] - 2026-03-17
+
+### Added
+- **Shortcuts page module** — all Shortcuts-page code extracted from `mainwindow.cpp` into `shortcuts.h`, `shortcuts.cpp`, and `shortcuts_INTERNALS.txt`. `mainwindow.cpp` routes `WM_NOTIFY` / `WM_COMMAND` / `WM_CONTEXTMENU` via `SC_OnNotify` / `SC_OnCommand` / `SC_OnContextMenu`.
+- **Right-click context menu on Start Menu tree** — Add Subfolder and Remove (grayed for fixed root/Programs nodes). Uses `TPM_RETURNCMD` + `SendMessageW(WM_COMMAND)` to reuse the existing button handlers.
+- **Right-click stub on shortcut row buttons** — grayed «Configure shortcut…» item in place; handler infrastructure ready for the config dialog next session.
+- **Shortcut config dialog spec** — full specification added to `ToDo.txt` Item 1 (name field, run-as-admin checkbox, icon picker, OK/Cancel).
+- **APPDATA/home install location spec** — added to `ToDo.txt` Item 5.
+
+### Changed
+- **Shortcuts page title uses `WM_CTLCOLORSTATIC`** — control ID 5300 added alongside 5100 so the page headline renders in `s_hPageTitleFont` (bold, large) matching the Files page headline.
+- **“Start Menu & Programs” section label** — `SS_CENTER` + `hPageTitleFont`, horizontally centred above the tree.
+- **TreeView and buttons centred at 40% width** — folder tree and its action buttons are horizontally centred and limited to 40% of the content area.
+- **Button icons** — Add Subfolder: `shell32.dll` index 296; Remove: `shell32.dll` index 234 (matching the Files page).
+
+### Fixed
+- **Components Required-icon state** — marked complete in `ToDo.txt`.
+
 ## [2026.03.16.11] - 2026-03-16
 
 ### Fixed

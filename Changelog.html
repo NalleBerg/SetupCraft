@@ -1,6 +1,18 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 16 March 2026 &mdash; v2026.03.16.11<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 17 March 2026 &mdash; v2026.03.17.11<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.17.11</span></h3>
+<p><strong>Shortcuts page — modular extraction and layout (17.03.2026, 11:01):</strong></p>
+<ul>
+<li><strong>Shortcuts page extracted to its own module:</strong> All Shortcuts-page code (state, build, teardown, notify, command, context-menu handlers) moved from <code>mainwindow.cpp</code> into <code>shortcuts.h</code>, <code>shortcuts.cpp</code>, and <code>shortcuts_INTERNALS.txt</code>. <code>mainwindow.cpp</code> now only calls <code>SC_BuildPage</code>, <code>SC_TearDown</code>, <code>SC_Reset</code>, and routes <code>WM_NOTIFY</code> / <code>WM_COMMAND</code> / <code>WM_CONTEXTMENU</code> via <code>SC_OnNotify</code> / <code>SC_OnCommand</code> / <code>SC_OnContextMenu</code>.</li>
+<li><strong>Right-click context menu on Start Menu tree:</strong> Right-clicking the folder TreeView shows Add Subfolder and Remove (grayed for fixed nodes). Uses <code>TPM_RETURNCMD</code> + <code>SendMessageW(WM_COMMAND)</code> to delegate to the existing button handlers &mdash; no duplicate logic.</li>
+<li><strong>Right-click on shortcut row buttons:</strong> Infrastructure in place &mdash; shows a grayed &laquo;Configure shortcut&hellip;&raquo; stub ready for the dialog to be wired in next session.</li>
+<li><strong>Section label centered and bold:</strong> &ldquo;Start Menu &amp; Programs&rdquo; header uses <code>SS_CENTER</code> and <code>hPageTitleFont</code>, matching the page headline style. <code>WM_CTLCOLORSTATIC</code> in <code>mainwindow.cpp</code> extended to cover control ID 5300 (Shortcuts page title) alongside 5100 (Files page title).</li>
+<li><strong>TreeView and action buttons centred at 40% width:</strong> The folder tree and its Add Subfolder / Remove buttons are horizontally centred in the page and limited to 40% of the content width for a cleaner layout.</li>
+<li><strong>Consistent button icons:</strong> Add Subfolder uses <code>shell32.dll</code> index 296 (Add Folder, same as Files page); Remove uses index 234 (same as Files page Remove).</li>
+<li><strong>ToDo.txt updated:</strong> Shortcut config dialog specification added as Item&nbsp;1; Components Required-icon state marked DONE; APPDATA install location spec added as Item&nbsp;5.</li>
+</ul>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.16.11</span></h3>
 <p><strong>Dep picker fixes: excluded subtree, memory-only init, choose-after-save (16.03.2026, 11:41):</strong></p>

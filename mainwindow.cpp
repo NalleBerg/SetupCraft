@@ -1,4 +1,4 @@
-﻿#include "mainwindow.h"
+#include "mainwindow.h"
 #include "dpi.h"
 #include <commctrl.h>
 #include <shlwapi.h>
@@ -20,6 +20,7 @@
 #include "dragdrop.h"
 #include "checkbox.h"
 #include "notes_editor.h"
+#include "shortcuts.h"
 #include <richedit.h>
 #include <commdlg.h>
 #include <fstream>
@@ -429,6 +430,7 @@ HWND MainWindow::Create(HINSTANCE hInstance, const ProjectRow &project, const st
     s_treeSnapshot_AskAtInstall.clear();
     s_virtualFolderFiles.clear();
     s_filesPageHasContent = false;
+    SC_Reset();
     s_components.clear();   // load once here, never on page switch
     s_currentProject = project;
     s_locale = locale;
@@ -1505,7 +1507,9 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         IDC_REG_VERSION, IDC_REG_PUBLISHER, IDC_REG_ADD_KEY, IDC_REG_ADD_VALUE, IDC_REG_EDIT, IDC_REG_REMOVE, IDC_REG_BACKUP,
         IDC_REG_SHOW_REGKEY, IDC_REG_WARNING_ICON, IDC_REG_TREEVIEW, IDC_REG_LISTVIEW,
         IDC_COMP_ENABLE, IDC_COMP_LISTVIEW, IDC_COMP_TREEVIEW, IDC_COMP_ADD, IDC_COMP_EDIT, IDC_COMP_REMOVE,
-        5100, 5101, 5102, 5103, 5104, 5105, 5106, 5107, 5108, 5109, 5110 // Labels and other static controls
+        IDC_SC_DESKTOP_BTN, IDC_SC_DESKTOP_OPT, IDC_SC_PINSTART_BTN, IDC_SC_PINTASKBAR_BTN,
+        IDC_SC_SM_TREE, IDC_SC_SM_ADD, IDC_SC_SM_REMOVE,
+        5100, 5101, 5102, 5103, 5104, 5105, 5106, 5107, 5108, 5109, 5110, 5300 // Labels and other static controls
     };
     
     for (int id : controlIds) {
@@ -1591,6 +1595,8 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
     // NOTE: s_components is intentionally NOT cleared here.
     // It lives in memory for the full project session and is only written
     // to DB on explicit Save (IDM_FILE_SAVE).  SwitchPage(9) reads it directly.
+
+    SC_TearDown(hwnd);
 
     // Clear registry values map
     s_registryValues.clear();
@@ -2408,25 +2414,9 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         
         break;
     }
-    case 2: // Shortcuts page
+    case 2: // Shortcuts page — delegated to the shortcuts module
     {
-        // Create container for page content
-        s_hCurrentPage = CreateWindowExW(
-            0, L"STATIC", L"",
-            WS_CHILD | WS_VISIBLE,
-            0, pageY, rc.right, pageHeight,
-            hwnd, NULL, hInst, NULL);
-        
-        HWND hTitle = CreateWindowExW(0, L"STATIC", L"Shortcuts",
-            WS_CHILD | WS_VISIBLE | SS_LEFT,
-            S(20), S(20), rc.right - S(40), S(38),
-            s_hCurrentPage, NULL, hInst, NULL);
-        if (s_hPageTitleFont) SendMessageW(hTitle, WM_SETFONT, (WPARAM)s_hPageTitleFont, TRUE);
-        
-        CreateWindowExW(0, L"STATIC", L"Shortcuts configuration to be implemented",
-            WS_CHILD | WS_VISIBLE | SS_LEFT,
-            S(20), S(60), rc.right - S(40), S(20),
-            s_hCurrentPage, NULL, hInst, NULL);
+        SC_BuildPage(hwnd, hInst, pageY, rc.right, s_hPageTitleFont, s_hGuiFont, s_locale);
         break;
     }
     case 3: // Dependencies page
@@ -6582,6 +6572,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
     case WM_NOTIFY: {
         LPNMHDR nmhdr = (LPNMHDR)lParam;
         if (DragDrop_OnBeginDrag(nmhdr)) return 0;
+        { bool scH = false; LRESULT scR = SC_OnNotify(hwnd, nmhdr, &scH); if (scH) return scR; }
 
         // Drag-and-drop begin notifications are superseded by the dragdrop
         // module (subclass-based threshold detection).  No action needed here.
@@ -6860,7 +6851,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
     case WM_COMMAND: {
         int wmId = LOWORD(wParam);
         int wmEvent = HIWORD(wParam);
-        
+        if (SC_OnCommand(hwnd, wmId)) return 0;
+
         // Handle registry page field changes — persist values in statics so they
         // survive page switches (pages are destroyed/recreated on switch)
         if (wmId == IDC_REG_PUBLISHER && wmEvent == EN_CHANGE) {
@@ -6938,7 +6930,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         case IDC_TB_ADD_SHORTCUT:
             SwitchPage(hwnd, 2);
             return 0;
-            
+
         case IDC_TB_ADD_DEPEND:
             SwitchPage(hwnd, 3);
             return 0;
@@ -9211,6 +9203,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
     }
     
     case WM_CONTEXTMENU: {
+        if (SC_OnContextMenu(hwnd, (HWND)wParam, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam))) return 0;
         // Handle Registry TreeView context menu
         HWND hWndContext = (HWND)wParam;
         if (hWndContext == s_hRegTreeView) {
@@ -9515,7 +9508,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         // Make static controls have white background like the window
         HDC hdc = (HDC)wParam;
         HWND hControl = (HWND)lParam;
-        if (GetDlgCtrlID(hControl) == 5100) {
+        int ctrlId = GetDlgCtrlID(hControl);
+        if (ctrlId == 5100 || ctrlId == 5300) {  // page title statics (Files + Shortcuts)
             if (s_hPageTitleFont) SelectObject(hdc, s_hPageTitleFont);
         } else {
             if (s_hGuiFont) SelectObject(hdc, s_hGuiFont);
@@ -9618,7 +9612,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         if ((dis->CtlID >= IDC_TB_FILES && dis->CtlID <= IDC_TB_SAVE) || dis->CtlID == IDC_TB_DIALOGS || dis->CtlID == IDC_TB_COMPONENTS || dis->CtlID == IDC_TB_EXIT || dis->CtlID == IDC_TB_CLOSE_PROJECT ||
             (dis->CtlID >= IDC_FILES_ADD_DIR && dis->CtlID <= IDC_FILES_REMOVE) ||
             (dis->CtlID >= IDC_REG_CHECKBOX && dis->CtlID <= IDC_REG_BACKUP) ||
-            (dis->CtlID >= IDC_COMP_ADD && dis->CtlID <= IDC_COMP_REMOVE)) {
+            (dis->CtlID >= IDC_COMP_ADD && dis->CtlID <= IDC_COMP_REMOVE) ||
+            (dis->CtlID >= IDC_SC_DESKTOP_BTN && dis->CtlID <= IDC_SC_SM_REMOVE)) {
             ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
             // Create bold font for buttons (scaled for DPI)
             HFONT hFont = CreateFontW(-S(12), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,

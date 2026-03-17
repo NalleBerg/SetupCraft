@@ -78,4 +78,13 @@
                                     integration, and step-by-step guide for
                                     replicating the pattern in a new dialog.
 
+  shortcuts_INTERNALS.txt           Shortcuts page module architecture — static
+                                    variables, SC_BuildPage / SC_Reset / SC_TearDown
+                                    lifecycle, SC_OnNotify return-value convention,
+                                    TreeView TVN_BEGINLABELEDIT / TVN_ENDLABELEDIT
+                                    in-place rename flow, SC_OnContextMenu dispatch
+                                    pattern (TPM_RETURNCMD → SendMessageW WM_COMMAND),
+                                    shell32.dll icon indices used, ImageList lifetime,
+                                    and full locale key table.
+
 ================================================================================

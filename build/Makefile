@@ -424,6 +424,30 @@ notes_editor.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/notes_editor.cpp.s
 .PHONY : notes_editor.cpp.s
 
+shortcuts.obj: shortcuts.cpp.obj
+.PHONY : shortcuts.obj
+
+# target to build an object file
+shortcuts.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/shortcuts.cpp.obj
+.PHONY : shortcuts.cpp.obj
+
+shortcuts.i: shortcuts.cpp.i
+.PHONY : shortcuts.i
+
+# target to preprocess a source file
+shortcuts.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/shortcuts.cpp.i
+.PHONY : shortcuts.cpp.i
+
+shortcuts.s: shortcuts.cpp.s
+.PHONY : shortcuts.s
+
+# target to generate assembly for a file
+shortcuts.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/shortcuts.cpp.s
+.PHONY : shortcuts.cpp.s
+
 spinner_dialog.obj: spinner_dialog.cpp.obj
 .PHONY : spinner_dialog.obj
 
@@ -518,6 +542,9 @@ help:
 	@echo ... notes_editor.obj
 	@echo ... notes_editor.i
 	@echo ... notes_editor.s
+	@echo ... shortcuts.obj
+	@echo ... shortcuts.i
+	@echo ... shortcuts.s
 	@echo ... spinner_dialog.obj
 	@echo ... spinner_dialog.i
 	@echo ... spinner_dialog.s

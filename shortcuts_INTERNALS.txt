@@ -1,0 +1,161 @@
+================================================================================
+  shortcuts_INTERNALS.txt — Implementation notes for shortcuts.cpp / shortcuts.h
+================================================================================
+
+── Module overview ─────────────────────────────────────────────────────────────
+
+The Shortcuts page (SwitchPage index 2) is fully self-contained in:
+
+    shortcuts.h      — public API, structs, control IDs, context-menu IDs
+    shortcuts.cpp    — all implementation + file-scope statics
+
+mainwindow.cpp knows nothing about the page internals.  It only:
+  1. Calls SC_Reset()          from Create()
+  2. Calls SC_BuildPage()      from SwitchPage case 2
+  3. Calls SC_TearDown()       from SwitchPage teardown block
+  4. Routes WM_NOTIFY          → SC_OnNotify()
+  5. Routes WM_COMMAND         → SC_OnCommand()
+  6. Routes WM_CONTEXTMENU     → SC_OnContextMenu()
+
+── File-scope statics ───────────────────────────────────────────────────────────
+
+  s_scDesktopOptOut   bool          Whether "allow user to opt out" checkbox is on.
+  s_hScStartMenuTree  HWND          Live TreeView handle; NULL when page is not shown.
+  s_scMenuNodes       vector<ScMenuNode>  Folder tree for Start Menu / Programs.
+  s_scNextMenuId      int           Next free id for a newly added ScMenuNode (starts at 2).
+  s_scShortcuts       vector<ShortcutDef> All shortcut definitions configured so far.
+  s_scNextShortcutId  int           Next free id for a newly added ShortcutDef (starts at 1).
+
+  None of these are globals — they have internal linkage (file-scope static).
+  mainwindow.cpp accesses shared state only through:
+    MainWindow::MarkAsModified()   — sets the unsaved-changes flag
+    MainWindow::GetLocale()        — returns const ref to the current locale map
+
+── SC_BuildPage parameters ─────────────────────────────────────────────────────
+
+  hwnd           main window — parent of all page child controls
+  hInst          application HINSTANCE
+  pageY          y-coordinate below the toolbar (s_toolbarHeight in mainwindow.cpp)
+  clientWidth    rc.right from GetClientRect(hwnd, &rc)
+  hPageTitleFont semi-bold large font (s_hPageTitleFont in mainwindow.cpp)
+  hGuiFont       scaled body font (s_hGuiFont in mainwindow.cpp)
+  locale         const ref to s_locale (the current locale string map)
+
+  SC_BuildPage does NOT create s_hCurrentPage — the Shortcuts page controls are
+  direct children of hwnd (same approach as the Components page).  The generic
+  SwitchPage teardown that calls DestroyWindow on s_hCurrentPage therefore does
+  NOT destroy Shortcuts controls.  SC_TearDown() handles the TreeView and image
+  list explicitly; all other controls (statics, buttons, checkbox) are owned by
+  hwnd and are destroyed by the generic child-window enumeration in SwitchPage.
+
+── ScMenuNode id convention ────────────────────────────────────────────────────
+
+  id == 0   "Start Menu" root node  — fixed, cannot be renamed or deleted
+  id == 1   "Programs" node         — fixed, cannot be renamed or deleted
+  id >= 2   user-added subfolders   — renameable by double-click, removable
+
+  parentId == -1 means the node is a direct child of TVI_ROOT (only id 0 uses this).
+
+── TreeView image list indices ─────────────────────────────────────────────────
+
+  Index 0  shell32.dll sequential index 3   closed yellow folder
+  Index 1  shell32.dll sequential index 5   open yellow folder
+
+  Shell32 sequential indices are 0-based icon positions within
+  the DLL as returned by ExtractIconExW.  They are NOT the same as the
+  icon resource IDs shown by some icon-viewer tools.  Verified with
+  IconViewer.exe (build_iconviewer.bat).
+
+── Icon indices used on the page ───────────────────────────────────────────────
+
+  imageres.dll  105   Desktop / monitor icon       (Desktop button)
+  shell32.dll   3     Closed yellow folder          (Add Subfolder button + TreeView)
+  shell32.dll   5     Open yellow folder            (TreeView selected state)
+  shell32.dll   131   Red X / remove icon           (Remove button)
+  shell32.dll   264   Pin / pushpin icon            (Pin to Start + Pin to Taskbar buttons)
+
+── SC_OnNotify — return-value convention ────────────────────────────────────────
+
+  WM_NOTIFY for TVN_BEGINLABELEDIT and TVN_ENDLABELEDIT requires a specific
+  LRESULT return from the window procedure — not just 0.  SC_OnNotify therefore
+  returns LRESULT and takes a bool* handled out-parameter.
+
+  Caller pattern in mainwindow WM_NOTIFY:
+    { bool scH = false; LRESULT scR = SC_OnNotify(hwnd, nmhdr, &scH);
+      if (scH) return scR; }
+
+  TVN_BEGINLABELEDIT  return TRUE  → cancels the in-place edit (used for fixed nodes)
+                      return FALSE → allows the edit (used for user-added nodes)
+  TVN_ENDLABELEDIT    return TRUE  → accepts the new label text
+                      return FALSE → rejects the new label (used when pszText is empty)
+  TVN_SELCHANGED      return 0     → standard (just enables/disables the Remove button)
+
+── SC_OnContextMenu — dispatch pattern ─────────────────────────────────────────
+
+  TPM_RETURNCMD is used so TrackPopupMenu returns the chosen command ID rather
+  than posting a WM_COMMAND.  The handler then calls SendMessageW with WM_COMMAND
+  for IDC_SC_SM_ADD or IDC_SC_SM_REMOVE, so the context-menu items reuse the
+  same logic as the toolbar buttons — no duplicate code.
+
+  HWND comparison to identify the right-clicked control:
+    hCtrl == s_hScStartMenuTree          → folder tree right-click
+    hCtrl == GetDlgItem(hwnd, IDC_SC_*)  → button right-click
+
+── Locale keys used by this module ────────────────────────────────────────────
+
+  Key                       Default (English fallback)
+  ─────────────────────────────────────────────────────────────────────────────
+  sc_page_title             Shortcuts
+  sc_page_hint              Click a shortcut type below to configure it.
+  sc_desktop                Desktop
+  sc_desktop_tooltip        Create a shortcut on the user's Desktop
+  sc_desktop_opt_out        Allow the end user to opt out of the desktop shortcut at install time
+  sc_sm_section_label       Start Menu & Programs
+  sc_startmenu              Start Menu
+  sc_programs               Programs
+  sc_sm_add                 Add Subfolder
+  sc_sm_add_tooltip         Add a subfolder under the selected folder
+  sc_sm_remove              Remove
+  sc_sm_remove_tooltip      Remove the selected subfolder from the Start Menu structure
+  sc_sm_new_folder          New Subfolder
+  sc_pin_start              Pin to Start
+  sc_pin_start_tooltip      Pin the application to the Windows Start screen
+  sc_pin_taskbar            Pin to Taskbar
+  sc_pin_taskbar_tooltip    Pin the application to the Windows Taskbar
+  sc_ctx_configure          Configure shortcut…   (right-click stub; greyed until dialog done)
+
+  All other locales (da_DK, de_DE, …) are translated at publishing time only.
+
+── Control ID ranges reserved ──────────────────────────────────────────────────
+
+  5200–5208   Shortcuts page main controls (IDC_SC_*)
+  5220–5225   Shortcut Edit dialog controls (IDC_SCDLG_*) — used in next session
+  5300        Page title static (no ID needed outside BuildPage)
+  6300–6303   Context-menu command IDs (IDM_SC_CTX_*)
+
+── Image list lifetime ─────────────────────────────────────────────────────────
+
+  The TreeView image list is stored as a window property on hwnd under the
+  key L"hScSmTreeIL".  This allows both SC_BuildPage and SC_TearDown to find
+  and destroy it correctly even if the HIMAGELIST local variable goes out of
+  scope.  Always destroy via:
+    HIMAGELIST h = (HIMAGELIST)GetPropW(hwnd, L"hScSmTreeIL");
+    if (h) { ImageList_Destroy(h); RemovePropW(hwnd, L"hScSmTreeIL"); }
+
+── Future work (next development session) ─────────────────────────────────────
+
+  1. Implement SC_EditShortcutDialog(HWND hwnd, HINSTANCE hInst, int type, int smNodeId)
+       - Name field (pre-filled from exe filename without extension, editable)
+       - "Run as administrator" checkbox
+       - Icon preview + "Change Icon…" button (ExtractIconExW)
+       - OK / Cancel
+       - Tooltips on all controls
+     Called from IDC_SC_DESKTOP_BTN, IDC_SC_PINSTART_BTN, IDC_SC_PINTASKBAR_BTN handlers
+     and from the IDM_SC_CTX_EDIT_SC right-click item (un-grey it when done).
+
+  2. DB persistence:
+     Write s_scMenuNodes and s_scShortcuts to the database in IDM_FILE_SAVE.
+     Read them back in MainWindow::Create() and store into the statics via
+     a new SC_Load(projectId) function (to be added to shortcuts.h).
+
+================================================================================

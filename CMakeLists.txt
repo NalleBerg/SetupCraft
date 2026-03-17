@@ -27,6 +27,7 @@ add_executable(SkeletonApp WIN32
     dragdrop.cpp
     dpi.cpp
     notes_editor.cpp
+    shortcuts.cpp
     ${RESOURCE_FILES}
 )
 

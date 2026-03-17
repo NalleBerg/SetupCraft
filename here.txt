@@ -1,6 +1,79 @@
 ========================================================================
   SetupCraft — Session State & Where We Are
-  Written: 16.03.2026 — End of day
+  Written: 17.03.2026 — End of day
+========================================================================
+
+── COMPLETED THIS SESSION ──────────────────────────────────────
+
+ 1. Shortcuts page extracted to shortcuts.h / shortcuts.cpp / shortcuts_INTERNALS.txt
+    (Modular architecture — mainwindow.cpp now only routes WM_NOTIFY,
+    WM_COMMAND, WM_CONTEXTMENU to the module via SC_On* functions)
+
+    WHAT WORKS:
+      - Full page layout: Desktop button + opt-out checkbox, Start Menu &
+        Programs TreeView, Add Subfolder / Remove buttons, Pin to Start,
+        Pin to Taskbar.
+      - TreeView: inline label editing (TVS_EDITLABELS), fixed root +
+        Programs nodes cannot be renamed/deleted, user subfolders can.
+      - Right-click on tree: context menu with Add Subfolder / Remove.
+      - Right-click on row buttons: grayed «Configure shortcut…» stub
+        (handler in place, dialog deferred).
+      - Image list with shell32 closed/open folder icons (32×32),
+        stored as window property "hScSmTreeIL", destroyed on teardown.
+      - All state in-memory; SC_Reset() called on project open/close.
+      - Clean compile, no warnings.
+
+    DOCUMENTED IN:
+      shortcuts.h, shortcuts.cpp, shortcuts_INTERNALS.txt
+
+ 2. Components page Required-icon state — marked DONE in ToDo.txt
+
+ 3. ToDo.txt updated:
+      - Item 2 (Components Required) → DONE
+      - Item 1 (Shortcut config dialog) → added at top, full spec
+      - Item 5 (APPDATA/home install location) → added, spec written
+
+── KNOWN VISUAL BUGS TO FIX NEXT SESSION ────────────────────────
+
+ A. TREE NOT CENTERED IN ITS BOX
+    The TreeView is positioned at treeX = (clientWidth - treeW) / 2
+    in shortcuts.cpp but is not visually centered.
+    Likely cause: clientWidth passed to SC_BuildPage is rc.right from
+    GetClientRect(hwnd) which includes any chrome area.
+    Fix: verify the correct usable-area width and re-check treeX.
+
+ B. NO ICONS ON ADD SUBFOLDER / REMOVE BUTTONS
+    Icon indices shell32 #296 (add folder) and #234 (remove) are correct
+    for the Files page, but the buttons appear without icons here.
+    Likely cause: CreateCustomButtonWithIcon receives the bare string
+    L"shell32.dll" instead of the full system path built by
+    GetSystemDirectoryW (shell32Path[] is already available in SC_BuildPage).
+    Fix: pass shell32Path to CreateCustomButtonWithIcon for these two buttons.
+
+ C. "START MENU & PROGRAMS" LABEL NOT BOLD
+    SC_BuildPage passes hPageTitleFont to the SS_CENTER STATIC, but
+    WM_CTLCOLORSTATIC only applies hPageTitleFont to IDs 5100 and 5300.
+    The section label has no assigned control ID.
+    Fix: assign a control ID (e.g. 5301) to the section label and add
+    it to the WM_CTLCOLORSTATIC check in mainwindow.cpp.
+
+── NEXT MAJOR FEATURE (ToDo Item 1) ────────────────────────────────
+
+ Shortcut config dialog (SC_EditShortcutDialog in shortcuts.cpp):
+   - Name field (pre-filled from exe filename, editable)
+   - «Run as administrator» checkbox
+   - 48×48 icon preview area + «Change Icon…» (ExtractIconExW picker)
+   - For Start Menu nodes: read-only folder path label
+   - OK / Cancel, tooltips on everything
+   - On OK: populate s_scShortcuts, call MainWindow::MarkAsModified()
+   - Un-grey IDM_SC_CTX_EDIT_SC right-click item when done
+
+── OTHER OPEN ITEMS (ToDo.txt) ───────────────────────────────────
+
+  Item 3 — Quit/close should use Unsaved Changes dialog (NOT STARTED)
+  Item 4 — Update Registry value when Publisher changes (NOT STARTED)
+  Item 5 — Per-user (APPDATA/home) install location support (NOT STARTED)
+
 ========================================================================
 
 ── FEATURES COMPLETE (built, working) ──────────────────────────────────
