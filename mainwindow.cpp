@@ -1509,7 +1509,9 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         IDC_COMP_ENABLE, IDC_COMP_LISTVIEW, IDC_COMP_TREEVIEW, IDC_COMP_ADD, IDC_COMP_EDIT, IDC_COMP_REMOVE,
         IDC_SC_DESKTOP_BTN, IDC_SC_DESKTOP_OPT, IDC_SC_PINSTART_BTN, IDC_SC_PINTASKBAR_BTN,
         IDC_SC_SM_TREE, IDC_SC_SM_ADD, IDC_SC_SM_REMOVE,
-        5100, 5101, 5102, 5103, 5104, 5105, 5106, 5107, 5108, 5109, 5110, 5300, 5301 // Labels and other static controls
+        IDC_SC_SM_PIN_LABEL, IDC_SC_TB_PIN_LABEL,
+        IDC_SC_SM_PIN_OPT, IDC_SC_TB_PIN_OPT,
+        5100, 5101, 5102, 5103, 5104, 5105, 5106, 5107, 5108, 5109, 5110, 5300, 5301, 5302, 5303, 5304 // Labels and other static controls
     };
     
     for (int id : controlIds) {
@@ -9509,7 +9511,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         HDC hdc = (HDC)wParam;
         HWND hControl = (HWND)lParam;
         int ctrlId = GetDlgCtrlID(hControl);
-        if (ctrlId == 5100 || ctrlId == 5300 || ctrlId == 5301) {  // page title statics (Files + Shortcuts + SC section label)
+        if (ctrlId == 5100 || ctrlId == 5300 || ctrlId == 5301 || ctrlId == 5302 || ctrlId == 5303 || ctrlId == 5304) {  // page title statics (Files + Shortcuts + SC column headings)
             if (s_hPageTitleFont) SelectObject(hdc, s_hPageTitleFont);
         } else {
             if (s_hGuiFont) SelectObject(hdc, s_hGuiFont);

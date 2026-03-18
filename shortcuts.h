@@ -39,6 +39,10 @@
 #define IDC_SC_SM_TREE          5206   // Start Menu / Programs folder TreeView
 #define IDC_SC_SM_ADD           5207   // "Add Subfolder" button
 #define IDC_SC_SM_REMOVE        5208   // "Remove Subfolder" button
+#define IDC_SC_SM_PIN_LABEL     5209   // "Not Pinned / Pinned / Multi Pinned" label under SM pin icon
+#define IDC_SC_TB_PIN_LABEL     5210   // "Not Pinned / Pinned / Multi Pinned" label under Taskbar pin icon
+#define IDC_SC_SM_PIN_OPT       5211   // "Allow opt-out" checkbox under Start Menu pin icon
+#define IDC_SC_TB_PIN_OPT       5212   // "Allow opt-out" checkbox under Taskbar pin icon
 
 // Shortcut Edit dialog control IDs (used by the shortcut-config dialog).
 #define IDC_SCDLG_NAME          5220   // Editable shortcut name (pre-filled from filename)

@@ -2,6 +2,18 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.03.18.10] - 2026-03-18
+
+### Added
+- **"Pin to Start" column heading** — renamed from "Start Menu" (`sc_sm_pin_section`) to eliminate the duplicate label also used by the Start Menu tree section below.
+- **SM pin opt-out checkbox** (`IDC_SC_SM_PIN_OPT` / 5211) — developer toggle allowing end-users to opt out of the Start Menu pin at install time. State stored in `s_scSmPinOptOut`, reset by `SC_Reset()`.
+- **Taskbar pin opt-out checkbox** (`IDC_SC_TB_PIN_OPT` / 5212) — same pattern for the Taskbar pin column.
+- **New locale keys**: `sc_sm_pin_opt_out`, `sc_tb_pin_opt_out` in `locale/en_GB.txt`.
+
+### Changed
+- **Vertical alignment of all opt-out checkboxes** — Desktop, Start Menu pin, and Taskbar pin checkboxes all now start at `rowY + statusH + S(4)`, one row below the status labels.
+- **`DrawCustomCheckbox` word-wrap** — label rendering switched from `DT_SINGLELINE | DT_VCENTER` to `DT_WORDBREAK`; box is now top-aligned at `+S(2)`. Checkbox height is S(34) to accommodate two lines of text at 9pt bold.
+
 ## [2026.03.18.09] - 2026-03-18
 
 ### Fixed

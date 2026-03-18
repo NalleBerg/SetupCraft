@@ -250,10 +250,12 @@ BOOL DrawCustomCheckbox(LPDRAWITEMSTRUCT dis)
     FillRect(hdc, &rcAll, hPaneBr);
     DeleteObject(hPaneBr);
 
-    // 2. Box — S(15)×S(15), vertically centred in the row.
+    // 2. Box — S(15)×S(15), aligned with the top of the first text line.
+    // Top-aligning (S(2) inset) works for both single-line and word-wrapped
+    // multi-line checkboxes without needing to query font metrics.
     const int boxSz = S(15);
     const int boxX  = rcAll.left;
-    const int boxY  = rcAll.top + (rcAll.bottom - rcAll.top - boxSz) / 2;
+    const int boxY  = rcAll.top + S(2);
 
     HBRUSH hBoxBr  = CreateSolidBrush(c.boxBg);
     HPEN   hBoxPen = CreatePen(PS_SOLID, 1, hovered ? c.hover : c.border);
@@ -304,7 +306,7 @@ BOOL DrawCustomCheckbox(LPDRAWITEMSTRUCT dis)
         SetTextColor(hdc, c.label);
         RECT rcLabel = { boxX + boxSz + S(6), rcAll.top, rcAll.right, rcAll.bottom };
         DrawTextW(hdc, text, -1, &rcLabel,
-                  DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+                  DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
 
         if (hOldF) SelectObject(hdc, hOldF);
     }

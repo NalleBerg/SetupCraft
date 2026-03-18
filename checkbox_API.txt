@@ -50,8 +50,10 @@ Parameters
   initiallyChecked — true → box is ticked at creation. false → box is empty.
   x, y             — position in DPI-scaled pixels. Use S(designPx) for every
                      value so the layout is correct at all DPI settings.
-  width, height    — size. A height of S(22) is recommended; the box is
-                     S(15)×S(15) and vertically centres inside the row.
+  width, height    — size. For a single-line label a height of S(22) is
+                     sufficient. For multi-line (word-wrapped) labels use S(34)
+                     or more; the box is top-aligned at +S(2) and the label
+                     wraps within the remaining rect.
   hInst            — module instance (same as passed to CreateWindowExW).
 
 Returns  HWND of the new control, or NULL on failure.
@@ -206,7 +208,11 @@ Font
   intentionally larger than the box so the heavy U+2714 stroke crosses the right
   border for a hand-written effect. Font is created and destroyed per draw call.
   The label uses the font set by the parent via WM_SETFONT (retrieved via
-  WM_GETFONT on the control).
+  WM_GETFONT on the control). The label is rendered with DT_WORDBREAK so long
+  strings wrap naturally; combine with a control height of S(34) for two lines
+  at 9pt bold. The check box is top-aligned at +S(2) relative to the control
+  top, staying in line with the first text line regardless of the number of
+  wrapped lines.
 
 ================================================================================
 THEME DETECTION

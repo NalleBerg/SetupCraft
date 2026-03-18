@@ -1,6 +1,18 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 18 March 2026 &mdash; v2026.03.18.09<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 18 March 2026 &mdash; v2026.03.18.10<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.18.10</span></h3>
+<p><strong>Shortcuts page &mdash; opt-out checkboxes for all three shortcut types (18.03.2026, 10:53):</strong></p>
+<ul>
+<li><strong>&ldquo;Pin to Start&rdquo; column heading:</strong> The middle column was renamed from &ldquo;Start Menu&rdquo; to &ldquo;Pin to Start&rdquo; (<code>sc_sm_pin_section</code>) to eliminate the duplicate &ldquo;Start Menu&rdquo; label that also appears on the tree section below.</li>
+<li><strong>Opt-out checkbox for Start Menu pin:</strong> New checkbox (<code>IDC_SC_SM_PIN_OPT</code> / 5211) below the &ldquo;Not Pinned&rdquo; status label in column 1 &mdash; lets the developer choose whether end-users may opt out of the Start Menu pin at install time.</li>
+<li><strong>Opt-out checkbox for Taskbar pin:</strong> New checkbox (<code>IDC_SC_TB_PIN_OPT</code> / 5212) in column 2, matching column 1.</li>
+<li><strong>Vertical alignment:</strong> All three opt-out checkboxes (Desktop, Pin to Start, Taskbar) now start at the same Y offset (<code>rowY + statusH + S(4)</code>). The Desktop checkbox was moved down one row so it sits level with the pin checkboxes.</li>
+<li><strong>Word-wrap in <code>DrawCustomCheckbox</code>:</strong> Label rendering switched from <code>DT_SINGLELINE | DT_VCENTER</code> to <code>DT_WORDBREAK</code>; the check box is now top-aligned at <code>+S(2)</code> instead of vertically centred. Controls are S(34) tall, giving two lines of text at 9pt bold.</li>
+<li><strong>New locale keys:</strong> <code>sc_sm_pin_opt_out</code> and <code>sc_tb_pin_opt_out</code> added to <code>locale/en_GB.txt</code>.</li>
+<li><strong>State persists across page switches:</strong> <code>s_scSmPinOptOut</code> and <code>s_scTbPinOptOut</code> are file-scope statics reset only by <code>SC_Reset()</code> (project open/close).</li>
+</ul>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.18.09</span></h3>
 <p><strong>Shortcuts page &mdash; Start Menu tree visual fixes (18.03.2026, 09:16):</strong></p>

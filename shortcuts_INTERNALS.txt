@@ -19,7 +19,9 @@ mainwindow.cpp knows nothing about the page internals.  It only:
 
 ── File-scope statics ───────────────────────────────────────────────────────────
 
-  s_scDesktopOptOut   bool          Whether "allow user to opt out" checkbox is on.
+  s_scDesktopOptOut   bool          Whether Desktop "allow user to opt out" checkbox is on.
+  s_scSmPinOptOut     bool          Whether SM pin "allow user to opt out" checkbox is on.
+  s_scTbPinOptOut     bool          Whether Taskbar pin "allow user to opt out" checkbox is on.
   s_hScStartMenuTree  HWND          Live TreeView handle; NULL when page is not shown.
   s_scMenuNodes       vector<ScMenuNode>  Folder tree for Start Menu / Programs.
   s_scNextMenuId      int           Next free id for a newly added ScMenuNode (starts at 2).
@@ -126,16 +128,68 @@ mainwindow.cpp knows nothing about the page internals.  It only:
     hCtrl == s_hScStartMenuTree          → folder tree right-click
     hCtrl == GetDlgItem(hwnd, IDC_SC_*)  → button right-click
 
+── 3-column header block ───────────────────────────────────────────────────────
+
+  Three equal columns (clientWidth/3 each, last column takes remainder):
+
+    Col 0  Desktop
+    Col 1  Pin to Start   (heading key: sc_sm_pin_section)
+    Col 2  Taskbar        (heading key: sc_tb_pin_section)
+
+  Row A  Bold centred headings  IDs 5302/5303/5304 → hPageTitleFont via WM_CTLCOLORSTATIC.
+  Row B  64×64 icons centred in each column:
+           Col 0: imageres.dll #104  Desktop/monitor
+           Col 1: imageres.dll #228  Start Menu / pin
+           Col 2: imageres.dll #175  Taskbar / download folder
+         Icon statics use SC_DesktopIconSubclassProc (shared) for WM_PAINT/DrawIconEx.
+  Row C  Pin status label (cols 1/2) then opt-out checkbox for all 3 columns:
+           Status labels at rowY, height statusH (S(18)).
+           Checkboxes start at rowY + statusH + S(4), height cbH (S(34)).
+           All checkboxes: 9pt bold Segoe UI (s_hScCbFont), word-wrapped.
+           Col 0 IDC_SC_DESKTOP_OPT   5201  s_scDesktopOptOut
+           Col 1 IDC_SC_SM_PIN_OPT    5211  s_scSmPinOptOut
+           Col 2 IDC_SC_TB_PIN_OPT    5212  s_scTbPinOptOut
+
+  Total row height: statusH + S(4) + S(34) + S(10).
+
+── Control IDs ─────────────────────────────────────────────────────────────────
+
+  5200  IDC_SC_DESKTOP_BTN      Desktop 64×64 icon (click→config dialog TODO)
+  5201  IDC_SC_DESKTOP_OPT      Desktop opt-out checkbox
+  5202  IDC_SC_STARTMENU_BTN    (reserved)
+  5203  IDC_SC_PROGRAMS_BTN     (reserved)
+  5204  IDC_SC_PINSTART_BTN     Pin-to-Start 64×64 icon (click→pin dialog TODO)
+  5205  IDC_SC_PINTASKBAR_BTN   Pin-to-Taskbar 64×64 icon (click→pin dialog TODO)
+  5206  IDC_SC_SM_TREE          Start Menu folder TreeView
+  5207  IDC_SC_SM_ADD           Add Subfolder button
+  5208  IDC_SC_SM_REMOVE        Remove Subfolder button
+  5209  IDC_SC_SM_PIN_LABEL     "Not Pinned / Pinned / Multi Pinned" label, col 1
+  5210  IDC_SC_TB_PIN_LABEL     "Not Pinned / Pinned / Multi Pinned" label, col 2
+  5211  IDC_SC_SM_PIN_OPT       Start Menu pin opt-out checkbox
+  5212  IDC_SC_TB_PIN_OPT       Taskbar pin opt-out checkbox
+  5301  section label (Start Menu tree heading)
+  5302  col 0 heading "Desktop"
+  5303  col 1 heading "Pin to Start"
+  5304  col 2 heading "Taskbar"
+
 ── Locale keys used by this module ────────────────────────────────────────────
 
   Key                       Default (English fallback)
   ─────────────────────────────────────────────────────────────────────────────
   sc_page_title             Shortcuts
   sc_page_hint              Click a shortcut type below to configure it.
+  sc_desktop_section        Desktop
   sc_desktop                Desktop
   sc_desktop_tooltip        Create a shortcut on the user's Desktop
   sc_desktop_opt_out        Allow the end user to opt out of the desktop shortcut at install time
-  sc_sm_section_label       Start Menu & Programs
+  sc_sm_pin_section         Pin to Start
+  sc_tb_pin_section         Taskbar
+  sc_pin_not_pinned         Not Pinned
+  sc_pin_pinned             Pinned
+  sc_pin_multi_pinned       Multi Pinned
+  sc_sm_pin_opt_out         Allow the end user to opt out of the Start Menu pin at install time
+  sc_tb_pin_opt_out         Allow the end user to opt out of the Taskbar pin at install time
+  sc_sm_section_label       Start Menu
   sc_startmenu              Start Menu
   sc_programs               Programs
   sc_sm_add                 Add Subfolder
@@ -144,9 +198,9 @@ mainwindow.cpp knows nothing about the page internals.  It only:
   sc_sm_remove_tooltip      Remove the selected subfolder from the Start Menu structure
   sc_sm_new_folder          New Subfolder
   sc_pin_start              Pin to Start
-  sc_pin_start_tooltip      Pin the application to the Windows Start screen
+  sc_pin_start_tooltip      Click to select shortcuts to pin to the Start Menu
   sc_pin_taskbar            Pin to Taskbar
-  sc_pin_taskbar_tooltip    Pin the application to the Windows Taskbar
+  sc_pin_taskbar_tooltip    Click to select shortcuts to pin to the Taskbar
   sc_ctx_configure          Configure shortcut…   (right-click stub; greyed until dialog done)
 
   All other locales (da_DK, de_DE, …) are translated at publishing time only.

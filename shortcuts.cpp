@@ -17,14 +17,35 @@
 #include <functional>      // std::function (recursive lambda)
 #include <algorithm>       // std::remove_if
 
+// PrivateExtractIconsW — undocumented but reliable for requesting arbitrary icon
+// pixel sizes from system DLLs.  Same declaration as in button.cpp.
+extern "C" __declspec(dllimport) UINT WINAPI PrivateExtractIconsW(
+    LPCWSTR szFileName, int nIconIndex, int cxIcon, int cyIcon,
+    HICON* phicon, UINT* piconid, UINT nIcons, UINT flags);
+
 // ── Module-private state ──────────────────────────────────────────────────────
 
 // "Allow user to opt out of the desktop shortcut at install time" toggle.
 static bool s_scDesktopOptOut = false;
+static bool s_scSmPinOptOut   = false;   // SM pin opt-out developer toggle
+static bool s_scTbPinOptOut   = false;   // Taskbar pin opt-out developer toggle
 
 // Live handle to the Start Menu / Programs folder TreeView.
 // Set by SC_BuildPage; cleared (window destroyed) by SC_TearDown.
-static HWND s_hScStartMenuTree = NULL;
+static HWND  s_hScStartMenuTree = NULL;
+
+// Desktop icon displayed on the page at 64×64.  Loaded in SC_BuildPage,
+// destroyed in SC_TearDown.
+static HICON s_hDesktopIcon = NULL;
+
+// Start Menu pin icon (imageres.dll #228) and Taskbar pin icon (#175), 64×64.
+// Loaded in SC_BuildPage, destroyed in SC_TearDown.
+static HICON s_hSmPinIcon = NULL;
+static HICON s_hTbPinIcon = NULL;
+
+// 9pt bold font for the Desktop opt-out checkbox label.
+// Created in SC_BuildPage, destroyed in SC_TearDown.
+static HFONT s_hScCbFont = NULL;
 
 // In-memory folder tree.  Persists across page switches; cleared by SC_Reset().
 static std::vector<ScMenuNode> s_scMenuNodes;
@@ -40,6 +61,8 @@ static int                      s_scNextShortcutId = 1;
 void SC_Reset()
 {
     s_scDesktopOptOut  = false;
+    s_scSmPinOptOut    = false;
+    s_scTbPinOptOut    = false;
     s_scMenuNodes.clear();
     s_scNextMenuId     = 2;
     s_scShortcuts.clear();
@@ -47,6 +70,36 @@ void SC_Reset()
 }
 
 // ── SC_BuildPage ──────────────────────────────────────────────────────────────
+
+// Subclass proc for the 64×64 Desktop icon static control.
+// Paints the icon via DrawIconEx and fills the background with the window colour.
+static LRESULT CALLBACK SC_DesktopIconSubclassProc(
+    HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+    UINT_PTR /*uid*/, DWORD_PTR /*ref*/)
+{
+    switch (msg) {
+    case WM_ERASEBKGND: {
+        RECT rc; GetClientRect(hwnd, &rc);
+        FillRect((HDC)wParam, &rc, GetSysColorBrush(COLOR_WINDOW));
+        return 1;
+    }
+    case WM_PAINT: {
+        PAINTSTRUCT ps;
+        HDC hdc = BeginPaint(hwnd, &ps);
+        HICON hIco = (HICON)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+        if (hIco) {
+            RECT rc; GetClientRect(hwnd, &rc);
+            DrawIconEx(hdc, 0, 0, hIco, rc.right, rc.bottom, 0, NULL, DI_NORMAL);
+        }
+        EndPaint(hwnd, &ps);
+        return 0;
+    }
+    case WM_NCDESTROY:
+        RemoveWindowSubclass(hwnd, SC_DesktopIconSubclassProc, 0);
+        return DefSubclassProc(hwnd, msg, wParam, lParam);
+    }
+    return DefSubclassProc(hwnd, msg, wParam, lParam);
+}
 
 void SC_BuildPage(HWND hwnd, HINSTANCE hInst, int pageY, int clientWidth,
                   HFONT hPageTitleFont, HFONT hGuiFont,
@@ -82,11 +135,6 @@ void SC_BuildPage(HWND hwnd, HINSTANCE hInst, int pageY, int clientWidth,
         hwnd, NULL, hInst, NULL);
 
     // ── Layout constants ──────────────────────────────────────────────────────
-    // Each shortcut type is a wide button (icon + label).  Width fills the
-    // content area; height gives enough room for the 32 px icon + padding.
-    const int btnX = S(20);
-    const int btnW = clientWidth - S(40);
-    const int btnH = S(48);
     const int gap  = S(10);
     int rowY = pageY + S(96);
 
@@ -99,30 +147,177 @@ void SC_BuildPage(HWND hwnd, HINSTANCE hInst, int pageY, int clientWidth,
     GetSystemDirectoryW(imageresPath, MAX_PATH);
     wcscat_s(imageresPath, L"\\imageres.dll");
 
-    // ── Row 1 — Desktop shortcut ──────────────────────────────────────────────
-    // Icon: imageres.dll index 105 = desktop/monitor icon (verified in IconViewer).
-    std::wstring scDesktop = loc(L"sc_desktop", L"Desktop");
-    HWND hDesktopBtn = CreateCustomButtonWithIcon(
-        hwnd, IDC_SC_DESKTOP_BTN, scDesktop.c_str(), ButtonColor::Blue,
-        imageresPath, 105,
-        btnX, rowY, btnW, btnH, hInst);
+    // ── 3-column shortcut section: Desktop | Start Menu pin | Taskbar pin ─────
+    // Each column is clientWidth/3 wide.  Bold centred heading, 64×64 icon,
+    // and beneath: opt-out checkbox for Desktop; pin-status label for SM/TB.
+    // IDs 5302/5303/5304 → WM_CTLCOLORSTATIC selects hPageTitleFont for headings.
     {
-        std::wstring tt = loc(L"sc_desktop_tooltip",
-            L"Create a shortcut on the user's Desktop");
-        SetButtonTooltip(hDesktopBtn, tt.c_str());
-    }
-    rowY += btnH + gap;
+        const int colW    = clientWidth / 3;
+        const int col2W   = clientWidth - 2 * colW;  // last column takes remainder
+        const int col0X   = 0;
+        const int col1X   = colW;
+        const int col2X   = colW * 2;
+        const int iconSz  = S(64);
+        const int headH   = S(22);
+        const int statusH = S(18);
 
-    // ── Desktop opt-out checkbox ──────────────────────────────────────────────
-    // Indented to show it belongs to the Desktop row above it.
-    std::wstring scOptOut = loc(L"sc_desktop_opt_out",
-        L"Allow the end user to opt out of the desktop shortcut at install time");
-    HWND hOptOut = CreateCustomCheckbox(
-        hwnd, IDC_SC_DESKTOP_OPT, scOptOut,
-        s_scDesktopOptOut,
-        S(20) + S(20), rowY, btnW - S(20), S(28), hInst);
-    (void)hOptOut;  // handle stored in window; state read via BM_GETCHECK later
-    rowY += S(28) + S(6);
+        // Compute pin status for SM and Taskbar columns.
+        int smPinCnt = 0, tbPinCnt = 0;
+        for (const auto& sc : s_scShortcuts) {
+            if (sc.type == SCT_PIN_START)   smPinCnt++;
+            if (sc.type == SCT_PIN_TASKBAR) tbPinCnt++;
+        }
+        auto pinStatus = [&](int cnt) -> std::wstring {
+            if (cnt == 0) return loc(L"sc_pin_not_pinned",   L"Not Pinned");
+            if (cnt == 1) return loc(L"sc_pin_pinned",       L"Pinned");
+            return              loc(L"sc_pin_multi_pinned",  L"Multi Pinned");
+        };
+
+        // Row A — section headings
+        {
+            std::wstring s0 = loc(L"sc_desktop_section", L"Desktop");
+            std::wstring s1 = loc(L"sc_sm_pin_section",  L"Pin to Start");
+            std::wstring s2 = loc(L"sc_tb_pin_section",  L"Taskbar");
+            HWND h0 = CreateWindowExW(0, L"STATIC", s0.c_str(),
+                WS_CHILD | WS_VISIBLE | SS_CENTER | SS_NOPREFIX,
+                col0X, rowY, colW, headH,
+                hwnd, (HMENU)5302, hInst, NULL);
+            if (hPageTitleFont) SendMessageW(h0, WM_SETFONT, (WPARAM)hPageTitleFont, TRUE);
+            HWND h1 = CreateWindowExW(0, L"STATIC", s1.c_str(),
+                WS_CHILD | WS_VISIBLE | SS_CENTER | SS_NOPREFIX,
+                col1X, rowY, colW, headH,
+                hwnd, (HMENU)5303, hInst, NULL);
+            if (hPageTitleFont) SendMessageW(h1, WM_SETFONT, (WPARAM)hPageTitleFont, TRUE);
+            HWND h2 = CreateWindowExW(0, L"STATIC", s2.c_str(),
+                WS_CHILD | WS_VISIBLE | SS_CENTER | SS_NOPREFIX,
+                col2X, rowY, col2W, headH,
+                hwnd, (HMENU)5304, hInst, NULL);
+            if (hPageTitleFont) SendMessageW(h2, WM_SETFONT, (WPARAM)hPageTitleFont, TRUE);
+        }
+        rowY += headH + S(6);
+
+        // Row B — 64×64 icons, centred within each column
+        {
+            int iconY = rowY;
+            // Column 0: Desktop (imageres.dll #104)
+            {
+                if (s_hDesktopIcon) { DestroyIcon(s_hDesktopIcon); }
+                s_hDesktopIcon = NULL;
+                PrivateExtractIconsW(imageresPath, 104, iconSz, iconSz, &s_hDesktopIcon, NULL, 1, 0);
+                if (!s_hDesktopIcon) ExtractIconExW(imageresPath, 104, &s_hDesktopIcon, NULL, 1);
+                int ix = col0X + (colW - iconSz) / 2;
+                HWND hIco = CreateWindowExW(0, L"STATIC", NULL,
+                    WS_CHILD | WS_VISIBLE | SS_NOTIFY,
+                    ix, iconY, iconSz, iconSz,
+                    hwnd, (HMENU)IDC_SC_DESKTOP_BTN, hInst, NULL);
+                SetWindowLongPtrW(hIco, GWLP_USERDATA, (LONG_PTR)s_hDesktopIcon);
+                SetWindowSubclass(hIco, SC_DesktopIconSubclassProc, 0, 0);
+            }
+            // Column 1: Start Menu pin (imageres.dll #228)
+            {
+                if (s_hSmPinIcon) { DestroyIcon(s_hSmPinIcon); }
+                s_hSmPinIcon = NULL;
+                PrivateExtractIconsW(imageresPath, 228, iconSz, iconSz, &s_hSmPinIcon, NULL, 1, 0);
+                if (!s_hSmPinIcon) ExtractIconExW(imageresPath, 228, NULL, &s_hSmPinIcon, 1);
+                int ix = col1X + (colW - iconSz) / 2;
+                HWND hIco = CreateWindowExW(0, L"STATIC", NULL,
+                    WS_CHILD | WS_VISIBLE | SS_NOTIFY,
+                    ix, iconY, iconSz, iconSz,
+                    hwnd, (HMENU)IDC_SC_PINSTART_BTN, hInst, NULL);
+                SetWindowLongPtrW(hIco, GWLP_USERDATA, (LONG_PTR)s_hSmPinIcon);
+                SetWindowSubclass(hIco, SC_DesktopIconSubclassProc, 0, 0);
+            }
+            // Column 2: Taskbar pin (imageres.dll #175)
+            {
+                if (s_hTbPinIcon) { DestroyIcon(s_hTbPinIcon); }
+                s_hTbPinIcon = NULL;
+                PrivateExtractIconsW(imageresPath, 175, iconSz, iconSz, &s_hTbPinIcon, NULL, 1, 0);
+                if (!s_hTbPinIcon) ExtractIconExW(imageresPath, 175, NULL, &s_hTbPinIcon, 1);
+                int ix = col2X + (col2W - iconSz) / 2;
+                HWND hIco = CreateWindowExW(0, L"STATIC", NULL,
+                    WS_CHILD | WS_VISIBLE | SS_NOTIFY,
+                    ix, iconY, iconSz, iconSz,
+                    hwnd, (HMENU)IDC_SC_PINTASKBAR_BTN, hInst, NULL);
+                SetWindowLongPtrW(hIco, GWLP_USERDATA, (LONG_PTR)s_hTbPinIcon);
+                SetWindowSubclass(hIco, SC_DesktopIconSubclassProc, 0, 0);
+            }
+        }
+        rowY += iconSz + S(8);
+
+        // Row C — pin-status labels (cols 1/2) then opt-out checkboxes for all 3 columns.
+        // Cols 1/2: status label at rowY, then checkbox at rowY+statusH+S(4).
+        // Col 0:   checkbox starts at rowY (no label above it).
+        // All checkboxes use s_hScCbFont (9pt bold Segoe UI) and word-wrap to 2 lines.
+        {
+            // Build 9pt bold font (recreated each page visit).
+            if (s_hScCbFont) { DeleteObject(s_hScCbFont); s_hScCbFont = NULL; }
+            {
+                HDC hdc = GetDC(hwnd);
+                int lfH = -MulDiv(9, GetDeviceCaps(hdc, LOGPIXELSY), 72);
+                ReleaseDC(hwnd, hdc);
+                LOGFONTW lf = {};
+                lf.lfHeight  = lfH;
+                lf.lfWeight  = FW_BOLD;
+                lf.lfCharSet = DEFAULT_CHARSET;
+                lf.lfQuality = CLEARTYPE_QUALITY;
+                wcscpy_s(lf.lfFaceName, L"Segoe UI");
+                s_hScCbFont = CreateFontIndirectW(&lf);
+            }
+            // All checkboxes: S(4) left padding inside their column, S(34) tall for two lines.
+            const int cbH    = S(34);
+            const int cbPadX = S(4);   // (colW - (colW-S(8))) / 2
+
+            // Column 0: Desktop opt-out — offset by statusH+S(4) so it aligns
+            // with the opt-out checkboxes in columns 1 and 2.
+            {
+                const int cbW = colW - S(8);
+                std::wstring scOptOut = loc(L"sc_desktop_opt_out",
+                    L"Allow the end user to opt out of the desktop shortcut at install time");
+                HWND hOptOut = CreateCustomCheckbox(
+                    hwnd, IDC_SC_DESKTOP_OPT, scOptOut,
+                    s_scDesktopOptOut,
+                    col0X + cbPadX, rowY + statusH + S(4), cbW, cbH, hInst);
+                if (s_hScCbFont) SendMessageW(hOptOut, WM_SETFONT, (WPARAM)s_hScCbFont, TRUE);
+            }
+
+            // Column 1: Start Menu pin — status label, then opt-out checkbox.
+            {
+                const int cbW = colW - S(8);
+                HWND hSmLbl = CreateWindowExW(0, L"STATIC", pinStatus(smPinCnt).c_str(),
+                    WS_CHILD | WS_VISIBLE | SS_CENTER | SS_NOPREFIX,
+                    col1X, rowY, colW, statusH,
+                    hwnd, (HMENU)IDC_SC_SM_PIN_LABEL, hInst, NULL);
+                if (hGuiFont) SendMessageW(hSmLbl, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+
+                std::wstring scSmPinOpt = loc(L"sc_sm_pin_opt_out",
+                    L"Allow the end user to opt out of the Start Menu pin at install time");
+                HWND hSmOpt = CreateCustomCheckbox(
+                    hwnd, IDC_SC_SM_PIN_OPT, scSmPinOpt,
+                    s_scSmPinOptOut,
+                    col1X + cbPadX, rowY + statusH + S(4), cbW, cbH, hInst);
+                if (s_hScCbFont) SendMessageW(hSmOpt, WM_SETFONT, (WPARAM)s_hScCbFont, TRUE);
+            }
+
+            // Column 2: Taskbar pin — status label, then opt-out checkbox.
+            {
+                const int cb2W = col2W - S(8);
+                HWND hTbLbl = CreateWindowExW(0, L"STATIC", pinStatus(tbPinCnt).c_str(),
+                    WS_CHILD | WS_VISIBLE | SS_CENTER | SS_NOPREFIX,
+                    col2X, rowY, col2W, statusH,
+                    hwnd, (HMENU)IDC_SC_TB_PIN_LABEL, hInst, NULL);
+                if (hGuiFont) SendMessageW(hTbLbl, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+
+                std::wstring scTbPinOpt = loc(L"sc_tb_pin_opt_out",
+                    L"Allow the end user to opt out of the Taskbar pin at install time");
+                HWND hTbOpt = CreateCustomCheckbox(
+                    hwnd, IDC_SC_TB_PIN_OPT, scTbPinOpt,
+                    s_scTbPinOptOut,
+                    col2X + cbPadX, rowY + statusH + S(4), cb2W, cbH, hInst);
+                if (s_hScCbFont) SendMessageW(hTbOpt, WM_SETFONT, (WPARAM)s_hScCbFont, TRUE);
+            }
+        }
+        rowY += statusH + S(4) + S(34) + S(10);
+    }
 
     // ── Section divider ───────────────────────────────────────────────────────
     CreateWindowExW(0, L"STATIC", L"",
@@ -145,7 +340,7 @@ void SC_BuildPage(HWND hwnd, HINSTANCE hInst, int pageY, int clientWidth,
     // SS_NOPREFIX prevents the '&' in "Start Menu & Programs" being consumed
     // as an accelerator-key prefix and rendered as a missing character.
     // ID 5301 lets WM_CTLCOLORSTATIC apply the bold page-title font to the DC.
-    std::wstring scSmLabel = loc(L"sc_sm_section_label", L"Start Menu & Programs");
+    std::wstring scSmLabel = loc(L"sc_sm_section_label", L"Start Menu");
     HWND hSmLabel = CreateWindowExW(0, L"STATIC", scSmLabel.c_str(),
         WS_CHILD | WS_VISIBLE | SS_CENTER | SS_NOPREFIX,
         treeX, rowY, treeW, S(22),
@@ -252,40 +447,6 @@ void SC_BuildPage(HWND hwnd, HINSTANCE hInst, int pageY, int clientWidth,
     }
     EnableWindow(hSmRemBtn, FALSE);  // TVN_SELCHANGED re-enables for removable nodes
     rowY += S(34) + S(10);
-
-    // ── Section divider ───────────────────────────────────────────────────────
-    CreateWindowExW(0, L"STATIC", L"",
-        WS_CHILD | WS_VISIBLE | SS_ETCHEDHORZ,
-        S(20), rowY, clientWidth - S(40), S(2),
-        hwnd, NULL, hInst, NULL);
-    rowY += S(2) + gap;
-
-    // ── Row 4 — Pin to Start ──────────────────────────────────────────────────
-    // Icon: shell32.dll index 264 = pin/pushpin icon (verified in IconViewer).
-    std::wstring scPinStart = loc(L"sc_pin_start", L"Pin to Start");
-    HWND hPinStartBtn = CreateCustomButtonWithIcon(
-        hwnd, IDC_SC_PINSTART_BTN, scPinStart.c_str(), ButtonColor::Blue,
-        shell32Path, 264,
-        btnX, rowY, btnW, btnH, hInst);
-    {
-        std::wstring tt = loc(L"sc_pin_start_tooltip",
-            L"Pin the application to the Windows Start screen");
-        SetButtonTooltip(hPinStartBtn, tt.c_str());
-    }
-    rowY += btnH + gap;
-
-    // ── Row 5 — Pin to Taskbar ────────────────────────────────────────────────
-    // Icon: shell32.dll index 264 (same pin icon as Pin to Start).
-    std::wstring scPinTaskbar = loc(L"sc_pin_taskbar", L"Pin to Taskbar");
-    HWND hPinTaskbarBtn = CreateCustomButtonWithIcon(
-        hwnd, IDC_SC_PINTASKBAR_BTN, scPinTaskbar.c_str(), ButtonColor::Blue,
-        shell32Path, 264,
-        btnX, rowY, btnW, btnH, hInst);
-    {
-        std::wstring tt = loc(L"sc_pin_taskbar_tooltip",
-            L"Pin the application to the Windows Taskbar");
-        SetButtonTooltip(hPinTaskbarBtn, tt.c_str());
-    }
     (void)rowY;  // no more rows after this
 }
 
@@ -298,6 +459,16 @@ void SC_TearDown(HWND hwnd)
         DestroyWindow(s_hScStartMenuTree);
     }
     s_hScStartMenuTree = NULL;
+
+    // Destroy the Desktop icon.
+    if (s_hDesktopIcon) { DestroyIcon(s_hDesktopIcon); s_hDesktopIcon = NULL; }
+
+    // Destroy the Start Menu pin and Taskbar pin icons.
+    if (s_hSmPinIcon) { DestroyIcon(s_hSmPinIcon); s_hSmPinIcon = NULL; }
+    if (s_hTbPinIcon) { DestroyIcon(s_hTbPinIcon); s_hTbPinIcon = NULL; }
+
+    // Destroy the checkbox bold font.
+    if (s_hScCbFont) { DeleteObject(s_hScCbFont); s_hScCbFont = NULL; }
 
     // Clear transient HTREEITEM handles; node names and structure persist.
     for (auto& n : s_scMenuNodes) n.hItem = nullptr;
@@ -388,14 +559,14 @@ bool SC_OnCommand(HWND hwnd, int id)
         // TODO: open Programs shortcut config dialog.
         return true;
 
-    // ── Pin to Start button ───────────────────────────────────────────────────
+    // ── Start Menu pin icon — click opens shortcut selection dialog ─────────
     case IDC_SC_PINSTART_BTN:
-        // TODO: open Pin to Start config dialog.
+        // TODO: open Start Menu pin selection dialog (select which shortcuts to pin).
         return true;
 
-    // ── Pin to Taskbar button ─────────────────────────────────────────────────
+    // ── Taskbar pin icon — click opens shortcut selection dialog ─────────────
     case IDC_SC_PINTASKBAR_BTN:
-        // TODO: open Pin to Taskbar config dialog.
+        // TODO: open Taskbar pin selection dialog (select which shortcuts to pin).
         return true;
 
     // ── Desktop opt-out checkbox ──────────────────────────────────────────────
@@ -403,6 +574,26 @@ bool SC_OnCommand(HWND hwnd, int id)
         HWND hCb = GetDlgItem(hwnd, IDC_SC_DESKTOP_OPT);
         if (hCb) {
             s_scDesktopOptOut = (SendMessageW(hCb, BM_GETCHECK, 0, 0) == BST_CHECKED);
+            MainWindow::MarkAsModified();
+        }
+        return true;
+    }
+
+    // ── SM pin opt-out checkbox ───────────────────────────────────────────────
+    case IDC_SC_SM_PIN_OPT: {
+        HWND hCb = GetDlgItem(hwnd, IDC_SC_SM_PIN_OPT);
+        if (hCb) {
+            s_scSmPinOptOut = (SendMessageW(hCb, BM_GETCHECK, 0, 0) == BST_CHECKED);
+            MainWindow::MarkAsModified();
+        }
+        return true;
+    }
+
+    // ── Taskbar pin opt-out checkbox ──────────────────────────────────────────
+    case IDC_SC_TB_PIN_OPT: {
+        HWND hCb = GetDlgItem(hwnd, IDC_SC_TB_PIN_OPT);
+        if (hCb) {
+            s_scTbPinOptOut = (SendMessageW(hCb, BM_GETCHECK, 0, 0) == BST_CHECKED);
             MainWindow::MarkAsModified();
         }
         return true;
