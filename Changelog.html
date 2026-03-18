@@ -1,6 +1,17 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 17 March 2026 &mdash; v2026.03.17.11<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 18 March 2026 &mdash; v2026.03.18.09<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.18.09</span></h3>
+<p><strong>Shortcuts page &mdash; Start Menu tree visual fixes (18.03.2026, 09:16):</strong></p>
+<ul>
+<li><strong>Tree centred at 17% of dialog width:</strong> The Start Menu &amp; Programs TreeView box is now properly horizontally centred within the content area at a compact width.</li>
+<li><strong>Section label ampersand fixed:</strong> <code>SS_NOPREFIX</code> added to the &ldquo;Start Menu &amp; Programs&rdquo; static so the <code>&amp;</code> renders as a literal character instead of being consumed as an accelerator prefix.</li>
+<li><strong>Row height normalised:</strong> Removed the forced <code>TreeView_SetItemHeight(S(34))</code> call; Windows now auto-sizes rows from the image list and font, giving the same compact highlight as the Files page.</li>
+<li><strong>TreeView font set explicitly:</strong> <code>WM_SETFONT</code> with <code>hGuiFont</code> sent to the TreeView, matching the Files and Components page trees.</li>
+<li><strong>Icon extraction corrected:</strong> Large 32&times;32 icons extracted via <code>ExtractIconExW</code> large-icon parameter (3rd arg), consistent with the project-wide 32&times;32 icon convention.</li>
+<li><strong>Bug A, B, C from 17.03 fixed:</strong> Tree centering (content-area maths), button icons (bare <code>shell32.dll</code> name so <code>DrawCustomButton</code> builds the full path), section label bold (ID 5301 added to <code>WM_CTLCOLORSTATIC</code>).</li>
+</ul>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.17.11</span></h3>
 <p><strong>Shortcuts page — modular extraction and layout (17.03.2026, 11:01):</strong></p>

@@ -58,13 +58,38 @@ mainwindow.cpp knows nothing about the page internals.  It only:
 
 ── TreeView image list indices ─────────────────────────────────────────────────
 
-  Index 0  shell32.dll sequential index 3   closed yellow folder
-  Index 1  shell32.dll sequential index 5   open yellow folder
+  Index 0  shell32.dll sequential index 3   closed yellow folder (large, 32×32)
+  Index 1  shell32.dll sequential index 5   open yellow folder   (large, 32×32)
+
+  Extracted with ExtractIconExW large-icon parameter (3rd arg, &hIcon; 4th arg NULL).
+  ImageList created at 32×32.  No TreeView_SetItemHeight override — Windows
+  auto-sizes rows from the image list height and the GUI font, giving the same
+  compact highlight style as the Files page.
 
   Shell32 sequential indices are 0-based icon positions within
   the DLL as returned by ExtractIconExW.  They are NOT the same as the
   icon resource IDs shown by some icon-viewer tools.  Verified with
   IconViewer.exe (build_iconviewer.bat).
+
+── TreeView sizing and font ────────────────────────────────────────────────────
+
+  The box is 17% of clientWidth (clientWidth * 35 / 200), horizontally centred
+  within the content area (S(20)..clientWidth-S(20)).  The Add Subfolder and
+  Remove buttons are centred under the same column using the same treeX/treeW.
+
+  WM_SETFONT is sent to s_hScStartMenuTree with hGuiFont (= s_scaledFont in
+  mainwindow.cpp) so the tree text weight and size match the Files/Components
+  page trees.
+
+── Section label ("Start Menu & Programs") ────────────────────────────────────
+
+  Created with SS_CENTER | SS_NOPREFIX.  SS_NOPREFIX is required because the
+  label text contains an ampersand; without it, Windows interprets '&' as an
+  accelerator prefix and swallows both the '&' and the following character.
+
+  Assigned control ID 5301 so WM_CTLCOLORSTATIC in mainwindow.cpp selects
+  s_hPageTitleFont into the DC before painting (WM_SETFONT alone is overridden
+  by the parent's WM_CTLCOLORSTATIC handler).
 
 ── Icon indices used on the page ───────────────────────────────────────────────
 

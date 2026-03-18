@@ -2,6 +2,18 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.03.18.09] - 2026-03-18
+
+### Fixed
+- **Start Menu tree centred** — box is 17% of dialog width, horizontally centred using content-area maths.
+- **Section label ampersand** — `SS_NOPREFIX` added; "Start Menu & Programs" now shows the `&` literally.
+- **Row height** — removed `TreeView_SetItemHeight(S(34))`; Windows auto-sizes rows from image list + font, giving the same compact highlight as the Files page.
+- **TreeView font** — `WM_SETFONT` with `hGuiFont` applied, matching Files/Components trees.
+- **Icon extraction** — large 32×32 icons extracted via `ExtractIconExW` large-icon param, consistent with project convention.
+- **Bug A** — tree X position uses content-area maths (not raw `rc.right`).
+- **Bug B** — Add Subfolder/Remove buttons pass bare `L"shell32.dll"` so `DrawCustomButton` builds the correct full path.
+- **Bug C** — section label assigned ID 5301 and added to `WM_CTLCOLORSTATIC` so bold page-title font is applied.
+
 ## [2026.03.17.11] - 2026-03-17
 
 ### Added

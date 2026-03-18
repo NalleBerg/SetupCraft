@@ -137,21 +137,24 @@ void SC_BuildPage(HWND hwnd, HINSTANCE hInst, int pageY, int clientWidth,
     // subfolders can be renamed by double-clicking (TVS_EDITLABELS) and removed
     // with the Remove button.  The root and Programs nodes are fixed.
 
-    // The Start Menu tree is limited to 40% of the dialog width and centred.
-    // The section label and action buttons are aligned to the same column.
-    const int treeW = clientWidth * 2 / 5;
+    // Box is ~17% of dialog width (half of previous 35%), centred.
+    const int treeW = clientWidth * 35 / 200;
     const int treeX = (clientWidth - treeW) / 2;
 
-    // Section header — centred + bold (hPageTitleFont), matching the page headline style.
+    // Section header — centred + bold (hPageTitleFont).
+    // SS_NOPREFIX prevents the '&' in "Start Menu & Programs" being consumed
+    // as an accelerator-key prefix and rendered as a missing character.
+    // ID 5301 lets WM_CTLCOLORSTATIC apply the bold page-title font to the DC.
     std::wstring scSmLabel = loc(L"sc_sm_section_label", L"Start Menu & Programs");
     HWND hSmLabel = CreateWindowExW(0, L"STATIC", scSmLabel.c_str(),
-        WS_CHILD | WS_VISIBLE | SS_CENTER,
+        WS_CHILD | WS_VISIBLE | SS_CENTER | SS_NOPREFIX,
         treeX, rowY, treeW, S(22),
-        hwnd, NULL, hInst, NULL);
+        hwnd, (HMENU)5301, hInst, NULL);
     if (hPageTitleFont) SendMessageW(hSmLabel, WM_SETFONT, (WPARAM)hPageTitleFont, TRUE);
     rowY += S(22) + S(6);
 
     // TreeView — folder icons: index 0 = closed (shell32 #3), 1 = open (shell32 #5).
+    // No TVS_FULLROWSELECT — highlight stays tight around icon+text, like the Files page.
     // Item height set to S(34) so 32×32 icons have a little breathing room.
     int smTreeH = S(160);
     s_hScStartMenuTree = CreateWindowExW(WS_EX_CLIENTEDGE, WC_TREEVIEWW, L"",
@@ -164,18 +167,23 @@ void SC_BuildPage(HWND hwnd, HINSTANCE hInst, int pageY, int clientWidth,
         HIMAGELIST hOldIL = (HIMAGELIST)GetPropW(hwnd, L"hScSmTreeIL");
         if (hOldIL) { ImageList_Destroy(hOldIL); RemovePropW(hwnd, L"hScSmTreeIL"); }
 
+        // 32×32 large icons, matching the project-wide icon size convention.
         HIMAGELIST hSmIL = ImageList_Create(32, 32, ILC_COLOR32 | ILC_MASK, 2, 2);
         if (hSmIL) {
             HICON hClose = NULL, hOpen = NULL;
-            ExtractIconExW(shell32Path, 3, &hClose, NULL, 1);  // closed yellow folder
-            ExtractIconExW(shell32Path, 5, &hOpen,  NULL, 1);  // open yellow folder
+            ExtractIconExW(shell32Path, 3, &hClose, NULL, 1);  // large closed yellow folder
+            ExtractIconExW(shell32Path, 5, &hOpen,  NULL, 1);  // large open yellow folder
             if (hClose) { ImageList_AddIcon(hSmIL, hClose); DestroyIcon(hClose); }
             if (hOpen)  { ImageList_AddIcon(hSmIL, hOpen);  DestroyIcon(hOpen);  }
             TreeView_SetImageList(s_hScStartMenuTree, hSmIL, TVSIL_NORMAL);
-            TreeView_SetItemHeight(s_hScStartMenuTree, S(34));
+            // No custom item height — Windows auto-sizes rows to fit icon+font,
+            // giving the same compact highlight as the Files page.
             SetPropW(hwnd, L"hScSmTreeIL", (HANDLE)hSmIL);
         }
     }
+    // Apply the same scaled GUI font used on the Files page so text weight and
+    // size are consistent across all TreeViews in the app.
+    if (hGuiFont) SendMessageW(s_hScStartMenuTree, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
 
     // Seed default nodes on the very first visit for this project.
     if (s_scMenuNodes.empty()) {
@@ -225,7 +233,7 @@ void SC_BuildPage(HWND hwnd, HINSTANCE hInst, int pageY, int clientWidth,
     std::wstring scSmAdd = loc(L"sc_sm_add", L"Add Subfolder");
     HWND hSmAddBtn = CreateCustomButtonWithIcon(
         hwnd, IDC_SC_SM_ADD, scSmAdd.c_str(), ButtonColor::Blue,
-        shell32Path, 296,           // shell32 296 = add-folder icon (same as Files page)
+        L"shell32.dll", 296,        // DrawCustomButton prepends the system directory path
         bRowX, rowY, addW, S(34), hInst);
     {
         std::wstring tt = loc(L"sc_sm_add_tooltip",
@@ -235,7 +243,7 @@ void SC_BuildPage(HWND hwnd, HINSTANCE hInst, int pageY, int clientWidth,
     std::wstring scSmRem = loc(L"sc_sm_remove", L"Remove");
     HWND hSmRemBtn = CreateCustomButtonWithIcon(
         hwnd, IDC_SC_SM_REMOVE, scSmRem.c_str(), ButtonColor::Red,
-        shell32Path, 234,           // shell32 234 = remove icon (same as Files page)
+        L"shell32.dll", 234,        // DrawCustomButton prepends the system directory path
         bRowX + addW + btnGap, rowY, remW, S(34), hInst);
     {
         std::wstring tt = loc(L"sc_sm_remove_tooltip",

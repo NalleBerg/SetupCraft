@@ -13,4 +13,5 @@ PROJECT RULES
 - We work modular. Every page and dialog gets it's own .h/.cpp./_INTERNALS.txt or _API.txt
   if needed - always check that.
 - Every time an _INTERNALS.txt/_API.txt is made API.list.txt must be updated.
+- Check API_list for custom ways of doing thincs often when coding.
 ================================================================================
