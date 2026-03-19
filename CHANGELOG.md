@@ -2,6 +2,18 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.03.19.14] - 2026-03-19
+
+### Added
+- **Shortcuts page vertical scrollbar** — `SC_BuildPage` now returns `int` (absolute Y of last content row). `SwitchPage` case 2 uses this to set up `SCROLLINFO` (`nMax = contentH-1`, `nPage = viewH`) and add `WS_VSCROLL` when content exceeds the view. `WM_VSCROLL` and `WM_MOUSEWHEEL` handlers added to the main window. `SC_SetScrollOffset`/`SC_GetScrollOffset` in `shortcuts.cpp`; `SC_RefreshDesktopStrip` and `SC_RefreshPinStrips` subtract the offset when positioning controls. `SC_TearDown` removes `WS_VSCROLL` and resets the offset on page switch. Status-bar height always measured via `GetWindowRect(s_hStatus)`, not hardcoded.
+- **`make_ico.ps1`** — PowerShell script wrapping ImageMagick `magick` to repack any source `.ico` into a multi-frame icon (16, 24, 32, 40, 48, 64, 96, 128 px). `icons/trashcan_empty.ico` generated from a 128 px source and embedded in `SetupCraft.rc` as resource ID 2 (`IDI_TRASHCAN = 2` in `shortcuts.h`).
+- **`scrollbar_INTERNALS.txt`** — architectural doc covering SCROLLINFO setup, why `SW_SCROLLCHILDREN` fails for below-viewport controls, the correct manual child-enumeration pattern, controls to exclude, `SC_SetScrollOffset` integration, teardown protocol, and status-bar `HWND_TOP` anti-overlap technique. Entry added to `API_list.txt`.
+
+### Fixed
+- **Scrollbar mechanism — `SW_SCROLLCHILDREN` replaced with manual child enumeration** — `ScrollWindowEx(..., SW_SCROLLCHILDREN)` only moves children intersecting the scroll rect at call time; controls created below the viewport are never moved and stay permanently unreachable. Both `WM_MOUSEWHEEL` and `WM_VSCROLL` handlers now enumerate all direct children of `hwnd` via `GetWindow(hwnd, GW_CHILD)` and call `SetWindowPos` on each page control (skipping toolbar buttons, the About button, and the status bar). Status bar is pinned to `HWND_TOP` after each scroll step.
+- **Page controls painting over status bar** — added `WS_CLIPSIBLINGS` to all page controls after `SC_BuildPage`. Each control now excludes sibling-covered pixels from its own paint region, so the status bar (always at `HWND_TOP`) is never overdrawn by a scrolled page control.
+- **Instant pin-strip refresh on all mutation paths** — `SC_RefreshPinStrips` now called from all 8 mutation sites, including `IDC_SC_SM_REMOVE` (folder Remove button and context-menu equivalent) and `IDM_SC_CTX_EDIT_SM` (SM shortcut Edit, where an exe-path change may alter pin eligibility). Previously those two paths refreshed the SM tree but left pin-strip checkboxes stale.
+
 ## [2026.03.19.12] - 2026-03-19
 
 ### Added

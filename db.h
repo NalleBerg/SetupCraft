@@ -97,6 +97,8 @@ namespace DB {
         std::wstring icon_path;
         int icon_index = 0;
         int run_as_admin = 0;
+        int pin_to_start = 0;
+        int pin_to_taskbar = 0;
     };
     bool InsertScShortcut(int projectId, const ScShortcutRow& sc);
     bool DeleteScShortcutsForProject(int projectId);

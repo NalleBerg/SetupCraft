@@ -253,6 +253,7 @@ sc_pin_start=Pin to Start
 sc_pin_start_tooltip=Click to select shortcuts to pin to the Start Menu
 sc_pin_taskbar=Pin to Taskbar
 sc_pin_taskbar_tooltip=Click to select shortcuts to pin to the Taskbar
+sc_pin_add_first=Add shortcuts to pin first
 sc_sm_section_label=Start Menu
 sc_sm_add=Add Subfolder
 sc_sm_add_tooltip=Add a subfolder under the selected folder

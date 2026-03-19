@@ -46,6 +46,7 @@ HTREEITEM MainWindow::s_hAskAtInstallRoot = NULL;
 bool MainWindow::s_askAtInstallEnabled = false;
 int MainWindow::s_toolbarHeight = 50;
 int MainWindow::s_currentPageIndex = 0;
+static int  s_scPageContentH = 0;  // absolute Y of first pixel below Shortcuts page content
 static bool s_hasUnsavedChanges = false;
 static bool s_isNewUnsavedProject = false;
 static HTREEITEM s_rightClickedItem = NULL; // Track which TreeView item was right-clicked
@@ -74,6 +75,9 @@ static LRESULT CALLBACK WarningIcon_SubclassProc(HWND hwnd, UINT msg, WPARAM wPa
 // Timer callback that polls cursor position every 60ms to hide the tooltip on
 // the disabled Components button the moment the cursor leaves its rect.
 static void CALLBACK CompTT_TimerCallback(HWND hwnd, UINT, UINT_PTR id, DWORD);
+// Same pattern for both disabled pin-icon buttons in the Shortcuts page.
+static void CALLBACK ScPinStartTT_TimerCallback(HWND hwnd, UINT, UINT_PTR id, DWORD);
+static void CALLBACK ScPinTbTT_TimerCallback(HWND hwnd, UINT, UINT_PTR id, DWORD);
 
 // Returns the full path to Program Files as reported by Windows (localized, e.g. "C:\Programfiler").
 // This handles all Windows languages automatically.
@@ -122,7 +126,11 @@ static HWND s_hRegKeyDialog = NULL;
 static bool s_navigateToRegKey = false;
 static bool s_warningTooltipTracking = false;
 static bool s_compDisabledTooltipTracking = false;
-#define IDT_COMP_TT 1001  // timer id for comp-disabled tooltip hover check
+#define IDT_COMP_TT          1001  // timer id for comp-disabled tooltip hover check
+static bool s_scPinStartTtTracking = false;
+static bool s_scPinTbTtTracking   = false;
+#define IDT_SC_PIN_START_TT  1002  // timer id for pin-to-start disabled tooltip
+#define IDT_SC_PIN_TB_TT     1003  // timer id for pin-to-taskbar disabled tooltip
 
 // Timer callback: polls every 60ms while tooltip is up and hides it the moment
 // the cursor is no longer over the disabled Components button.
@@ -140,6 +148,34 @@ static void CALLBACK CompTT_TimerCallback(HWND hwnd, UINT, UINT_PTR id, DWORD) {
         HideTooltip();
         KillTimer(hwnd, id);
         s_compDisabledTooltipTracking = false;
+    }
+}
+static void CALLBACK ScPinStartTT_TimerCallback(HWND hwnd, UINT, UINT_PTR id, DWORD) {
+    HWND hBtn = GetDlgItem(hwnd, IDC_SC_PINSTART_BTN);
+    bool over = false;
+    if (hBtn && !IsWindowEnabled(hBtn)) {
+        POINT pt; GetCursorPos(&pt);
+        RECT rc;  GetWindowRect(hBtn, &rc);
+        over = (PtInRect(&rc, pt) != FALSE);
+    }
+    if (!over) {
+        HideTooltip();
+        KillTimer(hwnd, id);
+        s_scPinStartTtTracking = false;
+    }
+}
+static void CALLBACK ScPinTbTT_TimerCallback(HWND hwnd, UINT, UINT_PTR id, DWORD) {
+    HWND hBtn = GetDlgItem(hwnd, IDC_SC_PINTASKBAR_BTN);
+    bool over = false;
+    if (hBtn && !IsWindowEnabled(hBtn)) {
+        POINT pt; GetCursorPos(&pt);
+        RECT rc;  GetWindowRect(hBtn, &rc);
+        over = (PtInRect(&rc, pt) != FALSE);
+    }
+    if (!over) {
+        HideTooltip();
+        KillTimer(hwnd, id);
+        s_scPinTbTtTracking = false;
     }
 }
 // Components page state
@@ -2419,7 +2455,57 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
     }
     case 2: // Shortcuts page — delegated to the shortcuts module
     {
-        SC_BuildPage(hwnd, hInst, pageY, rc.right, s_hPageTitleFont, s_hGuiFont, s_locale);
+        s_scPageContentH = SC_BuildPage(hwnd, hInst, pageY, rc.right, s_hPageTitleFont, s_hGuiFont, s_locale);
+        // Add a vertical scrollbar when the content is taller than the view.
+        {
+            // Use the actual status-bar height so the scroll rect never overlaps it.
+            int statusH = 25;
+            if (s_hStatus && IsWindow(s_hStatus)) {
+                RECT rcSB; GetWindowRect(s_hStatus, &rcSB);
+                statusH = rcSB.bottom - rcSB.top;
+            }
+            int viewH    = rc.bottom - pageY - statusH;
+            int contentH = s_scPageContentH - pageY + S(15);  // +15 px gap at bottom
+            if (contentH > viewH) {
+                LONG ws = GetWindowLongW(hwnd, GWL_STYLE);
+                if (!(ws & WS_VSCROLL)) {
+                    SetWindowLongW(hwnd, GWL_STYLE, ws | WS_VSCROLL);
+                    SetWindowPos(hwnd, NULL, 0, 0, 0, 0,
+                        SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+                }
+                SCROLLINFO si = {};
+                si.cbSize = sizeof(si);
+                si.fMask  = SIF_RANGE | SIF_PAGE | SIF_POS | SIF_DISABLENOSCROLL;
+                si.nMin   = 0;
+                si.nMax   = contentH - 1;
+                si.nPage  = (UINT)viewH;
+                si.nPos   = 0;
+                SetScrollInfo(hwnd, SB_VERT, &si, TRUE);
+            }
+        }
+        // Give every page control WS_CLIPSIBLINGS so that when any of them
+        // scrolls into the status-bar zone it does NOT paint over the status
+        // bar.  WS_CLIPSIBLINGS makes a window skip painting in any area
+        // covered by a sibling window, so the status bar (always kept at
+        // HWND_TOP) will always appear on top regardless of Z-order timing.
+        {
+            HWND hC = GetWindow(hwnd, GW_CHILD);
+            while (hC) {
+                HWND hN = GetWindow(hC, GW_HWNDNEXT);
+                if (hC != s_hStatus && hC != s_hAboutButton) {
+                    int cid = GetDlgCtrlID(hC);
+                    bool isTB = (cid >= IDC_TB_FILES && cid <= IDC_TB_ABOUT) ||
+                                 cid == IDC_TB_DIALOGS || cid == IDC_TB_COMPONENTS ||
+                                 cid == IDC_TB_EXIT    || cid == IDC_TB_CLOSE_PROJECT;
+                    if (!isTB) {
+                        LONG_PTR st = GetWindowLongPtrW(hC, GWL_STYLE);
+                        if (!(st & WS_CLIPSIBLINGS))
+                            SetWindowLongPtrW(hC, GWL_STYLE, st | WS_CLIPSIBLINGS);
+                    }
+                }
+                hC = hN;
+            }
+        }
         break;
     }
     case 3: // Dependencies page
@@ -9869,11 +9955,171 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 }
             }
         }
+        // Pin-to-Start button: tooltip when disabled (no eligible shortcuts yet).
+        if (!s_scPinStartTtTracking) {
+            HWND hPinSBtn = GetDlgItem(hwnd, IDC_SC_PINSTART_BTN);
+            if (hPinSBtn && !IsWindowEnabled(hPinSBtn)) {
+                POINT ptCursor; GetCursorPos(&ptCursor);
+                RECT rcBtn;     GetWindowRect(hPinSBtn, &rcBtn);
+                if (PtInRect(&rcBtn, ptCursor)) {
+                    auto it = s_locale.find(L"sc_pin_add_first");
+                    std::wstring txt = (it != s_locale.end()) ? it->second : L"Add shortcuts to pin first";
+                    std::vector<TooltipEntry> entries;
+                    entries.push_back({L"", txt});
+                    ShowMultilingualTooltip(entries, ptCursor.x + 16, ptCursor.y + 20, hwnd);
+                    s_scPinStartTtTracking = true;
+                    SetTimer(hwnd, IDT_SC_PIN_START_TT, 60, ScPinStartTT_TimerCallback);
+                }
+            }
+        }
+        // Pin-to-Taskbar button: same pattern.
+        if (!s_scPinTbTtTracking) {
+            HWND hPinTBtn = GetDlgItem(hwnd, IDC_SC_PINTASKBAR_BTN);
+            if (hPinTBtn && !IsWindowEnabled(hPinTBtn)) {
+                POINT ptCursor; GetCursorPos(&ptCursor);
+                RECT rcBtn;     GetWindowRect(hPinTBtn, &rcBtn);
+                if (PtInRect(&rcBtn, ptCursor)) {
+                    auto it = s_locale.find(L"sc_pin_add_first");
+                    std::wstring txt = (it != s_locale.end()) ? it->second : L"Add shortcuts to pin first";
+                    std::vector<TooltipEntry> entries;
+                    entries.push_back({L"", txt});
+                    ShowMultilingualTooltip(entries, ptCursor.x + 16, ptCursor.y + 20, hwnd);
+                    s_scPinTbTtTracking = true;
+                    SetTimer(hwnd, IDT_SC_PIN_TB_TT, 60, ScPinTbTT_TimerCallback);
+                }
+            }
+        }
         return 0;
     }
 
+    case WM_MOUSEWHEEL: {
+        if (s_currentPageIndex == 2) {
+            RECT rcMW; GetClientRect(hwnd, &rcMW);
+            int statusH = 25;
+            if (s_hStatus && IsWindow(s_hStatus)) {
+                RECT rcSB; GetWindowRect(s_hStatus, &rcSB);
+                statusH = rcSB.bottom - rcSB.top;
+            }
+            int spY   = s_toolbarHeight;
+            int svH   = rcMW.bottom - spY - statusH;
+            int scH   = s_scPageContentH + S(15) - spY;
+            int maxSc = scH - svH;
+            if (maxSc <= 0) break;
+            int wdelta    = GET_WHEEL_DELTA_WPARAM(wParam);
+            int scrollAmt = -wdelta * 3 * S(20) / WHEEL_DELTA;
+            SCROLLINFO si = {}; si.cbSize = sizeof(si); si.fMask = SIF_POS;
+            GetScrollInfo(hwnd, SB_VERT, &si);
+            int newPos = std::max(0, std::min(si.nPos + scrollAmt, maxSc));
+            if (newPos != si.nPos) {
+                int dy = newPos - si.nPos;
+                si.nPos = newPos;
+                SetScrollInfo(hwnd, SB_VERT, &si, TRUE);
+                // Move every page child by -dy.  SW_SCROLLCHILDREN is NOT used because
+                // it skips children whose top starts outside the scroll rect (i.e. the
+                // controls that start below the viewport and need to scroll into view).
+                HWND hC = GetWindow(hwnd, GW_CHILD);
+                while (hC) {
+                    HWND hN = GetWindow(hC, GW_HWNDNEXT);
+                    if (hC != s_hStatus && hC != s_hAboutButton) {
+                        int cid = GetDlgCtrlID(hC);
+                        bool isTB = (cid >= IDC_TB_FILES && cid <= IDC_TB_ABOUT) ||
+                                     cid == IDC_TB_DIALOGS || cid == IDC_TB_COMPONENTS ||
+                                     cid == IDC_TB_EXIT    || cid == IDC_TB_CLOSE_PROJECT;
+                        if (!isTB) {
+                            RECT rcC; GetWindowRect(hC, &rcC);
+                            MapWindowPoints(HWND_DESKTOP, hwnd, (POINT*)&rcC, 2);
+                            SetWindowPos(hC, NULL, rcC.left, rcC.top - dy, 0, 0,
+                                SWP_NOZORDER | SWP_NOSIZE | SWP_NOACTIVATE);
+                        }
+                    }
+                    hC = hN;
+                }
+                // Keep status bar pinned at the bottom and on top of all page controls.
+                SetWindowPos(s_hStatus, HWND_TOP,
+                    0, rcMW.bottom - statusH, rcMW.right, statusH,
+                    SWP_NOACTIVATE);
+                RECT pageRect = { 0, spY, rcMW.right, rcMW.bottom - statusH };
+                InvalidateRect(hwnd, &pageRect, TRUE);
+                UpdateWindow(s_hStatus);
+                SC_SetScrollOffset(newPos);
+            }
+            return 0;
+        }
+        break;
+    }
+
+    case WM_VSCROLL: {
+        if (s_currentPageIndex == 2) {
+            RECT rcVS; GetClientRect(hwnd, &rcVS);
+            int statusH = 25;
+            if (s_hStatus && IsWindow(s_hStatus)) {
+                RECT rcSB; GetWindowRect(s_hStatus, &rcSB);
+                statusH = rcSB.bottom - rcSB.top;
+            }
+            int spY   = s_toolbarHeight;
+            int svH   = rcVS.bottom - spY - statusH;
+            int scH   = s_scPageContentH + S(15) - spY;
+            int maxSc = scH - svH;
+            if (maxSc <= 0) break;
+            SCROLLINFO si = {}; si.cbSize = sizeof(si); si.fMask = SIF_ALL;
+            GetScrollInfo(hwnd, SB_VERT, &si);
+            int oldPos = si.nPos;
+            int newPos = oldPos;
+            switch (LOWORD(wParam)) {
+            case SB_LINEUP:        newPos -= S(20); break;
+            case SB_LINEDOWN:      newPos += S(20); break;
+            case SB_PAGEUP:        newPos -= svH;   break;
+            case SB_PAGEDOWN:      newPos += svH;   break;
+            case SB_TOP:           newPos  = 0;     break;
+            case SB_BOTTOM:        newPos  = maxSc; break;
+            case SB_THUMBTRACK:
+            case SB_THUMBPOSITION: {
+                SCROLLINFO si2 = {}; si2.cbSize = sizeof(si2);
+                si2.fMask = SIF_TRACKPOS;
+                GetScrollInfo(hwnd, SB_VERT, &si2);
+                newPos = si2.nTrackPos;
+                break;
+            }
+            }
+            newPos = std::max(0, std::min(newPos, maxSc));
+            if (newPos != oldPos) {
+                int dy   = newPos - oldPos;
+                si.fMask = SIF_POS; si.nPos = newPos;
+                SetScrollInfo(hwnd, SB_VERT, &si, TRUE);
+                // Move every page child by -dy (same reasoning as WM_MOUSEWHEEL).
+                HWND hC = GetWindow(hwnd, GW_CHILD);
+                while (hC) {
+                    HWND hN = GetWindow(hC, GW_HWNDNEXT);
+                    if (hC != s_hStatus && hC != s_hAboutButton) {
+                        int cid = GetDlgCtrlID(hC);
+                        bool isTB = (cid >= IDC_TB_FILES && cid <= IDC_TB_ABOUT) ||
+                                     cid == IDC_TB_DIALOGS || cid == IDC_TB_COMPONENTS ||
+                                     cid == IDC_TB_EXIT    || cid == IDC_TB_CLOSE_PROJECT;
+                        if (!isTB) {
+                            RECT rcC; GetWindowRect(hC, &rcC);
+                            MapWindowPoints(HWND_DESKTOP, hwnd, (POINT*)&rcC, 2);
+                            SetWindowPos(hC, NULL, rcC.left, rcC.top - dy, 0, 0,
+                                SWP_NOZORDER | SWP_NOSIZE | SWP_NOACTIVATE);
+                        }
+                    }
+                    hC = hN;
+                }
+                // Keep status bar pinned at the bottom and on top of all page controls.
+                SetWindowPos(s_hStatus, HWND_TOP,
+                    0, rcVS.bottom - statusH, rcVS.right, statusH,
+                    SWP_NOACTIVATE);
+                RECT pageRect = { 0, spY, rcVS.right, rcVS.bottom - statusH };
+                InvalidateRect(hwnd, &pageRect, TRUE);
+                UpdateWindow(s_hStatus);
+                SC_SetScrollOffset(newPos);
+            }
+        }
+        break;
+    }
+
     case WM_TIMER:
-        // IDT_COMP_TT is handled via callback (CompTT_TimerCallback), not here.
+        // IDT_COMP_TT / IDT_SC_PIN_START_TT / IDT_SC_PIN_TB_TT are handled via
+        // callback form of SetTimer (not WM_TIMER dispatch), not here.
         break;
     
     case WM_ACTIVATE:
@@ -9886,6 +10132,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 KillTimer(hwnd, IDT_COMP_TT);
                 s_compDisabledTooltipTracking = false;
             }
+            if (s_scPinStartTtTracking) { KillTimer(hwnd, IDT_SC_PIN_START_TT); s_scPinStartTtTracking = false; }
+            if (s_scPinTbTtTracking)   { KillTimer(hwnd, IDT_SC_PIN_TB_TT);    s_scPinTbTtTracking   = false; }
         }
         break;
     
@@ -9897,6 +10145,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             KillTimer(hwnd, IDT_COMP_TT);
             s_compDisabledTooltipTracking = false;
         }
+        if (s_scPinStartTtTracking) { KillTimer(hwnd, IDT_SC_PIN_START_TT); s_scPinStartTtTracking = false; }
+        if (s_scPinTbTtTracking)   { KillTimer(hwnd, IDT_SC_PIN_TB_TT);    s_scPinTbTtTracking   = false; }
         break;
 
     case WM_CAPTURECHANGED:
@@ -9926,6 +10176,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             KillTimer(hwnd, IDT_COMP_TT);
             s_compDisabledTooltipTracking = false;
         }
+        if (s_scPinStartTtTracking) { KillTimer(hwnd, IDT_SC_PIN_START_TT); s_scPinStartTtTracking = false; }
+        if (s_scPinTbTtTracking)   { KillTimer(hwnd, IDT_SC_PIN_TB_TT);    s_scPinTbTtTracking   = false; }
         return 0;
     
     case WM_DESTROY:

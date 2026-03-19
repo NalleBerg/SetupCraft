@@ -101,4 +101,13 @@
                                     shell32.dll icon indices used, ImageList lifetime,
                                     and full locale key table.
 
+  scrollbar_INTERNALS.txt           Shortcuts-page vertical scrollbar — SCROLLINFO
+                                    setup, why SW_SCROLLCHILDREN fails for content
+                                    that starts below the viewport, correct manual
+                                    child-enumeration pattern with SetWindowPos,
+                                    windows to exclude (toolbar buttons, status bar,
+                                    About button), SC_SetScrollOffset integration,
+                                    SC_TearDown cleanup protocol, and status-bar
+                                    HWND_TOP anti-overlap technique.
+
 ================================================================================

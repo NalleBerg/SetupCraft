@@ -2,7 +2,7 @@
 
 An installer creation tool for making your developed packages distributable. Designed to be simple to use with a clean, native Windows interface.
 
-**Current Release:** Version 2026.03.19.12 (Published: 19.03.2026 12:19)
+**Current Release:** Version 2026.03.19.14 (Published: 19.03.2026 14:53)
 
 > Note: This project is in active development. Entry screen and main window Files management page are complete with proper page switching.
 
@@ -10,7 +10,7 @@ An installer creation tool for making your developed packages distributable. Des
 
 - **DPI-Aware Scaling**: Full per-monitor DPI support via `S()` helper — all pixel values, fonts, tooltip dimensions, and custom dialog sizes scale correctly at any DPI (100%, 125%, 150%, 175%, 200%+). All custom dialogs use named layout constants + `S()` with `AdjustWindowRectEx` outer-window sizing — no hardcoded pixel values anywhere in the dialog system
 - **Consistent Body Font**: All labels, edits, checkboxes, TreeViews, and ListViews use a system-derived `NONCLIENTMETRICS` font at 120% scale for clear, legible text on every screen
-- **Shortcuts Page**: Dedicated page for configuring installer shortcuts — Desktop shortcut (with opt-out checkbox, multiple shortcuts, 16×16 mini-icon strip below the large icon), Start Menu & Programs folder hierarchy (editable TreeView with add/remove subfolders, inline rename, custom hover tooltip, "Add Shortcut Here" button and context menu item), Pin to Start, Pin to Taskbar. Full module in `shortcuts.h/.cpp`. Right-click context menus on tree and row buttons. All shortcuts and opt-out flags persisted to the `sc_shortcuts` and `sc_menu_nodes` DB tables on Save; restored on project open via `SC_LoadFromDb`
+- **Shortcuts Page**: Dedicated page for configuring installer shortcuts — Desktop shortcut (with opt-out checkbox, multiple shortcuts, 16×16 mini-icon strip below the large icon), Start Menu & Programs folder hierarchy (editable TreeView with add/remove subfolders, inline rename, custom hover tooltip, "Add Shortcut Here" button and context menu item), Pin to Start, Pin to Taskbar. Full module in `shortcuts.h/.cpp`. Right-click context menus on tree and row buttons. All shortcuts and opt-out flags persisted to the `sc_shortcuts` and `sc_menu_nodes` DB tables on Save; restored on project open via `SC_LoadFromDb`. Automatic vertical scrollbar (native `WS_VSCROLL`) appears when content exceeds the window height; scroll position tracked via `SC_SetScrollOffset`/`SC_GetScrollOffset` so strip controls stay correctly positioned at any scroll offset; `WS_CLIPSIBLINGS` added to all page controls to prevent overdrawing the status bar when scrolled. All pin-strip checkboxes refresh instantly on every shortcut mutation (all 8 paths wired)
 - **Bold Page Titles**: Each page has a prominent semi-bold heading rendered with a dedicated `s_hPageTitleFont` (150% NONCLIENTMETRICS) — correctly applied via `WM_CTLCOLORSTATIC` ID check so the body-font override no longer clobbers it
 - **Two-Row Toolbar**: 12 buttons in two compact rows — Row 1: Files, Components, Registry, Shortcuts, Dependencies, Dialogs; Row 2: Settings, Scripts, Test, Build, Save, Close Project, Exit. About «i» icon centered vertically at the right end
 - **Components Page**: Full component-based installation page — enable/disable toggle, split-pane TreeView + ListView layout (mirrors Files page), VFS folder tree on the left, file list on the right, Edit actions, modal edit dialog with auto-fill and dependency selection. All component mutations work purely in memory; DB is written only on explicit Save (`IDM_FILE_SAVE`)
@@ -39,6 +39,7 @@ An installer creation tool for making your developed packages distributable. Des
 - **About Dialog System**: Professional About dialog with SetupCraft logo (PNG with transparency), formatted RichEdit content, and colored sections matching WinUpdate template
 - **Icon-Only About Button**: Compact About button (40px) with shell32.dll icon #221 and tooltip support matching globe icon pattern
 - **License Dialog**: Enhanced GPL v2 license display with GnuLogo.bmp, formatted sections, colored headers (blue/red), and proper parsing
+- **Multi-Size ICO Generation**: `make_ico.ps1` PowerShell script uses ImageMagick to repack any source `.ico` into a multi-frame icon (16, 24, 32, 40, 48, 64, 96, 128 px). `icons/trashcan_empty.ico` embedded as resource ID 2 (`IDI_TRASHCAN`)  
 - **Version Management**: Centralized version control via curver.txt file and NewVersion.ps1 PowerShell script for automated version updates
 - **Dynamic Version Loading**: About dialog reads Published timestamp and Version from curver.txt at runtime (no recompile needed for version changes)
 - **Take Me There Navigation**: Navigate to registry key in TreeView and automatically populate ListView with uninstall values (DisplayName, DisplayVersion, Publisher, etc.)

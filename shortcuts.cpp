@@ -69,6 +69,20 @@ static int  s_scDskStripY  = 0;  // top-y of the mini-icon strip row
 static int  s_scDskCol0X   = 0;  // left edge of Desktop column
 static int  s_scDskColW    = 0;  // width of Desktop column
 
+// Layout coordinates for the Pin to Start and Pin to Taskbar strips.
+// Stored so SC_RefreshPinStrips() can recreate them without knowing the full layout.
+static int  s_scPinStripY  = 0;  // top-y of both pin checkbox strips (same row)
+static int  s_scSmPinColX  = 0;  // left edge of "Pin to Start" column
+static int  s_scSmPinColW  = 0;  // width of "Pin to Start" column
+static int  s_scTbPinColX  = 0;  // left edge of "Pin to Taskbar" column
+static int  s_scTbPinColW  = 0;  // width of "Pin to Taskbar" column
+static HFONT s_hScPinCbFont = NULL;  // font reused by pin strip checkboxes (created per BuildPage)
+
+// Pixels the page content has been scrolled upward from its natural position.
+// Reset to 0 on teardown and project reset.  Used by SC_RefreshDesktopStrip
+// and SC_RefreshPinStrips to place newly created controls at the correct Y.
+static int s_scScrollOffset = 0;
+
 // ── SC_Reset ──────────────────────────────────────────────────────────────────
 
 void SC_Reset()
@@ -80,10 +94,16 @@ void SC_Reset()
     s_scNextMenuId     = 2;
     s_scShortcuts.clear();
     s_scNextShortcutId = 1;
+    s_scScrollOffset   = 0;
 }
 
 // Forward declaration — SC_RefreshDesktopStrip is defined after SC_DskMiniSubclassProc.
 void SC_RefreshDesktopStrip(HWND hwnd, HINSTANCE hInst);
+
+// Forward declaration — SC_RefreshPinStrips is defined after SC_RefreshDesktopStrip.
+// Destroys and recreates both pin-checkbox strips from the current s_scShortcuts list,
+// and updates the pin-status labels.
+void SC_RefreshPinStrips(HWND hwnd, HINSTANCE hInst);
 
 // ── SC_DskMiniSubclassProc ────────────────────────────────────────────────────────
 // Subclass for each 16×16 Desktop shortcut mini-icon.
@@ -172,6 +192,7 @@ static LRESULT CALLBACK SC_DskMiniSubclassProc(
                 HINSTANCE hInst = (HINSTANCE)GetWindowLongPtrW(
                     GetParent(hwnd), GWLP_HINSTANCE);
                 SC_RefreshDesktopStrip(GetParent(hwnd), hInst);
+                SC_RefreshPinStrips(GetParent(hwnd), hInst);
             }
         } else {
             // Double-click: open edit dialog directly.
@@ -220,7 +241,7 @@ void SC_RefreshDesktopStrip(HWND hwnd, HINSTANCE hInst)
     const int icoGap = S(6);
     int totalW = (int)dsk.size() * icoSz + ((int)dsk.size() - 1) * icoGap;
     int startX = s_scDskCol0X + (s_scDskColW - totalW) / 2;
-    int stripY  = s_scDskStripY;
+    int stripY  = s_scDskStripY - s_scScrollOffset;
 
     for (int i = 0; i < (int)dsk.size() && i < 50; ++i) {
         ShortcutDef* pSc = dsk[i];
@@ -249,6 +270,104 @@ void SC_RefreshDesktopStrip(HWND hwnd, HINSTANCE hInst)
         SetWindowLongPtrW(hMini, GWLP_USERDATA, (LONG_PTR)hIco);
         SetPropW(hMini, L"ScId", (HANDLE)(INT_PTR)pSc->id);
         SetWindowSubclass(hMini, SC_DskMiniSubclassProc, 0, 0);
+    }
+}
+
+// ── SC_RefreshPinStrips ────────────────────────────────────────────────────────
+// Destroys and recreates both Pin-to-Start and Pin-to-Taskbar checkbox strips
+// from the current s_scShortcuts.  Also updates the two status labels.
+//
+// Eligible shortcuts: any SCT_DESKTOP or SCT_STARTMENU entry.  If multiple
+// shortcuts share the same exePath they are deduplicated — only the first one
+// (by id) appears.  The shortcut's sc.id is stored in the L"ScId" window
+// property of each checkbox so the WM_COMMAND handler can look it up.
+void SC_RefreshPinStrips(HWND hwnd, HINSTANCE hInst)
+{
+    if (s_scPinStripY == 0) return;  // BuildPage has not run yet
+
+    // Destroy existing strip checkboxes for both columns.
+    for (int i = 0; i < 50; ++i) {
+        HWND hOld = GetDlgItem(hwnd, IDC_SC_SMPIN_STRIP_BASE + i);
+        if (hOld) DestroyWindow(hOld); else break;
+    }
+    for (int i = 0; i < 50; ++i) {
+        HWND hOld = GetDlgItem(hwnd, IDC_SC_TBPIN_STRIP_BASE + i);
+        if (hOld) DestroyWindow(hOld); else break;
+    }
+
+    // Build the deduplicated eligible list (Desktop + SM shortcuts, unique exePath).
+    std::vector<ShortcutDef*> eligible;
+    std::vector<std::wstring> seenPaths;
+    for (auto& sc : s_scShortcuts) {
+        if (sc.type != SCT_DESKTOP && sc.type != SCT_STARTMENU) continue;
+        if (sc.exePath.empty()) continue;
+        // Case-insensitive deduplication by exePath.
+        std::wstring lower = sc.exePath;
+        for (wchar_t& c : lower) c = towlower(c);
+        bool dup = false;
+        for (const auto& seen : seenPaths)
+            if (seen == lower) { dup = true; break; }
+        if (dup) continue;
+        seenPaths.push_back(lower);
+        eligible.push_back(&sc);
+    }
+
+    // Compute how many are pinned to each target.
+    int smPinCnt = 0, tbPinCnt = 0;
+    for (const auto* sc : eligible) {
+        if (sc->pinToStart)   ++smPinCnt;
+        if (sc->pinToTaskbar) ++tbPinCnt;
+    }
+
+    // Update the status labels.
+    const auto& locMap = MainWindow::GetLocale();
+    auto loc = [&](const wchar_t* key, const wchar_t* fb) -> std::wstring {
+        auto it = locMap.find(key); return (it != locMap.end()) ? it->second : fb;
+    };
+    auto pinStatus = [&](int cnt) -> std::wstring {
+        if (cnt == 0) return loc(L"sc_pin_not_pinned",  L"Not Pinned");
+        if (cnt == 1) return loc(L"sc_pin_pinned",      L"Pinned");
+        return              loc(L"sc_pin_multi_pinned", L"Multi Pinned");
+    };
+    HWND hSmLbl = GetDlgItem(hwnd, IDC_SC_SM_PIN_LABEL);
+    if (hSmLbl) SetWindowTextW(hSmLbl, pinStatus(smPinCnt).c_str());
+    HWND hTbLbl = GetDlgItem(hwnd, IDC_SC_TB_PIN_LABEL);
+    if (hTbLbl) SetWindowTextW(hTbLbl, pinStatus(tbPinCnt).c_str());
+
+    // Enable/disable the big pin icon buttons (grey = no eligible shortcuts).
+    HWND hPinStartBtn = GetDlgItem(hwnd, IDC_SC_PINSTART_BTN);
+    HWND hPinTbBtn    = GetDlgItem(hwnd, IDC_SC_PINTASKBAR_BTN);
+    if (hPinStartBtn) EnableWindow(hPinStartBtn, !eligible.empty());
+    if (hPinTbBtn)    EnableWindow(hPinTbBtn,    !eligible.empty());
+
+    if (eligible.empty()) return;  // nothing to show in the strips
+
+    // Layout: one checkbox row per eligible shortcut, left-aligned in each column.
+    const int cbH   = S(20);  // single-line height for pin strip checkboxes
+    const int cbGap = S(3);
+    const int cbMargin = S(6);
+
+    for (int i = 0; i < (int)eligible.size() && i < 50; ++i) {
+        ShortcutDef* pSc = eligible[i];
+        int y = s_scPinStripY - s_scScrollOffset + i * (cbH + cbGap);
+
+        // -- Pin to Start checkbox --
+        int smCbW = s_scSmPinColW - 2 * cbMargin;
+        HWND hSmCb = CreateCustomCheckbox(
+            hwnd, IDC_SC_SMPIN_STRIP_BASE + i, pSc->name,
+            pSc->pinToStart,
+            s_scSmPinColX + cbMargin, y, smCbW, cbH, hInst);
+        if (s_hScPinCbFont) SendMessageW(hSmCb, WM_SETFONT, (WPARAM)s_hScPinCbFont, TRUE);
+        SetPropW(hSmCb, L"ScId", (HANDLE)(INT_PTR)pSc->id);
+
+        // -- Pin to Taskbar checkbox --
+        int tbCbW = s_scTbPinColW - 2 * cbMargin;
+        HWND hTbCb = CreateCustomCheckbox(
+            hwnd, IDC_SC_TBPIN_STRIP_BASE + i, pSc->name,
+            pSc->pinToTaskbar,
+            s_scTbPinColX + cbMargin, y, tbCbW, cbH, hInst);
+        if (s_hScPinCbFont) SendMessageW(hTbCb, WM_SETFONT, (WPARAM)s_hScPinCbFont, TRUE);
+        SetPropW(hTbCb, L"ScId", (HANDLE)(INT_PTR)pSc->id);
     }
 }
 
@@ -510,9 +629,9 @@ static void SC_RebuildSmTree(LPARAM selectLParam = 0)
     }
 }
 
-void SC_BuildPage(HWND hwnd, HINSTANCE hInst, int pageY, int clientWidth,
-                  HFONT hPageTitleFont, HFONT hGuiFont,
-                  const std::map<std::wstring, std::wstring>& locale)
+int SC_BuildPage(HWND hwnd, HINSTANCE hInst, int pageY, int clientWidth,
+                 HFONT hPageTitleFont, HFONT hGuiFont,
+                 const std::map<std::wstring, std::wstring>& locale)
 {
     // Handy locale lookup with English fallback.
     auto loc = [&](const wchar_t* key, const wchar_t* fallback) -> std::wstring {
@@ -570,18 +689,6 @@ void SC_BuildPage(HWND hwnd, HINSTANCE hInst, int pageY, int clientWidth,
         const int headH   = S(22);
         const int statusH = S(18);
 
-        // Compute pin status for SM and Taskbar columns.
-        int smPinCnt = 0, tbPinCnt = 0;
-        for (const auto& sc : s_scShortcuts) {
-            if (sc.type == SCT_PIN_START)   smPinCnt++;
-            if (sc.type == SCT_PIN_TASKBAR) tbPinCnt++;
-        }
-        auto pinStatus = [&](int cnt) -> std::wstring {
-            if (cnt == 0) return loc(L"sc_pin_not_pinned",   L"Not Pinned");
-            if (cnt == 1) return loc(L"sc_pin_pinned",       L"Pinned");
-            return              loc(L"sc_pin_multi_pinned",  L"Multi Pinned");
-        };
-
         // Row A — section headings
         {
             std::wstring s0 = loc(L"sc_desktop_section", L"Desktop");
@@ -634,6 +741,8 @@ void SC_BuildPage(HWND hwnd, HINSTANCE hInst, int pageY, int clientWidth,
                     hwnd, (HMENU)IDC_SC_PINSTART_BTN, hInst, NULL);
                 SetWindowLongPtrW(hIco, GWLP_USERDATA, (LONG_PTR)s_hSmPinIcon);
                 SetWindowSubclass(hIco, SC_DesktopIconSubclassProc, 0, 0);
+                // Disabled until SC_RefreshPinStrips finds eligible shortcuts.
+                EnableWindow(hIco, FALSE);
             }
             // Column 2: Taskbar pin (imageres.dll #175)
             {
@@ -648,6 +757,8 @@ void SC_BuildPage(HWND hwnd, HINSTANCE hInst, int pageY, int clientWidth,
                     hwnd, (HMENU)IDC_SC_PINTASKBAR_BTN, hInst, NULL);
                 SetWindowLongPtrW(hIco, GWLP_USERDATA, (LONG_PTR)s_hTbPinIcon);
                 SetWindowSubclass(hIco, SC_DesktopIconSubclassProc, 0, 0);
+                // Disabled until SC_RefreshPinStrips finds eligible shortcuts.
+                EnableWindow(hIco, FALSE);
             }
         }
         rowY += iconSz + S(8);
@@ -661,7 +772,53 @@ void SC_BuildPage(HWND hwnd, HINSTANCE hInst, int pageY, int clientWidth,
         s_scDskColW   = colW;
         s_scDskStripY = rowY;
         SC_RefreshDesktopStrip(hwnd, hInst);
-        rowY += S(16) + S(6);  // reserve one row height for the strip
+        rowY += S(16) + S(6);  // reserve one row height for the desktop strip
+
+        // Pin strip area (cols 1 & 2) — one checkbox per eligible shortcut.
+        // Eligible = SCT_DESKTOP + SCT_STARTMENU shortcuts, deduplicated by exePath.
+        // SC_RefreshPinStrips() creates and destroys these checkboxes dynamically.
+        // We save the layout coordinates here so it can be called at any time.
+        // Build the pin checkbox font (same size as the status label, not bold).
+        if (s_hScPinCbFont) { DeleteObject(s_hScPinCbFont); s_hScPinCbFont = NULL; }
+        {
+            HDC hdc = GetDC(hwnd);
+            int lfH = -MulDiv(8, GetDeviceCaps(hdc, LOGPIXELSY), 72);
+            ReleaseDC(hwnd, hdc);
+            LOGFONTW lf = {};
+            lf.lfHeight  = lfH;
+            lf.lfWeight  = FW_NORMAL;
+            lf.lfCharSet = DEFAULT_CHARSET;
+            lf.lfQuality = CLEARTYPE_QUALITY;
+            wcscpy_s(lf.lfFaceName, L"Segoe UI");
+            s_hScPinCbFont = CreateFontIndirectW(&lf);
+        }
+        s_scPinStripY  = rowY;
+        s_scSmPinColX  = col1X;
+        s_scSmPinColW  = colW;
+        s_scTbPinColX  = col2X;
+        s_scTbPinColW  = col2W;
+        // Pre-count eligible shortcuts (same dedup logic as SC_RefreshPinStrips)
+        // so we reserve exactly enough space — no more blank gap.
+        {
+            int eligCnt = 0;
+            std::vector<std::wstring> seenLower;
+            for (const auto& sc : s_scShortcuts) {
+                if (sc.type != SCT_DESKTOP && sc.type != SCT_STARTMENU) continue;
+                if (sc.exePath.empty()) continue;
+                std::wstring low = sc.exePath;
+                for (wchar_t& c : low) c = towlower(c);
+                bool dup = false;
+                for (const auto& s : seenLower) if (s == low) { dup = true; break; }
+                if (dup) continue;
+                seenLower.push_back(low);
+                ++eligCnt;
+            }
+            // Each checkbox row is cbH(20) + cbGap(3) = 23px; last row has no gap.
+            const int pinStripReservedH = (eligCnt > 0)
+                ? eligCnt * (S(20) + S(3)) - S(3) + S(10)
+                : 0;
+            rowY += pinStripReservedH;
+        }
 
         // Row C — pin-status labels (cols 1/2) then opt-out checkboxes for all 3 columns.
         // Cols 1/2: status label at rowY, then checkbox at rowY+statusH+S(4).
@@ -721,7 +878,7 @@ void SC_BuildPage(HWND hwnd, HINSTANCE hInst, int pageY, int clientWidth,
 
             // Column 1: Start Menu pin — status label, then opt-out checkbox centred.
             {
-                HWND hSmLbl = CreateWindowExW(0, L"STATIC", pinStatus(smPinCnt).c_str(),
+                HWND hSmLbl = CreateWindowExW(0, L"STATIC", L"",
                     WS_CHILD | WS_VISIBLE | SS_CENTER | SS_NOPREFIX,
                     col1X, rowY, colW, statusH,
                     hwnd, (HMENU)IDC_SC_SM_PIN_LABEL, hInst, NULL);
@@ -740,7 +897,7 @@ void SC_BuildPage(HWND hwnd, HINSTANCE hInst, int pageY, int clientWidth,
 
             // Column 2: Taskbar pin — status label, then opt-out checkbox centred.
             {
-                HWND hTbLbl = CreateWindowExW(0, L"STATIC", pinStatus(tbPinCnt).c_str(),
+                HWND hTbLbl = CreateWindowExW(0, L"STATIC", L"",
                     WS_CHILD | WS_VISIBLE | SS_CENTER | SS_NOPREFIX,
                     col2X, rowY, col2W, statusH,
                     hwnd, (HMENU)IDC_SC_TB_PIN_LABEL, hInst, NULL);
@@ -820,6 +977,9 @@ void SC_BuildPage(HWND hwnd, HINSTANCE hInst, int pageY, int clientWidth,
     // Re-populate the TreeView from the in-memory node list each page visit.
     // SC_RebuildSmTree also inserts SCT_STARTMENU shortcuts as leaf items (Phase 2).
     SC_RebuildSmTree();
+    // Now that both the pin-strip layout coords and the SM tree are ready,
+    // populate pin checkboxes and enable/disable the big pin icon buttons.
+    SC_RefreshPinStrips(hwnd, hInst);
     rowY += smTreeH + S(6);
 
     // Action buttons: Add Subfolder (blue) | Add Shortcut Here (green) | Remove (red).
@@ -860,7 +1020,7 @@ void SC_BuildPage(HWND hwnd, HINSTANCE hInst, int pageY, int clientWidth,
     }
     EnableWindow(hSmRemBtn, FALSE);  // TVN_SELCHANGED re-enables for removable nodes
     rowY += S(34) + S(10);
-    (void)rowY;  // no more rows after this
+    return rowY;  // absolute Y of first pixel below the page content
 }
 
 // ── SC_TearDown ───────────────────────────────────────────────────────────────
@@ -888,6 +1048,12 @@ void SC_TearDown(HWND hwnd)
     // Destroy the checkbox bold font.
     if (s_hScCbFont) { DeleteObject(s_hScCbFont); s_hScCbFont = NULL; }
 
+    // Destroy the pin strip checkbox font and reset layout coords.
+    if (s_hScPinCbFont) { DeleteObject(s_hScPinCbFont); s_hScPinCbFont = NULL; }
+    s_scPinStripY = 0;
+    s_scSmPinColX = s_scSmPinColW = 0;
+    s_scTbPinColX = s_scTbPinColW = 0;
+
     // Clear transient HTREEITEM handles; node names and structure persist.
     for (auto& n  : s_scMenuNodes) n.hItem  = nullptr;
     for (auto& sc : s_scShortcuts) if (sc.type == SCT_STARTMENU) sc.hSmItem = nullptr;
@@ -895,7 +1061,43 @@ void SC_TearDown(HWND hwnd)
     // Destroy the image list stored as a window property on the main window.
     HIMAGELIST hOldIL = (HIMAGELIST)GetPropW(hwnd, L"hScSmTreeIL");
     if (hOldIL) { ImageList_Destroy(hOldIL); RemovePropW(hwnd, L"hScSmTreeIL"); }
+
+    // Explicitly destroy dynamic strip controls (they may be outside the
+    // position-based enumeration rect if the page was scrolled).
+    for (int i = 0; i < 50; ++i) {
+        HWND h = GetDlgItem(hwnd, IDC_SC_DSK_STRIP_BASE + i);
+        if (!h) break;
+        HICON ico = (HICON)GetWindowLongPtrW(h, GWLP_USERDATA);
+        if (ico) DestroyIcon(ico);
+        DestroyWindow(h);
+    }
+    for (int i = 0; i < 50; ++i) {
+        HWND h = GetDlgItem(hwnd, IDC_SC_SMPIN_STRIP_BASE + i);
+        if (!h) break;
+        DestroyWindow(h);
+    }
+    for (int i = 0; i < 50; ++i) {
+        HWND h = GetDlgItem(hwnd, IDC_SC_TBPIN_STRIP_BASE + i);
+        if (!h) break;
+        DestroyWindow(h);
+    }
+
+    // Remove the vertical scrollbar and reset the scroll offset.
+    s_scScrollOffset = 0;
+    LONG wstyle = GetWindowLongW(hwnd, GWL_STYLE);
+    if (wstyle & WS_VSCROLL) {
+        SetWindowLongW(hwnd, GWL_STYLE, wstyle & ~WS_VSCROLL);
+        SetWindowPos(hwnd, NULL, 0, 0, 0, 0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+    }
 }
+
+// ── SC_SetScrollOffset / SC_GetScrollOffset ───────────────────────────────────
+// Called by mainwindow.cpp WM_VSCROLL and WM_MOUSEWHEEL handlers to keep the
+// offset in sync so SC_RefreshDesktopStrip / SC_RefreshPinStrips can place
+// dynamically created controls at the correct physical Y position.
+void SC_SetScrollOffset(int off) { s_scScrollOffset = off; }
+int  SC_GetScrollOffset()        { return s_scScrollOffset; }
 
 // ── SC_OnNotify ───────────────────────────────────────────────────────────────
 
@@ -1027,6 +1229,7 @@ bool SC_OnCommand(HWND hwnd, int id)
             s_scShortcuts.push_back(tmpSc);
             MainWindow::MarkAsModified();
             SC_RefreshDesktopStrip(hwnd, hInst);
+            SC_RefreshPinStrips(hwnd, hInst);
         } else {
             // Dialog cancelled — reclaim the id.
             --s_scNextShortcutId;
@@ -1041,61 +1244,52 @@ bool SC_OnCommand(HWND hwnd, int id)
     case IDC_SC_PROGRAMS_BTN:
         return true;
 
-    // ── Start Menu pin icon — click opens shortcut config dialog ─────────────
+    // ── Pin-to-Start icon — toggle all "Pin to Start" checkboxes in the strip ─
     case IDC_SC_PINSTART_BTN: {
-        const auto& locMap = MainWindow::GetLocale();
-        ShortcutDef* pSc = nullptr;
-        for (auto& sc : s_scShortcuts)
-            if (sc.type == SCT_PIN_START) { pSc = &sc; break; }
-        bool isNew = (pSc == nullptr);
-        ShortcutDef tmpSc{};
-        if (isNew) { tmpSc.id = s_scNextShortcutId++; tmpSc.type = SCT_PIN_START; pSc = &tmpSc; }
-
-        ScDlgResult result;
         HINSTANCE hInst = (HINSTANCE)GetWindowLongPtrW(hwnd, GWLP_HINSTANCE);
-        if (SC_EditShortcutDialog(hwnd, hInst, SCT_PIN_START, L"",
-                pSc->name, pSc->exePath, pSc->workingDir,
-                pSc->iconPath, pSc->iconIndex, pSc->runAsAdmin,
-                locMap, result))
-        {
-            pSc->name        = result.name;
-            pSc->exePath     = result.exePath;
-            pSc->workingDir  = result.workingDir;
-            pSc->iconPath    = result.iconPath;
-            pSc->iconIndex   = result.iconIndex;
-            pSc->runAsAdmin  = result.runAsAdmin;
-            if (isNew) s_scShortcuts.push_back(*pSc);
-            MainWindow::MarkAsModified();
+        // Build eligible list (same dedup as SC_RefreshPinStrips).
+        std::vector<ShortcutDef*> elig;
+        std::vector<std::wstring> seen;
+        for (auto& sc : s_scShortcuts) {
+            if (sc.type != SCT_DESKTOP && sc.type != SCT_STARTMENU) continue;
+            if (sc.exePath.empty()) continue;
+            std::wstring low = sc.exePath;
+            for (wchar_t& c : low) c = towlower(c);
+            bool dup = false;
+            for (const auto& s : seen) if (s == low) { dup = true; break; }
+            if (dup) continue;
+            seen.push_back(low);
+            elig.push_back(&sc);
         }
+        bool anyUnchecked = false;
+        for (const auto* p : elig) if (!p->pinToStart) { anyUnchecked = true; break; }
+        for (auto* p : elig) p->pinToStart = anyUnchecked;
+        SC_RefreshPinStrips(hwnd, hInst);
+        MainWindow::MarkAsModified();
         return true;
     }
 
-    // ── Taskbar pin icon — click opens shortcut config dialog ─────────────────
+    // ── Pin-to-Taskbar icon — toggle all "Pin to Taskbar" checkboxes ──────────
     case IDC_SC_PINTASKBAR_BTN: {
-        const auto& locMap = MainWindow::GetLocale();
-        ShortcutDef* pSc = nullptr;
-        for (auto& sc : s_scShortcuts)
-            if (sc.type == SCT_PIN_TASKBAR) { pSc = &sc; break; }
-        bool isNew = (pSc == nullptr);
-        ShortcutDef tmpSc{};
-        if (isNew) { tmpSc.id = s_scNextShortcutId++; tmpSc.type = SCT_PIN_TASKBAR; pSc = &tmpSc; }
-
-        ScDlgResult result;
         HINSTANCE hInst = (HINSTANCE)GetWindowLongPtrW(hwnd, GWLP_HINSTANCE);
-        if (SC_EditShortcutDialog(hwnd, hInst, SCT_PIN_TASKBAR, L"",
-                pSc->name, pSc->exePath, pSc->workingDir,
-                pSc->iconPath, pSc->iconIndex, pSc->runAsAdmin,
-                locMap, result))
-        {
-            pSc->name        = result.name;
-            pSc->exePath     = result.exePath;
-            pSc->workingDir  = result.workingDir;
-            pSc->iconPath    = result.iconPath;
-            pSc->iconIndex   = result.iconIndex;
-            pSc->runAsAdmin  = result.runAsAdmin;
-            if (isNew) s_scShortcuts.push_back(*pSc);
-            MainWindow::MarkAsModified();
+        std::vector<ShortcutDef*> elig;
+        std::vector<std::wstring> seen;
+        for (auto& sc : s_scShortcuts) {
+            if (sc.type != SCT_DESKTOP && sc.type != SCT_STARTMENU) continue;
+            if (sc.exePath.empty()) continue;
+            std::wstring low = sc.exePath;
+            for (wchar_t& c : low) c = towlower(c);
+            bool dup = false;
+            for (const auto& s : seen) if (s == low) { dup = true; break; }
+            if (dup) continue;
+            seen.push_back(low);
+            elig.push_back(&sc);
         }
+        bool anyUnchecked = false;
+        for (const auto* p : elig) if (!p->pinToTaskbar) { anyUnchecked = true; break; }
+        for (auto* p : elig) p->pinToTaskbar = anyUnchecked;
+        SC_RefreshPinStrips(hwnd, hInst);
+        MainWindow::MarkAsModified();
         return true;
     }
 
@@ -1207,6 +1401,7 @@ bool SC_OnCommand(HWND hwnd, int id)
             s_scShortcuts.push_back(tmpSc);
             MainWindow::MarkAsModified();
             SC_RebuildSmTree(-(LPARAM)tmpSc.id);  // select the newly added shortcut
+            SC_RefreshPinStrips(hwnd, (HINSTANCE)GetWindowLongPtrW(hwnd, GWLP_HINSTANCE));
         } else {
             --s_scNextShortcutId;  // reclaim the unused id
         }
@@ -1250,6 +1445,7 @@ bool SC_OnCommand(HWND hwnd, int id)
         // Nothing is selected after the deletion — disable the Remove button.
         HWND hRemBtn = GetDlgItem(hwnd, IDC_SC_SM_REMOVE);
         if (hRemBtn) EnableWindow(hRemBtn, FALSE);
+        SC_RefreshPinStrips(hwnd, (HINSTANCE)GetWindowLongPtrW(hwnd, GWLP_HINSTANCE));
         return true;
     }
 
@@ -1284,6 +1480,7 @@ bool SC_OnCommand(HWND hwnd, int id)
             pSc->runAsAdmin = result.runAsAdmin;
             MainWindow::MarkAsModified();
             SC_RebuildSmTree(-(LPARAM)pSc->id);  // reselect the edited shortcut
+            SC_RefreshPinStrips(hwnd, (HINSTANCE)GetWindowLongPtrW(hwnd, GWLP_HINSTANCE));
         }
         return true;
     }
@@ -1307,6 +1504,7 @@ bool SC_OnCommand(HWND hwnd, int id)
             s_scShortcuts.end());
         MainWindow::MarkAsModified();
         SC_RebuildSmTree(parentNodeLParam);  // reselect parent folder
+        SC_RefreshPinStrips(hwnd, (HINSTANCE)GetWindowLongPtrW(hwnd, GWLP_HINSTANCE));
         return true;
     }
 
@@ -1338,6 +1536,7 @@ bool SC_OnCommand(HWND hwnd, int id)
                 pSc->runAsAdmin = result.runAsAdmin;
                 MainWindow::MarkAsModified();
                 SC_RefreshDesktopStrip(hwnd, hInst);
+                SC_RefreshPinStrips(hwnd, hInst);
             }
             return true;
         }

@@ -147,6 +147,9 @@ bool DB::InitDb() {
     // Shortcuts: Start Menu folder nodes and shortcut definitions (Desktop + SM + pins)
     p_exec(db, "CREATE TABLE IF NOT EXISTS sc_menu_nodes (id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL, parent_id INTEGER DEFAULT -1, name TEXT DEFAULT '', FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);", NULL, NULL, &errmsg);
     p_exec(db, "CREATE TABLE IF NOT EXISTS sc_shortcuts (id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL, type INTEGER NOT NULL, sm_node_id INTEGER DEFAULT -1, name TEXT DEFAULT '', exe_path TEXT DEFAULT '', working_dir TEXT DEFAULT '', icon_path TEXT DEFAULT '', icon_index INTEGER DEFAULT 0, run_as_admin INTEGER DEFAULT 0, FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);", NULL, NULL, &errmsg);
+    // Add pin columns to sc_shortcuts for existing databases (ALTER TABLE ignores error if already present)
+    p_exec(db, "ALTER TABLE sc_shortcuts ADD COLUMN pin_to_start INTEGER DEFAULT 0;", NULL, NULL, &errmsg);
+    p_exec(db, "ALTER TABLE sc_shortcuts ADD COLUMN pin_to_taskbar INTEGER DEFAULT 0;", NULL, NULL, &errmsg);
     
     // Check if projects table is empty, if so add SetupCraft project
     const char *countSql = "SELECT COUNT(*) FROM projects;";
@@ -853,8 +856,8 @@ bool DB::InsertScShortcut(int projectId, const DB::ScShortcutRow& sc) {
     void *db = NULL; int flags = 0x00000002 | 0x00000004;
     if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return false;
     const char *sql = "INSERT OR REPLACE INTO sc_shortcuts "
-        "(id, project_id, type, sm_node_id, name, exe_path, working_dir, icon_path, icon_index, run_as_admin) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?);";
+        "(id, project_id, type, sm_node_id, name, exe_path, working_dir, icon_path, icon_index, run_as_admin, pin_to_start, pin_to_taskbar) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?);";
     void *stmt = NULL;
     if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return false; }
     std::string sId   = std::to_string(sc.id);
@@ -867,6 +870,8 @@ bool DB::InsertScShortcut(int projectId, const DB::ScShortcutRow& sc) {
     std::string sIcoP = WToUtf8(sc.icon_path);
     std::string sIcoI = std::to_string(sc.icon_index);
     std::string sAdm  = std::to_string(sc.run_as_admin);
+    std::string sPinS = std::to_string(sc.pin_to_start);
+    std::string sPinT = std::to_string(sc.pin_to_taskbar);
     if (p_bind_text) p_bind_text(stmt,  1, sId.c_str(),   -1, NULL);
     if (p_bind_text) p_bind_text(stmt,  2, sPid.c_str(),  -1, NULL);
     if (p_bind_text) p_bind_text(stmt,  3, sType.c_str(), -1, NULL);
@@ -877,6 +882,8 @@ bool DB::InsertScShortcut(int projectId, const DB::ScShortcutRow& sc) {
     if (p_bind_text) p_bind_text(stmt,  8, sIcoP.c_str(), -1, NULL);
     if (p_bind_text) p_bind_text(stmt,  9, sIcoI.c_str(), -1, NULL);
     if (p_bind_text) p_bind_text(stmt, 10, sAdm.c_str(),  -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 11, sPinS.c_str(), -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 12, sPinT.c_str(), -1, NULL);
     p_step(stmt);
     if (p_finalize) p_finalize(stmt);
     p_close(db); return true;
@@ -904,7 +911,7 @@ std::vector<DB::ScShortcutRow> DB::GetScShortcutsForProject(int projectId) {
     void *db = NULL; int flags = 0x00000002 | 0x00000004;
     if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return out;
     const char *sql = "SELECT id, type, sm_node_id, name, exe_path, working_dir, "
-        "icon_path, icon_index, run_as_admin FROM sc_shortcuts WHERE project_id=? ORDER BY id ASC;";
+        "icon_path, icon_index, run_as_admin, pin_to_start, pin_to_taskbar FROM sc_shortcuts WHERE project_id=? ORDER BY id ASC;";
     void *stmt = NULL;
     if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return out; }
     std::string sPid = std::to_string(projectId);
@@ -925,6 +932,8 @@ std::vector<DB::ScShortcutRow> DB::GetScShortcutsForProject(int projectId) {
         r.icon_path   = Utf8ToW(c6 ? (const char*)c6 : "");
         r.icon_index  = (int)p_col_int64(stmt, 7);
         r.run_as_admin = (int)p_col_int64(stmt, 8);
+        r.pin_to_start   = (int)p_col_int64(stmt, 9);
+        r.pin_to_taskbar = (int)p_col_int64(stmt, 10);
         out.push_back(r);
     }
     if (p_finalize) p_finalize(stmt);

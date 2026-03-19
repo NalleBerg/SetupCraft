@@ -34,13 +34,19 @@ mainwindow.cpp knows nothing about the page internals.  It only:
   s_dskMiniHovered    HWND          Which mini-icon HWND is currently hovered (NULL = none).
   s_scSmTreeHoveredId int           Node id of the SM tree item currently showing a tooltip.
   s_scSmTreeTracking  bool          TrackMouseEvent(TME_LEAVE) active on the SM tree.
+  s_scScrollOffset    int           Current vertical scroll offset in pixels.  Set by
+                                    mainwindow.cpp via SC_SetScrollOffset(); reset to 0 by
+                                    SC_Reset() and SC_TearDown().  SC_RefreshDesktopStrip and
+                                    SC_RefreshPinStrips subtract this value from the stored
+                                    strip Y positions to keep controls at the correct visual
+                                    position as the user scrolls.
 
   None of these are globals — they have internal linkage (file-scope static).
   mainwindow.cpp accesses shared state only through:
     MainWindow::MarkAsModified()   — sets the unsaved-changes flag
     MainWindow::GetLocale()        — returns const ref to the current locale map
 
-── SC_BuildPage parameters ─────────────────────────────────────────────────────
+── SC_BuildPage parameters and return value ────────────────────────────────────
 
   hwnd           main window — parent of all page child controls
   hInst          application HINSTANCE
@@ -49,6 +55,12 @@ mainwindow.cpp knows nothing about the page internals.  It only:
   hPageTitleFont semi-bold large font (s_hPageTitleFont in mainwindow.cpp)
   hGuiFont       scaled body font (s_hGuiFont in mainwindow.cpp)
   locale         const ref to s_locale (the current locale string map)
+
+  Return value: int — the absolute Y coordinate (main-window client space) of
+  the first pixel below the last control row.  mainwindow.cpp stores this in
+  s_scPageContentH and uses it (plus S(15) bottom padding) to compute the
+  SCROLLINFO range and decide whether WS_VSCROLL is needed.  Changed from void
+  to int to enable the scrollbar feature without adding a global variable.
 
   SC_BuildPage does NOT create s_hCurrentPage — the Shortcuts page controls are
   direct children of hwnd (same approach as the Components page).  The generic

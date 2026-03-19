@@ -1,0 +1,179 @@
+================================================================================
+  scrollbar_INTERNALS.txt
+  Shortcuts-page vertical scrollbar — architecture, failure modes, and rationale
+================================================================================
+
+1. OVERVIEW
+───────────
+The Shortcuts page (page index 2) can contain more controls than fit in the
+window.  A native Win32 WS_VSCROLL scrollbar is added to the main window when
+needed.  SCROLLINFO is used to configure range and page size.  Scrolling is
+driven by WM_VSCROLL (scrollbar drag / arrow) and WM_MOUSEWHEEL.
+
+A canonical abstraction is provided in shortcuts.cpp: the current scroll
+offset in pixels is stored in s_scScrollOffset and exposed via:
+
+    void SC_SetScrollOffset(int off)
+    int  SC_GetScrollOffset()
+
+SC_RefreshDesktopStrip and SC_RefreshPinStrips subtract the current offset when
+positioning their controls, so those helpers are scroll-aware without needing
+any extra wiring.
+
+
+2. SCROLLINFO SETUP  (mainwindow.cpp, SwitchPage case 2)
+─────────────────────────────────────────────────────────
+Called once after SC_BuildPage returns the absolute-Y of the last content row:
+
+    s_scPageContentH = SC_BuildPage(...);   // absolute Y in main-window coords
+
+    int pageY   = s_toolbarHeight;
+    int statusH = <measured via GetWindowRect(s_hStatus)>;
+    int viewH   = clientBottom - pageY - statusH;
+    int contentH = s_scPageContentH + S(15) - pageY;   // + 15 px bottom pad
+
+    if (contentH > viewH) {
+        style |= WS_VSCROLL;
+        SCROLLINFO si = {};
+        si.cbSize = sizeof(si);
+        si.fMask  = SIF_RANGE | SIF_PAGE | SIF_POS;
+        si.nMin   = 0;
+        si.nMax   = contentH - 1;
+        si.nPage  = viewH;          // system caps nPos at nMax-nPage+1 = maxSc
+        si.nPos   = 0;
+        SetScrollInfo(hwnd, SB_VERT, &si, TRUE);
+    }
+
+    maxSc (effective) = contentH - viewH = s_scPageContentH + S(15) - pageY
+                        - (clientBottom - pageY - statusH)
+                      = s_scPageContentH + S(15) - clientBottom + statusH
+
+At pos == maxSc the logical bottom of content (s_scPageContentH + S(15))
+aligns exactly with the top of the status bar.
+
+
+3. WHY SW_SCROLLCHILDREN DOES NOT WORK
+────────────────────────────────────────
+ScrollWindowEx(hwnd, 0, -dy, prcScroll, ..., SW_SCROLLCHILDREN) moves only
+child windows that **intersect** prcScroll at call time.
+
+Problem: controls created by SC_BuildPage start at their absolute-Y positions.
+When the page is taller than the viewport, some controls start BELOW the clip
+rectangle {0, pageY, width, clientBottom-statusH}.  SW_SCROLLCHILDREN never
+touches them — they stay at their initial Y and are permanently unreachable.
+
+The status bar also sits exactly at the clip-rect boundary; depending on the
+window's DPI and rounding it could be caught and moved down one pixel each
+scroll step, corrupting its position.
+
+
+4. CORRECT SCROLL MECHANISM
+─────────────────────────────
+Both WM_MOUSEWHEEL and WM_VSCROLL enumerate every direct child of hwnd and
+call SetWindowPos on each page control individually:
+
+    HWND hC = GetWindow(hwnd, GW_CHILD);
+    while (hC) {
+        HWND hN = GetWindow(hC, GW_HWNDNEXT);
+        if (hC != s_hStatus && hC != s_hAboutButton) {
+            int cid = GetDlgCtrlID(hC);
+            bool isTB = (cid >= IDC_TB_FILES && cid <= IDC_TB_ABOUT) ||
+                         cid == IDC_TB_DIALOGS || cid == IDC_TB_COMPONENTS ||
+                         cid == IDC_TB_EXIT    || cid == IDC_TB_CLOSE_PROJECT;
+            if (!isTB) {
+                RECT rcC; GetWindowRect(hC, &rcC);
+                MapWindowPoints(HWND_DESKTOP, hwnd, (POINT*)&rcC, 2);
+                SetWindowPos(hC, NULL, rcC.left, rcC.top - dy, 0, 0,
+                    SWP_NOZORDER | SWP_NOSIZE | SWP_NOACTIVATE);
+            }
+        }
+        hC = hN;
+    }
+
+Enumeration includes controls that are CURRENTLY above, within, or below the
+visible page area, so every control is repositioned correctly regardless of
+where it started.
+
+After moving children the status bar is restored to HWND_TOP so it paints last
+and visually covers any page control whose window rect has scrolled into the
+status bar zone:
+
+    SetWindowPos(s_hStatus, HWND_TOP,
+        0, clientBottom - statusH, clientWidth, statusH, SWP_NOACTIVATE);
+
+Then the page area is invalidated:
+
+    RECT pageRect = { 0, spY, clientWidth, clientBottom - statusH };
+    InvalidateRect(hwnd, &pageRect, TRUE);
+    UpdateWindow(s_hStatus);
+
+SC_SetScrollOffset(newPos) is called last so SC_RefreshDesktopStrip /
+SC_RefreshPinStrips produce correctly offset Y values on the next refresh.
+
+
+5. WINDOWS TO EXCLUDE FROM SCROLLING
+──────────────────────────────────────
+Handle          Condition                   Reason
+─────────────── ─────────────────────────── ──────────────────────────────────
+s_hStatus       explicitly excluded         always pinned to window bottom
+s_hAboutButton  explicitly excluded         top-right corner, always visible
+toolbar buttons IDC_TB_FILES … IDC_TB_ABOUT Fixed toolbar area; moving them
+                IDC_TB_DIALOGS              would corrupt the toolbar layout.
+                IDC_TB_COMPONENTS
+                IDC_TB_EXIT
+                IDC_TB_CLOSE_PROJECT
+
+All other direct children of hwnd while page 2 is active are page controls
+created by SC_BuildPage and are safe to move.
+
+
+6. TEARDOWN  (SC_TearDown in shortcuts.cpp)
+────────────────────────────────────────────
+Called from SwitchPage before switching away from page 2:
+
+    DestroyWindow(DSK_STRIP)      — desktop strip control
+    DestroyWindow(SMPIN_STRIP)    — Start-menu pin strip
+    DestroyWindow(TBPIN_STRIP)    — Taskbar pin strip
+    SC_SetScrollOffset(0)         — reset logical offset
+    s_scScrollOffset = 0
+
+    // Remove the scrollbar from the main window
+    LONG_PTR style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+    SetWindowLongPtrW(hwnd, GWL_STYLE, style & ~WS_VSCROLL);
+    SetScrollInfo(hwnd, SB_VERT, ...nMax=0, nPage=1..., TRUE);
+
+
+7. SC_BUILDPAGE RETURN VALUE
+──────────────────────────────
+SC_BuildPage returns int — the absolute Y coordinate (main-window client space)
+of the first pixel below the last control row, including any trailing padding
+accumulated inside SC_BuildPage.
+
+Callers store this in mainwindow.cpp: static int s_scPageContentH = 0;
+
+The extra S(15) padding added at SCROLLINFO setup time provides visual breathing
+room at the bottom of the content.
+
+
+8. STATUS-BAR HEIGHT
+──────────────────────
+Always measured dynamically:
+
+    RECT rcSB; GetWindowRect(s_hStatus, &rcSB);
+    int statusH = rcSB.bottom - rcSB.top;
+
+Using a hardcoded constant (e.g. 25 px) is wrong: the status bar height depends
+on the current font and DPI and may not match the live window height.
+
+
+9. KNOWN LIMITATIONS
+──────────────────────
+- There is no container child window.  All Shortcuts-page controls are direct
+  children of the main window (hwnd).  This means their window rectangles can
+  technically extend into the status-bar zone when scrolled; the HWND_TOP /
+  UpdateWindow pattern prevents visual corruption but does not prevent hit-test
+  noise in that overlap strip.
+- Window resize while page 2 is active does not recalculate maxSc or reposition
+  page controls; a page-switch round-trip is required to resize the page
+  correctly.
+================================================================================

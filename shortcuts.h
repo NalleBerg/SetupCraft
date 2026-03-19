@@ -27,6 +27,9 @@
 #include <map>
 #include <vector>
 
+// ── Embedded icon resource IDs ──────────────────────────────────────────────
+#define IDI_TRASHCAN  2   // icons/trashcan_empty.ico — multi-size 16‥128 px
+
 // ── Control IDs ───────────────────────────────────────────────────────────────
 // Range 5200–5229 is reserved for the Shortcuts page.
 // imageres.dll index 105 = Desktop/monitor icon (verified with IconViewer.exe).
@@ -40,7 +43,9 @@
 #define IDC_SC_SM_ADD           5207   // "Add Subfolder" button
 #define IDC_SC_SM_REMOVE        5208   // "Remove Subfolder" button
 #define IDC_SC_SM_ADDSC         5213   // "Add Shortcut Here" button (below SM tree)
-#define IDC_SC_DSK_STRIP_BASE   5400   // Desktop shortcut mini-icons 5400–5449 (max 50)
+#define IDC_SC_DSK_STRIP_BASE    5400   // Desktop shortcut mini-icons 5400–5449 (max 50)
+#define IDC_SC_SMPIN_STRIP_BASE  5450   // "Pin to Start" checkboxes 5450–5499 (max 50)
+#define IDC_SC_TBPIN_STRIP_BASE  5500   // "Pin to Taskbar" checkboxes 5500–5549 (max 50)
 #define IDC_SC_SM_PIN_LABEL     5209   // "Not Pinned / Pinned / Multi Pinned" label under SM pin icon
 #define IDC_SC_TB_PIN_LABEL     5210   // "Not Pinned / Pinned / Multi Pinned" label under Taskbar pin icon
 #define IDC_SC_SM_PIN_OPT       5211   // "Allow opt-out" checkbox under Start Menu pin icon
@@ -99,6 +104,8 @@ struct ShortcutDef {
     std::wstring iconPath;    // .ico / .exe / .dll to extract icon from; empty = exe
     int          iconIndex;   // icon index within iconPath (0 = first icon)
     bool         runAsAdmin;  // create shortcut with "Run as administrator" elevation
+    bool         pinToStart;   // also pin this shortcut to the Start Menu tile area
+    bool         pinToTaskbar; // also pin this shortcut to the Taskbar
     HTREEITEM    hSmItem;     // live TreeView item for SCT_STARTMENU; nullptr when page hidden
 };
 
@@ -117,9 +124,16 @@ void SC_Reset();
 //   hPageTitleFont — semi-bold headline font passed from SwitchPage.
 //   hGuiFont       — scaled body font passed from SwitchPage.
 //   locale         — current locale string map (MainWindow::s_locale).
-void SC_BuildPage(HWND hwnd, HINSTANCE hInst, int pageY, int clientWidth,
-                  HFONT hPageTitleFont, HFONT hGuiFont,
-                  const std::map<std::wstring, std::wstring>& locale);
+// Returns the absolute Y of the first pixel below the last laid-out row,
+// so the caller can compute content height for a vertical scrollbar.
+int SC_BuildPage(HWND hwnd, HINSTANCE hInst, int pageY, int clientWidth,
+                 HFONT hPageTitleFont, HFONT hGuiFont,
+                 const std::map<std::wstring, std::wstring>& locale);
+
+// Scroll-offset accessors — called by mainwindow.cpp WM_VSCROLL / WM_MOUSEWHEEL.
+// The offset is the number of pixels the page content has been scrolled upward.
+void SC_SetScrollOffset(int off);
+int  SC_GetScrollOffset();
 
 // Tear down the Shortcuts page.
 // Destroys the Start Menu TreeView window and its associated image list property.

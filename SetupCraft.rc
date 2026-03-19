@@ -1,4 +1,5 @@
 1 ICON "SetupCraft.ico"
+2 ICON "icons/trashcan_empty.ico"
 
 // Embed the application manifest.
 // This activates comctl32 v6 (required for TaskDialogIndirect) and
