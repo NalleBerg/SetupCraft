@@ -71,6 +71,22 @@ void SC_Reset()
 
 // ── SC_BuildPage ──────────────────────────────────────────────────────────────
 
+// Returns s with L'\n' inserted at the word boundary nearest the string midpoint
+// so long checkbox labels split into two roughly equal lines.
+// DrawTextW with DT_WORDBREAK treats L'\n' as a hard line break.
+static std::wstring MidBreak(const std::wstring& s)
+{
+    if (s.empty()) return s;
+    size_t mid = s.size() / 2;
+    for (size_t d = 0; d <= mid; ++d) {
+        if (mid + d < s.size() && s[mid + d] == L' ')
+            return s.substr(0, mid + d) + L'\n' + s.substr(mid + d + 1);
+        if (d > 0 && mid >= d && s[mid - d] == L' ')
+            return s.substr(0, mid - d) + L'\n' + s.substr(mid - d + 1);
+    }
+    return s;  // no space found — return unchanged
+}
+
 // Subclass proc for the 64×64 Desktop icon static control.
 // Paints the icon via DrawIconEx and fills the background with the window colour.
 static LRESULT CALLBACK SC_DesktopIconSubclassProc(
@@ -263,56 +279,78 @@ void SC_BuildPage(HWND hwnd, HINSTANCE hInst, int pageY, int clientWidth,
                 wcscpy_s(lf.lfFaceName, L"Segoe UI");
                 s_hScCbFont = CreateFontIndirectW(&lf);
             }
-            // All checkboxes: S(4) left padding inside their column, S(34) tall for two lines.
-            const int cbH    = S(34);
-            const int cbPadX = S(4);   // (colW - (colW-S(8))) / 2
+            // All checkboxes are S(34) tall (two lines at 9pt bold).
+            const int cbH = S(34);
 
-            // Column 0: Desktop opt-out — offset by statusH+S(4) so it aligns
-            // with the opt-out checkboxes in columns 1 and 2.
+            // Measure a MidBreak'd string with s_hScCbFont and return the pixel
+            // width needed for the whole control (box + gap + longest line).
+            // The caller uses this to centre the control in its column.
+            auto CbWidth = [&](const std::wstring& brokenStr, int colMaxW) -> int {
+                size_t nl = brokenStr.find(L'\n');
+                HDC hdc   = GetDC(hwnd);
+                HFONT hOF = s_hScCbFont ? (HFONT)SelectObject(hdc, s_hScCbFont) : NULL;
+                SIZE sz1  = {}, sz2 = {};
+                if (nl != std::wstring::npos) {
+                    GetTextExtentPoint32W(hdc, brokenStr.c_str(), (int)nl, &sz1);
+                    GetTextExtentPoint32W(hdc, brokenStr.c_str() + nl + 1,
+                                         (int)(brokenStr.size() - nl - 1), &sz2);
+                } else {
+                    GetTextExtentPoint32W(hdc, brokenStr.c_str(), (int)brokenStr.size(), &sz1);
+                }
+                if (hOF) SelectObject(hdc, hOF);
+                ReleaseDC(hwnd, hdc);
+                int needed = S(15) + S(6) + std::max(sz1.cx, sz2.cx) + S(2);
+                return std::min(needed, colMaxW);
+            };
+
+            // Column 0: Desktop opt-out, centred in column, aligned one row down.
             {
-                const int cbW = colW - S(8);
-                std::wstring scOptOut = loc(L"sc_desktop_opt_out",
-                    L"Allow the end user to opt out of the desktop shortcut at install time");
+                std::wstring scOptOut = MidBreak(loc(L"sc_desktop_opt_out",
+                    L"Allow the end user to opt out of the desktop shortcut at install time"));
+                int cbW = CbWidth(scOptOut, colW - S(8));
+                int cbX = col0X + (colW - cbW) / 2;
                 HWND hOptOut = CreateCustomCheckbox(
                     hwnd, IDC_SC_DESKTOP_OPT, scOptOut,
                     s_scDesktopOptOut,
-                    col0X + cbPadX, rowY + statusH + S(4), cbW, cbH, hInst);
+                    cbX, rowY + statusH + S(4), cbW, cbH, hInst);
                 if (s_hScCbFont) SendMessageW(hOptOut, WM_SETFONT, (WPARAM)s_hScCbFont, TRUE);
             }
 
-            // Column 1: Start Menu pin — status label, then opt-out checkbox.
+            // Column 1: Start Menu pin — status label, then opt-out checkbox centred.
             {
-                const int cbW = colW - S(8);
                 HWND hSmLbl = CreateWindowExW(0, L"STATIC", pinStatus(smPinCnt).c_str(),
                     WS_CHILD | WS_VISIBLE | SS_CENTER | SS_NOPREFIX,
                     col1X, rowY, colW, statusH,
                     hwnd, (HMENU)IDC_SC_SM_PIN_LABEL, hInst, NULL);
                 if (hGuiFont) SendMessageW(hSmLbl, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
 
-                std::wstring scSmPinOpt = loc(L"sc_sm_pin_opt_out",
-                    L"Allow the end user to opt out of the Start Menu pin at install time");
+                std::wstring scSmPinOpt = MidBreak(loc(L"sc_sm_pin_opt_out",
+                    L"Allow the end user to opt out of the Start Menu pin at install time"));
+                int cbW = CbWidth(scSmPinOpt, colW - S(8));
+                int cbX = col1X + (colW - cbW) / 2;
                 HWND hSmOpt = CreateCustomCheckbox(
                     hwnd, IDC_SC_SM_PIN_OPT, scSmPinOpt,
                     s_scSmPinOptOut,
-                    col1X + cbPadX, rowY + statusH + S(4), cbW, cbH, hInst);
+                    cbX, rowY + statusH + S(4), cbW, cbH, hInst);
                 if (s_hScCbFont) SendMessageW(hSmOpt, WM_SETFONT, (WPARAM)s_hScCbFont, TRUE);
             }
 
-            // Column 2: Taskbar pin — status label, then opt-out checkbox.
+            // Column 2: Taskbar pin — status label, then opt-out checkbox centred.
             {
-                const int cb2W = col2W - S(8);
                 HWND hTbLbl = CreateWindowExW(0, L"STATIC", pinStatus(tbPinCnt).c_str(),
                     WS_CHILD | WS_VISIBLE | SS_CENTER | SS_NOPREFIX,
                     col2X, rowY, col2W, statusH,
                     hwnd, (HMENU)IDC_SC_TB_PIN_LABEL, hInst, NULL);
                 if (hGuiFont) SendMessageW(hTbLbl, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
 
-                std::wstring scTbPinOpt = loc(L"sc_tb_pin_opt_out",
-                    L"Allow the end user to opt out of the Taskbar pin at install time");
+                std::wstring scTbPinOpt = MidBreak(loc(L"sc_tb_pin_opt_out",
+                    L"Allow the end user to opt out of the Taskbar pin at install time"));
+                int cb2W = CbWidth(scTbPinOpt, col2W - S(8));
+                int cb2X = col2X + (col2W - cb2W) / 2;
                 HWND hTbOpt = CreateCustomCheckbox(
                     hwnd, IDC_SC_TB_PIN_OPT, scTbPinOpt,
                     s_scTbPinOptOut,
-                    col2X + cbPadX, rowY + statusH + S(4), cb2W, cbH, hInst);
+                    cb2X, rowY + statusH + S(4), cb2W, cbH, hInst);
                 if (s_hScCbFont) SendMessageW(hTbOpt, WM_SETFONT, (WPARAM)s_hScCbFont, TRUE);
             }
         }

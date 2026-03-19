@@ -1,6 +1,13 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 18 March 2026 &mdash; v2026.03.18.10<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 19 March 2026 &mdash; v2026.03.19.08<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.19.08</span></h3>
+<p><strong>Shortcuts page &mdash; opt-out checkbox centering and even two-line split (19.03.2026, 08:22):</strong></p>
+<ul>
+<li><strong>Balanced two-line labels:</strong> New <code>MidBreak()</code> helper inserts a hard line-break (<code>L'\n'</code>) at the word boundary nearest the string midpoint, so each opt-out sentence splits into two roughly equal lines. Works correctly for translated strings in all 19 other locales as well.</li>
+<li><strong>Checkboxes centred under icons:</strong> Each checkbox control is now sized to fit its exact content (box + gap + widest line, measured with <code>GetTextExtentPoint32W</code>) and horizontally centred within its column &mdash; matching the centred headings and status labels above.</li>
+</ul>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.18.10</span></h3>
 <p><strong>Shortcuts page &mdash; opt-out checkboxes for all three shortcut types (18.03.2026, 10:53):</strong></p>

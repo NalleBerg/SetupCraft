@@ -2,6 +2,12 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.03.19.08] - 2026-03-19
+
+### Changed
+- **Balanced two-line opt-out labels** — new `MidBreak()` helper in `shortcuts.cpp` inserts a hard `L'\n'` at the word boundary nearest the string midpoint so each sentence splits into two roughly equal lines. Adapts to translated strings automatically.
+- **Opt-out checkboxes centred in columns** — each control is measured with `GetTextExtentPoint32W` (per line, taking the wider), sized to fit exactly, then centred within its column via `cbX = colX + (colW - cbW) / 2`, matching the headings and status labels above.
+
 ## [2026.03.18.10] - 2026-03-18
 
 ### Added
