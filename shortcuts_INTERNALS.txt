@@ -227,10 +227,75 @@ mainwindow.cpp knows nothing about the page internals.  It only:
   Tooltip via sc_sm_addsc_tooltip locale key.
   Also appears as first item in the SM tree right-click context menu
   (IDM_SC_CTX_ADD_SC 6304), dispatching to SendMessageW(IDC_SC_SM_ADDSC).
+  Phase 2: IDC_SC_SM_ADDSC always creates a NEW shortcut — multiple shortcuts
+  per SM folder are supported.  TVN_SELCHANGED disables the button when a
+  shortcut leaf item is selected (only folder items can receive new shortcuts).
 
   BuildSmPath(int nodeId) → std::wstring:
     Walks s_scMenuNodes from nodeId to the root (parentId == -1), building
     "Start Menu › Programs › Folder" breadcrumb for use in the config dialog.
+
+── SM tree shortcut child items (SC_RebuildSmTree) — Phase 2 ──────────────────
+
+  SCT_STARTMENU shortcuts are displayed as leaf items inside their parent
+  folder node in the Start Menu TreeView.
+
+  lParam encoding (TVIF_PARAM):
+    folder node      → (LPARAM)node.id     ≥ 0
+    shortcut leaf    → -(LPARAM)sc.id      <  0   (negative)
+  All code that interprets lParam checks the sign first.
+
+  Image list indices (32×32, shell32.dll):
+    0  closed folder (#3)      — folder, not selected
+    1  open folder   (#5)      — folder, selected / expanded
+    2  link icon     (#17)     — shortcut leaf (both selected and unselected)
+
+  SC_RebuildSmTree(LPARAM selectLParam = 0):
+    1. Resets all node.hItem and sc.hSmItem handles.
+    2. TreeView_DeleteAllItems.
+    3. Recursive addChildren(hParent, parentId):
+         a. All ScMenuNode children with parentId first (folders before shortcuts).
+         b. All SCT_STARTMENU shortcuts with smNodeId == parentId after folders.
+    4. Expands root (TVE_EXPAND).
+    5. Restores selection to the item matching selectLParam:
+         selectLParam >= 0 → folder node with node.id == selectLParam
+         selectLParam <  0 → shortcut with sc.id == -selectLParam
+         fallback: root item (hRoot)
+    Called from SC_BuildPage (replaces inline block), IDC_SC_SM_ADDSC (select
+    new item), IDM_SC_CTX_EDIT_SM (reselect edited item), IDM_SC_CTX_REMOVE_SM
+    (reselect parent folder).
+
+  TVN handling for leaf items:
+    TVN_BEGINLABELEDIT  returns TRUE (cancel) for lParam < 0 as well as lParam == 0.
+    TVN_SELCHANGED      when lParam < 0: disables Remove Subfolder, Add Shortcut
+                        Here, and Add Subfolder buttons.
+
+  NM_DBLCLK on a shortcut leaf item:
+    Sends WM_COMMAND(IDM_SC_CTX_EDIT_SM) → SC_OnCommand opens the dialog.
+    Returns TRUE to prevent the default expand/collapse or label-edit action.
+
+  Right-click context menu:
+    lParam < 0  → "Edit shortcut…" (IDM_SC_CTX_EDIT_SM)  |  "Remove shortcut"
+                  (IDM_SC_CTX_REMOVE_SM)
+    lParam >= 0 → existing folder menu (Add shortcut here… / Add Subfolder /
+                  Remove)
+
+  IDM_SC_CTX_EDIT_SM (6307):
+    Looks up selection; verifies lParam < 0; derives scId = -(int)lParam.
+    Opens SC_EditShortcutDialog(SCT_STARTMENU, BuildSmPath(pSc->smNodeId), …).
+    On commit: updates pSc, MarkAsModified, SC_RebuildSmTree(-(LPARAM)pSc->id).
+
+  IDM_SC_CTX_REMOVE_SM (6308):
+    Derives scId. Saves parentNodeLParam = (LPARAM)sc.smNodeId.
+    Erases shortcut from s_scShortcuts.
+    MarkAsModified, SC_RebuildSmTree(parentNodeLParam) to reselect parent folder.
+
+  IDC_SC_SM_REMOVE (folder remove):
+    removeSubtree() now also calls s_scShortcuts.erase for all shortcuts whose
+    smNodeId == the removed (or descendant) nodeId, before removing the folder
+    node itself.  TreeView_DeleteItem handles the visual removal; no
+    SC_RebuildSmTree call needed because sibling/parent HTREEITEM handles are
+    still valid after DeleteItem.
 
 ── DB persistence (SC_SaveToDb / SC_LoadFromDb) ────────────────────────────────
 
@@ -292,6 +357,8 @@ mainwindow.cpp knows nothing about the page internals.  It only:
   6304  IDM_SC_CTX_ADD_SC           SM tree: "Add shortcut here…"
   6305  IDM_SC_CTX_EDIT_DSK         Desktop mini-icon: "Edit shortcut…"
   6306  IDM_SC_CTX_REMOVE_DSK       Desktop mini-icon: "Remove shortcut"
+  6307  IDM_SC_CTX_EDIT_SM          SM tree shortcut item: "Edit shortcut…"
+  6308  IDM_SC_CTX_REMOVE_SM        SM tree shortcut item: "Remove shortcut"
 
 ── Locale keys used by this module ────────────────────────────────────────────
 
@@ -337,7 +404,7 @@ mainwindow.cpp knows nothing about the page internals.  It only:
   5220–5229   Shortcut Edit dialog controls (IDC_SCDLG_*)
   5300–5304   Shortcuts page static labels
   5400–5449   Desktop mini-icon strip (IDC_SC_DSK_STRIP_BASE + i, max 50)
-  6300–6306   Context-menu command IDs (IDM_SC_CTX_*)
+  6300–6308   Context-menu command IDs (IDM_SC_CTX_*)
 
 ── Image list lifetime ─────────────────────────────────────────────────────────
 
@@ -350,12 +417,14 @@ mainwindow.cpp knows nothing about the page internals.  It only:
 
 ── Future work (next development session) ─────────────────────────────────────
 
-  1. Start Menu shortcut display — show SC_STARTMENU shortcuts as child items
-     under their folder node in the SM TreeView (Phase 2 of multi-shortcut work).
-     Double/right-click child items → edit dialog.
-
-  2. Pin to Start / Pin to Taskbar shortcut config — wire SC_EditShortcutDialog
+  1. Pin to Start / Pin to Taskbar shortcut config — wire SC_EditShortcutDialog
      for IDC_SC_PINSTART_BTN and IDC_SC_PINTASKBAR_BTN; un-grey the
      IDM_SC_CTX_EDIT_SC right-click stub.
+
+  DONE (Phase 2):
+  ✔ Start Menu shortcut display — SCT_STARTMENU shortcuts now appear as leaf
+    items in the SM TreeView under their folder node (SC_RebuildSmTree).
+    Double-click / right-click → Edit or Remove via IDM_SC_CTX_EDIT_SM /
+    IDM_SC_CTX_REMOVE_SM.  Multiple shortcuts per folder supported.
 
 ================================================================================

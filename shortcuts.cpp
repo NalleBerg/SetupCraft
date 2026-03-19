@@ -384,6 +384,82 @@ static LRESULT CALLBACK SC_DesktopIconSubclassProc(
     return DefSubclassProc(hwnd, msg, wParam, lParam);
 }
 
+// ── SC_RebuildSmTree ──────────────────────────────────────────────────────────
+// Clears and rebuilds the Start Menu TreeView from s_scMenuNodes and
+// s_scShortcuts.  Folder nodes use image indices 0/1 (closed/open folder).
+// SCT_STARTMENU shortcut items are inserted as leaves after their folder's
+// child folders, using image index 2 (shell32 #17 link icon).
+// lParam encoding: folder nodes → node.id (≥ 0); shortcut items → -(sc.id) (< 0).
+//
+// selectLParam  — after rebuilding, attempt to reselect the item whose lParam
+//                 matches this value.  0 (default) reselects the Start Menu root.
+//                 Pass -(sc.id) to reselect a newly added or edited shortcut.
+static void SC_RebuildSmTree(LPARAM selectLParam = 0)
+{
+    if (!s_hScStartMenuTree || !IsWindow(s_hScStartMenuTree)) return;
+
+    // Reset transient HTREEITEM handles — they become invalid after DeleteAllItems.
+    for (auto& n  : s_scMenuNodes) n.hItem  = nullptr;
+    for (auto& sc : s_scShortcuts) if (sc.type == SCT_STARTMENU) sc.hSmItem = nullptr;
+
+    TreeView_DeleteAllItems(s_hScStartMenuTree);
+
+    std::function<void(HTREEITEM, int)> addChildren =
+        [&](HTREEITEM hParent, int parentId) {
+        // Folder children first.
+        for (auto& node : s_scMenuNodes) {
+            if (node.parentId != parentId) continue;
+            TVINSERTSTRUCTW tvis     = {};
+            tvis.hParent             = hParent;
+            tvis.hInsertAfter        = TVI_LAST;
+            tvis.item.mask           = TVIF_TEXT | TVIF_IMAGE | TVIF_SELECTEDIMAGE | TVIF_PARAM;
+            tvis.item.pszText        = (LPWSTR)node.name.c_str();
+            tvis.item.iImage         = 0;  // closed folder
+            tvis.item.iSelectedImage = 1;  // open folder
+            tvis.item.lParam         = (LPARAM)node.id;
+            node.hItem = (HTREEITEM)SendMessageW(
+                s_hScStartMenuTree, TVM_INSERTITEM, 0, (LPARAM)&tvis);
+            if (node.hItem) addChildren(node.hItem, node.id);
+        }
+        // Shortcut leaf items after folders.
+        for (auto& sc : s_scShortcuts) {
+            if (sc.type != SCT_STARTMENU || sc.smNodeId != parentId) continue;
+            TVINSERTSTRUCTW tvis     = {};
+            tvis.hParent             = hParent;
+            tvis.hInsertAfter        = TVI_LAST;
+            tvis.item.mask           = TVIF_TEXT | TVIF_IMAGE | TVIF_SELECTEDIMAGE | TVIF_PARAM;
+            tvis.item.pszText        = (LPWSTR)sc.name.c_str();
+            tvis.item.iImage         = 2;  // link icon
+            tvis.item.iSelectedImage = 2;
+            tvis.item.lParam         = -(LPARAM)sc.id;  // negative → shortcut item
+            sc.hSmItem = (HTREEITEM)SendMessageW(
+                s_hScStartMenuTree, TVM_INSERTITEM, 0, (LPARAM)&tvis);
+        }
+    };
+    addChildren(TVI_ROOT, -1);
+
+    // Always expand the root so Programs is immediately visible.
+    HTREEITEM hRoot = TreeView_GetRoot(s_hScStartMenuTree);
+    if (hRoot) TreeView_Expand(s_hScStartMenuTree, hRoot, TVE_EXPAND);
+
+    // Restore selection: find the item whose lParam matches selectLParam.
+    HTREEITEM hRestore = nullptr;
+    if (selectLParam >= 0) {
+        for (const auto& n : s_scMenuNodes)
+            if ((LPARAM)n.id == selectLParam && n.hItem) { hRestore = n.hItem; break; }
+    } else {
+        int scId = (int)(-selectLParam);
+        for (const auto& sc : s_scShortcuts)
+            if (sc.type == SCT_STARTMENU && sc.id == scId && sc.hSmItem)
+            { hRestore = sc.hSmItem; break; }
+    }
+    if (!hRestore) hRestore = hRoot;
+    if (hRestore) {
+        TreeView_EnsureVisible(s_hScStartMenuTree, hRestore);
+        TreeView_SelectItem(s_hScStartMenuTree, hRestore);
+    }
+}
+
 void SC_BuildPage(HWND hwnd, HINSTANCE hInst, int pageY, int clientWidth,
                   HFONT hPageTitleFont, HFONT hGuiFont,
                   const std::map<std::wstring, std::wstring>& locale)
@@ -685,6 +761,9 @@ void SC_BuildPage(HWND hwnd, HINSTANCE hInst, int pageY, int clientWidth,
             ExtractIconExW(shell32Path, 5, &hOpen,  NULL, 1);  // large open yellow folder
             if (hClose) { ImageList_AddIcon(hSmIL, hClose); DestroyIcon(hClose); }
             if (hOpen)  { ImageList_AddIcon(hSmIL, hOpen);  DestroyIcon(hOpen);  }
+            HICON hLink = NULL;
+            ExtractIconExW(shell32Path, 17, &hLink, NULL, 1); // large .lnk icon (index 2, for shortcut items)
+            if (hLink)  { ImageList_AddIcon(hSmIL, hLink);  DestroyIcon(hLink);  }
             TreeView_SetImageList(s_hScStartMenuTree, hSmIL, TVSIL_NORMAL);
             // No custom item height — Windows auto-sizes rows to fit icon+font,
             // giving the same compact highlight as the Files page.
@@ -706,36 +785,9 @@ void SC_BuildPage(HWND hwnd, HINSTANCE hInst, int pageY, int clientWidth,
         s_scMenuNodes.push_back({1,  0, progName, nullptr});
     }
 
-    // Re-populate the TreeView from the in-memory node list each page visit,
-    // recursing parent → children so the hierarchy is rebuilt correctly.
-    {
-        std::function<void(HTREEITEM, int)> addChildren =
-            [&](HTREEITEM hParent, int parentId) {
-            for (auto& node : s_scMenuNodes) {
-                if (node.parentId != parentId) continue;
-                TVINSERTSTRUCTW tvis     = {};
-                tvis.hParent             = hParent;
-                tvis.hInsertAfter        = TVI_LAST;
-                tvis.item.mask           = TVIF_TEXT | TVIF_IMAGE | TVIF_SELECTEDIMAGE | TVIF_PARAM;
-                tvis.item.pszText        = (LPWSTR)node.name.c_str();
-                tvis.item.iImage         = 0;  // closed folder
-                tvis.item.iSelectedImage = 1;  // open folder
-                tvis.item.lParam         = (LPARAM)node.id;
-                node.hItem = (HTREEITEM)SendMessageW(
-                    s_hScStartMenuTree, TVM_INSERTITEM, 0, (LPARAM)&tvis);
-                if (node.hItem)
-                    addChildren(node.hItem, node.id);
-            }
-        };
-        addChildren(TVI_ROOT, -1);
-    }
-
-    // Expand the root so Programs is immediately visible.
-    HTREEITEM hSmRoot = TreeView_GetRoot(s_hScStartMenuTree);
-    if (hSmRoot) {
-        TreeView_Expand(s_hScStartMenuTree, hSmRoot, TVE_EXPAND);
-        TreeView_SelectItem(s_hScStartMenuTree, hSmRoot);
-    }
+    // Re-populate the TreeView from the in-memory node list each page visit.
+    // SC_RebuildSmTree also inserts SCT_STARTMENU shortcuts as leaf items (Phase 2).
+    SC_RebuildSmTree();
     rowY += smTreeH + S(6);
 
     // Action buttons: Add Subfolder (blue) | Add Shortcut Here (green) | Remove (red).
@@ -805,7 +857,8 @@ void SC_TearDown(HWND hwnd)
     if (s_hScCbFont) { DeleteObject(s_hScCbFont); s_hScCbFont = NULL; }
 
     // Clear transient HTREEITEM handles; node names and structure persist.
-    for (auto& n : s_scMenuNodes) n.hItem = nullptr;
+    for (auto& n  : s_scMenuNodes) n.hItem  = nullptr;
+    for (auto& sc : s_scShortcuts) if (sc.type == SCT_STARTMENU) sc.hSmItem = nullptr;
 
     // Destroy the image list stored as a window property on the main window.
     HIMAGELIST hOldIL = (HIMAGELIST)GetPropW(hwnd, L"hScSmTreeIL");
@@ -829,7 +882,8 @@ LRESULT SC_OnNotify(HWND hwnd, LPNMHDR nmhdr, bool* handled)
         TVITEMW tvi = {}; tvi.mask = TVIF_PARAM; tvi.hItem = ptvdi->item.hItem;
         if (s_hScStartMenuTree) TreeView_GetItem(s_hScStartMenuTree, &tvi);
         *handled = true;
-        return (tvi.lParam == 0) ? TRUE : FALSE;  // TRUE = cancel edit for root
+        // Cancel editing for the fixed root (id 0) and for shortcut leaf items (lParam < 0).
+        return (tvi.lParam == 0 || tvi.lParam < 0) ? TRUE : FALSE;
     }
 
     // Persist the renamed label into s_scMenuNodes on label-edit commit.
@@ -858,19 +912,53 @@ LRESULT SC_OnNotify(HWND hwnd, LPNMHDR nmhdr, bool* handled)
     if (nmhdr->code == TVN_SELCHANGED) {
         HWND hRemBtn   = GetDlgItem(hwnd, IDC_SC_SM_REMOVE);
         HWND hAddScBtn = GetDlgItem(hwnd, IDC_SC_SM_ADDSC);
+        HWND hAddBtn   = GetDlgItem(hwnd, IDC_SC_SM_ADD);
         if (s_hScStartMenuTree) {
             HTREEITEM hSel = TreeView_GetSelection(s_hScStartMenuTree);
             BOOL canRemove = FALSE;
-            BOOL hasSel    = (hSel != NULL) ? TRUE : FALSE;
+            BOOL canAddSc  = FALSE;
+            BOOL canAddSub = TRUE;  // enabled unless a shortcut item is selected
             if (hSel) {
                 TVITEMW tvi = {}; tvi.mask = TVIF_PARAM; tvi.hItem = hSel;
                 TreeView_GetItem(s_hScStartMenuTree, &tvi);
-                canRemove = (tvi.lParam > 1) ? TRUE : FALSE;
+                if (tvi.lParam < 0) {
+                    // Shortcut leaf item: folder-management buttons don't apply.
+                    canRemove = FALSE;
+                    canAddSc  = FALSE;
+                    canAddSub = FALSE;
+                } else {
+                    // Folder node: existing rules.
+                    canRemove = (tvi.lParam > 1) ? TRUE : FALSE;
+                    canAddSc  = TRUE;
+                    canAddSub = TRUE;
+                }
             }
             if (hRemBtn)   EnableWindow(hRemBtn,   canRemove);
-            if (hAddScBtn) EnableWindow(hAddScBtn, hasSel);
+            if (hAddScBtn) EnableWindow(hAddScBtn, canAddSc);
+            if (hAddBtn)   EnableWindow(hAddBtn,   canAddSub);
         }
         *handled = true;
+        return 0;
+    }
+
+    // Double-click on a shortcut leaf item opens the edit dialog.
+    // For folder items the default expand/collapse action is preserved.
+    if (nmhdr->code == NM_DBLCLK) {
+        if (s_hScStartMenuTree) {
+            HTREEITEM hSel = TreeView_GetSelection(s_hScStartMenuTree);
+            if (hSel) {
+                TVITEMW tvi = {}; tvi.mask = TVIF_PARAM; tvi.hItem = hSel;
+                TreeView_GetItem(s_hScStartMenuTree, &tvi);
+                if (tvi.lParam < 0) {
+                    // Shortcut item — dispatch to SC_OnCommand(IDM_SC_CTX_EDIT_SM).
+                    SendMessageW(hwnd, WM_COMMAND,
+                        MAKEWPARAM(IDM_SC_CTX_EDIT_SM, 0), 0);
+                    *handled = true;
+                    return TRUE;  // TRUE suppresses default expand/label-edit action
+                }
+            }
+        }
+        *handled = false;
         return 0;
     }
 
@@ -1050,6 +1138,8 @@ bool SC_OnCommand(HWND hwnd, int id)
     }
 
     // ── Add Shortcut Here button (also invoked from right-click context menu) ──
+    // Always creates a new shortcut in the selected folder.  (Existing shortcuts
+    // in the folder are edited by double-clicking their tree item.)
     case IDC_SC_SM_ADDSC: {
         if (!s_hScStartMenuTree || !IsWindow(s_hScStartMenuTree)) return true;
 
@@ -1058,38 +1148,35 @@ bool SC_OnCommand(HWND hwnd, int id)
 
         TVITEMW tvi = {}; tvi.mask = TVIF_PARAM; tvi.hItem = hSel;
         TreeView_GetItem(s_hScStartMenuTree, &tvi);
-        int selNodeId = (int)tvi.lParam;
+        if (tvi.lParam < 0) return true;   // shortcut item selected — button is disabled
 
+        int selNodeId = (int)tvi.lParam;
         std::wstring smPath = BuildSmPath(selNodeId);
 
-        // Find an existing shortcut for this folder node, or prepare a new one.
-        ShortcutDef* pSc = nullptr;
-        for (auto& sc : s_scShortcuts)
-            if (sc.type == SCT_STARTMENU && sc.smNodeId == selNodeId) { pSc = &sc; break; }
-        bool isNew = (pSc == nullptr);
+        // Always add a new shortcut — multiple SC_STARTMENU shortcuts per folder allowed.
         ShortcutDef tmpSc{};
-        if (isNew) {
-            tmpSc.id       = s_scNextShortcutId++;
-            tmpSc.type     = SCT_STARTMENU;
-            tmpSc.smNodeId = selNodeId;
-            pSc = &tmpSc;
-        }
+        tmpSc.id       = s_scNextShortcutId++;
+        tmpSc.type     = SCT_STARTMENU;
+        tmpSc.smNodeId = selNodeId;
 
         ScDlgResult result;
         HINSTANCE hInst = (HINSTANCE)GetWindowLongPtrW(hwnd, GWLP_HINSTANCE);
         if (SC_EditShortcutDialog(hwnd, hInst, SCT_STARTMENU, smPath,
-                pSc->name, pSc->exePath, pSc->workingDir,
-                pSc->iconPath, pSc->iconIndex, pSc->runAsAdmin,
+                tmpSc.name, tmpSc.exePath, tmpSc.workingDir,
+                tmpSc.iconPath, tmpSc.iconIndex, tmpSc.runAsAdmin,
                 MainWindow::GetLocale(), result))
         {
-            pSc->name       = result.name;
-            pSc->exePath    = result.exePath;
-            pSc->workingDir = result.workingDir;
-            pSc->iconPath   = result.iconPath;
-            pSc->iconIndex  = result.iconIndex;
-            pSc->runAsAdmin = result.runAsAdmin;
-            if (isNew) s_scShortcuts.push_back(*pSc);
+            tmpSc.name       = result.name;
+            tmpSc.exePath    = result.exePath;
+            tmpSc.workingDir = result.workingDir;
+            tmpSc.iconPath   = result.iconPath;
+            tmpSc.iconIndex  = result.iconIndex;
+            tmpSc.runAsAdmin = result.runAsAdmin;
+            s_scShortcuts.push_back(tmpSc);
             MainWindow::MarkAsModified();
+            SC_RebuildSmTree(-(LPARAM)tmpSc.id);  // select the newly added shortcut
+        } else {
+            --s_scNextShortcutId;  // reclaim the unused id
         }
         return true;
     }
@@ -1111,6 +1198,12 @@ bool SC_OnCommand(HWND hwnd, int id)
             for (int i = (int)s_scMenuNodes.size() - 1; i >= 0; --i)
                 if (s_scMenuNodes[i].parentId == nodeId)
                     removeSubtree(s_scMenuNodes[i].id);
+            // Also erase any shortcuts whose folder was this node.
+            s_scShortcuts.erase(
+                std::remove_if(s_scShortcuts.begin(), s_scShortcuts.end(),
+                    [nodeId](const ShortcutDef& sc){
+                        return sc.type == SCT_STARTMENU && sc.smNodeId == nodeId; }),
+                s_scShortcuts.end());
             s_scMenuNodes.erase(
                 std::remove_if(s_scMenuNodes.begin(), s_scMenuNodes.end(),
                     [nodeId](const ScMenuNode& n){ return n.id == nodeId; }),
@@ -1125,6 +1218,63 @@ bool SC_OnCommand(HWND hwnd, int id)
         // Nothing is selected after the deletion — disable the Remove button.
         HWND hRemBtn = GetDlgItem(hwnd, IDC_SC_SM_REMOVE);
         if (hRemBtn) EnableWindow(hRemBtn, FALSE);
+        return true;
+    }
+
+    // ── SM tree shortcut item: edit ───────────────────────────────────────────
+    // Invoked via NM_DBLCLK or the right-click context menu on a shortcut leaf.
+    case IDM_SC_CTX_EDIT_SM: {
+        if (!s_hScStartMenuTree || !IsWindow(s_hScStartMenuTree)) return true;
+        HTREEITEM hSel = TreeView_GetSelection(s_hScStartMenuTree);
+        if (!hSel) return true;
+        TVITEMW tvi = {}; tvi.mask = TVIF_PARAM; tvi.hItem = hSel;
+        TreeView_GetItem(s_hScStartMenuTree, &tvi);
+        if (tvi.lParam >= 0) return true;   // not a shortcut item
+        int scId = -(int)tvi.lParam;
+        ShortcutDef* pSc = nullptr;
+        for (auto& sc : s_scShortcuts)
+            if (sc.id == scId) { pSc = &sc; break; }
+        if (!pSc) return true;
+
+        std::wstring smPath = BuildSmPath(pSc->smNodeId);
+        ScDlgResult result;
+        HINSTANCE hInst = (HINSTANCE)GetWindowLongPtrW(hwnd, GWLP_HINSTANCE);
+        if (SC_EditShortcutDialog(hwnd, hInst, SCT_STARTMENU, smPath,
+                pSc->name, pSc->exePath, pSc->workingDir,
+                pSc->iconPath, pSc->iconIndex, pSc->runAsAdmin,
+                MainWindow::GetLocale(), result))
+        {
+            pSc->name       = result.name;
+            pSc->exePath    = result.exePath;
+            pSc->workingDir = result.workingDir;
+            pSc->iconPath   = result.iconPath;
+            pSc->iconIndex  = result.iconIndex;
+            pSc->runAsAdmin = result.runAsAdmin;
+            MainWindow::MarkAsModified();
+            SC_RebuildSmTree(-(LPARAM)pSc->id);  // reselect the edited shortcut
+        }
+        return true;
+    }
+
+    // ── SM tree shortcut item: remove ─────────────────────────────────────────
+    case IDM_SC_CTX_REMOVE_SM: {
+        if (!s_hScStartMenuTree || !IsWindow(s_hScStartMenuTree)) return true;
+        HTREEITEM hSel = TreeView_GetSelection(s_hScStartMenuTree);
+        if (!hSel) return true;
+        TVITEMW tvi = {}; tvi.mask = TVIF_PARAM; tvi.hItem = hSel;
+        TreeView_GetItem(s_hScStartMenuTree, &tvi);
+        if (tvi.lParam >= 0) return true;   // not a shortcut item
+        int scId = -(int)tvi.lParam;
+        // Save parent folder id so we can reselect it after the rebuild.
+        LPARAM parentNodeLParam = 0;
+        for (const auto& sc : s_scShortcuts)
+            if (sc.id == scId) { parentNodeLParam = (LPARAM)sc.smNodeId; break; }
+        s_scShortcuts.erase(
+            std::remove_if(s_scShortcuts.begin(), s_scShortcuts.end(),
+                [scId](const ShortcutDef& sc){ return sc.id == scId; }),
+            s_scShortcuts.end());
+        MainWindow::MarkAsModified();
+        SC_RebuildSmTree(parentNodeLParam);  // reselect parent folder
         return true;
     }
 
@@ -1179,12 +1329,14 @@ bool SC_OnContextMenu(HWND hwnd, HWND hCtrl, int x, int y)
         else
             hItem = TreeView_GetSelection(s_hScStartMenuTree);
 
-        // Decide whether Remove is applicable (fixed nodes 0 and 1 cannot be removed).
-        BOOL canRemove = FALSE;
+        // Determine selected item type (folder node vs. shortcut leaf).
+        LPARAM itemLParam = 0;
+        BOOL   canRemove  = FALSE;
         if (hItem) {
             TVITEMW tvi = {}; tvi.mask = TVIF_PARAM; tvi.hItem = hItem;
             TreeView_GetItem(s_hScStartMenuTree, &tvi);
-            canRemove = (tvi.lParam > 1) ? TRUE : FALSE;
+            itemLParam = tvi.lParam;
+            canRemove  = (itemLParam > 1) ? TRUE : FALSE;
         }
 
         const auto& locMap = MainWindow::GetLocale();
@@ -1192,29 +1344,43 @@ bool SC_OnContextMenu(HWND hwnd, HWND hCtrl, int x, int y)
             auto it = locMap.find(k); return (it != locMap.end()) ? it->second : fb;
         };
 
-        HMENU hMenu = CreatePopupMenu();
-        AppendMenuW(hMenu, MF_STRING, IDM_SC_CTX_ADD_SC,
-            locS(L"sc_ctx_add_sc", L"Add shortcut here…").c_str());
-        AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
-        AppendMenuW(hMenu, MF_STRING, IDM_SC_CTX_ADD_SUBFOLDER,
-            locS(L"sc_sm_add", L"Add Subfolder").c_str());
-        AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
-        AppendMenuW(hMenu,
-            canRemove ? MF_STRING : (MF_STRING | MF_GRAYED),
-            IDM_SC_CTX_REMOVE_FOLDER,
-            locS(L"sc_sm_remove", L"Remove").c_str());
-
-        // TPM_RETURNCMD lets us manually dispatch so SC_OnCommand handles it.
-        int cmd = (int)TrackPopupMenu(hMenu, TPM_RIGHTBUTTON | TPM_RETURNCMD,
-            x, y, 0, hwnd, NULL);
-        DestroyMenu(hMenu);
-
-        if (cmd == IDM_SC_CTX_ADD_SC)
-            SendMessageW(hwnd, WM_COMMAND, MAKEWPARAM(IDC_SC_SM_ADDSC, 0), 0);
-        else if (cmd == IDM_SC_CTX_ADD_SUBFOLDER)
-            SendMessageW(hwnd, WM_COMMAND, MAKEWPARAM(IDC_SC_SM_ADD, 0), 0);
-        else if (cmd == IDM_SC_CTX_REMOVE_FOLDER)
-            SendMessageW(hwnd, WM_COMMAND, MAKEWPARAM(IDC_SC_SM_REMOVE, 0), 0);
+        if (itemLParam < 0) {
+            // Right-clicked a shortcut leaf — show Edit / Remove shortcut menu.
+            HMENU hMenu = CreatePopupMenu();
+            AppendMenuW(hMenu, MF_STRING, IDM_SC_CTX_EDIT_SM,
+                locS(L"sc_ctx_edit", L"Edit shortcut\u2026").c_str());
+            AppendMenuW(hMenu, MF_STRING, IDM_SC_CTX_REMOVE_SM,
+                locS(L"sc_ctx_remove_sc", L"Remove shortcut").c_str());
+            int cmd = (int)TrackPopupMenu(hMenu, TPM_RIGHTBUTTON | TPM_RETURNCMD,
+                x, y, 0, hwnd, NULL);
+            DestroyMenu(hMenu);
+            if (cmd == IDM_SC_CTX_EDIT_SM)
+                SendMessageW(hwnd, WM_COMMAND, MAKEWPARAM(IDM_SC_CTX_EDIT_SM, 0), 0);
+            else if (cmd == IDM_SC_CTX_REMOVE_SM)
+                SendMessageW(hwnd, WM_COMMAND, MAKEWPARAM(IDM_SC_CTX_REMOVE_SM, 0), 0);
+        } else {
+            // Right-clicked a folder node — show folder management menu.
+            HMENU hMenu = CreatePopupMenu();
+            AppendMenuW(hMenu, MF_STRING, IDM_SC_CTX_ADD_SC,
+                locS(L"sc_ctx_add_sc", L"Add shortcut here\u2026").c_str());
+            AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
+            AppendMenuW(hMenu, MF_STRING, IDM_SC_CTX_ADD_SUBFOLDER,
+                locS(L"sc_sm_add", L"Add Subfolder").c_str());
+            AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
+            AppendMenuW(hMenu,
+                canRemove ? MF_STRING : (MF_STRING | MF_GRAYED),
+                IDM_SC_CTX_REMOVE_FOLDER,
+                locS(L"sc_sm_remove", L"Remove").c_str());
+            int cmd = (int)TrackPopupMenu(hMenu, TPM_RIGHTBUTTON | TPM_RETURNCMD,
+                x, y, 0, hwnd, NULL);
+            DestroyMenu(hMenu);
+            if (cmd == IDM_SC_CTX_ADD_SC)
+                SendMessageW(hwnd, WM_COMMAND, MAKEWPARAM(IDC_SC_SM_ADDSC, 0), 0);
+            else if (cmd == IDM_SC_CTX_ADD_SUBFOLDER)
+                SendMessageW(hwnd, WM_COMMAND, MAKEWPARAM(IDC_SC_SM_ADD, 0), 0);
+            else if (cmd == IDM_SC_CTX_REMOVE_FOLDER)
+                SendMessageW(hwnd, WM_COMMAND, MAKEWPARAM(IDC_SC_SM_REMOVE, 0), 0);
+        }
         return true;
     }
 

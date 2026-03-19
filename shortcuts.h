@@ -66,6 +66,8 @@
 #define IDM_SC_CTX_ADD_SC        6304  // SM tree: "Add shortcut here…"
 #define IDM_SC_CTX_EDIT_DSK      6305  // Desktop mini-icon: "Edit shortcut…"
 #define IDM_SC_CTX_REMOVE_DSK    6306  // Desktop mini-icon: "Remove shortcut"
+#define IDM_SC_CTX_EDIT_SM       6307  // SM tree shortcut item: "Edit shortcut…"
+#define IDM_SC_CTX_REMOVE_SM     6308  // SM tree shortcut item: "Remove shortcut"
 
 // ── Shortcut type constants ────────────────────────────────────────────────────
 #define SCT_DESKTOP     0   // Desktop shortcut
@@ -97,6 +99,7 @@ struct ShortcutDef {
     std::wstring iconPath;    // .ico / .exe / .dll to extract icon from; empty = exe
     int          iconIndex;   // icon index within iconPath (0 = first icon)
     bool         runAsAdmin;  // create shortcut with "Run as administrator" elevation
+    HTREEITEM    hSmItem;     // live TreeView item for SCT_STARTMENU; nullptr when page hidden
 };
 
 // ── Public API ────────────────────────────────────────────────────────────────
