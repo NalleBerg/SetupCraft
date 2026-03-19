@@ -327,13 +327,11 @@ void ShowMultilingualTooltip(const std::vector<TooltipEntry>& entries, int x, in
             DrawTextW(hdc, s.c_str(), -1, &calcRc, DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX);
             tooltipHeight = (calcRc.bottom - calcRc.top) + S(20);
         } else {
-            // Single line: measure exact width, add generous padding so window-DC
-            // rendering never needs to wrap.
+            // Single line: measure exact width, add padding. No hard cap here —
+            // the monitor-clamping block below constrains to screen width.
             SIZE sz = {0};
             GetTextExtentPoint32W(hdc, s.c_str(), (int)s.size(), &sz);
-            int naturalWidth = sz.cx + S(32);  // 16px each side
-            int maxAllowed = S(500);
-            tooltipWidth  = (naturalWidth < maxAllowed) ? naturalWidth : maxAllowed;
+            tooltipWidth  = sz.cx + S(32);  // 16px each side
             if (tooltipWidth < S(80)) tooltipWidth = S(80);
             tooltipHeight = lineHeight + S(20);
         }

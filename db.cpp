@@ -144,6 +144,9 @@ bool DB::InitDb() {
     p_exec(db, "ALTER TABLE components ADD COLUMN notes_rtf TEXT DEFAULT '';", NULL, NULL, &errmsg);
     // Add is_preselected column to components table for existing databases
     p_exec(db, "ALTER TABLE components ADD COLUMN is_preselected INTEGER DEFAULT 0;", NULL, NULL, &errmsg);
+    // Shortcuts: Start Menu folder nodes and shortcut definitions (Desktop + SM + pins)
+    p_exec(db, "CREATE TABLE IF NOT EXISTS sc_menu_nodes (id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL, parent_id INTEGER DEFAULT -1, name TEXT DEFAULT '', FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);", NULL, NULL, &errmsg);
+    p_exec(db, "CREATE TABLE IF NOT EXISTS sc_shortcuts (id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL, type INTEGER NOT NULL, sm_node_id INTEGER DEFAULT -1, name TEXT DEFAULT '', exe_path TEXT DEFAULT '', working_dir TEXT DEFAULT '', icon_path TEXT DEFAULT '', icon_index INTEGER DEFAULT 0, run_as_admin INTEGER DEFAULT 0, FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);", NULL, NULL, &errmsg);
     
     // Check if projects table is empty, if so add SetupCraft project
     const char *countSql = "SELECT COUNT(*) FROM projects;";
@@ -778,4 +781,152 @@ bool DB::DeleteDependenciesForComponent(int componentId) {
     p_step(stmt2);
     if (p_finalize) p_finalize(stmt2);
     p_close(db); return true;
+}
+
+// ─── Shortcuts: menu nodes ───────────────────────────────────────────────────
+
+bool DB::InsertScMenuNode(int projectId, const DB::ScMenuNodeRow& node) {
+    std::wstring dbPath = GetAppDataDbPath();
+    std::string dbPathUtf8 = WToUtf8(dbPath);
+    void *db = NULL; int flags = 0x00000002 | 0x00000004;
+    if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return false;
+    const char *sql = "INSERT OR REPLACE INTO sc_menu_nodes (id, project_id, parent_id, name) VALUES (?,?,?,?);";
+    void *stmt = NULL;
+    if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return false; }
+    std::string sId   = std::to_string(node.id);
+    std::string sPid  = std::to_string(projectId);
+    std::string sPar  = std::to_string(node.parent_id);
+    std::string sName = WToUtf8(node.name);
+    if (p_bind_text) p_bind_text(stmt, 1, sId.c_str(),   -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 2, sPid.c_str(),  -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 3, sPar.c_str(),  -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 4, sName.c_str(), -1, NULL);
+    p_step(stmt);
+    if (p_finalize) p_finalize(stmt);
+    p_close(db); return true;
+}
+
+bool DB::DeleteScMenuNodesForProject(int projectId) {
+    std::wstring dbPath = GetAppDataDbPath();
+    std::string dbPathUtf8 = WToUtf8(dbPath);
+    void *db = NULL; int flags = 0x00000002 | 0x00000004;
+    if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return false;
+    const char *sql = "DELETE FROM sc_menu_nodes WHERE project_id=?;";
+    void *stmt = NULL;
+    if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return false; }
+    std::string sPid = std::to_string(projectId);
+    if (p_bind_text) p_bind_text(stmt, 1, sPid.c_str(), -1, NULL);
+    p_step(stmt);
+    if (p_finalize) p_finalize(stmt);
+    p_close(db); return true;
+}
+
+std::vector<DB::ScMenuNodeRow> DB::GetScMenuNodesForProject(int projectId) {
+    std::vector<DB::ScMenuNodeRow> out;
+    std::wstring dbPath = GetAppDataDbPath();
+    std::string dbPathUtf8 = WToUtf8(dbPath);
+    void *db = NULL; int flags = 0x00000002 | 0x00000004;
+    if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return out;
+    const char *sql = "SELECT id, parent_id, name FROM sc_menu_nodes WHERE project_id=? ORDER BY id ASC;";
+    void *stmt = NULL;
+    if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return out; }
+    std::string sPid = std::to_string(projectId);
+    if (p_bind_text) p_bind_text(stmt, 1, sPid.c_str(), -1, NULL);
+    while (p_step(stmt) == 100 /*SQLITE_ROW*/) {
+        DB::ScMenuNodeRow r;
+        r.id         = (int)p_col_int64(stmt, 0);
+        r.project_id = projectId;
+        r.parent_id  = (int)p_col_int64(stmt, 1);
+        const unsigned char *c2 = p_col_text(stmt, 2);
+        r.name = Utf8ToW(c2 ? (const char*)c2 : "");
+        out.push_back(r);
+    }
+    if (p_finalize) p_finalize(stmt);
+    p_close(db); return out;
+}
+
+// ─── Shortcuts: shortcut definitions ─────────────────────────────────────────
+
+bool DB::InsertScShortcut(int projectId, const DB::ScShortcutRow& sc) {
+    std::wstring dbPath = GetAppDataDbPath();
+    std::string dbPathUtf8 = WToUtf8(dbPath);
+    void *db = NULL; int flags = 0x00000002 | 0x00000004;
+    if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return false;
+    const char *sql = "INSERT OR REPLACE INTO sc_shortcuts "
+        "(id, project_id, type, sm_node_id, name, exe_path, working_dir, icon_path, icon_index, run_as_admin) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?);";
+    void *stmt = NULL;
+    if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return false; }
+    std::string sId   = std::to_string(sc.id);
+    std::string sPid  = std::to_string(projectId);
+    std::string sType = std::to_string(sc.type);
+    std::string sSm   = std::to_string(sc.sm_node_id);
+    std::string sName = WToUtf8(sc.name);
+    std::string sExe  = WToUtf8(sc.exe_path);
+    std::string sWd   = WToUtf8(sc.working_dir);
+    std::string sIcoP = WToUtf8(sc.icon_path);
+    std::string sIcoI = std::to_string(sc.icon_index);
+    std::string sAdm  = std::to_string(sc.run_as_admin);
+    if (p_bind_text) p_bind_text(stmt,  1, sId.c_str(),   -1, NULL);
+    if (p_bind_text) p_bind_text(stmt,  2, sPid.c_str(),  -1, NULL);
+    if (p_bind_text) p_bind_text(stmt,  3, sType.c_str(), -1, NULL);
+    if (p_bind_text) p_bind_text(stmt,  4, sSm.c_str(),   -1, NULL);
+    if (p_bind_text) p_bind_text(stmt,  5, sName.c_str(), -1, NULL);
+    if (p_bind_text) p_bind_text(stmt,  6, sExe.c_str(),  -1, NULL);
+    if (p_bind_text) p_bind_text(stmt,  7, sWd.c_str(),   -1, NULL);
+    if (p_bind_text) p_bind_text(stmt,  8, sIcoP.c_str(), -1, NULL);
+    if (p_bind_text) p_bind_text(stmt,  9, sIcoI.c_str(), -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 10, sAdm.c_str(),  -1, NULL);
+    p_step(stmt);
+    if (p_finalize) p_finalize(stmt);
+    p_close(db); return true;
+}
+
+bool DB::DeleteScShortcutsForProject(int projectId) {
+    std::wstring dbPath = GetAppDataDbPath();
+    std::string dbPathUtf8 = WToUtf8(dbPath);
+    void *db = NULL; int flags = 0x00000002 | 0x00000004;
+    if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return false;
+    const char *sql = "DELETE FROM sc_shortcuts WHERE project_id=?;";
+    void *stmt = NULL;
+    if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return false; }
+    std::string sPid = std::to_string(projectId);
+    if (p_bind_text) p_bind_text(stmt, 1, sPid.c_str(), -1, NULL);
+    p_step(stmt);
+    if (p_finalize) p_finalize(stmt);
+    p_close(db); return true;
+}
+
+std::vector<DB::ScShortcutRow> DB::GetScShortcutsForProject(int projectId) {
+    std::vector<DB::ScShortcutRow> out;
+    std::wstring dbPath = GetAppDataDbPath();
+    std::string dbPathUtf8 = WToUtf8(dbPath);
+    void *db = NULL; int flags = 0x00000002 | 0x00000004;
+    if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return out;
+    const char *sql = "SELECT id, type, sm_node_id, name, exe_path, working_dir, "
+        "icon_path, icon_index, run_as_admin FROM sc_shortcuts WHERE project_id=? ORDER BY id ASC;";
+    void *stmt = NULL;
+    if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return out; }
+    std::string sPid = std::to_string(projectId);
+    if (p_bind_text) p_bind_text(stmt, 1, sPid.c_str(), -1, NULL);
+    while (p_step(stmt) == 100 /*SQLITE_ROW*/) {
+        DB::ScShortcutRow r;
+        r.id          = (int)p_col_int64(stmt, 0);
+        r.project_id  = projectId;
+        r.type        = (int)p_col_int64(stmt, 1);
+        r.sm_node_id  = (int)p_col_int64(stmt, 2);
+        const unsigned char *c3 = p_col_text(stmt, 3);
+        const unsigned char *c4 = p_col_text(stmt, 4);
+        const unsigned char *c5 = p_col_text(stmt, 5);
+        const unsigned char *c6 = p_col_text(stmt, 6);
+        r.name        = Utf8ToW(c3 ? (const char*)c3 : "");
+        r.exe_path    = Utf8ToW(c4 ? (const char*)c4 : "");
+        r.working_dir = Utf8ToW(c5 ? (const char*)c5 : "");
+        r.icon_path   = Utf8ToW(c6 ? (const char*)c6 : "");
+        r.icon_index  = (int)p_col_int64(stmt, 7);
+        r.run_as_admin = (int)p_col_int64(stmt, 8);
+        out.push_back(r);
+    }
+    if (p_finalize) p_finalize(stmt);
+    p_close(db); return out;
 }

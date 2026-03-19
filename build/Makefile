@@ -424,6 +424,30 @@ notes_editor.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/notes_editor.cpp.s
 .PHONY : notes_editor.cpp.s
 
+sc_shortcut_dialog.obj: sc_shortcut_dialog.cpp.obj
+.PHONY : sc_shortcut_dialog.obj
+
+# target to build an object file
+sc_shortcut_dialog.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/sc_shortcut_dialog.cpp.obj
+.PHONY : sc_shortcut_dialog.cpp.obj
+
+sc_shortcut_dialog.i: sc_shortcut_dialog.cpp.i
+.PHONY : sc_shortcut_dialog.i
+
+# target to preprocess a source file
+sc_shortcut_dialog.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/sc_shortcut_dialog.cpp.i
+.PHONY : sc_shortcut_dialog.cpp.i
+
+sc_shortcut_dialog.s: sc_shortcut_dialog.cpp.s
+.PHONY : sc_shortcut_dialog.s
+
+# target to generate assembly for a file
+sc_shortcut_dialog.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/sc_shortcut_dialog.cpp.s
+.PHONY : sc_shortcut_dialog.cpp.s
+
 shortcuts.obj: shortcuts.cpp.obj
 .PHONY : shortcuts.obj
 
@@ -496,6 +520,30 @@ tooltip.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/tooltip.cpp.s
 .PHONY : tooltip.cpp.s
 
+vfs_picker.obj: vfs_picker.cpp.obj
+.PHONY : vfs_picker.obj
+
+# target to build an object file
+vfs_picker.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/vfs_picker.cpp.obj
+.PHONY : vfs_picker.cpp.obj
+
+vfs_picker.i: vfs_picker.cpp.i
+.PHONY : vfs_picker.i
+
+# target to preprocess a source file
+vfs_picker.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/vfs_picker.cpp.i
+.PHONY : vfs_picker.cpp.i
+
+vfs_picker.s: vfs_picker.cpp.s
+.PHONY : vfs_picker.s
+
+# target to generate assembly for a file
+vfs_picker.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/vfs_picker.cpp.s
+.PHONY : vfs_picker.cpp.s
+
 # Help Target
 help:
 	@echo The following are some of the valid targets for this Makefile:
@@ -542,6 +590,9 @@ help:
 	@echo ... notes_editor.obj
 	@echo ... notes_editor.i
 	@echo ... notes_editor.s
+	@echo ... sc_shortcut_dialog.obj
+	@echo ... sc_shortcut_dialog.i
+	@echo ... sc_shortcut_dialog.s
 	@echo ... shortcuts.obj
 	@echo ... shortcuts.i
 	@echo ... shortcuts.s
@@ -551,6 +602,9 @@ help:
 	@echo ... tooltip.obj
 	@echo ... tooltip.i
 	@echo ... tooltip.s
+	@echo ... vfs_picker.obj
+	@echo ... vfs_picker.i
+	@echo ... vfs_picker.s
 .PHONY : help
 
 

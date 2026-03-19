@@ -1,6 +1,6 @@
-CMakeFiles/SkeletonApp.dir/shortcuts.cpp.obj: \
- C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\shortcuts.cpp \
- C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\shortcuts.h \
+CMakeFiles/SkeletonApp.dir/sc_shortcut_dialog.cpp.obj: \
+ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\sc_shortcut_dialog.cpp \
+ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\sc_shortcut_dialog.h \
  C:/mingw64/x86_64-w64-mingw32/include/windows.h \
  C:/mingw64/x86_64-w64-mingw32/include/_mingw.h \
  C:/mingw64/x86_64-w64-mingw32/include/_mingw_mac.h \
@@ -297,7 +297,6 @@ CMakeFiles/SkeletonApp.dir/shortcuts.cpp.obj: \
  C:/mingw64/x86_64-w64-mingw32/include/winsvc.h \
  C:/mingw64/x86_64-w64-mingw32/include/mcx.h \
  C:/mingw64/x86_64-w64-mingw32/include/imm.h \
- C:/mingw64/x86_64-w64-mingw32/include/commctrl.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/string \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/requires_hosted.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stringfwd.h \
@@ -378,20 +377,17 @@ CMakeFiles/SkeletonApp.dir/shortcuts.cpp.obj: \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_map.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_multimap.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/erase_if.h \
+ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\shortcuts.h \
+ C:/mingw64/x86_64-w64-mingw32/include/commctrl.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/vector \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_uninitialized.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_vector.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_bvector.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/vector.tcc \
- C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\db.h \
- C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\sc_shortcut_dialog.h \
- C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\mainwindow.h \
- C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\dpi.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\button.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\checkbox.h \
- C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\tooltip.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/utility \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_relops.h \
+ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\dpi.h \
+ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\vfs_picker.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/functional \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/std_function.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/typeinfo \
@@ -401,12 +397,4 @@ CMakeFiles/SkeletonApp.dir/shortcuts.cpp.obj: \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/hashtable_policy.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/enable_special_members.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/array \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/compare \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/algorithm \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_algo.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/algorithmfwd.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_heap.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/uniform_int_dist.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_tempbuf.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/pstl/glue_algorithm_defs.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/pstl/execution_defs.h
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/compare

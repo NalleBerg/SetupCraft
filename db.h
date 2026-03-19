@@ -75,4 +75,30 @@ namespace DB {
     bool InsertComponentDependency(int componentId, int dependsOnId);
     std::vector<int> GetDependenciesForComponent(int componentId);
     bool DeleteDependenciesForComponent(int componentId);
+    // Shortcut menu-node persistence
+    struct ScMenuNodeRow {
+        int id = 0;          // same id as ScMenuNode::id (0=SM root, 1=Programs, 2+= user)
+        int project_id = 0;
+        int parent_id = -1;
+        std::wstring name;
+    };
+    bool InsertScMenuNode(int projectId, const ScMenuNodeRow& node);
+    bool DeleteScMenuNodesForProject(int projectId);
+    std::vector<ScMenuNodeRow> GetScMenuNodesForProject(int projectId);
+    // Shortcut definition persistence (Desktop + Start Menu + pins)
+    struct ScShortcutRow {
+        int id = 0;          // same id as ShortcutDef::id
+        int project_id = 0;
+        int type = 0;        // SCT_* constant
+        int sm_node_id = -1;
+        std::wstring name;
+        std::wstring exe_path;
+        std::wstring working_dir;
+        std::wstring icon_path;
+        int icon_index = 0;
+        int run_as_admin = 0;
+    };
+    bool InsertScShortcut(int projectId, const ScShortcutRow& sc);
+    bool DeleteScShortcutsForProject(int projectId);
+    std::vector<ScShortcutRow> GetScShortcutsForProject(int projectId);
 }

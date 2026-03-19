@@ -114,8 +114,11 @@ API REFERENCE:
       ShowMultilingualTooltip(entries, pt.x, pt.y, hwndMain);
 
    Notes:
-      - Tooltip width is 520px for multilingual, 700px for simple (auto-clamped to monitor)
-      - Tooltip height is calculated based on number of entries (rows * 22 + 30)
+      - Simple single-line tooltip: width auto-calculated from text extent + 32px
+        padding (no hard cap); clamped to monitor width at placement time
+      - Simple multiline tooltip: widest line measured, capped to S(480) logical px;
+        height measured via DrawText(DT_CALCRECT | DT_WORDBREAK) + 20px padding
+      - Multilingual tooltip: fixed S(760) logical px width; height = rows*22 + 30
       - Tooltip is positioned using MONITOR bounds, not parent window bounds
         (critical: entry windows are often too small to contain the tooltip table)
       - Tooltip is created on first call, reused on subsequent calls
@@ -266,15 +269,28 @@ API REFERENCE:
 
    7) Sizing rules (how the tooltip sizes itself)
    ---------------------------------------------
-   - Simple message tooltip (single entry with empty country code):
-     - The implementation uses a fixed max width of **700px**.
-     - The message is measured with `DrawText(..., DT_CALCRECT | DT_WORDBREAK)`
-       and the height is capped to **3 lines** (calculated from font metrics).
-     - Final tooltip height = contentHeight + padding (20px).
+   - Simple message tooltip (single entry with empty country code, SINGLE LINE):
+     - Width is measured with `GetTextExtentPoint32W` on the full string and set
+       to `textExtent + 32px` (16px padding each side). There is NO hard cap —
+       the tooltip expands to fit the content exactly.
+     - The monitor-clamping block (§8) then clamps the final width to the monitor
+       work area width if the text is wider than the screen.
+     - This means long paths like `C:\Users\...\very_long_binary.exe` are always
+       shown in full on a single line — they will never be truncated.
+     - Final tooltip height = lineHeight + 20px padding.
+
+   - Simple message tooltip (single entry with empty country code, MULTILINE):
+     - Detects newline characters (`\n`) in the text.
+     - Each line is measured individually with `GetTextExtentPoint32W`; the
+       widest line + 20px is used as the natural width.
+     - Natural width is capped to **S(480)** logical pixels (DPI-aware) to prevent
+       very wide multiline boxes.
+     - Height is re-measured using `DrawText(DT_CALCRECT | DT_WORDBREAK)` at the
+       chosen width, then + 20px padding.
 
    - Multilingual tooltip (multiple `{code, text}` entries):
      - Two columns layout, up to **20 entries** (10 rows per column).
-     - Default tooltip width for multilingual grid is 520px (left/right columns).
+     - Default tooltip width for multilingual grid is S(760) logical pixels.
      - Row height ~22px per row; total height = rows * 22 + 30 padding.
 
    8) Placement and bounds

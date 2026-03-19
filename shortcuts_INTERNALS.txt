@@ -27,6 +27,13 @@ mainwindow.cpp knows nothing about the page internals.  It only:
   s_scNextMenuId      int           Next free id for a newly added ScMenuNode (starts at 2).
   s_scShortcuts       vector<ShortcutDef> All shortcut definitions configured so far.
   s_scNextShortcutId  int           Next free id for a newly added ShortcutDef (starts at 1).
+  s_scDskStripY       int           Top-Y of the Desktop mini-icon strip row (set by BuildPage).
+  s_scDskCol0X        int           Left edge of the Desktop column (set by BuildPage).
+  s_scDskColW         int           Width of the Desktop column (set by BuildPage).
+  s_dskMiniTracking   bool          TrackMouseEvent(TME_LEAVE) active on a mini-icon.
+  s_dskMiniHovered    HWND          Which mini-icon HWND is currently hovered (NULL = none).
+  s_scSmTreeHoveredId int           Node id of the SM tree item currently showing a tooltip.
+  s_scSmTreeTracking  bool          TrackMouseEvent(TME_LEAVE) active on the SM tree.
 
   None of these are globals — they have internal linkage (file-scope static).
   mainwindow.cpp accesses shared state only through:
@@ -142,6 +149,18 @@ mainwindow.cpp knows nothing about the page internals.  It only:
            Col 1: imageres.dll #228  Start Menu / pin
            Col 2: imageres.dll #175  Taskbar / download folder
          Icon statics use SC_DesktopIconSubclassProc (shared) for WM_PAINT/DrawIconEx.
+  Row B½ (Desktop column only) — 16×16 mini-icon strip:
+           One SS_NOTIFY static per SCT_DESKTOP shortcut, IDs IDC_SC_DSK_STRIP_BASE
+           (5400) + slot index (0-based).  Horizontally centred in col 0.
+           Each mini-icon stores sc.id in the L"ScId" window property and its
+           HICON in GWLP_USERDATA.  SC_DskMiniSubclassProc handles paint,
+           tooltip (WM_MOUSEMOVE → ShowMultilingualTooltip), WM_MOUSELEAVE,
+           double-click → edit dialog, right-click → Edit/Remove context menu.
+           SC_RefreshDesktopStrip() destroys existing mini-icons and recreates
+           them from s_scShortcuts whenever the Desktop shortcut list changes.
+           The strip coordinates (s_scDskStripY, s_scDskCol0X, s_scDskColW)
+           are saved by SC_BuildPage so SC_RefreshDesktopStrip can be called
+           at any time without knowing the full layout.
   Row C  Pin status label (cols 1/2) then opt-out checkbox for all 3 columns:
            Status labels at rowY, height statusH (S(18)).
            Checkboxes start at rowY + statusH + S(4), height cbH (S(34)).
@@ -152,9 +171,99 @@ mainwindow.cpp knows nothing about the page internals.  It only:
 
   Total row height: statusH + S(4) + S(34) + S(10).
 
+── Desktop big icon (IDC_SC_DESKTOP_BTN) — always-add semantics ───────────────
+
+  Clicking the 64×64 Desktop icon always creates a NEW ShortcutDef with a fresh
+  id (s_scNextShortcutId++).  The old find-or-create pattern was removed when
+  multiple Desktop shortcuts were implemented.  On dialog Cancel the id counter
+  is decremented (--s_scNextShortcutId) to avoid wasting IDs.
+
+── Desktop mini-icon strip (SC_DskMiniSubclassProc / SC_RefreshDesktopStrip) ───
+
+  SC_RefreshDesktopStrip(HWND hwnd, HINSTANCE hInst):
+    1. Destroy all existing strip controls (GetDlgItem for IDs 5400..5449;
+       free HICON from GWLP_USERDATA before DestroyWindow).
+    2. Collect all s_scShortcuts where type == SCT_DESKTOP.
+    3. Compute startX = s_scDskCol0X + (s_scDskColW - totalW) / 2.
+    4. For each shortcut (up to 50): extract 16×16 HICON from iconPath or
+       exePath via PrivateExtractIconsW; fall back to shell32.dll #17.
+       Create SS_NOTIFY STATIC, store HICON in GWLP_USERDATA, store sc.id
+       in L"ScId" window property, SetWindowSubclass SC_DskMiniSubclassProc.
+
+  SC_DskMiniSubclassProc:
+    WM_ERASEBKGND  fill with COLOR_WINDOW
+    WM_PAINT       DrawIconEx with HICON from GWLP_USERDATA
+    WM_MOUSEMOVE   if new hwnd: HideTooltip, look up name via L"ScId" prop,
+                   ShowMultilingualTooltip; TrackMouseEvent(TME_LEAVE)
+    WM_MOUSELEAVE  HideTooltip, reset tracking statics
+    WM_LBUTTONDBLCLK  SendMessageW(parent, WM_COMMAND, MAKEWPARAM(ctrlId,0), 0)
+                      → default case in SC_OnCommand edits the shortcut
+    WM_RBUTTONUP   CreatePopupMenu with Edit (IDM_SC_CTX_EDIT_DSK 6305) and
+                   Remove (IDM_SC_CTX_REMOVE_DSK 6306); TrackPopupMenu;
+                   Edit → SendMessageW(WM_COMMAND); Remove → erase from
+                   s_scShortcuts + MarkAsModified + SC_RefreshDesktopStrip
+    WM_NCDESTROY   RemoveWindowSubclass
+
+  SC_OnCommand default case:
+    Handles IDs in range IDC_SC_DSK_STRIP_BASE .. +49.
+    Reads sc.id from L"ScId" prop, finds ShortcutDef in s_scShortcuts,
+    opens SC_EditShortcutDialog; on OK updates struct + SC_RefreshDesktopStrip.
+
+── SM tree custom tooltip (SC_SmTreeSubclassProc) ──────────────────────────────
+
+  TVS_NOTOOLTIPS is set on s_hScStartMenuTree to suppress the system truncation
+  tooltip.  SC_SmTreeSubclassProc (set via SetWindowSubclass after font setup)
+  intercepts:
+    WM_MOUSEMOVE   TreeView_HitTest → node name → ShowMultilingualTooltip
+                   TrackMouseEvent(TME_LEAVE)
+    WM_MOUSELEAVE  HideTooltip; reset s_scSmTreeHoveredId / s_scSmTreeTracking
+
+── "Add Shortcut Here" button (IDC_SC_SM_ADDSC / 5213) ────────────────────────
+
+  Green button placed in the SM section between Add Subfolder and Remove.
+  Created with CreateCustomButtonWithCompositeIcon (shell32.dll 257 + 29) —
+  the same verified composite as the toolbar Shortcuts button.
+  WM_DRAWITEM guard in mainwindow.cpp includes IDC_SC_SM_ADDSC.
+  Tooltip via sc_sm_addsc_tooltip locale key.
+  Also appears as first item in the SM tree right-click context menu
+  (IDM_SC_CTX_ADD_SC 6304), dispatching to SendMessageW(IDC_SC_SM_ADDSC).
+
+  BuildSmPath(int nodeId) → std::wstring:
+    Walks s_scMenuNodes from nodeId to the root (parentId == -1), building
+    "Start Menu › Programs › Folder" breadcrumb for use in the config dialog.
+
+── DB persistence (SC_SaveToDb / SC_LoadFromDb) ────────────────────────────────
+
+  Tables (created by DB::InitDb() with CREATE TABLE IF NOT EXISTS):
+
+    sc_menu_nodes (id INTEGER PRIMARY KEY, project_id INTEGER, parent_id INTEGER,
+                   name TEXT)
+      — stores s_scMenuNodes; id is preserved across save/load so SM shortcut
+        sm_node_id references remain valid.
+
+    sc_shortcuts  (id INTEGER PRIMARY KEY, project_id INTEGER, type INTEGER,
+                   sm_node_id INTEGER, name TEXT, exe_path TEXT,
+                   working_dir TEXT, icon_path TEXT, icon_index INTEGER,
+                   run_as_admin INTEGER)
+      — stores s_scShortcuts for all types: SCT_DESKTOP(0), SCT_STARTMENU(1),
+        SCT_PIN_START(2), SCT_PIN_TASKBAR(3).
+
+  SC_SaveToDb(int projectId)  — called at end of IDM_FILE_SAVE:
+    1. SetSetting for sc_desktop_opt_out_<id>, sc_sm_pin_opt_out_<id>,
+       sc_tb_pin_opt_out_<id>.
+    2. DeleteScMenuNodesForProject + InsertScMenuNode per node.
+    3. DeleteScShortcutsForProject + InsertScShortcut per shortcut.
+
+  SC_LoadFromDb(int projectId)  — called from MainWindow::Create() after SC_Reset():
+    1. GetSetting for opt-out flags.
+    2. GetScMenuNodesForProject → populate s_scMenuNodes; advance s_scNextMenuId.
+    3. GetScShortcutsForProject → populate s_scShortcuts; advance s_scNextShortcutId.
+    Advances the next-id counters correctly so new items never collide with
+    loaded ones.
+
 ── Control IDs ─────────────────────────────────────────────────────────────────
 
-  5200  IDC_SC_DESKTOP_BTN      Desktop 64×64 icon (click→config dialog TODO)
+  5200  IDC_SC_DESKTOP_BTN      Desktop 64×64 icon (click → always adds new shortcut)
   5201  IDC_SC_DESKTOP_OPT      Desktop opt-out checkbox
   5202  IDC_SC_STARTMENU_BTN    (reserved)
   5203  IDC_SC_PROGRAMS_BTN     (reserved)
@@ -167,10 +276,22 @@ mainwindow.cpp knows nothing about the page internals.  It only:
   5210  IDC_SC_TB_PIN_LABEL     "Not Pinned / Pinned / Multi Pinned" label, col 2
   5211  IDC_SC_SM_PIN_OPT       Start Menu pin opt-out checkbox
   5212  IDC_SC_TB_PIN_OPT       Taskbar pin opt-out checkbox
+  5213  IDC_SC_SM_ADDSC         "Add Shortcut Here" green button (SM section)
+  5400–5449  IDC_SC_DSK_STRIP_BASE + i  Desktop mini-icon strip (max 50)
   5301  section label (Start Menu tree heading)
   5302  col 0 heading "Desktop"
   5303  col 1 heading "Pin to Start"
   5304  col 2 heading "Taskbar"
+
+── Context-menu command IDs ────────────────────────────────────────────────────
+
+  6300  IDM_SC_CTX_ADD_SUBFOLDER    SM tree: "Add Subfolder"
+  6301  IDM_SC_CTX_REMOVE_FOLDER    SM tree: "Remove Subfolder"
+  6302  IDM_SC_CTX_EDIT_SC          Row button: "Configure shortcut…" (greyed stub)
+  6303  IDM_SC_CTX_REMOVE_SC        Row button: "Remove shortcut" (greyed stub)
+  6304  IDM_SC_CTX_ADD_SC           SM tree: "Add shortcut here…"
+  6305  IDM_SC_CTX_EDIT_DSK         Desktop mini-icon: "Edit shortcut…"
+  6306  IDM_SC_CTX_REMOVE_DSK       Desktop mini-icon: "Remove shortcut"
 
 ── Locale keys used by this module ────────────────────────────────────────────
 
@@ -197,6 +318,11 @@ mainwindow.cpp knows nothing about the page internals.  It only:
   sc_sm_remove              Remove
   sc_sm_remove_tooltip      Remove the selected subfolder from the Start Menu structure
   sc_sm_new_folder          New Subfolder
+  sc_sm_addsc               Add Shortcut
+  sc_sm_addsc_tooltip       Create a shortcut in the selected Start Menu folder
+  sc_ctx_add_sc             Add shortcut here…
+  sc_ctx_edit               Edit shortcut…
+  sc_ctx_remove_sc          Remove shortcut
   sc_pin_start              Pin to Start
   sc_pin_start_tooltip      Click to select shortcuts to pin to the Start Menu
   sc_pin_taskbar            Pin to Taskbar
@@ -207,10 +333,11 @@ mainwindow.cpp knows nothing about the page internals.  It only:
 
 ── Control ID ranges reserved ──────────────────────────────────────────────────
 
-  5200–5208   Shortcuts page main controls (IDC_SC_*)
-  5220–5225   Shortcut Edit dialog controls (IDC_SCDLG_*) — used in next session
-  5300        Page title static (no ID needed outside BuildPage)
-  6300–6303   Context-menu command IDs (IDM_SC_CTX_*)
+  5200–5213   Shortcuts page main controls (IDC_SC_*)
+  5220–5229   Shortcut Edit dialog controls (IDC_SCDLG_*)
+  5300–5304   Shortcuts page static labels
+  5400–5449   Desktop mini-icon strip (IDC_SC_DSK_STRIP_BASE + i, max 50)
+  6300–6306   Context-menu command IDs (IDM_SC_CTX_*)
 
 ── Image list lifetime ─────────────────────────────────────────────────────────
 
@@ -223,18 +350,12 @@ mainwindow.cpp knows nothing about the page internals.  It only:
 
 ── Future work (next development session) ─────────────────────────────────────
 
-  1. Implement SC_EditShortcutDialog(HWND hwnd, HINSTANCE hInst, int type, int smNodeId)
-       - Name field (pre-filled from exe filename without extension, editable)
-       - "Run as administrator" checkbox
-       - Icon preview + "Change Icon…" button (ExtractIconExW)
-       - OK / Cancel
-       - Tooltips on all controls
-     Called from IDC_SC_DESKTOP_BTN, IDC_SC_PINSTART_BTN, IDC_SC_PINTASKBAR_BTN handlers
-     and from the IDM_SC_CTX_EDIT_SC right-click item (un-grey it when done).
+  1. Start Menu shortcut display — show SC_STARTMENU shortcuts as child items
+     under their folder node in the SM TreeView (Phase 2 of multi-shortcut work).
+     Double/right-click child items → edit dialog.
 
-  2. DB persistence:
-     Write s_scMenuNodes and s_scShortcuts to the database in IDM_FILE_SAVE.
-     Read them back in MainWindow::Create() and store into the statics via
-     a new SC_Load(projectId) function (to be added to shortcuts.h).
+  2. Pin to Start / Pin to Taskbar shortcut config — wire SC_EditShortcutDialog
+     for IDC_SC_PINSTART_BTN and IDC_SC_PINTASKBAR_BTN; un-grey the
+     IDM_SC_CTX_EDIT_SC right-click stub.
 
 ================================================================================

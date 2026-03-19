@@ -1,0 +1,176 @@
+================================================================================
+  sc_shortcut_dialog — Architecture Reference
+================================================================================
+
+  Purpose
+  ────────
+  sc_shortcut_dialog.cpp / .h implement the "Configure Shortcut" modal dialog
+  that lets the developer set per-shortcut properties (name, icon, run-as-admin)
+  before the installer is built.  The dialog is invoked from shortcuts.cpp for
+  three shortcut types: Desktop (SCT_DESKTOP), Start Menu (SCT_STARTMENU),
+  Pin to Start (SCT_PIN_START), and Pin to Taskbar (SCT_PIN_TASKBAR).
+
+  The implementation follows the established ctrlw.cpp / ShowQuitDialog modal
+  pattern: a plain Win32 POPUP window with a manual GetMessage loop, not a
+  DialogBox / DialogBoxParam resource dialog.
+
+  Public API
+  ──────────
+    bool SC_EditShortcutDialog(
+        HWND hwndParent, HINSTANCE hInst,
+        int type, const std::wstring& smPath,
+        const std::wstring& initName,
+        const std::wstring& initIconPath, int initIconIndex,
+        bool initRunAsAdmin,
+        const std::map<std::wstring,std::wstring>& locale,
+        ScDlgResult& out);
+
+    struct ScDlgResult { name, iconPath, iconIndex, runAsAdmin };
+
+    Returns true when the user clicked OK; false when closed or Escaped.
+    On false the 'out' struct is not modified.
+
+  Window class
+  ────────────
+  Class name : "ScShortcutDlgClass"
+  Registered once via a static bool guard in SC_EditShortcutDialog().
+  Style      : CS_HREDRAW | CS_VREDRAW
+  Background : COLOR_WINDOW  (WM_CTLCOLORSTATIC returns GetSysColorBrush for
+               child STATIC controls so they match).
+
+  Window style at creation
+  ─────────────────────────
+  WS_POPUP | WS_CAPTION | WS_SYSMENU  (same as QuitDialogClass)
+  WS_EX_DLGMODALFRAME                 (double border, no resize grip)
+
+  AdjustWindowRectEx sizing
+  ─────────────────────────
+  Computed from the SAME style pair used in CreateWindowExW so the
+  outer size matches the desired client size exactly.  The adjust call
+  uses dwStyle = WS_POPUP | WS_CAPTION | WS_SYSMENU and
+  dwExStyle = WS_EX_DLGMODALFRAME.
+
+  Layout constants (design px at 96 DPI)
+  ────────────────────────────────────────
+    SCDLG_PAD_H   = 20   left/right padding
+    SCDLG_PAD_T   = 20   top padding
+    SCDLG_PAD_B   = 15   bottom padding (below buttons)
+    SCDLG_GAP     = 10   standard inter-row gap
+    SCDLG_GAP_SM  =  4   label-to-control gap
+    SCDLG_BTN_H   = 34   button height
+    SCDLG_BTN_W   = 120  each button width
+    SCDLG_BTN_GAP = 15   gap between OK and Cancel
+    SCDLG_CONT_W  = 380  inner content column width
+    SCDLG_ICON_SZ = 48   preview icon square
+    SCDLG_LABEL_H = 18   single-line STATIC height
+    SCDLG_EDIT_H  = 26   EDIT control height
+    SCDLG_CB_H    = 22   checkbox height
+
+  ScDlgData (internal heap struct, lpCreateParams)
+  ─────────────────────────────────────────────────
+  Heap-allocated by SC_EditShortcutDialog() before CreateWindowExW.
+  Passed as lpCreateParams; pointer stored in GWLP_USERDATA in WM_CREATE.
+  Destroyed (delete) by SC_EditShortcutDialog() after the modal loop ends.
+  Fields:
+    type, smPath      — shortcut type + Start Menu path string
+    name              — shortcut display name (read/write)
+    iconPath          — path to .ico/.exe/.dll (read/write)
+    iconIndex         — icon index within that file (read/write)
+    runAsAdmin        — run-as-admin toggle (read/write)
+    hInst             — application HINSTANCE
+    pLocale           — pointer to caller's locale map (always valid during loop)
+    hCurrentIcon      — HICON for the preview; owned here, destroyed in WM_DESTROY
+    okPressed         — set true by WM_COMMAND(IDC_SCDLG_OK) before DestroyWindow
+
+  Controls and IDs
+  ─────────────────
+    IDC_SCDLG_NAME          EDIT        Shortcut display name
+    IDC_SCDLG_ICON_PREVIEW  STATIC      48×48 subclassed icon preview
+    IDC_SCDLG_ICON_ADD      BS_OWNERDRAW Blue "Change Icon…" button
+    IDC_SCDLG_RUN_AS_ADMIN  BS_OWNERDRAW Custom checkbox (owner-drawn)
+    IDC_SCDLG_OK            BS_OWNERDRAW Green OK button
+    IDC_SCDLG_CANCEL        BS_OWNERDRAW Red Cancel button
+  All IDs are defined in shortcuts.h (range 5220–5225).
+
+  Icon preview subclass (ScIconPreviewProc)
+  ──────────────────────────────────────────
+  STATIC control subclassed via SetWindowSubclass().
+  GWLP_USERDATA holds the current HICON (or NULL for a placeholder frame).
+  WM_ERASEBKGND fills with COLOR_WINDOW to prevent flicker.
+  WM_PAINT draws the icon via DrawIconEx, or a grey-bordered white rectangle
+  when NULL (so the picker region is always visible).
+  WM_NCDESTROY removes the subclass.
+
+  Icon loading (LoadPreviewIcon)
+  ───────────────────────────────
+  Tries PrivateExtractIconsW first (exact pixel size at S(48)).
+  Falls back to ExtractIconExW (large icon, not pixel-exact).
+  Returns NULL when the file cannot provide an icon at that index.
+
+  File picker (IDC_SCDLG_ICON_ADD → GetOpenFileNameW)
+  ─────────────────────────────────────────────────────
+  Filter: "Icon files (*.ico, *.exe, *.dll)\0*.ico;*.exe;*.dll\0\0"
+  The display label is localised ("scdlg_icon_filter_label").
+  The pattern is always "*.ico;*.exe;*.dll" to restrict user selection
+  to file types that contain icon resources — no other file types are
+  presented in the picker.
+  Flags: OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_HIDEREADONLY
+  The file path box is pre-filled with the current iconPath if any.
+  On OK: iconIndex is reset to 0 (first icon in the file).
+
+  Modal pattern
+  ──────────────
+  EnableWindow(hwndParent, FALSE) before ShowWindow.
+  Manual GetMessageW loop while IsWindow(hDlg).
+  WM_QUIT is re-posted so the application can quit normally if needed.
+  EnableWindow(hwndParent, TRUE) + SetForegroundWindow after loop.
+  Result flag s_scDlgOk (static module-level bool) is written before
+  DestroyWindow so the flag is valid after the loop regardless of how
+  the dialog was closed.
+
+  WM_CTLCOLORSTATIC
+  ──────────────────
+  Returns GetSysColorBrush(COLOR_WINDOW) for all STATIC children so
+  their background matches the white dialog surface.  SetBkColor and
+  SetTextColor are also set so text renders correctly on that background.
+
+  WM_DRAWITEM routing
+  ─────────────────────
+  DrawCustomCheckbox(dis) is tried first.  It returns TRUE only when
+  dis->hwndItem carries the CBP_MARKER window property (set by
+  CreateCustomCheckbox).  If it returns FALSE the standard
+  DrawCustomButton path runs, using GWLP_USERDATA as the ButtonColor.
+
+  Caller wiring (shortcuts.cpp)
+  ──────────────────────────────
+  SC_OnCommand for IDC_SC_DESKTOP_BTN, IDC_SC_PINSTART_BTN,
+  IDC_SC_PINTASKBAR_BTN calls SC_EditShortcutDialog() after looking up
+  or default-constructing the matching ShortcutDef in s_scShortcuts.
+  SC_OnContextMenu for the three icon buttons and Start Menu tree nodes
+  calls SC_EditShortcutDialog() via IDM_SC_CTX_EDIT_SC.
+  On true return: update the ShortcutDef fields + call
+  MainWindow::MarkAsModified().
+
+  Locale keys
+  ────────────
+    scdlg_title               Dialog title bar text
+    scdlg_name_label          "Shortcut name:" label
+    scdlg_sm_path_label       "Start Menu location:" label
+    scdlg_icon_label          "Icon:" label
+    scdlg_change_icon         "Change Icon…" button text
+    scdlg_change_icon_tooltip Tooltip for the Change Icon button
+    scdlg_run_as_admin        "Run as administrator at launch" checkbox label
+    scdlg_run_as_admin_tooltip Tooltip for run-as-admin checkbox
+    scdlg_icon_filter_label   Display string for the file-picker filter
+    scdlg_icon_picker_title   File-picker dialog title bar
+    scdlg_ok                  OK button text
+    scdlg_cancel              Cancel button text
+
+  Known limitations / future work
+  ─────────────────────────────────
+  - Icon index selector (for multi-icon .exe / .dll files) is not yet
+    implemented; iconIndex is always forced to 0 after a picker choice.
+  - No live validation of the name field (empty name is currently allowed;
+    a future revision should disable OK if the field is blank).
+  - DB persistence is deferred to IDM_FILE_SAVE via MainWindow; no direct
+    write from this dialog.

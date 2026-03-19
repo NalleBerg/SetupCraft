@@ -39,6 +39,8 @@
 #define IDC_SC_SM_TREE          5206   // Start Menu / Programs folder TreeView
 #define IDC_SC_SM_ADD           5207   // "Add Subfolder" button
 #define IDC_SC_SM_REMOVE        5208   // "Remove Subfolder" button
+#define IDC_SC_SM_ADDSC         5213   // "Add Shortcut Here" button (below SM tree)
+#define IDC_SC_DSK_STRIP_BASE   5400   // Desktop shortcut mini-icons 5400–5449 (max 50)
 #define IDC_SC_SM_PIN_LABEL     5209   // "Not Pinned / Pinned / Multi Pinned" label under SM pin icon
 #define IDC_SC_TB_PIN_LABEL     5210   // "Not Pinned / Pinned / Multi Pinned" label under Taskbar pin icon
 #define IDC_SC_SM_PIN_OPT       5211   // "Allow opt-out" checkbox under Start Menu pin icon
@@ -51,12 +53,19 @@
 #define IDC_SCDLG_ICON_ADD      5223   // "Change Icon…" button
 #define IDC_SCDLG_OK            5224   // OK button
 #define IDC_SCDLG_CANCEL        5225   // Cancel button
+#define IDC_SCDLG_EXE           5226   // Executable path edit
+#define IDC_SCDLG_EXE_BROWSE    5227   // Browse executable button
+#define IDC_SCDLG_WORKDIR       5228   // Working directory path edit
+#define IDC_SCDLG_WORKDIR_BROWSE 5229  // Browse working directory button
 
 // Context menu command IDs for Shortcuts page right-click menus.
 #define IDM_SC_CTX_ADD_SUBFOLDER 6300  // SM tree: "Add Subfolder"
 #define IDM_SC_CTX_REMOVE_FOLDER 6301  // SM tree: "Remove Subfolder"
-#define IDM_SC_CTX_EDIT_SC       6302  // Row button: "Configure shortcut…" (future)
-#define IDM_SC_CTX_REMOVE_SC     6303  // Row button: "Remove shortcut" (future)
+#define IDM_SC_CTX_EDIT_SC       6302  // Row button: "Configure shortcut…"
+#define IDM_SC_CTX_REMOVE_SC     6303  // Row button: "Remove shortcut"
+#define IDM_SC_CTX_ADD_SC        6304  // SM tree: "Add shortcut here…"
+#define IDM_SC_CTX_EDIT_DSK      6305  // Desktop mini-icon: "Edit shortcut…"
+#define IDM_SC_CTX_REMOVE_DSK    6306  // Desktop mini-icon: "Remove shortcut"
 
 // ── Shortcut type constants ────────────────────────────────────────────────────
 #define SCT_DESKTOP     0   // Desktop shortcut
@@ -79,13 +88,15 @@ struct ScMenuNode {
 // One shortcut to be created by the installer.
 // Persisted to DB on IDM_FILE_SAVE; lives in memory until then.
 struct ShortcutDef {
-    int          id;         // unique shortcut id (assigned by the shortcut dialog)
-    int          type;       // SCT_* constant above
-    int          smNodeId;   // ScMenuNode::id for the target folder (-1 if not SM)
-    std::wstring name;       // shortcut display name (default: exe name without ext)
-    std::wstring iconPath;   // .ico / .exe / .dll to extract icon from; empty = exe
-    int          iconIndex;  // icon index within iconPath (0 = first icon)
-    bool         runAsAdmin; // create shortcut with "Run as administrator" elevation
+    int          id;          // unique shortcut id (assigned by the shortcut dialog)
+    int          type;        // SCT_* constant above
+    int          smNodeId;    // ScMenuNode::id for the target folder (-1 if not SM)
+    std::wstring name;        // shortcut display name (default: exe name without ext)
+    std::wstring exePath;     // target executable (.exe) path
+    std::wstring workingDir;  // working directory; defaults to exe's directory
+    std::wstring iconPath;    // .ico / .exe / .dll to extract icon from; empty = exe
+    int          iconIndex;   // icon index within iconPath (0 = first icon)
+    bool         runAsAdmin;  // create shortcut with "Run as administrator" elevation
 };
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -128,3 +139,12 @@ bool SC_OnCommand(HWND hwnd, int id);
 //   hCtrl — (HWND)wParam from WM_CONTEXTMENU (the control that was right-clicked).
 //   x, y  — screen coordinates (GET_X_LPARAM / GET_Y_LPARAM from lParam).
 bool SC_OnContextMenu(HWND hwnd, HWND hCtrl, int x, int y);
+
+// Persist all shortcuts state (s_scMenuNodes, s_scShortcuts, opt-out flags)
+// for the given project to the database.  Called from IDM_FILE_SAVE.
+void SC_SaveToDb(int projectId);
+
+// Load shortcuts state from the database into memory (s_scMenuNodes,
+// s_scShortcuts, opt-out flags).  Called from MainWindow::Create() after
+// SC_Reset() when opening an existing project (project.id > 0).
+void SC_LoadFromDb(int projectId);

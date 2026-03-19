@@ -10,10 +10,13 @@
  */
 
 #include "shortcuts.h"
+#include "db.h"              // DB::InsertScShortcut etc.
+#include "sc_shortcut_dialog.h"  // SC_EditShortcutDialog()
 #include "mainwindow.h"    // MainWindow::MarkAsModified(), GetLocale()
 #include "dpi.h"           // S() DPI-scale macro
 #include "button.h"        // CreateCustomButtonWithIcon, SetButtonTooltip
 #include "checkbox.h"      // CreateCustomCheckbox
+#include "tooltip.h"       // ShowMultilingualTooltip, HideTooltip, IsTooltipVisible
 #include <functional>      // std::function (recursive lambda)
 #include <algorithm>       // std::remove_if
 
@@ -56,6 +59,16 @@ static int                     s_scNextMenuId = 2;  // 0 = Start Menu root, 1 = 
 static std::vector<ShortcutDef> s_scShortcuts;
 static int                      s_scNextShortcutId = 1;
 
+// Hover-tracking state for the Start Menu TreeView custom tooltip.
+static int  s_scSmTreeHoveredId = -1;
+static bool s_scSmTreeTracking  = false;
+
+// Layout coordinates for the Desktop shortcut strip — stored so
+// SC_RefreshDesktopStrip() can be called after the main window is laid out.
+static int  s_scDskStripY  = 0;  // top-y of the mini-icon strip row
+static int  s_scDskCol0X   = 0;  // left edge of Desktop column
+static int  s_scDskColW    = 0;  // width of Desktop column
+
 // ── SC_Reset ──────────────────────────────────────────────────────────────────
 
 void SC_Reset()
@@ -67,6 +80,260 @@ void SC_Reset()
     s_scNextMenuId     = 2;
     s_scShortcuts.clear();
     s_scNextShortcutId = 1;
+}
+
+// Forward declaration — SC_RefreshDesktopStrip is defined after SC_DskMiniSubclassProc.
+void SC_RefreshDesktopStrip(HWND hwnd, HINSTANCE hInst);
+
+// ── SC_DskMiniSubclassProc ────────────────────────────────────────────────────────
+// Subclass for each 16×16 Desktop shortcut mini-icon.
+// GWLP_USERDATA holds the ShortcutDef::id of the represented shortcut.
+// Tooltip = shortcut name.  Double-click or right-click → edit dialog.
+static bool  s_dskMiniTracking = false;   // mouse-leave tracking active
+static HWND  s_dskMiniHovered  = NULL;    // which mini-icon is hovered
+
+static LRESULT CALLBACK SC_DskMiniSubclassProc(
+    HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+    UINT_PTR /*uid*/, DWORD_PTR /*ref*/)
+{
+    switch (msg) {
+    case WM_ERASEBKGND: {
+        RECT rc; GetClientRect(hwnd, &rc);
+        FillRect((HDC)wParam, &rc, GetSysColorBrush(COLOR_WINDOW));
+        return 1;
+    }
+    case WM_PAINT: {
+        PAINTSTRUCT ps;
+        HDC hdc = BeginPaint(hwnd, &ps);
+        HICON hIco = (HICON)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+        if (hIco) {
+            RECT rc; GetClientRect(hwnd, &rc);
+            DrawIconEx(hdc, 0, 0, hIco, rc.right, rc.bottom, 0, NULL, DI_NORMAL);
+        }
+        EndPaint(hwnd, &ps);
+        return 0;
+    }
+    case WM_MOUSEMOVE: {
+        if (s_dskMiniHovered != hwnd) {
+            HideTooltip();
+            s_dskMiniHovered = hwnd;
+            // ScId property holds the ShortcutDef::id (NOT the strip slot index).
+            int scId = (int)(INT_PTR)GetPropW(hwnd, L"ScId");
+            for (const auto& sc : s_scShortcuts) {
+                if (sc.id == scId && sc.type == SCT_DESKTOP && !sc.name.empty()) {
+                    POINT pt; GetCursorPos(&pt);
+                    ShowMultilingualTooltip({{L"", sc.name}},
+                        pt.x + 16, pt.y + 16, GetParent(hwnd));
+                    break;
+                }
+            }
+        }
+        if (!s_dskMiniTracking) {
+            TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, hwnd, 0 };
+            TrackMouseEvent(&tme);
+            s_dskMiniTracking = true;
+        }
+        break;
+    }
+    case WM_MOUSELEAVE:
+        HideTooltip();
+        s_dskMiniHovered  = NULL;
+        s_dskMiniTracking = false;
+        break;
+    case WM_LBUTTONDBLCLK:
+    case WM_RBUTTONUP: {
+        int ctrlId = GetDlgCtrlID(hwnd);
+        if (msg == WM_RBUTTONUP) {
+            // Right-click: show context menu (Edit / Remove).
+            const auto& locMap = MainWindow::GetLocale();
+            auto locS = [&](const wchar_t* k, const wchar_t* fb) -> std::wstring {
+                auto it = locMap.find(k); return (it != locMap.end()) ? it->second : fb;
+            };
+            HMENU hMenu = CreatePopupMenu();
+            AppendMenuW(hMenu, MF_STRING, IDM_SC_CTX_EDIT_DSK,
+                locS(L"sc_ctx_edit", L"Edit shortcut…").c_str());
+            AppendMenuW(hMenu, MF_STRING, IDM_SC_CTX_REMOVE_DSK,
+                locS(L"sc_ctx_remove_sc", L"Remove shortcut").c_str());
+            POINT pt; GetCursorPos(&pt);
+            int cmd = (int)TrackPopupMenu(hMenu, TPM_RIGHTBUTTON | TPM_RETURNCMD,
+                pt.x, pt.y, 0, GetParent(hwnd), NULL);
+            DestroyMenu(hMenu);
+            if (cmd == IDM_SC_CTX_EDIT_DSK)
+                SendMessageW(GetParent(hwnd), WM_COMMAND,
+                    MAKEWPARAM(ctrlId, 0), 0);
+            else if (cmd == IDM_SC_CTX_REMOVE_DSK) {
+                int scId = (int)(INT_PTR)GetPropW(hwnd, L"ScId");
+                s_scShortcuts.erase(
+                    std::remove_if(s_scShortcuts.begin(), s_scShortcuts.end(),
+                        [scId](const ShortcutDef& s){ return s.id == scId; }),
+                    s_scShortcuts.end());
+                MainWindow::MarkAsModified();
+                // Rebuild the strip immediately.
+                HINSTANCE hInst = (HINSTANCE)GetWindowLongPtrW(
+                    GetParent(hwnd), GWLP_HINSTANCE);
+                SC_RefreshDesktopStrip(GetParent(hwnd), hInst);
+            }
+        } else {
+            // Double-click: open edit dialog directly.
+            SendMessageW(GetParent(hwnd), WM_COMMAND,
+                MAKEWPARAM(ctrlId, 0), 0);
+        }
+        return 0;
+    }
+    case WM_NCDESTROY:
+        RemoveWindowSubclass(hwnd, SC_DskMiniSubclassProc, 0);
+        return DefSubclassProc(hwnd, msg, wParam, lParam);
+    }
+    return DefSubclassProc(hwnd, msg, wParam, lParam);
+}
+
+// ── SC_RefreshDesktopStrip ────────────────────────────────────────────────────────
+// Destroys all existing Desktop mini-icon strip controls and recreates them
+// for every SCT_DESKTOP shortcut in s_scShortcuts.  Icons are 16×16, placed
+// side-by-side and horizontally centred within the Desktop column.
+void SC_RefreshDesktopStrip(HWND hwnd, HINSTANCE hInst)
+{
+    if (s_scDskColW == 0) return;  // BuildPage has not run yet
+
+    // Destroy any existing strip controls.
+    for (int i = 0; i < 50; ++i) {
+        HWND hOld = GetDlgItem(hwnd, IDC_SC_DSK_STRIP_BASE + i);
+        if (hOld) {
+            // Free the HICON stored in GWLP_USERDATA.
+            HICON hOldIco = (HICON)GetWindowLongPtrW(hOld, GWLP_USERDATA);
+            if (hOldIco) DestroyIcon(hOldIco);
+            DestroyWindow(hOld);
+        } else break;  // IDs are allocated sequentially; first missing = done
+    }
+    HideTooltip();
+    s_dskMiniHovered  = NULL;
+    s_dskMiniTracking = false;
+
+    // Collect Desktop shortcuts.
+    std::vector<ShortcutDef*> dsk;
+    for (auto& sc : s_scShortcuts)
+        if (sc.type == SCT_DESKTOP) dsk.push_back(&sc);
+
+    if (dsk.empty()) return;
+
+    const int icoSz  = S(16);
+    const int icoGap = S(6);
+    int totalW = (int)dsk.size() * icoSz + ((int)dsk.size() - 1) * icoGap;
+    int startX = s_scDskCol0X + (s_scDskColW - totalW) / 2;
+    int stripY  = s_scDskStripY;
+
+    for (int i = 0; i < (int)dsk.size() && i < 50; ++i) {
+        ShortcutDef* pSc = dsk[i];
+        int ctrlId = IDC_SC_DSK_STRIP_BASE + i;  // index, NOT sc.id
+        // Load 16×16 icon from the exe or the configured icon file.
+        HICON hIco = NULL;
+        const std::wstring& src = pSc->iconPath.empty() ? pSc->exePath : pSc->iconPath;
+        if (!src.empty())
+            PrivateExtractIconsW(src.c_str(), pSc->iconIndex, icoSz, icoSz,
+                &hIco, NULL, 1, 0);
+        // If extraction fails fall back to a generic shortcut icon (shell32 #17).
+        if (!hIco) {
+            wchar_t shell32[MAX_PATH];
+            GetSystemDirectoryW(shell32, MAX_PATH);
+            wcscat_s(shell32, L"\\shell32.dll");
+            PrivateExtractIconsW(shell32, 17, icoSz, icoSz, &hIco, NULL, 1, 0);
+        }
+        int x = startX + i * (icoSz + icoGap);
+        HWND hMini = CreateWindowExW(0, L"STATIC", NULL,
+            WS_CHILD | WS_VISIBLE | SS_NOTIFY,
+            x, stripY, icoSz, icoSz,
+            hwnd, (HMENU)(UINT_PTR)ctrlId, hInst, NULL);
+        // Store the HICON in GWLP_USERDATA for painting; store sc.id in the
+        // control's extra data via a window property so the subclass can look
+        // up the correct ShortcutDef even after reordering.
+        SetWindowLongPtrW(hMini, GWLP_USERDATA, (LONG_PTR)hIco);
+        SetPropW(hMini, L"ScId", (HANDLE)(INT_PTR)pSc->id);
+        SetWindowSubclass(hMini, SC_DskMiniSubclassProc, 0, 0);
+    }
+}
+
+// ── SC_SmTreeSubclassProc ────────────────────────────────────────────────────────
+// Shows the project's custom tooltip when hovering over a tree node.
+// Suppresses the system truncation tooltip (TVS_NOTOOLTIPS is set at creation).
+static LRESULT CALLBACK SC_SmTreeSubclassProc(
+    HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+    UINT_PTR /*uid*/, DWORD_PTR /*ref*/)
+{
+    switch (msg) {
+    case WM_MOUSEMOVE: {
+        int mx = (short)LOWORD(lParam);
+        int my = (short)HIWORD(lParam);
+        TVHITTESTINFO ht = {};
+        ht.pt = { mx, my };
+        HTREEITEM hItem = TreeView_HitTest(hwnd, &ht);
+        int hovId = -1;
+        std::wstring nodeName;
+        if (hItem && (ht.flags & TVHT_ONITEM)) {
+            wchar_t buf[256] = {};
+            TVITEMW tvi    = {};
+            tvi.mask       = TVIF_TEXT | TVIF_PARAM;
+            tvi.hItem      = hItem;
+            tvi.pszText    = buf;
+            tvi.cchTextMax = 256;
+            TreeView_GetItem(hwnd, &tvi);
+            hovId    = (int)tvi.lParam;
+            nodeName = buf;
+        }
+        if (hovId != s_scSmTreeHoveredId) {
+            HideTooltip();
+            s_scSmTreeHoveredId = hovId;
+            if (!nodeName.empty()) {
+                POINT pt = { mx, my };
+                ClientToScreen(hwnd, &pt);
+                ShowMultilingualTooltip({{L"", nodeName}},
+                    pt.x + 16, pt.y + 16, GetParent(hwnd));
+            }
+        }
+        if (!s_scSmTreeTracking) {
+            TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, hwnd, 0 };
+            TrackMouseEvent(&tme);
+            s_scSmTreeTracking = true;
+        }
+        break;
+    }
+    case WM_MOUSELEAVE:
+        HideTooltip();
+        s_scSmTreeHoveredId = -1;
+        s_scSmTreeTracking  = false;
+        break;
+    case WM_NCDESTROY:
+        RemoveWindowSubclass(hwnd, SC_SmTreeSubclassProc, 0);
+        return DefSubclassProc(hwnd, msg, wParam, lParam);
+    }
+    return DefSubclassProc(hwnd, msg, wParam, lParam);
+}
+
+// ── BuildSmPath ──────────────────────────────────────────────────────────────
+// Builds a breadcrumb path string from a Start Menu node id to the root,
+// e.g. "Start Menu › Programs › MyApp".
+static std::wstring BuildSmPath(int nodeId)
+{
+    std::vector<std::wstring> parts;
+    int id = nodeId;
+    while (id >= 0) {
+        bool found = false;
+        for (const auto& n : s_scMenuNodes) {
+            if (n.id == id) {
+                parts.push_back(n.name);
+                id = n.parentId;
+                found = true;
+                break;
+            }
+        }
+        if (!found) break;
+    }
+    std::reverse(parts.begin(), parts.end());
+    std::wstring result;
+    for (size_t i = 0; i < parts.size(); ++i) {
+        if (i > 0) result += L" › ";
+        result += parts[i];
+    }
+    return result;
 }
 
 // ── SC_BuildPage ──────────────────────────────────────────────────────────────
@@ -228,8 +495,7 @@ void SC_BuildPage(HWND hwnd, HINSTANCE hInst, int pageY, int clientWidth,
                     hwnd, (HMENU)IDC_SC_DESKTOP_BTN, hInst, NULL);
                 SetWindowLongPtrW(hIco, GWLP_USERDATA, (LONG_PTR)s_hDesktopIcon);
                 SetWindowSubclass(hIco, SC_DesktopIconSubclassProc, 0, 0);
-            }
-            // Column 1: Start Menu pin (imageres.dll #228)
+            }            // Column 1: Start Menu pin (imageres.dll #228)
             {
                 if (s_hSmPinIcon) { DestroyIcon(s_hSmPinIcon); }
                 s_hSmPinIcon = NULL;
@@ -259,6 +525,17 @@ void SC_BuildPage(HWND hwnd, HINSTANCE hInst, int pageY, int clientWidth,
             }
         }
         rowY += iconSz + S(8);
+
+        // Desktop shortcut mini-icon strip — 16×16 icons for each added Desktop
+        // shortcut, centred in column 0, just below the 64×64 icon.
+        // The strip Y coordinate is saved so SC_RefreshDesktopStrip() can
+        // recreate the controls after the dialog returns without knowing the
+        // full layout.
+        s_scDskCol0X  = col0X;
+        s_scDskColW   = colW;
+        s_scDskStripY = rowY;
+        SC_RefreshDesktopStrip(hwnd, hInst);
+        rowY += S(16) + S(6);  // reserve one row height for the strip
 
         // Row C — pin-status labels (cols 1/2) then opt-out checkboxes for all 3 columns.
         // Cols 1/2: status label at rowY, then checkbox at rowY+statusH+S(4).
@@ -392,7 +669,7 @@ void SC_BuildPage(HWND hwnd, HINSTANCE hInst, int pageY, int clientWidth,
     int smTreeH = S(160);
     s_hScStartMenuTree = CreateWindowExW(WS_EX_CLIENTEDGE, WC_TREEVIEWW, L"",
         WS_CHILD | WS_VISIBLE | TVS_HASLINES | TVS_LINESATROOT |
-        TVS_HASBUTTONS | TVS_SHOWSELALWAYS | TVS_EDITLABELS,
+        TVS_HASBUTTONS | TVS_SHOWSELALWAYS | TVS_EDITLABELS | TVS_NOTOOLTIPS,
         treeX, rowY, treeW, smTreeH,
         hwnd, (HMENU)IDC_SC_SM_TREE, hInst, NULL);
     {
@@ -417,6 +694,9 @@ void SC_BuildPage(HWND hwnd, HINSTANCE hInst, int pageY, int clientWidth,
     // Apply the same scaled GUI font used on the Files page so text weight and
     // size are consistent across all TreeViews in the app.
     if (hGuiFont) SendMessageW(s_hScStartMenuTree, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+
+    // Install the custom-tooltip subclass (suppresses system truncation tooltip).
+    SetWindowSubclass(s_hScStartMenuTree, SC_SmTreeSubclassProc, 0, 0);
 
     // Seed default nodes on the very first visit for this project.
     if (s_scMenuNodes.empty()) {
@@ -458,26 +738,37 @@ void SC_BuildPage(HWND hwnd, HINSTANCE hInst, int pageY, int clientWidth,
     }
     rowY += smTreeH + S(6);
 
-    // Action buttons: Add Subfolder (blue) and Remove (red).
-    // Centred under the tree; same icons as the Files page Add Folder / Remove.
-    // Remove is disabled on entry; TVN_SELCHANGED enables it for non-fixed nodes.
-    const int addW  = S(160), remW = S(110), btnGap = S(6);
-    const int bRowX = treeX + (treeW - addW - btnGap - remW) / 2;
+    // Action buttons: Add Subfolder (blue) | Add Shortcut Here (green) | Remove (red).
+    // Centred under the tree.  Remove and Add Shortcut start disabled;
+    // TVN_SELCHANGED enables them appropriately.
+    const int addW  = S(150), scW = S(140), remW = S(100), btnGap = S(6);
+    const int bRowX = treeX + (treeW - addW - btnGap - scW - btnGap - remW) / 2;
     std::wstring scSmAdd = loc(L"sc_sm_add", L"Add Subfolder");
     HWND hSmAddBtn = CreateCustomButtonWithIcon(
         hwnd, IDC_SC_SM_ADD, scSmAdd.c_str(), ButtonColor::Blue,
-        L"shell32.dll", 296,        // DrawCustomButton prepends the system directory path
+        L"shell32.dll", 296,
         bRowX, rowY, addW, S(34), hInst);
     {
         std::wstring tt = loc(L"sc_sm_add_tooltip",
             L"Add a subfolder under the selected folder");
         SetButtonTooltip(hSmAddBtn, tt.c_str());
     }
+    std::wstring scSmAddSc = loc(L"sc_sm_addsc", L"Add Shortcut");
+    HWND hSmAddScBtn = CreateCustomButtonWithCompositeIcon(
+        hwnd, IDC_SC_SM_ADDSC, scSmAddSc.c_str(), ButtonColor::Green,
+        L"shell32.dll", 257, L"shell32.dll", 29,
+        bRowX + addW + btnGap, rowY, scW, S(34), hInst);
+    {
+        std::wstring tt = loc(L"sc_sm_addsc_tooltip",
+            L"Create a shortcut in the selected Start Menu folder");
+        SetButtonTooltip(hSmAddScBtn, tt.c_str());
+    }
+    EnableWindow(hSmAddScBtn, FALSE);  // TVN_SELCHANGED enables when a node is selected
     std::wstring scSmRem = loc(L"sc_sm_remove", L"Remove");
     HWND hSmRemBtn = CreateCustomButtonWithIcon(
         hwnd, IDC_SC_SM_REMOVE, scSmRem.c_str(), ButtonColor::Red,
-        L"shell32.dll", 234,        // DrawCustomButton prepends the system directory path
-        bRowX + addW + btnGap, rowY, remW, S(34), hInst);
+        L"shell32.dll", 234,
+        bRowX + addW + btnGap + scW + btnGap, rowY, remW, S(34), hInst);
     {
         std::wstring tt = loc(L"sc_sm_remove_tooltip",
             L"Remove the selected subfolder from the Start Menu structure");
@@ -492,6 +783,11 @@ void SC_BuildPage(HWND hwnd, HINSTANCE hInst, int pageY, int clientWidth,
 
 void SC_TearDown(HWND hwnd)
 {
+    // Hide any tooltip that may be showing from the tree hover.
+    HideTooltip();
+    s_scSmTreeHoveredId = -1;
+    s_scSmTreeTracking  = false;
+
     // Destroy the live TreeView window.
     if (s_hScStartMenuTree && IsWindow(s_hScStartMenuTree)) {
         DestroyWindow(s_hScStartMenuTree);
@@ -556,19 +852,23 @@ LRESULT SC_OnNotify(HWND hwnd, LPNMHDR nmhdr, bool* handled)
         return TRUE;  // accept the new label
     }
 
-    // Enable/disable the Remove button based on which node is selected.
-    // Nodes 0 (Start Menu root) and 1 (Programs) are fixed and cannot be removed.
+    // Enable/disable the Remove and Add Shortcut buttons based on selection.
+    // Nodes 0 and 1 are fixed and cannot be removed.  Any selected node can
+    // receive a shortcut.
     if (nmhdr->code == TVN_SELCHANGED) {
-        HWND hRemBtn = GetDlgItem(hwnd, IDC_SC_SM_REMOVE);
-        if (hRemBtn && s_hScStartMenuTree) {
+        HWND hRemBtn   = GetDlgItem(hwnd, IDC_SC_SM_REMOVE);
+        HWND hAddScBtn = GetDlgItem(hwnd, IDC_SC_SM_ADDSC);
+        if (s_hScStartMenuTree) {
             HTREEITEM hSel = TreeView_GetSelection(s_hScStartMenuTree);
             BOOL canRemove = FALSE;
+            BOOL hasSel    = (hSel != NULL) ? TRUE : FALSE;
             if (hSel) {
                 TVITEMW tvi = {}; tvi.mask = TVIF_PARAM; tvi.hItem = hSel;
                 TreeView_GetItem(s_hScStartMenuTree, &tvi);
                 canRemove = (tvi.lParam > 1) ? TRUE : FALSE;
             }
-            EnableWindow(hRemBtn, canRemove);
+            if (hRemBtn)   EnableWindow(hRemBtn,   canRemove);
+            if (hAddScBtn) EnableWindow(hAddScBtn, hasSel);
         }
         *handled = true;
         return 0;
@@ -583,29 +883,101 @@ bool SC_OnCommand(HWND hwnd, int id)
 {
     switch (id) {
 
-    // ── Desktop shortcut button ───────────────────────────────────────────────
-    case IDC_SC_DESKTOP_BTN:
-        // TODO: open Desktop shortcut config dialog (implemented in a later session).
+    // ── Desktop shortcut button — ALWAYS adds a new shortcut ─────────────────
+    case IDC_SC_DESKTOP_BTN: {
+        const auto& locMap = MainWindow::GetLocale();
+        // Always create a new Desktop ShortcutDef (big icon = add).
+        ShortcutDef tmpSc{};
+        tmpSc.id   = s_scNextShortcutId++;
+        tmpSc.type = SCT_DESKTOP;
+
+        ScDlgResult result;
+        HINSTANCE hInst = (HINSTANCE)GetWindowLongPtrW(hwnd, GWLP_HINSTANCE);
+        if (SC_EditShortcutDialog(hwnd, hInst, SCT_DESKTOP, L"",
+                tmpSc.name, tmpSc.exePath, tmpSc.workingDir,
+                tmpSc.iconPath, tmpSc.iconIndex, tmpSc.runAsAdmin,
+                locMap, result))
+        {
+            tmpSc.name       = result.name;
+            tmpSc.exePath    = result.exePath;
+            tmpSc.workingDir = result.workingDir;
+            tmpSc.iconPath   = result.iconPath;
+            tmpSc.iconIndex  = result.iconIndex;
+            tmpSc.runAsAdmin = result.runAsAdmin;
+            s_scShortcuts.push_back(tmpSc);
+            MainWindow::MarkAsModified();
+            SC_RefreshDesktopStrip(hwnd, hInst);
+        } else {
+            // Dialog cancelled — reclaim the id.
+            --s_scNextShortcutId;
+        }
         return true;
+    }
 
     // ── Start Menu / Programs buttons (reserved, not yet standalone) ──────────
     case IDC_SC_STARTMENU_BTN:
-        // TODO: open Start Menu shortcut config dialog.
         return true;
 
     case IDC_SC_PROGRAMS_BTN:
-        // TODO: open Programs shortcut config dialog.
         return true;
 
-    // ── Start Menu pin icon — click opens shortcut selection dialog ─────────
-    case IDC_SC_PINSTART_BTN:
-        // TODO: open Start Menu pin selection dialog (select which shortcuts to pin).
-        return true;
+    // ── Start Menu pin icon — click opens shortcut config dialog ─────────────
+    case IDC_SC_PINSTART_BTN: {
+        const auto& locMap = MainWindow::GetLocale();
+        ShortcutDef* pSc = nullptr;
+        for (auto& sc : s_scShortcuts)
+            if (sc.type == SCT_PIN_START) { pSc = &sc; break; }
+        bool isNew = (pSc == nullptr);
+        ShortcutDef tmpSc{};
+        if (isNew) { tmpSc.id = s_scNextShortcutId++; tmpSc.type = SCT_PIN_START; pSc = &tmpSc; }
 
-    // ── Taskbar pin icon — click opens shortcut selection dialog ─────────────
-    case IDC_SC_PINTASKBAR_BTN:
-        // TODO: open Taskbar pin selection dialog (select which shortcuts to pin).
+        ScDlgResult result;
+        HINSTANCE hInst = (HINSTANCE)GetWindowLongPtrW(hwnd, GWLP_HINSTANCE);
+        if (SC_EditShortcutDialog(hwnd, hInst, SCT_PIN_START, L"",
+                pSc->name, pSc->exePath, pSc->workingDir,
+                pSc->iconPath, pSc->iconIndex, pSc->runAsAdmin,
+                locMap, result))
+        {
+            pSc->name        = result.name;
+            pSc->exePath     = result.exePath;
+            pSc->workingDir  = result.workingDir;
+            pSc->iconPath    = result.iconPath;
+            pSc->iconIndex   = result.iconIndex;
+            pSc->runAsAdmin  = result.runAsAdmin;
+            if (isNew) s_scShortcuts.push_back(*pSc);
+            MainWindow::MarkAsModified();
+        }
         return true;
+    }
+
+    // ── Taskbar pin icon — click opens shortcut config dialog ─────────────────
+    case IDC_SC_PINTASKBAR_BTN: {
+        const auto& locMap = MainWindow::GetLocale();
+        ShortcutDef* pSc = nullptr;
+        for (auto& sc : s_scShortcuts)
+            if (sc.type == SCT_PIN_TASKBAR) { pSc = &sc; break; }
+        bool isNew = (pSc == nullptr);
+        ShortcutDef tmpSc{};
+        if (isNew) { tmpSc.id = s_scNextShortcutId++; tmpSc.type = SCT_PIN_TASKBAR; pSc = &tmpSc; }
+
+        ScDlgResult result;
+        HINSTANCE hInst = (HINSTANCE)GetWindowLongPtrW(hwnd, GWLP_HINSTANCE);
+        if (SC_EditShortcutDialog(hwnd, hInst, SCT_PIN_TASKBAR, L"",
+                pSc->name, pSc->exePath, pSc->workingDir,
+                pSc->iconPath, pSc->iconIndex, pSc->runAsAdmin,
+                locMap, result))
+        {
+            pSc->name        = result.name;
+            pSc->exePath     = result.exePath;
+            pSc->workingDir  = result.workingDir;
+            pSc->iconPath    = result.iconPath;
+            pSc->iconIndex   = result.iconIndex;
+            pSc->runAsAdmin  = result.runAsAdmin;
+            if (isNew) s_scShortcuts.push_back(*pSc);
+            MainWindow::MarkAsModified();
+        }
+        return true;
+    }
 
     // ── Desktop opt-out checkbox ──────────────────────────────────────────────
     case IDC_SC_DESKTOP_OPT: {
@@ -677,6 +1049,51 @@ bool SC_OnCommand(HWND hwnd, int id)
         return true;
     }
 
+    // ── Add Shortcut Here button (also invoked from right-click context menu) ──
+    case IDC_SC_SM_ADDSC: {
+        if (!s_hScStartMenuTree || !IsWindow(s_hScStartMenuTree)) return true;
+
+        HTREEITEM hSel = TreeView_GetSelection(s_hScStartMenuTree);
+        if (!hSel) return true;
+
+        TVITEMW tvi = {}; tvi.mask = TVIF_PARAM; tvi.hItem = hSel;
+        TreeView_GetItem(s_hScStartMenuTree, &tvi);
+        int selNodeId = (int)tvi.lParam;
+
+        std::wstring smPath = BuildSmPath(selNodeId);
+
+        // Find an existing shortcut for this folder node, or prepare a new one.
+        ShortcutDef* pSc = nullptr;
+        for (auto& sc : s_scShortcuts)
+            if (sc.type == SCT_STARTMENU && sc.smNodeId == selNodeId) { pSc = &sc; break; }
+        bool isNew = (pSc == nullptr);
+        ShortcutDef tmpSc{};
+        if (isNew) {
+            tmpSc.id       = s_scNextShortcutId++;
+            tmpSc.type     = SCT_STARTMENU;
+            tmpSc.smNodeId = selNodeId;
+            pSc = &tmpSc;
+        }
+
+        ScDlgResult result;
+        HINSTANCE hInst = (HINSTANCE)GetWindowLongPtrW(hwnd, GWLP_HINSTANCE);
+        if (SC_EditShortcutDialog(hwnd, hInst, SCT_STARTMENU, smPath,
+                pSc->name, pSc->exePath, pSc->workingDir,
+                pSc->iconPath, pSc->iconIndex, pSc->runAsAdmin,
+                MainWindow::GetLocale(), result))
+        {
+            pSc->name       = result.name;
+            pSc->exePath    = result.exePath;
+            pSc->workingDir = result.workingDir;
+            pSc->iconPath   = result.iconPath;
+            pSc->iconIndex  = result.iconIndex;
+            pSc->runAsAdmin = result.runAsAdmin;
+            if (isNew) s_scShortcuts.push_back(*pSc);
+            MainWindow::MarkAsModified();
+        }
+        return true;
+    }
+
     // ── Remove Subfolder button (also invoked from right-click context menu) ──
     case IDC_SC_SM_REMOVE: {
         if (!s_hScStartMenuTree || !IsWindow(s_hScStartMenuTree)) return true;
@@ -711,7 +1128,37 @@ bool SC_OnCommand(HWND hwnd, int id)
         return true;
     }
 
+    // ── Desktop mini-icon strip: edit existing shortcut ───────────────────────
+    // IDs IDC_SC_DSK_STRIP_BASE .. +49. The ScId window property holds sc.id.
     default:
+        if (id >= IDC_SC_DSK_STRIP_BASE && id < IDC_SC_DSK_STRIP_BASE + 50) {
+            HWND hMini = GetDlgItem(hwnd, id);
+            if (!hMini) return false;
+            int scId = (int)(INT_PTR)GetPropW(hMini, L"ScId");
+            ShortcutDef* pSc = nullptr;
+            for (auto& sc : s_scShortcuts)
+                if (sc.id == scId) { pSc = &sc; break; }
+            if (!pSc) return false;
+
+            const auto& locMap = MainWindow::GetLocale();
+            ScDlgResult result;
+            HINSTANCE hInst = (HINSTANCE)GetWindowLongPtrW(hwnd, GWLP_HINSTANCE);
+            if (SC_EditShortcutDialog(hwnd, hInst, SCT_DESKTOP, L"",
+                    pSc->name, pSc->exePath, pSc->workingDir,
+                    pSc->iconPath, pSc->iconIndex, pSc->runAsAdmin,
+                    locMap, result))
+            {
+                pSc->name       = result.name;
+                pSc->exePath    = result.exePath;
+                pSc->workingDir = result.workingDir;
+                pSc->iconPath   = result.iconPath;
+                pSc->iconIndex  = result.iconIndex;
+                pSc->runAsAdmin = result.runAsAdmin;
+                MainWindow::MarkAsModified();
+                SC_RefreshDesktopStrip(hwnd, hInst);
+            }
+            return true;
+        }
         return false;
     }
 }
@@ -746,6 +1193,9 @@ bool SC_OnContextMenu(HWND hwnd, HWND hCtrl, int x, int y)
         };
 
         HMENU hMenu = CreatePopupMenu();
+        AppendMenuW(hMenu, MF_STRING, IDM_SC_CTX_ADD_SC,
+            locS(L"sc_ctx_add_sc", L"Add shortcut here…").c_str());
+        AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
         AppendMenuW(hMenu, MF_STRING, IDM_SC_CTX_ADD_SUBFOLDER,
             locS(L"sc_sm_add", L"Add Subfolder").c_str());
         AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
@@ -759,7 +1209,9 @@ bool SC_OnContextMenu(HWND hwnd, HWND hCtrl, int x, int y)
             x, y, 0, hwnd, NULL);
         DestroyMenu(hMenu);
 
-        if (cmd == IDM_SC_CTX_ADD_SUBFOLDER)
+        if (cmd == IDM_SC_CTX_ADD_SC)
+            SendMessageW(hwnd, WM_COMMAND, MAKEWPARAM(IDC_SC_SM_ADDSC, 0), 0);
+        else if (cmd == IDM_SC_CTX_ADD_SUBFOLDER)
             SendMessageW(hwnd, WM_COMMAND, MAKEWPARAM(IDC_SC_SM_ADD, 0), 0);
         else if (cmd == IDM_SC_CTX_REMOVE_FOLDER)
             SendMessageW(hwnd, WM_COMMAND, MAKEWPARAM(IDC_SC_SM_REMOVE, 0), 0);
@@ -781,14 +1233,115 @@ bool SC_OnContextMenu(HWND hwnd, HWND hCtrl, int x, int y)
         auto locS = [&](const wchar_t* k, const wchar_t* fb) -> std::wstring {
             auto it = locMap.find(k); return (it != locMap.end()) ? it->second : fb;
         };
+        // Determine which type this control corresponds to.
+        int ctxType = SCT_DESKTOP;
+        if (hCtrl == hPinStartBtn)   ctxType = SCT_PIN_START;
+        if (hCtrl == hPinTaskbarBtn) ctxType = SCT_PIN_TASKBAR;
+
         HMENU hMenu = CreatePopupMenu();
-        // Greyed until the shortcut-config dialog is implemented.
-        AppendMenuW(hMenu, MF_STRING | MF_GRAYED, IDM_SC_CTX_EDIT_SC,
+        AppendMenuW(hMenu, MF_STRING, IDM_SC_CTX_EDIT_SC,
             locS(L"sc_ctx_configure", L"Configure shortcut\u2026").c_str());
-        TrackPopupMenu(hMenu, TPM_RIGHTBUTTON, x, y, 0, hwnd, NULL);
+
+        int cmd = (int)TrackPopupMenu(hMenu, TPM_RIGHTBUTTON | TPM_RETURNCMD,
+            x, y, 0, hwnd, NULL);
         DestroyMenu(hMenu);
+
+        if (cmd == IDM_SC_CTX_EDIT_SC) {
+            // Dispatch through the same SC_OnCommand handler so logic is shared.
+            int ctrlId = IDC_SC_DESKTOP_BTN;
+            if (ctxType == SCT_PIN_START)   ctrlId = IDC_SC_PINSTART_BTN;
+            if (ctxType == SCT_PIN_TASKBAR) ctrlId = IDC_SC_PINTASKBAR_BTN;
+            SendMessageW(hwnd, WM_COMMAND, MAKEWPARAM(ctrlId, 0), 0);
+        }
         return true;
     }
 
     return false;
+}
+
+// ── SC_SaveToDb ───────────────────────────────────────────────────────────
+void SC_SaveToDb(int projectId)
+{
+    if (projectId <= 0) return;
+
+    // — Opt-out flags (stored in the settings table, keyed by project id) —
+    DB::SetSetting(L"sc_desktop_opt_out_"  + std::to_wstring(projectId),
+                   s_scDesktopOptOut ? L"1" : L"0");
+    DB::SetSetting(L"sc_sm_pin_opt_out_"   + std::to_wstring(projectId),
+                   s_scSmPinOptOut   ? L"1" : L"0");
+    DB::SetSetting(L"sc_tb_pin_opt_out_"   + std::to_wstring(projectId),
+                   s_scTbPinOptOut   ? L"1" : L"0");
+
+    // — Start Menu folder nodes —
+    DB::DeleteScMenuNodesForProject(projectId);
+    for (const auto& node : s_scMenuNodes) {
+        DB::ScMenuNodeRow r;
+        r.id         = node.id;
+        r.project_id = projectId;
+        r.parent_id  = node.parentId;
+        r.name       = node.name;
+        DB::InsertScMenuNode(projectId, r);
+    }
+
+    // — Shortcut definitions (Desktop, Start Menu, Pin to Start, Pin to Taskbar) —
+    DB::DeleteScShortcutsForProject(projectId);
+    for (const auto& sc : s_scShortcuts) {
+        DB::ScShortcutRow r;
+        r.id          = sc.id;
+        r.project_id  = projectId;
+        r.type        = sc.type;
+        r.sm_node_id  = sc.smNodeId;
+        r.name        = sc.name;
+        r.exe_path    = sc.exePath;
+        r.working_dir = sc.workingDir;
+        r.icon_path   = sc.iconPath;
+        r.icon_index  = sc.iconIndex;
+        r.run_as_admin = sc.runAsAdmin ? 1 : 0;
+        DB::InsertScShortcut(projectId, r);
+    }
+}
+
+// ── SC_LoadFromDb ──────────────────────────────────────────────────────────
+void SC_LoadFromDb(int projectId)
+{
+    if (projectId <= 0) return;
+    SC_Reset();  // ensure clean slate before populating
+
+    // — Opt-out flags —
+    std::wstring val;
+    if (DB::GetSetting(L"sc_desktop_opt_out_" + std::to_wstring(projectId), val))
+        s_scDesktopOptOut = (val == L"1");
+    if (DB::GetSetting(L"sc_sm_pin_opt_out_"  + std::to_wstring(projectId), val))
+        s_scSmPinOptOut   = (val == L"1");
+    if (DB::GetSetting(L"sc_tb_pin_opt_out_"  + std::to_wstring(projectId), val))
+        s_scTbPinOptOut   = (val == L"1");
+
+    // — Start Menu folder nodes —
+    auto nodes = DB::GetScMenuNodesForProject(projectId);
+    for (const auto& r : nodes) {
+        ScMenuNode node{};
+        node.id       = r.id;
+        node.parentId = r.parent_id;
+        node.name     = r.name;
+        node.hItem    = nullptr;
+        s_scMenuNodes.push_back(node);
+        if (r.id >= s_scNextMenuId) s_scNextMenuId = r.id + 1;
+    }
+
+    // — Shortcut definitions —
+    auto shortcuts = DB::GetScShortcutsForProject(projectId);
+    for (const auto& r : shortcuts) {
+        ShortcutDef sc{};
+        sc.id          = r.id;
+        sc.type        = r.type;
+        sc.smNodeId    = r.sm_node_id;
+        sc.name        = r.name;
+        sc.exePath     = r.exe_path;
+        sc.workingDir  = r.working_dir;
+        sc.iconPath    = r.icon_path;
+        sc.iconIndex   = r.icon_index;
+        sc.runAsAdmin  = (r.run_as_admin != 0);
+        s_scShortcuts.push_back(sc);
+        if (r.id >= s_scNextShortcutId) s_scNextShortcutId = r.id + 1;
+    }
 }

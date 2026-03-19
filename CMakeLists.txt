@@ -28,6 +28,8 @@ add_executable(SkeletonApp WIN32
     dpi.cpp
     notes_editor.cpp
     shortcuts.cpp
+    sc_shortcut_dialog.cpp
+    vfs_picker.cpp
     ${RESOURCE_FILES}
 )
 

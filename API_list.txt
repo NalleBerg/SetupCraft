@@ -48,8 +48,22 @@
                                     OpenNotesEditor() API, NotesEditorData struct,
                                     RTF stream in/out, 500-char limit, Bold/Italic/
                                     Underline/Subscript/Superscript/Font size/Color
+
+  sc_shortcut_dialog_INTERNALS.txt  Configure Shortcut modal dialog — SC_EditShortcutDialog()
+                                    API, ScDlgData heap struct, modal message-loop pattern,
+                                    ScIconPreviewProc subclass, icon file picker filter
+                                    (*.ico;*.exe;*.dll), layout constants, locale keys,
+                                    and caller wiring from shortcuts.cpp.
                                     toolbar, i18n string fields, comdlg32 colour
                                     picker, DPI-aware layout.
+
+  vfs_picker_API.txt                Reusable VFS-backed file/folder picker dialog —
+                                    ShowVfsPicker() entry point, VfsPickerParams config
+                                    struct (singleSelect, showFilePane, allowFolderPick,
+                                    fileFilter), VfsPicker_IsExecutable() predicate,
+                                    VfsPickerResult output, MainWindow::TreeSnapshot_*
+                                    accessor wiring, locale keys, and usage examples for
+                                    both exe-picker and folder-picker modes.
 
   checkbox_API.txt                  Custom theme-aware checkbox — CreateCustomCheckbox,
                                     DrawCustomCheckbox, OnCheckboxSettingChange,

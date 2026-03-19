@@ -43,6 +43,10 @@ public:
     static HTREEITEM GetAppDataRoot()       { return s_hAppDataRoot; }
     static HTREEITEM AddTreeNode(HWND hTree, HTREEITEM hParent, const std::wstring &text, const std::wstring &fullPath);
     static void EnsureTreeSnapshotsFromDb();
+    static const std::vector<TreeNodeSnapshot>& TreeSnapshot_ProgramFiles();
+    static const std::vector<TreeNodeSnapshot>& TreeSnapshot_ProgramData();
+    static const std::vector<TreeNodeSnapshot>& TreeSnapshot_AppData();
+    static const std::vector<TreeNodeSnapshot>& TreeSnapshot_AskAtInstall();
     
 private:
     static void CreateMenuBar(HWND hwnd);

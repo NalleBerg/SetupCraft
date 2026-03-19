@@ -443,6 +443,7 @@ HWND MainWindow::Create(HINSTANCE hInstance, const ProjectRow &project, const st
         for (auto& comp : s_components)
             if (comp.id > 0)
                 comp.dependencies = DB::GetDependenciesForComponent(comp.id);
+        SC_LoadFromDb(project.id);  // load shortcuts + menu nodes + opt-out flags
     }
 
     // Restore ask-at-install preference for this project
@@ -1508,7 +1509,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         IDC_REG_SHOW_REGKEY, IDC_REG_WARNING_ICON, IDC_REG_TREEVIEW, IDC_REG_LISTVIEW,
         IDC_COMP_ENABLE, IDC_COMP_LISTVIEW, IDC_COMP_TREEVIEW, IDC_COMP_ADD, IDC_COMP_EDIT, IDC_COMP_REMOVE,
         IDC_SC_DESKTOP_BTN, IDC_SC_DESKTOP_OPT, IDC_SC_PINSTART_BTN, IDC_SC_PINTASKBAR_BTN,
-        IDC_SC_SM_TREE, IDC_SC_SM_ADD, IDC_SC_SM_REMOVE,
+        IDC_SC_SM_TREE, IDC_SC_SM_ADD, IDC_SC_SM_REMOVE, IDC_SC_SM_ADDSC,
         IDC_SC_SM_PIN_LABEL, IDC_SC_TB_PIN_LABEL,
         IDC_SC_SM_PIN_OPT, IDC_SC_TB_PIN_OPT,
         5100, 5101, 5102, 5103, 5104, 5105, 5106, 5107, 5108, 5109, 5110, 5300, 5301, 5302, 5303, 5304 // Labels and other static controls
@@ -5936,6 +5937,13 @@ static void PopulateSnapshotFilesFromDisk(std::vector<TreeNodeSnapshot>& nodes)
         PopulateSnapshotFilesFromDisk(snap.children);
     }
 }
+
+// ── TreeSnapshot_* accessors (expose module-private statics for vfs_picker) ───
+const std::vector<TreeNodeSnapshot>& MainWindow::TreeSnapshot_ProgramFiles()  { return s_treeSnapshot_ProgramFiles; }
+const std::vector<TreeNodeSnapshot>& MainWindow::TreeSnapshot_ProgramData()   { return s_treeSnapshot_ProgramData; }
+const std::vector<TreeNodeSnapshot>& MainWindow::TreeSnapshot_AppData()       { return s_treeSnapshot_AppData; }
+const std::vector<TreeNodeSnapshot>& MainWindow::TreeSnapshot_AskAtInstall()  { return s_treeSnapshot_AskAtInstall; }
+
 // Shows the virtual file system from the Files page (s_treeSnapshot_*) as a
 // split-pane tree/listview browser so the user can pick files or folders as
 // component sources without touching the real filesystem.
@@ -9025,6 +9033,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 
             s_hasUnsavedChanges = false;
             if (s_hStatus && IsWindow(s_hStatus)) InvalidateRect(s_hStatus, NULL, TRUE);
+            SC_SaveToDb(s_currentProject.id);  // persist shortcuts + menu nodes
             return 0;
         }
             
@@ -9615,7 +9624,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             (dis->CtlID >= IDC_FILES_ADD_DIR && dis->CtlID <= IDC_FILES_REMOVE) ||
             (dis->CtlID >= IDC_REG_CHECKBOX && dis->CtlID <= IDC_REG_BACKUP) ||
             (dis->CtlID >= IDC_COMP_ADD && dis->CtlID <= IDC_COMP_REMOVE) ||
-            (dis->CtlID >= IDC_SC_DESKTOP_BTN && dis->CtlID <= IDC_SC_SM_REMOVE)) {
+            (dis->CtlID >= IDC_SC_DESKTOP_BTN && dis->CtlID <= IDC_SC_SM_REMOVE) ||
+             dis->CtlID == IDC_SC_SM_ADDSC) {
             ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
             // Create bold font for buttons (scaled for DPI)
             HFONT hFont = CreateFontW(-S(12), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,

@@ -2,6 +2,21 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.03.19.11] - 2026-03-19
+
+### Added
+- **Multiple Desktop shortcuts** — clicking the 64×64 Desktop icon always adds a new shortcut. Existing shortcuts appear as 16×16 mini-icons (centred strip below the big icon). `SC_DskMiniSubclassProc` subclass handles paint, tooltip, double-click edit, and right-click Edit/Remove. `SC_RefreshDesktopStrip()` rebuilds the strip from `s_scShortcuts`. ID range `IDC_SC_DSK_STRIP_BASE` 5400–5449; `IDM_SC_CTX_EDIT_DSK` 6305 / `IDM_SC_CTX_REMOVE_DSK` 6306.
+- **SM tree custom hover tooltip** — `TVS_NOTOOLTIPS` added to suppress system truncation tooltip; `SC_SmTreeSubclassProc` shows the project's custom tooltip on `WM_MOUSEMOVE` via `TreeView_HitTest` + `ShowMultilingualTooltip`.
+- **"Add Shortcut Here" button** (`IDC_SC_SM_ADDSC` / 5213) — green button in the SM section; composite icon (shell32.dll 257 + 29); tooltip via `sc_sm_addsc_tooltip`.
+- **"Add shortcut here…" context menu item** — first item in the SM tree right-click menu, dispatches to `IDC_SC_SM_ADDSC`.
+- **`BuildSmPath()` helper** — builds breadcrumb `Start Menu › Programs › Folder` from a node id.
+- **DB persistence for shortcuts** — two new tables: `sc_menu_nodes (id, project_id, parent_id, name)` and `sc_shortcuts (id, project_id, type, sm_node_id, name, exe_path, working_dir, icon_path, icon_index, run_as_admin)`. New DB functions: `InsertScMenuNode`, `DeleteScMenuNodesForProject`, `GetScMenuNodesForProject`, `InsertScShortcut`, `DeleteScShortcutsForProject`, `GetScShortcutsForProject`. `SC_SaveToDb(projectId)` called on `IDM_FILE_SAVE`; `SC_LoadFromDb(projectId)` called on project open. Covers all shortcut types and opt-out flags.
+- **New locale keys**: `sc_ctx_edit`, `sc_ctx_remove_sc` added to `locale/en_GB.txt`.
+
+### Fixed
+- **Desktop mini-icon tooltip off-by-one** — hover and right-click Remove used `ctrlId − IDC_SC_DSK_STRIP_BASE` to look up the shortcut but `ShortcutDef::id` starts at 1 (not 0). Fixed to read the `L"ScId"` window property set at creation time.
+- **Tooltip single-line width** — removed hardcoded `S(500)` cap; width is now `sz.cx + S(32)`, clamped to monitor width. Updated `tooltip_API.txt` §3 and §7.
+
 ## [2026.03.19.08] - 2026-03-19
 
 ### Changed

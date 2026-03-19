@@ -1,0 +1,256 @@
+================================================================================
+  vfs_picker_API.txt — SetupCraft VFS File/Folder Picker Component
+================================================================================
+
+PURPOSE
+  Provides a reusable, VFS-backed modal dialog that lets the user pick files or
+  folders from the same virtual file-system tree that the Files page manages —
+  not from the real filesystem.  Callers supply a VfsPickerParams struct to
+  control layout, UI strings, filtering and selection behaviour.
+
+FILES
+  vfs_picker.h        Public interface: structs, declarations, includes.
+  vfs_picker.cpp      Full dialog implementation (VfspDlgProc, helpers, entry
+                      point ShowVfsPicker).
+
+DEPENDENCIES
+  mainwindow.h / mainwindow.cpp
+      MainWindow::TreeSnapshot_ProgramFiles() — const std::vector<TreeNodeSnapshot>&
+      MainWindow::TreeSnapshot_ProgramData()  — const std::vector<TreeNodeSnapshot>&
+      MainWindow::TreeSnapshot_AppData()      — const std::vector<TreeNodeSnapshot>&
+      MainWindow::TreeSnapshot_AskAtInstall() — const std::vector<TreeNodeSnapshot>&
+      MainWindow::EnsureTreeSnapshotsFromDb() — populate snapshots on demand
+
+  button.h    CreateCustomButtonWithIcon, DrawCustomButton
+  dpi.h       S() DPI-scale macro
+  tooltip.h   ShowMultilingualTooltip, HideTooltip (path tooltip on ListView rows)
+  shellapi.h  SHGetFileInfoW (system image list for file icons)
+
+INTERNAL CONTROL IDs (local to vfs_picker.cpp — no collision risk)
+  VFSP_TREE   7100   TreeView on the left
+  VFSP_LIST   7101   ListView on the right (file pane)
+  VFSP_OK     7102   OK button
+  VFSP_CANCEL 7103   Cancel button
+
+ICONS
+  TreeView — folder icons (32×32 via a 36-wide padded ImageList, same technique as
+             the Files page):
+               Index 0 : shell32.dll resource #4 — closed folder (yellow)
+               Index 1 : shell32.dll resource #5 — open folder (yellow)
+             The 4-px left pad creates a visible gap between the expand button and
+             the icon.  ImageList stored in window prop L"VfspTreeIL" and destroyed
+             in WM_DESTROY.
+
+  ListView  — per-file shell icon (small, 16×16) via the process-wide system
+             image list returned by SHGetFileInfoW(SHGFI_SYSICONINDEX|SHGFI_SMALLICON).
+             The list is NOT owned by the dialog (the system owns it) so it is not
+             destroyed; only ListView_SetImageList(..., LVSIL_SMALL) is called.
+             Icon index is resolved per-file with SHGFI_USEFILEATTRIBUTES so icons
+             display even if the source path does not exist on this machine.
+
+WINDOW CLASS
+  L"VfsPickerDlgClass" — registered once per process via a static bool guard.
+  Distinct from the existing L"VFSPickerDialog" used by the Components page.
+
+================================================================================
+  PUBLIC TYPES
+================================================================================
+
+struct VfsPickerResult {
+    wstring sourcePath;   // real disk path of the selected file or folder
+    wstring displayName;  // leaf name only (e.g. "setup.exe" or "bin")
+};
+
+struct VfsPickerParams {
+    // UI strings — populate from locale before calling ShowVfsPicker.
+    wstring title;
+    wstring okText        = L"OK";
+    wstring cancelText    = L"Cancel";
+    wstring foldersLabel  = L"Folders";
+    wstring filesLabel    = L"Files in selected folder";
+    wstring colFileName   = L"Name";
+    wstring colFilePath   = L"Path";
+    wstring noSelMessage; // shown via MessageBoxW when OK clicked with nothing selected
+
+    // Root section labels — empty means English defaults are used internally.
+    wstring rootLabel_ProgramFiles;    // default L"Program Files"
+    wstring rootLabel_ProgramData;     // default L"ProgramData"
+    wstring rootLabel_AppData;         // default L"AppData (Roaming)"
+    wstring rootLabel_AskAtInstall;    // default L"Ask at install"
+
+    // Behaviour flags.
+    bool singleSelect    = false; // LVS_SINGLESEL on the file listview
+    bool showFilePane    = true;  // false = folder-only mode; no listview shown
+    bool allowFolderPick = false; // true = tree-selected folder usable as result
+
+    // Optional file filter for the listview.
+    function<bool(const wstring& fileName)> fileFilter; // null = show all
+};
+
+================================================================================
+  PUBLIC FUNCTIONS
+================================================================================
+
+bool VfsPicker_IsExecutable(const wstring& fileName)
+
+  Returns true when the leaf file name has a recognised executable extension:
+    .exe  .com  .bat  .cmd  .msi  .ps1  .vbs  .js  .wsf  .pif  .scr
+  Comparison is case-insensitive (towlower on the extension).
+
+  Use as params.fileFilter to show only executable files in the listview.
+
+──────────────────────────────────────────────────────────────────────────────
+
+bool ShowVfsPicker(
+    HWND                                 hwndParent,
+    HINSTANCE                            hInst,
+    const VfsPickerParams&               params,
+    const map<wstring, wstring>&         locale,     // reserved — not used yet
+    vector<VfsPickerResult>&             results)
+
+  Opens the VFS picker dialog, modal to hwndParent.
+
+  Parameters:
+    hwndParent   Parent window.  Disabled via EnableWindow while the dialog is
+                 open and re-enabled (with SetForegroundWindow) on close.
+    hInst        HINSTANCE for CreateWindowExW.
+    params       All configuration and UI text.
+    locale       Project locale map, reserved for future root-label lookup.
+                 Currently labels are taken from rootLabel_* fields in params.
+    results      Cleared on entry; populated with one VfsPickerResult per
+                 selected item when the user clicks OK.
+
+  Returns:
+    true   User clicked OK and at least one item was selected.
+    false  User cancelled, closed the window, or nothing was selected.
+
+  Result population logic (in order):
+    1. All selected listview rows → VfsPickerResult (file picks).
+    2. If results still empty and allowFolderPick=true: tree selection is used
+       if it has a non-empty fullPath (real-path folder node).
+    3. If results still empty after both steps: MessageBoxW(noSelMessage) is
+       shown and the dialog stays open.
+
+  Window dimensions:
+    showFilePane=true  → client 720 × 440 px (at 96 DPI)
+    showFilePane=false → client 380 × 440 px
+
+================================================================================
+  USAGE EXAMPLES
+================================================================================
+
+─── Example 1: exe picker (single select, executables only) ────────────────────
+
+  VfsPickerParams p;
+  p.title         = loc(L"vfspicker_exe_title",     L"Select executable");
+  p.okText        = loc(L"scdlg_ok",                L"OK");
+  p.cancelText    = loc(L"scdlg_cancel",             L"Cancel");
+  p.foldersLabel  = loc(L"vfspicker_folders_label",  L"Folders");
+  p.filesLabel    = loc(L"vfspicker_exe_files_label",L"Files in selected folder");
+  p.colFileName   = loc(L"vfspicker_col_name",       L"Name");
+  p.colFilePath   = loc(L"vfspicker_col_path",       L"Path");
+  p.noSelMessage  = loc(L"vfspicker_exe_no_sel",
+      L"Please select an executable file from the right pane.");
+  p.rootLabel_ProgramFiles   = loc(L"vfspicker_root_program_files", L"Program Files");
+  p.rootLabel_ProgramData    = loc(L"vfspicker_root_program_data",  L"ProgramData");
+  p.rootLabel_AppData        = loc(L"vfspicker_root_appdata",       L"AppData (Roaming)");
+  p.rootLabel_AskAtInstall   = loc(L"vfspicker_root_ask_install",   L"Ask at install");
+  p.singleSelect   = true;
+  p.showFilePane   = true;
+  p.allowFolderPick = false;
+  p.fileFilter     = VfsPicker_IsExecutable;
+
+  vector<VfsPickerResult> picks;
+  if (ShowVfsPicker(hDlg, hInst, p, locale, picks)) {
+      exePath = picks[0].sourcePath;
+  }
+
+─── Example 2: folder picker (folder-only mode) ────────────────────────────────
+
+  VfsPickerParams p;
+  p.title           = loc(L"vfspicker_folder_title",   L"Select working directory");
+  p.okText          = loc(L"scdlg_ok",                 L"OK");
+  p.cancelText      = loc(L"scdlg_cancel",              L"Cancel");
+  p.foldersLabel    = loc(L"vfspicker_folders_label",   L"Folders");
+  p.noSelMessage    = loc(L"vfspicker_folder_no_sel",
+      L"Please select a folder from the left pane.");
+  p.rootLabel_ProgramFiles   = loc(L"vfspicker_root_program_files", L"Program Files");
+  p.rootLabel_ProgramData    = loc(L"vfspicker_root_program_data",  L"ProgramData");
+  p.rootLabel_AppData        = loc(L"vfspicker_root_appdata",       L"AppData (Roaming)");
+  p.rootLabel_AskAtInstall   = loc(L"vfspicker_root_ask_install",   L"Ask at install");
+  p.singleSelect   = true;
+  p.showFilePane   = false;
+  p.allowFolderPick = true;
+
+  vector<VfsPickerResult> picks;
+  if (ShowVfsPicker(hDlg, hInst, p, locale, picks)) {
+      workingDir = picks[0].sourcePath;
+  }
+
+================================================================================
+  LOCALE KEYS
+================================================================================
+
+  Key                              Default value
+  ─────────────────────────────────────────────────────────────────────────────
+  vfspicker_folders_label          Folders
+  vfspicker_exe_files_label        Files in selected folder
+  vfspicker_col_name               Name
+  vfspicker_col_path               Path
+  vfspicker_exe_no_sel             Please select an executable file from the right pane.
+  vfspicker_folder_no_sel          Please select a folder from the left pane.
+  vfspicker_root_program_files     Program Files
+  vfspicker_root_program_data      ProgramData
+  vfspicker_root_appdata           AppData (Roaming)
+  vfspicker_root_ask_install       Ask at install
+
+================================================================================
+  DESIGN NOTES
+================================================================================
+
+* The picker reuses the same TreeNodeSnapshot / VirtualFolderFile data that the
+  Files page builds.  Snapshots are populated lazily by EnsureTreeSnapshotsFromDb()
+  so the picker works even if the user has not visited the Files page this session.
+
+* Section root nodes (lParam=0) are never pickable — only leaf folder nodes
+  (lParam = const TreeNodeSnapshot*) with a non-empty fullPath are valid results
+  in allowFolderPick mode.
+
+* The locale map parameter is plumbed through for future use (e.g. root labels
+  looked up directly from locale keys).  For now, set rootLabel_* in the params
+  struct after looking up locale keys at the call site.
+
+* The file pane (VFSP_LIST) is only created when showFilePane=true.  In
+  folder-only mode the tree takes the full content width and the results come
+  solely from the tree selection (allowFolderPick must be true).
+
+* Path tooltip: the ListView is subclassed via `VfspListSubclassProc` using the
+  established `SetWindowLongPtrW / GWLP_WNDPROC` pattern (NOT LVN_GETINFOTIP).
+  On WM_MOUSEMOVE the hit-tested row is compared against the last hovered row;
+  only when the row changes is `ShowMultilingualTooltip` called with the full
+  `vf->sourcePath` as a single empty-code entry.  `TrackMouseEvent(TME_LEAVE)`
+  is requested on the ListView itself (not the parent) so WM_MOUSELEAVE fires
+  reliably when the cursor leaves the control.  On WM_MOUSELEAVE `HideTooltip()`
+  is called immediately.  WM_NCDESTROY restores the original GWLP_WNDPROC.
+  Module-level statics (`s_vfspOrigListProc`, `s_vfspDlgHwnd`, `s_vfspHoveredRow`,
+  `s_vfspTracking`) are safe because only one picker is alive at a time (modal).
+  Tooltip position: `GetCursorPos() + (16, 16)`; `ShowMultilingualTooltip` then
+  clamps to monitor work area automatically.
+
+* `Vfsp_PopulateList` calls `HideTooltip()` and resets `s_vfspHoveredRow` before
+  clearing the ListView, so no stale tooltip is left when the tree selection changes.
+
+* WM_DESTROY calls `HideTooltip()` as a safety catch before cleaning up resources.
+
+* The file pane (VFSP_LIST) is only created when showFilePane=true.  In
+  folder-only mode the tree takes the full content width and the results come
+  solely from the tree selection (allowFolderPick must be true).
+
+* The window class L"VfsPickerDlgClass" is registered once per process via a
+  static bool guard.  It is safe to call ShowVfsPicker from multiple callers.
+
+DIALOG SIZE (design-time pixels at 96 DPI, scaled by S() at runtime)
+  showFilePane=true  → client 960 × 620 px, tree pane 320 px wide
+  showFilePane=false → client 460 × 620 px, tree pane = full width
+
+================================================================================
