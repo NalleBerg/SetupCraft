@@ -124,6 +124,12 @@ bool ShowVfsPicker(
     true   User clicked OK and at least one item was selected.
     false  User cancelled, closed the window, or nothing was selected.
 
+  Interaction shortcuts:
+    Double-clicking a file row in the ListView is equivalent to clicking OK:
+    the dialog commits the selection and closes.  Implemented via NM_DBLCLK on
+    VFSP_LIST in WM_NOTIFY; guarded so it only fires when at least one row is
+    selected (ListView_GetNextItem(..., LVNI_SELECTED) >= 0).
+
   Result population logic (in order):
     1. All selected listview rows → VfsPickerResult (file picks).
     2. If results still empty and allowFolderPick=true: tree selection is used

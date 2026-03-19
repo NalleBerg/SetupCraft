@@ -385,6 +385,13 @@ static LRESULT CALLBACK VfspDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 Vfsp_PopulateList(hList, snap, pS->params);
             }
         }
+        // Double-clicking a file in the list commits the selection (same as OK).
+        if (nmhdr->idFrom == VFSP_LIST && nmhdr->code == NM_DBLCLK) {
+            HWND hList = GetDlgItem(hwnd, VFSP_LIST);
+            if (hList && ListView_GetNextItem(hList, -1, LVNI_SELECTED) >= 0)
+                SendMessageW(hwnd, WM_COMMAND, MAKEWPARAM(VFSP_OK, 0), 0);
+            return 0;
+        }
         return 0;
     }
 

@@ -1,6 +1,14 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 19 March 2026 &mdash; v2026.03.19.11<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 19 March 2026 &mdash; v2026.03.19.12<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.19.12</span></h3>
+<p><strong>VFS picker double-click, SM tree icon fix, tree/button alignment (19.03.2026, 12:19):</strong></p>
+<ul>
+<li><strong>VFS picker &mdash; double-click selects file:</strong> Double-clicking a file row in the &ldquo;Select executable&rdquo; (and any other VFS picker) now commits the selection and closes the dialog, identical to clicking OK. Handled in <code>WM_NOTIFY</code> on <code>NM_DBLCLK</code> for <code>VFSP_LIST</code>: if at least one row is selected, <code>SendMessageW(VFSP_OK)</code> is dispatched.</li>
+<li><strong>SM tree &mdash; per-shortcut program icons:</strong> Start Menu shortcut leaf items in the TreeView now show the actual program icon (32&times;32, extracted from the configured exe or icon file via <code>PrivateExtractIconsW</code>) instead of a generic shell32&nbsp;#17 link icon. <code>SC_RebuildSmTree()</code> now rebuilds the image list from scratch on every call: indices&nbsp;0/1 stay closed/open folder; index&nbsp;2 is the fallback link icon; indices&nbsp;3+ are one icon per <code>SCT_STARTMENU</code> shortcut, keyed by <code>sc.id</code> via a local <code>std::map&lt;int,int&gt; scIdToImgIdx</code>. The static image-list creation block was removed from <code>SC_BuildPage</code> since <code>SC_RebuildSmTree</code> is called immediately after and handles it.</li>
+<li><strong>SM tree width aligned with buttons:</strong> The Start Menu TreeView and its three action buttons are now the same width and horizontally aligned &mdash; the tree left/right edges match the outer edges of the Add&nbsp;Subfolder and Remove buttons. Previously the tree was <code>clientWidth&nbsp;&times;&nbsp;35/200</code> (~17&nbsp;%), far narrower than the button row. Now <code>treeW&nbsp;=&nbsp;addW&nbsp;+&nbsp;btnGap&nbsp;+&nbsp;scW&nbsp;+&nbsp;btnGap&nbsp;+&nbsp;remW</code> (<code>S(150)+S(6)+S(140)+S(6)+S(100)</code>), and <code>bRowX&nbsp;=&nbsp;treeX</code> (no internal offset needed). Button-dimension constants moved up to before the tree creation so <code>treeW</code> can reference them.</li>
+</ul>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.19.11</span></h3>
 <p><strong>Shortcuts page &mdash; multiple Desktop shortcuts, SM tree shortcut child items, DB persistence (19.03.2026, 11:36):</strong></p>

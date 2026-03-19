@@ -69,6 +69,21 @@ mainwindow.cpp knows nothing about the page internals.  It only:
 
   Index 0  shell32.dll sequential index 3   closed yellow folder (large, 32×32)
   Index 1  shell32.dll sequential index 5   open yellow folder   (large, 32×32)
+  Index 2  shell32.dll sequential index 17  generic link icon — fallback for
+                                            shortcut leaf items whose icon
+                                            cannot be extracted
+  Index 3+ Per-shortcut program icons (32×32): one entry per SCT_STARTMENU
+           shortcut, loaded by SC_RebuildSmTree via PrivateExtractIconsW from
+           sc.iconPath (if non-empty) or sc.exePath; falls back to index 2
+           on failure.  Indices are stored in a local std::map<int,int>
+           scIdToImgIdx keyed by sc.id.
+
+  SC_RebuildSmTree() rebuilds the entire image list from scratch on every
+  call: destroys the old list (via L"hScSmTreeIL" window property), creates
+  a new HIMAGELIST (ILC_COLOR32|ILC_MASK, 32×32), adds the three fixed icons
+  (0/1/2) then all per-shortcut icons (3+).  The IL creation block was
+  removed from SC_BuildPage; SC_RebuildSmTree, which is called immediately
+  after, owns the full lifecycle.
 
   Extracted with ExtractIconExW large-icon parameter (3rd arg, &hIcon; 4th arg NULL).
   ImageList created at 32×32.  No TreeView_SetItemHeight override — Windows
@@ -82,9 +97,17 @@ mainwindow.cpp knows nothing about the page internals.  It only:
 
 ── TreeView sizing and font ────────────────────────────────────────────────────
 
-  The box is 17% of clientWidth (clientWidth * 35 / 200), horizontally centred
-  within the content area (S(20)..clientWidth-S(20)).  The Add Subfolder and
-  Remove buttons are centred under the same column using the same treeX/treeW.
+  Width is computed to exactly match the three action buttons beneath it:
+
+    const int addW  = S(150), scW = S(140), remW = S(100), btnGap = S(6);
+    const int treeW = addW + btnGap + scW + btnGap + remW;  // S(402) at 96 DPI
+    const int treeX = (clientWidth - treeW) / 2;            // centred
+    const int bRowX = treeX;   // button row left edge == tree left edge
+
+  These constants are defined once near the top of the SM section (before the
+  tree CreateWindowExW call) so both treeW and bRowX can reference them.
+  Previously the tree was clientWidth*35/200 (~17 %), which was narrower than
+  the button row; the two are now pixel-perfect aligned.
 
   WM_SETFONT is sent to s_hScStartMenuTree with hGuiFont (= s_scaledFont in
   mainwindow.cpp) so the tree text weight and size match the Files/Components
@@ -245,24 +268,39 @@ mainwindow.cpp knows nothing about the page internals.  It only:
     shortcut leaf    → -(LPARAM)sc.id      <  0   (negative)
   All code that interprets lParam checks the sign first.
 
-  Image list indices (32×32, shell32.dll):
+  Image list indices (32×32, shell32.dll) — rebuilt from scratch on every call:
     0  closed folder (#3)      — folder, not selected
     1  open folder   (#5)      — folder, selected / expanded
-    2  link icon     (#17)     — shortcut leaf (both selected and unselected)
+    2  link icon     (#17)     — fallback shortcut icon
+    3+ per-shortcut program icon — one per SCT_STARTMENU shortcut; sc.id keyed
+                                  in local std::map<int,int> scIdToImgIdx.
+                                  Loaded via PrivateExtractIconsW from
+                                  sc.iconPath (non-empty) or sc.exePath;
+                                  falls back to index 2 on failure.
 
   SC_RebuildSmTree(LPARAM selectLParam = 0):
-    1. Resets all node.hItem and sc.hSmItem handles.
-    2. TreeView_DeleteAllItems.
-    3. Recursive addChildren(hParent, parentId):
+    1. Gets hwnd = GetParent(s_hScStartMenuTree).
+    2. Destroys old image list (L"hScSmTreeIL" window property; see Image list
+       lifetime section).
+    3. Creates new HIMAGELIST (ILC_COLOR32|ILC_MASK, 32×32).
+    4. Adds fixed icons 0/1/2 (closed folder, open folder, link fallback).
+    5. For each SCT_STARTMENU sc: PrivateExtractIconsW → ImageList_AddIcon →
+       scIdToImgIdx[sc.id] = image index (3+). Falls back to index 2.
+    6. TreeView_SetImageList + SetPropW(hwnd, L"hScSmTreeIL", ...).
+    7. Resets all node.hItem and sc.hSmItem handles.
+    8. TreeView_DeleteAllItems.
+    9. Recursive addChildren(hParent, parentId):
          a. All ScMenuNode children with parentId first (folders before shortcuts).
-         b. All SCT_STARTMENU shortcuts with smNodeId == parentId after folders.
-    4. Expands root (TVE_EXPAND).
-    5. Restores selection to the item matching selectLParam:
+         b. All SCT_STARTMENU shortcuts with smNodeId == parentId after folders;
+            iImage/iSelectedImage set from scIdToImgIdx[sc.id].
+   10. Expands root (TVE_EXPAND).
+   11. Restores selection to the item matching selectLParam:
          selectLParam >= 0 → folder node with node.id == selectLParam
          selectLParam <  0 → shortcut with sc.id == -selectLParam
          fallback: root item (hRoot)
-    Called from SC_BuildPage (replaces inline block), IDC_SC_SM_ADDSC (select
-    new item), IDM_SC_CTX_EDIT_SM (reselect edited item), IDM_SC_CTX_REMOVE_SM
+    Called from SC_BuildPage (IL creation block removed there; SC_RebuildSmTree
+    owns the full IL lifecycle), IDC_SC_SM_ADDSC (select new item),
+    IDM_SC_CTX_EDIT_SM (reselect edited item), IDM_SC_CTX_REMOVE_SM
     (reselect parent folder).
 
   TVN handling for leaf items:

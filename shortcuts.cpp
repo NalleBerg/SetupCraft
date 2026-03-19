@@ -386,9 +386,11 @@ static LRESULT CALLBACK SC_DesktopIconSubclassProc(
 
 // ── SC_RebuildSmTree ──────────────────────────────────────────────────────────
 // Clears and rebuilds the Start Menu TreeView from s_scMenuNodes and
-// s_scShortcuts.  Folder nodes use image indices 0/1 (closed/open folder).
-// SCT_STARTMENU shortcut items are inserted as leaves after their folder's
-// child folders, using image index 2 (shell32 #17 link icon).
+// s_scShortcuts.  Also rebuilds the TreeView image list from scratch:
+//   index 0  — closed folder (shell32 #3)
+//   index 1  — open folder   (shell32 #5)
+//   index 2  — fallback link icon (shell32 #17, used when icon load fails)
+//   index 3+ — one icon per SCT_STARTMENU shortcut, loaded from its exe/icon
 // lParam encoding: folder nodes → node.id (≥ 0); shortcut items → -(sc.id) (< 0).
 //
 // selectLParam  — after rebuilding, attempt to reselect the item whose lParam
@@ -398,9 +400,55 @@ static void SC_RebuildSmTree(LPARAM selectLParam = 0)
 {
     if (!s_hScStartMenuTree || !IsWindow(s_hScStartMenuTree)) return;
 
+    HWND hwnd = GetParent(s_hScStartMenuTree);
+
     // Reset transient HTREEITEM handles — they become invalid after DeleteAllItems.
     for (auto& n  : s_scMenuNodes) n.hItem  = nullptr;
     for (auto& sc : s_scShortcuts) if (sc.type == SCT_STARTMENU) sc.hSmItem = nullptr;
+
+    // ── Rebuild image list with per-shortcut icons ────────────────────────────
+    // Destroy the previous list and create a fresh one so indices stay stable.
+    std::map<int, int> scIdToImgIdx;  // sc.id → image list index
+    {
+        HIMAGELIST hOldIL = (HIMAGELIST)GetPropW(hwnd, L"hScSmTreeIL");
+        if (hOldIL) { ImageList_Destroy(hOldIL); RemovePropW(hwnd, L"hScSmTreeIL"); }
+
+        wchar_t shell32Path[MAX_PATH];
+        GetSystemDirectoryW(shell32Path, MAX_PATH);
+        wcscat_s(shell32Path, L"\\shell32.dll");
+
+        HIMAGELIST hIL = ImageList_Create(32, 32, ILC_COLOR32 | ILC_MASK, 4, 4);
+        if (hIL) {
+            HICON hClose = NULL, hOpen = NULL;
+            ExtractIconExW(shell32Path, 3, &hClose, NULL, 1);  // index 0: closed folder
+            ExtractIconExW(shell32Path, 5, &hOpen,  NULL, 1);  // index 1: open folder
+            if (hClose) { ImageList_AddIcon(hIL, hClose); DestroyIcon(hClose); }
+            if (hOpen)  { ImageList_AddIcon(hIL, hOpen);  DestroyIcon(hOpen);  }
+            HICON hFallback = NULL;
+            ExtractIconExW(shell32Path, 17, &hFallback, NULL, 1);  // index 2: fallback link
+            if (hFallback) { ImageList_AddIcon(hIL, hFallback); DestroyIcon(hFallback); }
+
+            // Indices 3+: one per SCT_STARTMENU shortcut, loaded from exe or icon file.
+            for (const auto& sc : s_scShortcuts) {
+                if (sc.type != SCT_STARTMENU) continue;
+                HICON hIco = NULL;
+                const std::wstring& src = sc.iconPath.empty() ? sc.exePath : sc.iconPath;
+                if (!src.empty())
+                    PrivateExtractIconsW(src.c_str(), sc.iconIndex, 32, 32, &hIco, NULL, 1, 0);
+                int idx;
+                if (hIco) {
+                    idx = ImageList_AddIcon(hIL, hIco);
+                    DestroyIcon(hIco);
+                    if (idx < 0) idx = 2;  // add failed — fall back
+                } else {
+                    idx = 2;  // icon load failed — use generic link
+                }
+                scIdToImgIdx[sc.id] = idx;
+            }
+            TreeView_SetImageList(s_hScStartMenuTree, hIL, TVSIL_NORMAL);
+            SetPropW(hwnd, L"hScSmTreeIL", (HANDLE)hIL);
+        }
+    }
 
     TreeView_DeleteAllItems(s_hScStartMenuTree);
 
@@ -424,13 +472,15 @@ static void SC_RebuildSmTree(LPARAM selectLParam = 0)
         // Shortcut leaf items after folders.
         for (auto& sc : s_scShortcuts) {
             if (sc.type != SCT_STARTMENU || sc.smNodeId != parentId) continue;
+            auto it    = scIdToImgIdx.find(sc.id);
+            int imgIdx = (it != scIdToImgIdx.end()) ? it->second : 2;
             TVINSERTSTRUCTW tvis     = {};
             tvis.hParent             = hParent;
             tvis.hInsertAfter        = TVI_LAST;
             tvis.item.mask           = TVIF_TEXT | TVIF_IMAGE | TVIF_SELECTEDIMAGE | TVIF_PARAM;
             tvis.item.pszText        = (LPWSTR)sc.name.c_str();
-            tvis.item.iImage         = 2;  // link icon
-            tvis.item.iSelectedImage = 2;
+            tvis.item.iImage         = imgIdx;
+            tvis.item.iSelectedImage = imgIdx;
             tvis.item.lParam         = -(LPARAM)sc.id;  // negative → shortcut item
             sc.hSmItem = (HTREEITEM)SendMessageW(
                 s_hScStartMenuTree, TVM_INSERTITEM, 0, (LPARAM)&tvis);
@@ -723,8 +773,10 @@ void SC_BuildPage(HWND hwnd, HINSTANCE hInst, int pageY, int clientWidth,
     // subfolders can be renamed by double-clicking (TVS_EDITLABELS) and removed
     // with the Remove button.  The root and Programs nodes are fixed.
 
-    // Box is ~17% of dialog width (half of previous 35%), centred.
-    const int treeW = clientWidth * 35 / 200;
+    // Tree width matches the 3 action buttons beneath it — both are centred
+    // together so the tree left/right edges align exactly with the button row.
+    const int addW  = S(150), scW = S(140), remW = S(100), btnGap = S(6);
+    const int treeW = addW + btnGap + scW + btnGap + remW;
     const int treeX = (clientWidth - treeW) / 2;
 
     // Section header — centred + bold (hPageTitleFont).
@@ -748,28 +800,8 @@ void SC_BuildPage(HWND hwnd, HINSTANCE hInst, int pageY, int clientWidth,
         TVS_HASBUTTONS | TVS_SHOWSELALWAYS | TVS_EDITLABELS | TVS_NOTOOLTIPS,
         treeX, rowY, treeW, smTreeH,
         hwnd, (HMENU)IDC_SC_SM_TREE, hInst, NULL);
-    {
-        // Destroy any previous image list left over from a prior page visit.
-        HIMAGELIST hOldIL = (HIMAGELIST)GetPropW(hwnd, L"hScSmTreeIL");
-        if (hOldIL) { ImageList_Destroy(hOldIL); RemovePropW(hwnd, L"hScSmTreeIL"); }
-
-        // 32×32 large icons, matching the project-wide icon size convention.
-        HIMAGELIST hSmIL = ImageList_Create(32, 32, ILC_COLOR32 | ILC_MASK, 2, 2);
-        if (hSmIL) {
-            HICON hClose = NULL, hOpen = NULL;
-            ExtractIconExW(shell32Path, 3, &hClose, NULL, 1);  // large closed yellow folder
-            ExtractIconExW(shell32Path, 5, &hOpen,  NULL, 1);  // large open yellow folder
-            if (hClose) { ImageList_AddIcon(hSmIL, hClose); DestroyIcon(hClose); }
-            if (hOpen)  { ImageList_AddIcon(hSmIL, hOpen);  DestroyIcon(hOpen);  }
-            HICON hLink = NULL;
-            ExtractIconExW(shell32Path, 17, &hLink, NULL, 1); // large .lnk icon (index 2, for shortcut items)
-            if (hLink)  { ImageList_AddIcon(hSmIL, hLink);  DestroyIcon(hLink);  }
-            TreeView_SetImageList(s_hScStartMenuTree, hSmIL, TVSIL_NORMAL);
-            // No custom item height — Windows auto-sizes rows to fit icon+font,
-            // giving the same compact highlight as the Files page.
-            SetPropW(hwnd, L"hScSmTreeIL", (HANDLE)hSmIL);
-        }
-    }
+    // Image list and per-shortcut icons are created by SC_RebuildSmTree() below.
+    // SC_TearDown() destroys the list via the "hScSmTreeIL" window property.
     // Apply the same scaled GUI font used on the Files page so text weight and
     // size are consistent across all TreeViews in the app.
     if (hGuiFont) SendMessageW(s_hScStartMenuTree, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
@@ -793,8 +825,8 @@ void SC_BuildPage(HWND hwnd, HINSTANCE hInst, int pageY, int clientWidth,
     // Action buttons: Add Subfolder (blue) | Add Shortcut Here (green) | Remove (red).
     // Centred under the tree.  Remove and Add Shortcut start disabled;
     // TVN_SELCHANGED enables them appropriately.
-    const int addW  = S(150), scW = S(140), remW = S(100), btnGap = S(6);
-    const int bRowX = treeX + (treeW - addW - btnGap - scW - btnGap - remW) / 2;
+    // addW, scW, remW, btnGap are defined above with treeW.
+    const int bRowX = treeX;  // tree and button row share the same left edge
     std::wstring scSmAdd = loc(L"sc_sm_add", L"Add Subfolder");
     HWND hSmAddBtn = CreateCustomButtonWithIcon(
         hwnd, IDC_SC_SM_ADD, scSmAdd.c_str(), ButtonColor::Blue,

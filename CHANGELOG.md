@@ -2,7 +2,16 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
-## [2026.03.19.11] - 2026-03-19
+## [2026.03.19.12] - 2026-03-19
+
+### Added
+- **VFS picker double-click to select** — `NM_DBLCLK` on `VFSP_LIST` now sends `WM_COMMAND(VFSP_OK)` when a row is selected, identical to clicking OK.
+- **SM tree per-shortcut program icons** — `SC_RebuildSmTree()` now rebuilds the image list on every call. Indices 0/1 = folder icons; index 2 = fallback link; indices 3+ = per-shortcut icon loaded via `PrivateExtractIconsW` from `iconPath` or `exePath`. Image list creation removed from `SC_BuildPage`.
+
+### Changed
+- **SM tree width = button row width** — `treeW = addW + btnGap + scW + btnGap + remW`; `bRowX = treeX`. Tree and buttons now share the same horizontal extent and are centred together. Button constants moved before tree creation.
+
+
 
 ### Added
 - **SM tree shortcut child items (Phase 2)** — `SCT_STARTMENU` shortcuts now appear as leaf items in their parent folder node in the Start Menu TreeView. Image-list index 2 (`shell32.dll` #17 link icon) distinguishes them from folder nodes (indices 0/1). `lParam` scheme: positive = folder `node.id`, negative = `-(sc.id)`. New `SC_RebuildSmTree(selectLParam)` replaces the inline population block and is called on every page visit, shortcut add/edit/remove, and folder remove. Double-click opens Edit dialog; right-click shows Edit/Remove shortcut menu (`IDM_SC_CTX_EDIT_SM` 6307, `IDM_SC_CTX_REMOVE_SM` 6308). TVN_BEGINLABELEDIT cancelled for shortcut items. TVN_SELCHANGED disables Add Subfolder and Add Shortcut Here for shortcut items. Folder remove also cleans up shortcuts in the removed subtree. "Add Shortcut Here" always adds new — multiple shortcuts per SM folder now supported.
