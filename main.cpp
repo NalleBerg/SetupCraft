@@ -276,17 +276,25 @@ LRESULT CALLBACK NewProjectDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lP
         HWND hTitle = CreateWindowExW(0, L"STATIC", titleText.c_str(),
             WS_CHILD | WS_VISIBLE | SS_LEFT,
             20, 15, 500, 25, hDlg, NULL, hInst, NULL);
-        HFONT hTitleFont = CreateFontW(-18, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
-            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-            CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
-        if (hTitleFont) SendMessageW(hTitle, WM_SETFONT, (WPARAM)hTitleFont, TRUE);
+        {
+            // DPI-correct title font: NONCLIENTMETRICS × 1.5, semi-bold
+            // (same recipe as s_hPageTitleFont in mainwindow.cpp)
+            NONCLIENTMETRICSW ncmT = {}; ncmT.cbSize = sizeof(ncmT);
+            SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncmT), &ncmT, 0);
+            LOGFONTW lfT = ncmT.lfMessageFont;
+            if (lfT.lfHeight < 0) lfT.lfHeight = (LONG)(lfT.lfHeight * 1.5f);
+            lfT.lfWeight = FW_SEMIBOLD; lfT.lfQuality = CLEARTYPE_QUALITY; lfT.lfCharSet = DEFAULT_CHARSET;
+            HFONT hTitleFont = CreateFontIndirectW(&lfT);
+            if (hTitleFont) SendMessageW(hTitle, WM_SETFONT, (WPARAM)hTitleFont, TRUE);
+        }
         
         // Project Name label and edit
         auto itNameLabel = g_locale.find(L"new_proj_name_label");
         std::wstring nameLabelText = (itNameLabel != g_locale.end()) ? itNameLabel->second : L"Project Name:";
-        CreateWindowExW(0, L"STATIC", nameLabelText.c_str(),
+        { HWND hL = CreateWindowExW(0, L"STATIC", nameLabelText.c_str(),
             WS_CHILD | WS_VISIBLE | SS_LEFT,
             20, 55, 150, 20, hDlg, NULL, hInst, NULL);
+          if (g_guiFont) SendMessageW(hL, WM_SETFONT, (WPARAM)g_guiFont, TRUE); }
         HWND hNameEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
             WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL,
             20, 75, 500, 25, hDlg, (HMENU)IDC_NEW_PROJ_NAME, hInst, NULL);
@@ -295,9 +303,10 @@ LRESULT CALLBACK NewProjectDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lP
         // Directory label, edit, and browse button
         auto itDirLabel = g_locale.find(L"new_proj_dir_label");
         std::wstring dirLabelText = (itDirLabel != g_locale.end()) ? itDirLabel->second : L"Source Directory:";
-        CreateWindowExW(0, L"STATIC", dirLabelText.c_str(),
+        { HWND hL = CreateWindowExW(0, L"STATIC", dirLabelText.c_str(),
             WS_CHILD | WS_VISIBLE | SS_LEFT,
             20, 110, 150, 20, hDlg, NULL, hInst, NULL);
+          if (g_guiFont) SendMessageW(hL, WM_SETFONT, (WPARAM)g_guiFont, TRUE); }
         HWND hDirEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
             WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL,
             20, 130, 440, 25, hDlg, (HMENU)IDC_NEW_PROJ_DIR, hInst, NULL);
@@ -308,9 +317,10 @@ LRESULT CALLBACK NewProjectDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lP
         // Description label and edit
         auto itDescLabel = g_locale.find(L"new_proj_desc_label");
         std::wstring descLabelText = (itDescLabel != g_locale.end()) ? itDescLabel->second : L"Description (optional):";
-        CreateWindowExW(0, L"STATIC", descLabelText.c_str(),
+        { HWND hL = CreateWindowExW(0, L"STATIC", descLabelText.c_str(),
             WS_CHILD | WS_VISIBLE | SS_LEFT,
             20, 165, 200, 20, hDlg, NULL, hInst, NULL);
+          if (g_guiFont) SendMessageW(hL, WM_SETFONT, (WPARAM)g_guiFont, TRUE); }
         HWND hDescEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
             WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL,
             20, 185, 500, 60, hDlg, (HMENU)IDC_NEW_PROJ_DESC, hInst, NULL);
@@ -319,9 +329,10 @@ LRESULT CALLBACK NewProjectDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lP
         // Language label and combobox
         auto itLangLabel = g_locale.find(L"new_proj_lang_label");
         std::wstring langLabelText = (itLangLabel != g_locale.end()) ? itLangLabel->second : L"Default Language:";
-        CreateWindowExW(0, L"STATIC", langLabelText.c_str(),
+        { HWND hL = CreateWindowExW(0, L"STATIC", langLabelText.c_str(),
             WS_CHILD | WS_VISIBLE | SS_LEFT,
             20, 255, 200, 20, hDlg, NULL, hInst, NULL);
+          if (g_guiFont) SendMessageW(hL, WM_SETFONT, (WPARAM)g_guiFont, TRUE); }
         HWND hLangCombo = CreateWindowExW(0, L"COMBOBOX", L"",
             WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
             20, 275, 240, 200, hDlg, (HMENU)IDC_NEW_PROJ_LANG, hInst, NULL);
@@ -342,9 +353,10 @@ LRESULT CALLBACK NewProjectDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lP
         // Version label and edit
         auto itVersionLabel = g_locale.find(L"new_proj_version_label");
         std::wstring versionLabelText = (itVersionLabel != g_locale.end()) ? itVersionLabel->second : L"Version:";
-        CreateWindowExW(0, L"STATIC", versionLabelText.c_str(),
+        { HWND hL = CreateWindowExW(0, L"STATIC", versionLabelText.c_str(),
             WS_CHILD | WS_VISIBLE | SS_LEFT,
             280, 255, 100, 20, hDlg, NULL, hInst, NULL);
+          if (g_guiFont) SendMessageW(hL, WM_SETFONT, (WPARAM)g_guiFont, TRUE); }
         HWND hVersionEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"1.0.0",
             WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL,
             280, 275, 240, 25, hDlg, (HMENU)IDC_NEW_PROJ_VERSION, hInst, NULL);
@@ -923,10 +935,12 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             ncm.cbSize = sizeof(ncm);
             SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
             LOGFONTW lf  = ncm.lfMessageFont;
+            if (lf.lfHeight < 0)
+                lf.lfHeight = (LONG)(lf.lfHeight * 1.2f); // 120 % — matches s_scaledFont in mainwindow.cpp
             lf.lfWeight  = FW_NORMAL;
             lf.lfQuality = CLEARTYPE_QUALITY;
             lf.lfCharSet = DEFAULT_CHARSET;
-            wcscpy_s(lf.lfFaceName, L"Segoe UI");
+            wcscpy_s(lf.lfFaceName, L"Segoe UI"); // keep: full Unicode glyph coverage for language names
             g_guiFont = CreateFontIndirectW(&lf);
         }
         if (g_guiFont) SendMessageW(hCombo, WM_SETFONT, (WPARAM)g_guiFont, TRUE);

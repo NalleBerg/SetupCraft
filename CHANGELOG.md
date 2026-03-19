@@ -2,6 +2,14 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.03.19.15] - 2026-03-19
+
+### Fixed
+- **Pin-strip checkboxes now persist state across page switches** — clicking an individual "Pin to Start" or "Pin to Taskbar" strip checkbox now immediately writes `pinToStart`/`pinToTaskbar` back to the matching `ShortcutDef` in `s_scShortcuts`. Previously no write-back handler existed: the custom checkbox subclass toggled the visual state but never updated the data model, so state was discarded every time the page was torn down and rebuilt.
+- **Pin-strip cross-talk fix (UB → `SC_RefreshPinLabels`)** — `SC_RefreshPinStrips` destroys and recreates every pin checkbox. Calling it from `WM_COMMAND` while the triggering checkbox's `WM_LBUTTONUP` is still on the call stack is UB: the button's post-`WM_LBUTTONUP` cleanup ran against an already-destroyed HWND, causing spurious check/uncheck on adjacent strip entries. Added `SC_RefreshPinLabels()` — a lightweight helper that updates only the "Not Pinned / Pinned / Multi Pinned" status labels and bulk-pin button enable state, without touching checkbox HWNDs. Individual-click handlers now call this instead of `SC_RefreshPinStrips`.
+- **Entry screen font scaling corrected** — `g_guiFont` was created from the raw `NONCLIENTMETRICS` `lfHeight` without the `× 1.2f` scale applied to `s_scaledFont` in the main window, making entry-screen labels and the new-project dialog visually smaller. Fixed by adding `if (lf.lfHeight < 0) lf.lfHeight = (LONG)(lf.lfHeight * 1.2f)` before `CreateFontIndirectW`. Same fix applied to `g_tooltipFont` in `tooltip.cpp`.
+- **New-project dialog title and label fonts corrected** — dialog title used hardcoded `CreateFontW(-18, …)` instead of `NONCLIENTMETRICS × 1.5 + FW_SEMIBOLD`. All five static labels (Name, Directory, Description, Language, Version) were never sent `WM_SETFONT` and fell back to the system default font. Both now use the correct scaled body/title fonts.
+
 ## [2026.03.19.14] - 2026-03-19
 
 ### Added

@@ -347,6 +347,55 @@ mainwindow.cpp knows nothing about the page internals.  It only:
     SC_RebuildSmTree call needed because sibling/parent HTREEITEM handles are
     still valid after DeleteItem.
 
+── Pin-strip checkboxes — state write-back and SC_RefreshPinLabels ─────────────
+
+  Individual pin-strip checkboxes (IDC_SC_SMPIN_STRIP_BASE+i / IDC_SC_TBPIN_STRIP_BASE+i)
+  are custom-drawn BS_OWNERDRAW buttons managed by CheckboxSubclassProc in checkbox.cpp.
+  The subclass toggles the visual state (CBP_CHECKED window property) on WM_LBUTTONUP
+  BEFORE calling DefSubclassProc, so BM_GETCHECK returns the correct new value when
+  WM_COMMAND fires.  The subclass does NOT write to s_scShortcuts — that is the
+  responsibility of SC_OnCommand.
+
+  SC_OnCommand — range handlers before switch(id):
+    id in [IDC_SC_SMPIN_STRIP_BASE, +50):
+      1. GetDlgItem(hwnd, id) → hCb
+      2. GetPropW(hCb, L"ScId") → scId  (the ShortcutDef::id set at strip creation)
+      3. SendMessageW(hCb, BM_GETCHECK, 0, 0) → ticked
+      4. Locate sc in s_scShortcuts where sc.id == scId → sc.pinToStart = ticked
+      5. SC_RefreshPinLabels(hwnd)
+      6. MainWindow::MarkAsModified()
+    id in [IDC_SC_TBPIN_STRIP_BASE, +50): same, writes sc.pinToTaskbar.
+
+  ScId window property:
+    Set at checkbox creation: SetPropW(hSmCb, L"ScId", (HANDLE)(INT_PTR)pSc->id).
+    Maps the strip slot index (0-based WM_COMMAND id offset) to the stable
+    ShortcutDef::id (not reused, starts at 1).  Essential because the eligible
+    list may be a deduplicated subset of s_scShortcuts — slot 0 is not
+    necessarily s_scShortcuts[0].
+
+  SC_RefreshPinLabels(HWND hwnd):
+    Lightweight helper — does NOT touch any checkbox HWNDs.
+    1. Rebuilds the same deduplicated eligible set as SC_RefreshPinStrips.
+    2. Counts smCnt / tbCnt / anyEligible.
+    3. SetWindowTextW on IDC_SC_SM_PIN_LABEL and IDC_SC_TB_PIN_LABEL.
+    4. EnableWindow on IDC_SC_PINSTART_BTN and IDC_SC_PINTASKBAR_BTN.
+
+  Why SC_RefreshPinStrips must NOT be called from individual checkbox WM_COMMAND:
+    SC_RefreshPinStrips calls DestroyWindow on all existing pin checkboxes.
+    DefSubclassProc sends WM_COMMAND synchronously from within WM_LBUTTONUP —
+    so the full call stack at WM_COMMAND time is still inside the triggering
+    checkbox's WM_LBUTTONUP handler.  Calling DestroyWindow on that HWND while
+    its WM_LBUTTONUP is still executing is undefined behaviour: the button
+    framework's post-WM_LBUTTONUP cleanup (ReleaseCapture, etc.) runs against
+    an already-freed HWND, corrupting message routing for the other stripped
+    checkboxes and causing spurious BN_CLICKED notifications on adjacent entries
+    (cross-talk / wrong checkbox toggled).
+    SC_RefreshPinStrips is still called correctly from:
+      • SC_BuildPage / SC_RefreshDesktopStrip (page not live yet — no UB)
+      • IDC_SC_PINSTART_BTN / IDC_SC_PINTASKBAR_BTN (bulk-pin buttons — the
+        checkbox HWNDs being destroyed are NOT the source of the WM_COMMAND)
+      • All other mutation paths (add/edit/remove shortcut) — same reason
+
 ── DB persistence (SC_SaveToDb / SC_LoadFromDb) ────────────────────────────────
 
   Tables (created by DB::InitDb() with CREATE TABLE IF NOT EXISTS):

@@ -1199,10 +1199,82 @@ LRESULT SC_OnNotify(HWND hwnd, LPNMHDR nmhdr, bool* handled)
     return 0;
 }
 
+// ── SC_RefreshPinLabels ────────────────────────────────────────────────────────
+// Lightweight helper: updates only the pin status labels and the enable state
+// of the two bulk-pin buttons.  Does NOT touch the strip checkboxes themselves,
+// so it is safe to call while a checkbox WM_LBUTTONUP is still on the stack.
+static void SC_RefreshPinLabels(HWND hwnd)
+{
+    // Build the same deduplicated eligible set used by SC_RefreshPinStrips.
+    int smCnt = 0, tbCnt = 0;
+    bool anyEligible = false;
+    std::vector<std::wstring> seenPaths;
+    for (const auto& sc : s_scShortcuts) {
+        if (sc.type != SCT_DESKTOP && sc.type != SCT_STARTMENU) continue;
+        if (sc.exePath.empty()) continue;
+        std::wstring lower = sc.exePath;
+        for (wchar_t& c : lower) c = towlower(c);
+        bool dup = false;
+        for (const auto& seen : seenPaths) if (seen == lower) { dup = true; break; }
+        if (dup) continue;
+        seenPaths.push_back(lower);
+        anyEligible = true;
+        if (sc.pinToStart)   ++smCnt;
+        if (sc.pinToTaskbar) ++tbCnt;
+    }
+    const auto& locMap = MainWindow::GetLocale();
+    auto loc = [&](const wchar_t* key, const wchar_t* fb) -> const wchar_t* {
+        auto it = locMap.find(key); return (it != locMap.end()) ? it->second.c_str() : fb;
+    };
+    auto pinText = [&](int n) -> const wchar_t* {
+        if (n == 0) return loc(L"sc_pin_not_pinned",  L"Not Pinned");
+        if (n == 1) return loc(L"sc_pin_pinned",      L"Pinned");
+        return             loc(L"sc_pin_multi_pinned", L"Multi Pinned");
+    };
+    if (HWND h = GetDlgItem(hwnd, IDC_SC_SM_PIN_LABEL)) SetWindowTextW(h, pinText(smCnt));
+    if (HWND h = GetDlgItem(hwnd, IDC_SC_TB_PIN_LABEL)) SetWindowTextW(h, pinText(tbCnt));
+    if (HWND h = GetDlgItem(hwnd, IDC_SC_PINSTART_BTN))   EnableWindow(h, anyEligible);
+    if (HWND h = GetDlgItem(hwnd, IDC_SC_PINTASKBAR_BTN)) EnableWindow(h, anyEligible);
+}
+
 // ── SC_OnCommand ──────────────────────────────────────────────────────────────
 
 bool SC_OnCommand(HWND hwnd, int id)
 {
+    // ── Individual "Pin to Start" strip checkbox toggled ──────────────────────
+    // These are dynamic controls (IDC_SC_SMPIN_STRIP_BASE+i) — can't use switch.
+    // IMPORTANT: Do NOT call SC_RefreshPinStrips here.  The checkbox's own
+    // WM_LBUTTONUP is still on the call stack (WM_COMMAND is sent synchronously
+    // by DefSubclassProc).  Destroying the checkbox HWND while processing its
+    // WM_LBUTTONUP is UB and causes cross-talk between strip entries.
+    // Instead we update s_scShortcuts and refresh only the status labels.
+    if (id >= IDC_SC_SMPIN_STRIP_BASE && id < IDC_SC_SMPIN_STRIP_BASE + 50) {
+        HWND hCb = GetDlgItem(hwnd, id);
+        if (hCb) {
+            int scId    = (int)(INT_PTR)GetPropW(hCb, L"ScId");
+            bool ticked = (SendMessageW(hCb, BM_GETCHECK, 0, 0) == BST_CHECKED);
+            for (auto& sc : s_scShortcuts)
+                if (sc.id == scId) { sc.pinToStart = ticked; break; }
+            SC_RefreshPinLabels(hwnd);
+            MainWindow::MarkAsModified();
+        }
+        return true;
+    }
+
+    // ── Individual "Pin to Taskbar" strip checkbox toggled ────────────────────
+    if (id >= IDC_SC_TBPIN_STRIP_BASE && id < IDC_SC_TBPIN_STRIP_BASE + 50) {
+        HWND hCb = GetDlgItem(hwnd, id);
+        if (hCb) {
+            int scId    = (int)(INT_PTR)GetPropW(hCb, L"ScId");
+            bool ticked = (SendMessageW(hCb, BM_GETCHECK, 0, 0) == BST_CHECKED);
+            for (auto& sc : s_scShortcuts)
+                if (sc.id == scId) { sc.pinToTaskbar = ticked; break; }
+            SC_RefreshPinLabels(hwnd);
+            MainWindow::MarkAsModified();
+        }
+        return true;
+    }
+
     switch (id) {
 
     // ── Desktop shortcut button — ALWAYS adds a new shortcut ─────────────────
