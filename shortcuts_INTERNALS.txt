@@ -408,7 +408,9 @@ mainwindow.cpp knows nothing about the page internals.  It only:
     sc_shortcuts  (id INTEGER PRIMARY KEY, project_id INTEGER, type INTEGER,
                    sm_node_id INTEGER, name TEXT, exe_path TEXT,
                    working_dir TEXT, icon_path TEXT, icon_index INTEGER,
-                   run_as_admin INTEGER)
+                   run_as_admin INTEGER, pin_to_start INTEGER, pin_to_taskbar INTEGER)
+      -- pin_to_start / pin_to_taskbar are ALTER-TABLEd in at InitDb() so
+         existing databases are migrated automatically.
       — stores s_scShortcuts for all types: SCT_DESKTOP(0), SCT_STARTMENU(1),
         SCT_PIN_START(2), SCT_PIN_TASKBAR(3).
 
@@ -431,13 +433,13 @@ mainwindow.cpp knows nothing about the page internals.  It only:
   5201  IDC_SC_DESKTOP_OPT      Desktop opt-out checkbox
   5202  IDC_SC_STARTMENU_BTN    (reserved)
   5203  IDC_SC_PROGRAMS_BTN     (reserved)
-  5204  IDC_SC_PINSTART_BTN     Pin-to-Start 64×64 icon (click→pin dialog TODO)
-  5205  IDC_SC_PINTASKBAR_BTN   Pin-to-Taskbar 64×64 icon (click→pin dialog TODO)
+  5204  IDC_SC_PINSTART_BTN     Pin-to-Start 64×64 icon (hover tooltip only; no click action)
+  5205  IDC_SC_PINTASKBAR_BTN   Pin-to-Taskbar 64×64 icon (hover tooltip only; no click action)
   5206  IDC_SC_SM_TREE          Start Menu folder TreeView
   5207  IDC_SC_SM_ADD           Add Subfolder button
   5208  IDC_SC_SM_REMOVE        Remove Subfolder button
-  5209  IDC_SC_SM_PIN_LABEL     "Not Pinned / Pinned / Multi Pinned" label, col 1
-  5210  IDC_SC_TB_PIN_LABEL     "Not Pinned / Pinned / Multi Pinned" label, col 2
+  5209  (removed — was IDC_SC_SM_PIN_LABEL “Not Pinned/Pinned/Multi Pinned” col 1)
+  5210  (removed — was IDC_SC_TB_PIN_LABEL “Not Pinned/Pinned/Multi Pinned” col 2)
   5211  IDC_SC_SM_PIN_OPT       Start Menu pin opt-out checkbox
   5212  IDC_SC_TB_PIN_OPT       Taskbar pin opt-out checkbox
   5213  IDC_SC_SM_ADDSC         "Add Shortcut Here" green button (SM section)
@@ -471,9 +473,6 @@ mainwindow.cpp knows nothing about the page internals.  It only:
   sc_desktop_opt_out        Allow the end user to opt out of the desktop shortcut at install time
   sc_sm_pin_section         Pin to Start
   sc_tb_pin_section         Taskbar
-  sc_pin_not_pinned         Not Pinned
-  sc_pin_pinned             Pinned
-  sc_pin_multi_pinned       Multi Pinned
   sc_sm_pin_opt_out         Allow the end user to opt out of the Start Menu pin at install time
   sc_tb_pin_opt_out         Allow the end user to opt out of the Taskbar pin at install time
   sc_sm_section_label       Start Menu
@@ -490,9 +489,10 @@ mainwindow.cpp knows nothing about the page internals.  It only:
   sc_ctx_edit               Edit shortcut…
   sc_ctx_remove_sc          Remove shortcut
   sc_pin_start              Pin to Start
-  sc_pin_start_tooltip      Click to select shortcuts to pin to the Start Menu
+  sc_pin_start_tooltip      Use the checkboxes below to select which shortcuts to pin to Start.
   sc_pin_taskbar            Pin to Taskbar
-  sc_pin_taskbar_tooltip    Click to select shortcuts to pin to the Taskbar
+  sc_pin_taskbar_tooltip    Use the checkboxes below to select which shortcuts to pin to the Taskbar.
+  sc_pin_add_first          Add shortcuts to pin first  (disabled-state tooltip; mainwindow.cpp timer)
   sc_ctx_configure          Configure shortcut…   (right-click stub; greyed until dialog done)
 
   All other locales (da_DK, de_DE, …) are translated at publishing time only.
@@ -502,7 +502,9 @@ mainwindow.cpp knows nothing about the page internals.  It only:
   5200–5213   Shortcuts page main controls (IDC_SC_*)
   5220–5229   Shortcut Edit dialog controls (IDC_SCDLG_*)
   5300–5304   Shortcuts page static labels
-  5400–5449   Desktop mini-icon strip (IDC_SC_DSK_STRIP_BASE + i, max 50)
+  5400–5449   Desktop mini-icon strip   (IDC_SC_DSK_STRIP_BASE + i, max 50)
+  5450–5499   Start Menu pin strip      (IDC_SC_SMPIN_STRIP_BASE + i, max 50)
+  5500–5549   Taskbar pin strip         (IDC_SC_TBPIN_STRIP_BASE + i, max 50)
   6300–6308   Context-menu command IDs (IDM_SC_CTX_*)
 
 ── Image list lifetime ─────────────────────────────────────────────────────────
@@ -516,11 +518,19 @@ mainwindow.cpp knows nothing about the page internals.  It only:
 
 ── Future work (next development session) ─────────────────────────────────────
 
-  1. Pin to Start / Pin to Taskbar shortcut config — wire SC_EditShortcutDialog
-     for IDC_SC_PINSTART_BTN and IDC_SC_PINTASKBAR_BTN; un-grey the
-     IDM_SC_CTX_EDIT_SC right-click stub.
+  No planned work — the Shortcuts page is feature-complete as of v2026.03.20.09.
 
-  DONE (Phase 2):
+  DONE (Phase 3 — v2026.03.20.09):
+  ✔ Pin status labels removed; “Not Pinned/Pinned/Multi Pinned” controls gone.
+  ✔ Select-all removed from 64×64 pin icons; developer selects individually.
+  ✔ Hover tooltip on enabled 64×64 pin icons (SC_DesktopIconSubclassProc
+    WM_MOUSEMOVE/WM_MOUSELEAVE).
+  ✔ SC_TooltipSubclassProc + AttachTooltip generic helper added.
+  ✔ Write-back fix: SC_OnCommand receives real HWND from lParam + wmEvent;
+    wmEvent != 0 guard; pin state survives page switches.
+  ✔ DB persistence: pin_to_start / pin_to_taskbar columns saved and loaded.
+
+  DONE (Phase 2 — v2026.03.19.11 – .15):
   ✔ Start Menu shortcut display — SCT_STARTMENU shortcuts now appear as leaf
     items in the SM TreeView under their folder node (SC_RebuildSmTree).
     Double-click / right-click → Edit or Remove via IDM_SC_CTX_EDIT_SM /

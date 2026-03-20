@@ -2,6 +2,22 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.03.20.09] - 2026-03-20
+
+### Changed
+- **Pin status labels ("Not Pinned / Pinned / Multi Pinned") removed** — the checkboxes make pin state self-evident; removing them gives the page a cleaner layout. `IDC_SC_SM_PIN_LABEL` and `IDC_SC_TB_PIN_LABEL` controls removed; `SC_RefreshPinLabels` now only updates pin-button enable state.
+- **Select-all removed from 64×64 pin icons** — clicking the Pin to Start / Pin to Taskbar icon no longer bulk-toggles checkboxes. Each shortcut must be selected individually.
+
+### Added
+- **64×64 pin icon hover tooltip** — when a pin icon is enabled, hovering shows a multiline tooltip: "Use the checkboxes below to select which shortcuts to pin to Start" / "…to pin to the Taskbar". Added `WM_MOUSEMOVE`/`WM_MOUSELEAVE` to `SC_DesktopIconSubclassProc`. The disabled-state "Add shortcuts to pin first" tooltip (mainwindow.cpp timer callback) is unchanged.
+- **`SC_TooltipSubclassProc` / `AttachTooltip` helper** — generic reusable hover-tooltip subclass in `shortcuts.cpp`. Text stored as heap `std::wstring` in property `L"TtText"`; `WM_NCDESTROY` frees it. Subclass id 2 (coexists with `CheckboxSubclassProc` id 1).
+
+### Fixed
+- **Pin-strip write-back fix** — `SC_OnCommand` now receives the real `HWND` from `lParam` and the `wmEvent` code. Range handlers use `hCtrl` directly with a `wmEvent != 0` guard that blocks phantom writes during page rebuilds. Pin state now survives page switches.
+- **DB persistence for `pinToStart`/`pinToTaskbar`** — `SC_SaveToDb`/`SC_LoadFromDb` now map the `pin_to_start`/`pin_to_taskbar` columns. Existing databases are migrated via `ALTER TABLE` in `DB::InitDb`.
+
+**Shortcuts page is now feature-complete.**
+
 ## [2026.03.19.15] - 2026-03-19
 
 ### Fixed

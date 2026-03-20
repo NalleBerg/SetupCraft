@@ -10,6 +10,7 @@
  */
 
 #include "shortcuts.h"
+#include <windowsx.h>        // GET_X_LPARAM / GET_Y_LPARAM
 #include "db.h"              // DB::InsertScShortcut etc.
 #include "sc_shortcut_dialog.h"  // SC_EditShortcutDialog()
 #include "mainwindow.h"    // MainWindow::MarkAsModified(), GetLocale()
@@ -277,6 +278,48 @@ void SC_RefreshDesktopStrip(HWND hwnd, HINSTANCE hInst)
 // Destroys and recreates both Pin-to-Start and Pin-to-Taskbar checkbox strips
 // from the current s_scShortcuts.  Also updates the two status labels.
 //
+// ── SC_TooltipSubclassProc ────────────────────────────────────────────────────
+// Generic hover-tooltip subclass.  Before installing, store the tooltip text
+// (heap-allocated std::wstring) as property L"TtText" on the control.
+// Install with subclassId = 2 (checkbox controls use id = 1).
+static LRESULT CALLBACK SC_TooltipSubclassProc(
+    HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+    UINT_PTR uIdSubclass, DWORD_PTR /*dwRefData*/)
+{
+    switch (msg) {
+    case WM_MOUSEMOVE: {
+        if (!IsTooltipVisible()) {
+            auto* pText = reinterpret_cast<std::wstring*>(GetPropW(hwnd, L"TtText"));
+            if (pText && !pText->empty()) {
+                POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+                ClientToScreen(hwnd, &pt);
+                ShowMultilingualTooltip({{L"", *pText}},
+                    pt.x + 16, pt.y + 16, GetParent(hwnd));
+                TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, hwnd, 0 };
+                TrackMouseEvent(&tme);
+            }
+        }
+        break;
+    }
+    case WM_MOUSELEAVE:
+        HideTooltip();
+        break;
+    case WM_NCDESTROY:
+        delete reinterpret_cast<std::wstring*>(GetPropW(hwnd, L"TtText"));
+        RemovePropW(hwnd, L"TtText");
+        RemoveWindowSubclass(hwnd, SC_TooltipSubclassProc, uIdSubclass);
+        break;
+    }
+    return DefSubclassProc(hwnd, msg, wParam, lParam);
+}
+
+// Attach a hover tooltip to a control (installs SC_TooltipSubclassProc).
+static void AttachTooltip(HWND hwnd, std::wstring text, UINT_PTR subclassId = 2)
+{
+    SetPropW(hwnd, L"TtText", reinterpret_cast<HANDLE>(new std::wstring(std::move(text))));
+    SetWindowSubclass(hwnd, SC_TooltipSubclassProc, subclassId, 0);
+}
+
 // Eligible shortcuts: any SCT_DESKTOP or SCT_STARTMENU entry.  If multiple
 // shortcuts share the same exePath they are deduplicated — only the first one
 // (by id) appears.  The shortcut's sc.id is stored in the L"ScId" window
@@ -311,28 +354,6 @@ void SC_RefreshPinStrips(HWND hwnd, HINSTANCE hInst)
         seenPaths.push_back(lower);
         eligible.push_back(&sc);
     }
-
-    // Compute how many are pinned to each target.
-    int smPinCnt = 0, tbPinCnt = 0;
-    for (const auto* sc : eligible) {
-        if (sc->pinToStart)   ++smPinCnt;
-        if (sc->pinToTaskbar) ++tbPinCnt;
-    }
-
-    // Update the status labels.
-    const auto& locMap = MainWindow::GetLocale();
-    auto loc = [&](const wchar_t* key, const wchar_t* fb) -> std::wstring {
-        auto it = locMap.find(key); return (it != locMap.end()) ? it->second : fb;
-    };
-    auto pinStatus = [&](int cnt) -> std::wstring {
-        if (cnt == 0) return loc(L"sc_pin_not_pinned",  L"Not Pinned");
-        if (cnt == 1) return loc(L"sc_pin_pinned",      L"Pinned");
-        return              loc(L"sc_pin_multi_pinned", L"Multi Pinned");
-    };
-    HWND hSmLbl = GetDlgItem(hwnd, IDC_SC_SM_PIN_LABEL);
-    if (hSmLbl) SetWindowTextW(hSmLbl, pinStatus(smPinCnt).c_str());
-    HWND hTbLbl = GetDlgItem(hwnd, IDC_SC_TB_PIN_LABEL);
-    if (hTbLbl) SetWindowTextW(hTbLbl, pinStatus(tbPinCnt).c_str());
 
     // Enable/disable the big pin icon buttons (grey = no eligible shortcuts).
     HWND hPinStartBtn = GetDlgItem(hwnd, IDC_SC_PINSTART_BTN);
@@ -495,6 +516,36 @@ static LRESULT CALLBACK SC_DesktopIconSubclassProc(
         }
         EndPaint(hwnd, &ps);
         return 0;
+    }
+    case WM_MOUSEMOVE: {
+        // Show a tooltip on hover when the pin icon is enabled.
+        // (Disabled-state tooltip is handled in mainwindow.cpp WM_MOUSEMOVE
+        // because disabled windows forward mouse messages to their parent.)
+        int ctrlId = GetDlgCtrlID(hwnd);
+        if ((ctrlId == IDC_SC_PINSTART_BTN || ctrlId == IDC_SC_PINTASKBAR_BTN)
+            && IsWindowEnabled(hwnd) && !IsTooltipVisible())
+        {
+            const wchar_t* key = (ctrlId == IDC_SC_PINSTART_BTN)
+                ? L"sc_pin_start_tooltip" : L"sc_pin_taskbar_tooltip";
+            const wchar_t* fb  = (ctrlId == IDC_SC_PINSTART_BTN)
+                ? L"Use the checkboxes below to select which shortcuts to pin to Start."
+                : L"Use the checkboxes below to select which shortcuts to pin to the Taskbar.";
+            const auto& loc = MainWindow::GetLocale();
+            auto it = loc.find(key);
+            std::wstring txt = (it != loc.end()) ? it->second : fb;
+            POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+            ClientToScreen(hwnd, &pt);
+            ShowMultilingualTooltip({{L"", txt}}, pt.x + 16, pt.y + 16, GetParent(hwnd));
+            TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, hwnd, 0 };
+            TrackMouseEvent(&tme);
+        }
+        break;
+    }
+    case WM_MOUSELEAVE: {
+        int ctrlId = GetDlgCtrlID(hwnd);
+        if (ctrlId == IDC_SC_PINSTART_BTN || ctrlId == IDC_SC_PINTASKBAR_BTN)
+            HideTooltip();
+        break;
     }
     case WM_NCDESTROY:
         RemoveWindowSubclass(hwnd, SC_DesktopIconSubclassProc, 0);
@@ -677,7 +728,7 @@ int SC_BuildPage(HWND hwnd, HINSTANCE hInst, int pageY, int clientWidth,
 
     // ── 3-column shortcut section: Desktop | Start Menu pin | Taskbar pin ─────
     // Each column is clientWidth/3 wide.  Bold centred heading, 64×64 icon,
-    // and beneath: opt-out checkbox for Desktop; pin-status label for SM/TB.
+    // and beneath: opt-out checkbox for each column.
     // IDs 5302/5303/5304 → WM_CTLCOLORSTATIC selects hPageTitleFont for headings.
     {
         const int colW    = clientWidth / 3;
@@ -687,7 +738,6 @@ int SC_BuildPage(HWND hwnd, HINSTANCE hInst, int pageY, int clientWidth,
         const int col2X   = colW * 2;
         const int iconSz  = S(64);
         const int headH   = S(22);
-        const int statusH = S(18);
 
         // Row A — section headings
         {
@@ -820,10 +870,9 @@ int SC_BuildPage(HWND hwnd, HINSTANCE hInst, int pageY, int clientWidth,
             rowY += pinStripReservedH;
         }
 
-        // Row C — pin-status labels (cols 1/2) then opt-out checkboxes for all 3 columns.
-        // Cols 1/2: status label at rowY, then checkbox at rowY+statusH+S(4).
-        // Col 0:   checkbox starts at rowY (no label above it).
-        // All checkboxes use s_hScCbFont (9pt bold Segoe UI) and word-wrap to 2 lines.
+        // Row C — opt-out checkboxes for all 3 columns, directly below the pin strip.
+        // Cols 1 & 2 previously had a "Not Pinned / Pinned / Multi Pinned" status
+        // label here — removed when persistent pin-strip checkboxes were added.
         {
             // Build 9pt bold font (recreated each page visit).
             if (s_hScCbFont) { DeleteObject(s_hScCbFont); s_hScCbFont = NULL; }
@@ -863,7 +912,7 @@ int SC_BuildPage(HWND hwnd, HINSTANCE hInst, int pageY, int clientWidth,
                 return std::min(needed, colMaxW);
             };
 
-            // Column 0: Desktop opt-out, centred in column, aligned one row down.
+            // Column 0: Desktop opt-out, centred in column.
             {
                 std::wstring scOptOut = MidBreak(loc(L"sc_desktop_opt_out",
                     L"Allow the end user to opt out of the desktop shortcut at install time"));
@@ -872,18 +921,12 @@ int SC_BuildPage(HWND hwnd, HINSTANCE hInst, int pageY, int clientWidth,
                 HWND hOptOut = CreateCustomCheckbox(
                     hwnd, IDC_SC_DESKTOP_OPT, scOptOut,
                     s_scDesktopOptOut,
-                    cbX, rowY + statusH + S(4), cbW, cbH, hInst);
+                    cbX, rowY + S(4), cbW, cbH, hInst);
                 if (s_hScCbFont) SendMessageW(hOptOut, WM_SETFONT, (WPARAM)s_hScCbFont, TRUE);
             }
 
-            // Column 1: Start Menu pin — status label, then opt-out checkbox centred.
+            // Column 1: Start Menu pin opt-out checkbox centred.
             {
-                HWND hSmLbl = CreateWindowExW(0, L"STATIC", L"",
-                    WS_CHILD | WS_VISIBLE | SS_CENTER | SS_NOPREFIX,
-                    col1X, rowY, colW, statusH,
-                    hwnd, (HMENU)IDC_SC_SM_PIN_LABEL, hInst, NULL);
-                if (hGuiFont) SendMessageW(hSmLbl, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
-
                 std::wstring scSmPinOpt = MidBreak(loc(L"sc_sm_pin_opt_out",
                     L"Allow the end user to opt out of the Start Menu pin at install time"));
                 int cbW = CbWidth(scSmPinOpt, colW - S(8));
@@ -891,18 +934,12 @@ int SC_BuildPage(HWND hwnd, HINSTANCE hInst, int pageY, int clientWidth,
                 HWND hSmOpt = CreateCustomCheckbox(
                     hwnd, IDC_SC_SM_PIN_OPT, scSmPinOpt,
                     s_scSmPinOptOut,
-                    cbX, rowY + statusH + S(4), cbW, cbH, hInst);
+                    cbX, rowY + S(4), cbW, cbH, hInst);
                 if (s_hScCbFont) SendMessageW(hSmOpt, WM_SETFONT, (WPARAM)s_hScCbFont, TRUE);
             }
 
-            // Column 2: Taskbar pin — status label, then opt-out checkbox centred.
+            // Column 2: Taskbar pin opt-out checkbox centred.
             {
-                HWND hTbLbl = CreateWindowExW(0, L"STATIC", L"",
-                    WS_CHILD | WS_VISIBLE | SS_CENTER | SS_NOPREFIX,
-                    col2X, rowY, col2W, statusH,
-                    hwnd, (HMENU)IDC_SC_TB_PIN_LABEL, hInst, NULL);
-                if (hGuiFont) SendMessageW(hTbLbl, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
-
                 std::wstring scTbPinOpt = MidBreak(loc(L"sc_tb_pin_opt_out",
                     L"Allow the end user to opt out of the Taskbar pin at install time"));
                 int cb2W = CbWidth(scTbPinOpt, col2W - S(8));
@@ -910,11 +947,11 @@ int SC_BuildPage(HWND hwnd, HINSTANCE hInst, int pageY, int clientWidth,
                 HWND hTbOpt = CreateCustomCheckbox(
                     hwnd, IDC_SC_TB_PIN_OPT, scTbPinOpt,
                     s_scTbPinOptOut,
-                    cb2X, rowY + statusH + S(4), cb2W, cbH, hInst);
+                    cb2X, rowY + S(4), cb2W, cbH, hInst);
                 if (s_hScCbFont) SendMessageW(hTbOpt, WM_SETFONT, (WPARAM)s_hScCbFont, TRUE);
             }
         }
-        rowY += statusH + S(4) + S(34) + S(10);
+        rowY += S(4) + S(34) + S(10);
     }
 
     // ── Section divider ───────────────────────────────────────────────────────
@@ -1205,8 +1242,8 @@ LRESULT SC_OnNotify(HWND hwnd, LPNMHDR nmhdr, bool* handled)
 // so it is safe to call while a checkbox WM_LBUTTONUP is still on the stack.
 static void SC_RefreshPinLabels(HWND hwnd)
 {
-    // Build the same deduplicated eligible set used by SC_RefreshPinStrips.
-    int smCnt = 0, tbCnt = 0;
+    // Determine whether any eligible shortcuts exist (dedup by exePath).
+    // Used only to enable/disable the bulk pin icon buttons.
     bool anyEligible = false;
     std::vector<std::wstring> seenPaths;
     for (const auto& sc : s_scShortcuts) {
@@ -1219,27 +1256,14 @@ static void SC_RefreshPinLabels(HWND hwnd)
         if (dup) continue;
         seenPaths.push_back(lower);
         anyEligible = true;
-        if (sc.pinToStart)   ++smCnt;
-        if (sc.pinToTaskbar) ++tbCnt;
     }
-    const auto& locMap = MainWindow::GetLocale();
-    auto loc = [&](const wchar_t* key, const wchar_t* fb) -> const wchar_t* {
-        auto it = locMap.find(key); return (it != locMap.end()) ? it->second.c_str() : fb;
-    };
-    auto pinText = [&](int n) -> const wchar_t* {
-        if (n == 0) return loc(L"sc_pin_not_pinned",  L"Not Pinned");
-        if (n == 1) return loc(L"sc_pin_pinned",      L"Pinned");
-        return             loc(L"sc_pin_multi_pinned", L"Multi Pinned");
-    };
-    if (HWND h = GetDlgItem(hwnd, IDC_SC_SM_PIN_LABEL)) SetWindowTextW(h, pinText(smCnt));
-    if (HWND h = GetDlgItem(hwnd, IDC_SC_TB_PIN_LABEL)) SetWindowTextW(h, pinText(tbCnt));
     if (HWND h = GetDlgItem(hwnd, IDC_SC_PINSTART_BTN))   EnableWindow(h, anyEligible);
     if (HWND h = GetDlgItem(hwnd, IDC_SC_PINTASKBAR_BTN)) EnableWindow(h, anyEligible);
 }
 
 // ── SC_OnCommand ──────────────────────────────────────────────────────────────
 
-bool SC_OnCommand(HWND hwnd, int id)
+bool SC_OnCommand(HWND hwnd, int id, int wmEvent, HWND hCtrl)
 {
     // ── Individual "Pin to Start" strip checkbox toggled ──────────────────────
     // These are dynamic controls (IDC_SC_SMPIN_STRIP_BASE+i) — can't use switch.
@@ -1247,12 +1271,16 @@ bool SC_OnCommand(HWND hwnd, int id)
     // WM_LBUTTONUP is still on the call stack (WM_COMMAND is sent synchronously
     // by DefSubclassProc).  Destroying the checkbox HWND while processing its
     // WM_LBUTTONUP is UB and causes cross-talk between strip entries.
-    // Instead we update s_scShortcuts and refresh only the status labels.
+    // Instead we update s_scShortcuts and refresh only the pin-button states.
+    // Use hCtrl (the exact sending HWND from lParam) — more reliable than
+    // GetDlgItem which might return a different window if IDs are temporarily
+    // ambiguous.  Guard on wmEvent==0 (BN_CLICKED) to ignore focus/hilite
+    // notifications that Windows sends for BS_OWNERDRAW buttons.
     if (id >= IDC_SC_SMPIN_STRIP_BASE && id < IDC_SC_SMPIN_STRIP_BASE + 50) {
-        HWND hCb = GetDlgItem(hwnd, id);
-        if (hCb) {
-            int scId    = (int)(INT_PTR)GetPropW(hCb, L"ScId");
-            bool ticked = (SendMessageW(hCb, BM_GETCHECK, 0, 0) == BST_CHECKED);
+        if (wmEvent != 0) return true;  // only process BN_CLICKED
+        if (hCtrl) {
+            int scId    = (int)(INT_PTR)GetPropW(hCtrl, L"ScId");
+            bool ticked = (SendMessageW(hCtrl, BM_GETCHECK, 0, 0) == BST_CHECKED);
             for (auto& sc : s_scShortcuts)
                 if (sc.id == scId) { sc.pinToStart = ticked; break; }
             SC_RefreshPinLabels(hwnd);
@@ -1263,10 +1291,10 @@ bool SC_OnCommand(HWND hwnd, int id)
 
     // ── Individual "Pin to Taskbar" strip checkbox toggled ────────────────────
     if (id >= IDC_SC_TBPIN_STRIP_BASE && id < IDC_SC_TBPIN_STRIP_BASE + 50) {
-        HWND hCb = GetDlgItem(hwnd, id);
-        if (hCb) {
-            int scId    = (int)(INT_PTR)GetPropW(hCb, L"ScId");
-            bool ticked = (SendMessageW(hCb, BM_GETCHECK, 0, 0) == BST_CHECKED);
+        if (wmEvent != 0) return true;  // only process BN_CLICKED
+        if (hCtrl) {
+            int scId    = (int)(INT_PTR)GetPropW(hCtrl, L"ScId");
+            bool ticked = (SendMessageW(hCtrl, BM_GETCHECK, 0, 0) == BST_CHECKED);
             for (auto& sc : s_scShortcuts)
                 if (sc.id == scId) { sc.pinToTaskbar = ticked; break; }
             SC_RefreshPinLabels(hwnd);
@@ -1316,54 +1344,13 @@ bool SC_OnCommand(HWND hwnd, int id)
     case IDC_SC_PROGRAMS_BTN:
         return true;
 
-    // ── Pin-to-Start icon — toggle all "Pin to Start" checkboxes in the strip ─
-    case IDC_SC_PINSTART_BTN: {
-        HINSTANCE hInst = (HINSTANCE)GetWindowLongPtrW(hwnd, GWLP_HINSTANCE);
-        // Build eligible list (same dedup as SC_RefreshPinStrips).
-        std::vector<ShortcutDef*> elig;
-        std::vector<std::wstring> seen;
-        for (auto& sc : s_scShortcuts) {
-            if (sc.type != SCT_DESKTOP && sc.type != SCT_STARTMENU) continue;
-            if (sc.exePath.empty()) continue;
-            std::wstring low = sc.exePath;
-            for (wchar_t& c : low) c = towlower(c);
-            bool dup = false;
-            for (const auto& s : seen) if (s == low) { dup = true; break; }
-            if (dup) continue;
-            seen.push_back(low);
-            elig.push_back(&sc);
-        }
-        bool anyUnchecked = false;
-        for (const auto* p : elig) if (!p->pinToStart) { anyUnchecked = true; break; }
-        for (auto* p : elig) p->pinToStart = anyUnchecked;
-        SC_RefreshPinStrips(hwnd, hInst);
-        MainWindow::MarkAsModified();
+    // ── Pin-to-Start icon — no action on click (tooltip shown on hover via subclass) ─
+    case IDC_SC_PINSTART_BTN:
         return true;
-    }
 
-    // ── Pin-to-Taskbar icon — toggle all "Pin to Taskbar" checkboxes ──────────
-    case IDC_SC_PINTASKBAR_BTN: {
-        HINSTANCE hInst = (HINSTANCE)GetWindowLongPtrW(hwnd, GWLP_HINSTANCE);
-        std::vector<ShortcutDef*> elig;
-        std::vector<std::wstring> seen;
-        for (auto& sc : s_scShortcuts) {
-            if (sc.type != SCT_DESKTOP && sc.type != SCT_STARTMENU) continue;
-            if (sc.exePath.empty()) continue;
-            std::wstring low = sc.exePath;
-            for (wchar_t& c : low) c = towlower(c);
-            bool dup = false;
-            for (const auto& s : seen) if (s == low) { dup = true; break; }
-            if (dup) continue;
-            seen.push_back(low);
-            elig.push_back(&sc);
-        }
-        bool anyUnchecked = false;
-        for (const auto* p : elig) if (!p->pinToTaskbar) { anyUnchecked = true; break; }
-        for (auto* p : elig) p->pinToTaskbar = anyUnchecked;
-        SC_RefreshPinStrips(hwnd, hInst);
-        MainWindow::MarkAsModified();
+    // ── Pin-to-Taskbar icon — no action on click ──────────────────────────────
+    case IDC_SC_PINTASKBAR_BTN:
         return true;
-    }
 
     // ── Desktop opt-out checkbox ──────────────────────────────────────────────
     case IDC_SC_DESKTOP_OPT: {
@@ -1765,7 +1752,9 @@ void SC_SaveToDb(int projectId)
         r.working_dir = sc.workingDir;
         r.icon_path   = sc.iconPath;
         r.icon_index  = sc.iconIndex;
-        r.run_as_admin = sc.runAsAdmin ? 1 : 0;
+        r.run_as_admin  = sc.runAsAdmin  ? 1 : 0;
+        r.pin_to_start  = sc.pinToStart  ? 1 : 0;
+        r.pin_to_taskbar= sc.pinToTaskbar? 1 : 0;
         DB::InsertScShortcut(projectId, r);
     }
 }
@@ -1809,7 +1798,9 @@ void SC_LoadFromDb(int projectId)
         sc.workingDir  = r.working_dir;
         sc.iconPath    = r.icon_path;
         sc.iconIndex   = r.icon_index;
-        sc.runAsAdmin  = (r.run_as_admin != 0);
+        sc.runAsAdmin  = (r.run_as_admin  != 0);
+        sc.pinToStart  = (r.pin_to_start  != 0);
+        sc.pinToTaskbar= (r.pin_to_taskbar != 0);
         s_scShortcuts.push_back(sc);
         if (r.id >= s_scNextShortcutId) s_scNextShortcutId = r.id + 1;
     }

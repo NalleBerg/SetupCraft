@@ -150,7 +150,9 @@ LRESULT SC_OnNotify(HWND hwnd, LPNMHDR nmhdr, bool* handled);
 
 // Route WM_COMMAND messages from WndProc.  Returns true when the command was
 // fully handled (caller should immediately return 0 from WM_COMMAND).
-bool SC_OnCommand(HWND hwnd, int id);
+//   wmEvent — HIWORD(wParam): the notification code (BN_CLICKED = 0, etc.).
+//   hCtrl   — (HWND)lParam: the control that sent the notification.
+bool SC_OnCommand(HWND hwnd, int id, int wmEvent, HWND hCtrl);
 
 // Route WM_CONTEXTMENU messages from WndProc.  Returns true when handled.
 //   hCtrl — (HWND)wParam from WM_CONTEXTMENU (the control that was right-clicked).

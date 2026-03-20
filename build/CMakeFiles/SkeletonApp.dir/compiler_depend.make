@@ -5584,6 +5584,7 @@ CMakeFiles/SkeletonApp.dir/shortcuts.cpp.obj: C:/Users/NalleBerg/Documents/C++/W
   C:/mingw64/x86_64-w64-mingw32/include/wincrypt.h \
   C:/mingw64/x86_64-w64-mingw32/include/windef.h \
   C:/mingw64/x86_64-w64-mingw32/include/windows.h \
+  C:/mingw64/x86_64-w64-mingw32/include/windowsx.h \
   C:/mingw64/x86_64-w64-mingw32/include/winefs.h \
   C:/mingw64/x86_64-w64-mingw32/include/winerror.h \
   C:/mingw64/x86_64-w64-mingw32/include/wingdi.h \

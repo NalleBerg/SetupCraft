@@ -6947,7 +6947,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
     case WM_COMMAND: {
         int wmId = LOWORD(wParam);
         int wmEvent = HIWORD(wParam);
-        if (SC_OnCommand(hwnd, wmId)) return 0;
+        if (SC_OnCommand(hwnd, wmId, wmEvent, (HWND)lParam)) return 0;
 
         // Handle registry page field changes — persist values in statics so they
         // survive page switches (pages are destroyed/recreated on switch)
