@@ -29,6 +29,8 @@ set(CMAKE_DEPENDS_DEPENDENCY_FILES
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/checkbox.cpp" "CMakeFiles/SkeletonApp.dir/checkbox.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/checkbox.cpp.obj.d"
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/ctrlw.cpp" "CMakeFiles/SkeletonApp.dir/ctrlw.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/ctrlw.cpp.obj.d"
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/db.cpp" "CMakeFiles/SkeletonApp.dir/db.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/db.cpp.obj.d"
+  "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/dep_edit_dialog.cpp" "CMakeFiles/SkeletonApp.dir/dep_edit_dialog.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/dep_edit_dialog.cpp.obj.d"
+  "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/deps.cpp" "CMakeFiles/SkeletonApp.dir/deps.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/deps.cpp.obj.d"
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/dpi.cpp" "CMakeFiles/SkeletonApp.dir/dpi.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/dpi.cpp.obj.d"
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/dragdrop.cpp" "CMakeFiles/SkeletonApp.dir/dragdrop.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/dragdrop.cpp.obj.d"
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/languages.cpp" "CMakeFiles/SkeletonApp.dir/languages.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/languages.cpp.obj.d"

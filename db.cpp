@@ -150,6 +150,28 @@ bool DB::InitDb() {
     // Add pin columns to sc_shortcuts for existing databases (ALTER TABLE ignores error if already present)
     p_exec(db, "ALTER TABLE sc_shortcuts ADD COLUMN pin_to_start INTEGER DEFAULT 0;", NULL, NULL, &errmsg);
     p_exec(db, "ALTER TABLE sc_shortcuts ADD COLUMN pin_to_taskbar INTEGER DEFAULT 0;", NULL, NULL, &errmsg);
+    // External dependencies table
+    p_exec(db, "CREATE TABLE IF NOT EXISTS external_deps ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "project_id INTEGER NOT NULL, "
+        "display_name TEXT DEFAULT '', "
+        "is_required INTEGER DEFAULT 1, "
+        "delivery INTEGER DEFAULT 0, "
+        "install_order INTEGER DEFAULT 0, "
+        "detect_reg_key TEXT DEFAULT '', "
+        "detect_file_path TEXT DEFAULT '', "
+        "min_version TEXT DEFAULT '', "
+        "architecture INTEGER DEFAULT 0, "
+        "url TEXT DEFAULT '', "
+        "silent_args TEXT DEFAULT '', "
+        "sha256 TEXT DEFAULT '', "
+        "license_path TEXT DEFAULT '', "
+        "license_text TEXT DEFAULT '', "
+        "credits_text TEXT DEFAULT '', "
+        "instructions TEXT DEFAULT '', "
+        "offline_behavior INTEGER DEFAULT 0, "
+        "FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);",
+        NULL, NULL, &errmsg);
     
     // Check if projects table is empty, if so add SetupCraft project
     const char *countSql = "SELECT COUNT(*) FROM projects;";
@@ -939,3 +961,136 @@ std::vector<DB::ScShortcutRow> DB::GetScShortcutsForProject(int projectId) {
     if (p_finalize) p_finalize(stmt);
     p_close(db); return out;
 }
+
+// ── External dependency CRUD ──────────────────────────────────────────────────
+
+int DB::InsertExternalDep(int projectId, const ExternalDep& dep)
+{
+    std::wstring dbPath = GetAppDataDbPath();
+    std::string dbPathUtf8 = WToUtf8(dbPath);
+    void *db = NULL;
+    int flags = 0x00000002 | 0x00000004;
+    if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return -1;
+
+    const char *sql =
+        "INSERT INTO external_deps (project_id, display_name, is_required, delivery, "
+        "install_order, detect_reg_key, detect_file_path, min_version, architecture, "
+        "url, silent_args, sha256, license_path, license_text, credits_text, "
+        "instructions, offline_behavior) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);";
+    void *stmt = NULL;
+    if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return -1; }
+
+    std::string sPid      = std::to_string(projectId);
+    std::string sName     = WToUtf8(dep.display_name);
+    std::string sRegKey   = WToUtf8(dep.detect_reg_key);
+    std::string sFilePath = WToUtf8(dep.detect_file_path);
+    std::string sMinVer   = WToUtf8(dep.min_version);
+    std::string sUrl      = WToUtf8(dep.url);
+    std::string sSilent   = WToUtf8(dep.silent_args);
+    std::string sSha256   = WToUtf8(dep.sha256);
+    std::string sLicPath  = WToUtf8(dep.license_path);
+    std::string sLicText  = WToUtf8(dep.license_text);
+    std::string sCredits  = WToUtf8(dep.credits_text);
+    std::string sInstr    = WToUtf8(dep.instructions);
+
+    p_bind_text(stmt,  1, sPid.c_str(),       -1, NULL);
+    p_bind_text(stmt,  2, sName.c_str(),      -1, NULL);
+    p_bind_text(stmt,  3, std::to_string(dep.is_required    ? 1 : 0).c_str(), -1, NULL);
+    p_bind_text(stmt,  4, std::to_string((int)dep.delivery).c_str(),          -1, NULL);
+    p_bind_text(stmt,  5, std::to_string(dep.install_order).c_str(),          -1, NULL);
+    p_bind_text(stmt,  6, sRegKey.c_str(),    -1, NULL);
+    p_bind_text(stmt,  7, sFilePath.c_str(),  -1, NULL);
+    p_bind_text(stmt,  8, sMinVer.c_str(),    -1, NULL);
+    p_bind_text(stmt,  9, std::to_string((int)dep.architecture).c_str(),      -1, NULL);
+    p_bind_text(stmt, 10, sUrl.c_str(),       -1, NULL);
+    p_bind_text(stmt, 11, sSilent.c_str(),    -1, NULL);
+    p_bind_text(stmt, 12, sSha256.c_str(),    -1, NULL);
+    p_bind_text(stmt, 13, sLicPath.c_str(),   -1, NULL);
+    p_bind_text(stmt, 14, sLicText.c_str(),   -1, NULL);
+    p_bind_text(stmt, 15, sCredits.c_str(),   -1, NULL);
+    p_bind_text(stmt, 16, sInstr.c_str(),     -1, NULL);
+    p_bind_text(stmt, 17, std::to_string((int)dep.offline_behavior).c_str(),  -1, NULL);
+    p_step(stmt);
+    if (p_finalize) p_finalize(stmt);
+
+    int newId = -1;
+    const char *idSql = "SELECT last_insert_rowid();";
+    void *idStmt = NULL;
+    if (p_prepare(db, idSql, -1, &idStmt, NULL) == 0) {
+        if (p_step(idStmt) == 100) newId = (int)p_col_int64(idStmt, 0);
+        if (p_finalize) p_finalize(idStmt);
+    }
+    p_close(db);
+    return newId;
+}
+
+bool DB::DeleteExternalDepsForProject(int projectId)
+{
+    std::wstring dbPath = GetAppDataDbPath();
+    std::string dbPathUtf8 = WToUtf8(dbPath);
+    void *db = NULL;
+    int flags = 0x00000002 | 0x00000004;
+    if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return false;
+    const char *sql = "DELETE FROM external_deps WHERE project_id=?;";
+    void *stmt = NULL;
+    if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return false; }
+    std::string sPid = std::to_string(projectId);
+    p_bind_text(stmt, 1, sPid.c_str(), -1, NULL);
+    p_step(stmt);
+    if (p_finalize) p_finalize(stmt);
+    p_close(db);
+    return true;
+}
+
+std::vector<ExternalDep> DB::GetExternalDepsForProject(int projectId)
+{
+    std::vector<ExternalDep> out;
+    std::wstring dbPath = GetAppDataDbPath();
+    std::string dbPathUtf8 = WToUtf8(dbPath);
+    void *db = NULL;
+    int flags = 0x00000002 | 0x00000004;
+    if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return out;
+
+    const char *sql =
+        "SELECT id, display_name, is_required, delivery, install_order, "
+        "detect_reg_key, detect_file_path, min_version, architecture, "
+        "url, silent_args, sha256, license_path, license_text, "
+        "credits_text, instructions, offline_behavior "
+        "FROM external_deps WHERE project_id=? ORDER BY install_order ASC, id ASC;";
+    void *stmt = NULL;
+    if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return out; }
+    std::string sPid = std::to_string(projectId);
+    p_bind_text(stmt, 1, sPid.c_str(), -1, NULL);
+
+    while (p_step(stmt) == 100 /*SQLITE_ROW*/) {
+        ExternalDep d;
+        d.project_id      = projectId;
+        d.id              = (int)p_col_int64(stmt, 0);
+        auto T = [&](int col) -> std::wstring {
+            const unsigned char *c = p_col_text(stmt, col);
+            return Utf8ToW(c ? (const char*)c : "");
+        };
+        d.display_name     = T(1);
+        d.is_required      = (p_col_int64(stmt, 2) != 0);
+        d.delivery         = (DepDelivery)(int)p_col_int64(stmt, 3);
+        d.install_order    = (int)p_col_int64(stmt, 4);
+        d.detect_reg_key   = T(5);
+        d.detect_file_path = T(6);
+        d.min_version      = T(7);
+        d.architecture     = (DepArch)(int)p_col_int64(stmt, 8);
+        d.url              = T(9);
+        d.silent_args      = T(10);
+        d.sha256           = T(11);
+        d.license_path     = T(12);
+        d.license_text     = T(13);
+        d.credits_text     = T(14);
+        d.instructions     = T(15);
+        d.offline_behavior = (DepOffline)(int)p_col_int64(stmt, 16);
+        out.push_back(d);
+    }
+    if (p_finalize) p_finalize(stmt);
+    p_close(db);
+    return out;
+}
+

@@ -395,6 +395,7 @@ CMakeFiles/SkeletonApp.dir/vfs_picker.cpp.obj: \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\mainwindow.h \
  C:/mingw64/x86_64-w64-mingw32/include/commctrl.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\db.h \
+ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\deps.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\button.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\dpi.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\tooltip.h \

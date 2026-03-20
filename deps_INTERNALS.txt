@@ -1,0 +1,282 @@
+================================================================================
+  SetupCraft — Dependencies Page Architecture (deps_INTERNALS.txt)
+================================================================================
+
+FILES
+  deps.h                 — Public header: ExternalDep struct, enums, control IDs,
+                           public function declarations.
+  deps.cpp               — Page implementation (all file-scope statics, BuildPage,
+                           TearDown, Reset, OnCommand, OnNotify, SaveToDb, LoadFromDb).
+  dep_edit_dialog.h      — "Edit Dependency" modal dialog header, dialog control IDs.
+  dep_edit_dialog.cpp    — Modal dialog implementation (DEP_EditDialog).
+
+================================================================================
+DATA MODEL
+================================================================================
+
+ExternalDep (declared in deps.h)
+─────────────────────────────────
+  id               int          DB primary key; 0 = not yet saved
+  project_id       int          FK → projects.id
+  display_name     wstring      shown in ListView and installer UI
+  is_required      bool         false = optional / enhancing
+  delivery         DepDelivery  0=bundled, 1=auto_download, 2=redirect_url,
+                                3=instructions_only
+  install_order    int          lower = earlier; relative to main app
+  detect_reg_key   wstring      HKLM registry path; empty = no check
+  detect_file_path wstring      file path check; empty = no check
+  min_version      wstring      minimum acceptable version string
+  architecture     DepArch      0=any, 1=x64, 2=arm64  (x86 removed; app is 64-bit only)
+  url              wstring      download or redirect URL
+  silent_args      wstring      e.g. "/quiet /norestart"
+  sha256           wstring      hex SHA-256 of the download
+  license_path     wstring      real-disk path to .rtf or .txt file
+  license_text     wstring      inline license text (stored in DB)
+  credits_text     wstring      short attribution line
+  instructions     wstring      manual-install guidance text
+  offline_behavior DepOffline   0=abort, 1=warn_continue, 2=skip_if_optional
+
+================================================================================
+MODULE STATE  (deps.cpp file-scope statics)
+================================================================================
+
+  s_deps          — vector<ExternalDep>   canonical in-memory list
+  s_nextDepId     — int                   monotone counter for in-memory IDs
+  s_hDepList      — HWND to the ListView
+  s_hDepAdd/Edit/Remove — HWND to the three buttons
+  s_hInst         — HINSTANCE saved from BuildPage
+  s_pLocale       — pointer to the locale map saved from BuildPage
+  s_origListProc  — original ListView WNDPROC (for subclass restore in TearDown)
+
+================================================================================
+CALLING SEQUENCE
+================================================================================
+
+  mainwindow initialises:
+    mainwindow WM_CREATE → nothing (deps are lazy-loaded)
+
+  Project open:
+    mainwindow LoadProject() → DEP_Reset(), DEP_LoadFromDb(projectId)
+
+  SwitchPage(3):
+    mainwindow SwitchPage(3) → DEP_BuildPage(hwnd, hInst, pageY, clientW,
+                                              titleFont, guiFont, locale)
+
+  SwitchPage away:
+    mainwindow TearDownCurrentPage() → DEP_TearDown(hwnd)
+    (the page-container HWND is then destroyed, taking all child controls with it)
+
+  WM_NOTIFY:
+    mainwindow WM_NOTIFY → DEP_OnNotify(hwnd, nmhdr, &handled)
+    if handled: return lresult
+
+  WM_COMMAND:
+    mainwindow WM_COMMAND → DEP_OnCommand(hwnd, id, event, hCtrl)
+    if returns true: return 0
+
+  IDM_FILE_SAVE:
+    mainwindow IDM_FILE_SAVE → DEP_SaveToDb(projectId)
+                             → DEP_LoadFromDb(projectId)   (refresh IDs from DB)
+
+  Project close:
+    mainwindow CloseProject() → DEP_Reset()
+
+================================================================================
+LISTVIEW SUBCLASS  (DepListSubclassProc)
+================================================================================
+
+  Installed via SetWindowLongPtrW(s_hDepList, GWLP_WNDPROC, ...) in BuildPage.
+  Restored in TearDown before the window is destroyed.
+
+  WM_RBUTTONUP:
+    • HitTest the click to identify the row.
+    • Ensure the row is selected (SetItemState LVIS_SELECTED|LVIS_FOCUSED).
+    • Show a popup menu with "Edit…" and "Remove".
+    • TrackPopupMenu with TPM_RETURNCMD.
+    • Dispatch the chosen command via SendMessageW(hMainWnd, WM_COMMAND, ...).
+      The ListView's parent is the page container (STATIC); its parent is the
+      main window.  GetParent(GetParent(s_hDepList)) reaches the main window.
+
+  WM_MOUSELEAVE:
+    • HideTooltip() — cleans up any orphaned tooltip.
+
+  All other messages fall through to s_origListProc (CallWindowProcW).
+
+================================================================================
+EDIT DIALOG  (dep_edit_dialog.cpp)
+================================================================================
+
+  Class name: "DepEditDialog"  (registered once, never unregistered).
+  Window style: WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VSCROLL.
+  Sizing: measure-then-create pattern — contentH calculated by summing all rows,
+          then AdjustWindowRectEx gives the outer window dimensions.
+          Height is clamped to (work area − S(30)) so the dialog never exceeds
+          the screen; the vertical scrollbar makes all fields reachable.
+          WM_VSCROLL + WM_MOUSEWHEEL move all child windows by delta.
+
+  Visibility toggle (UpdateVisibility):
+    Called once on creation and on every CBN_SELCHANGE for the Delivery combo.
+    URL / silent-args / SHA-256 rows → visible only for DD_AUTO_DOWNLOAD and
+                                        DD_REDIRECT_URL.
+    Offline-behaviour combo          → visible only for DD_AUTO_DOWNLOAD and
+                                        DD_REDIRECT_URL.
+    The corresponding label controls are registered with auxiliary IDs 501–504
+    so UpdateVisibility can hide/show them by ID.
+
+  Modal message loop:
+    EnableWindow(hwndParent, FALSE) before ShowWindow.
+    Inner GetMessageW loop runs until IsWindow(hDlg) returns FALSE (after
+    WM_DESTROY, which follows DestroyWindow called from the OK and Cancel
+    handlers).  WM_DESTROY posts WM_QUIT to unblock the loop.
+    EnableWindow(hwndParent, TRUE) and SetForegroundWindow(hwndParent) after
+    the loop exits.
+
+  Return value: s_depDlgOk (module-static bool) toggled in WM_COMMAND.
+
+================================================================================
+CONTROL ID RANGES
+================================================================================
+
+  IDC_DEP_LIST    6000   ListView on the Dependencies page
+  IDC_DEP_ADD     6001   "Add Dependency" button (Green, shell32 257+29)
+  IDC_DEP_EDIT    6002   "Edit" button (Blue, shell32 87 magnifier)
+  IDC_DEP_REMOVE  6003   "Remove" button (Red, shell32 131)
+
+  IDM_EXT_DEP_CTX_EDIT   6300   context menu "Edit…"
+  IDM_EXT_DEP_CTX_REMOVE 6301   context menu "Remove"
+
+  IDC_DEPDLG_NAME         401   dialog: display name edit
+  IDC_DEPDLG_DELIVERY     402   dialog: delivery combo
+  IDC_DEPDLG_REQUIRED     403   dialog: required checkbox
+  IDC_DEPDLG_ARCH         404   dialog: architecture combo
+  IDC_DEPDLG_OFFLINE      405   dialog: offline-behaviour combo
+  IDC_DEPDLG_INSTALL_ORDER 406  dialog: install-order numeric edit
+  IDC_DEPDLG_URL          407   dialog: URL edit
+  IDC_DEPDLG_SILENT_ARGS  408   dialog: silent-args edit
+  IDC_DEPDLG_SHA256       409   dialog: SHA-256 edit
+  IDC_DEPDLG_DETECT_REG   410   dialog: registry-key edit
+  IDC_DEPDLG_DETECT_FILE  411   dialog: file-path edit
+  IDC_DEPDLG_MIN_VER      412   dialog: min-version edit
+  IDC_DEPDLG_INSTRUCTIONS 413   dialog: multi-line instructions edit
+  IDC_DEPDLG_CREDITS      414   dialog: credits edit
+  IDC_DEPDLG_LIC_PATH     415   dialog: license path (read-only edit)
+  IDC_DEPDLG_LIC_BROWSE   416   dialog: "Browse…" button
+  IDC_DEPDLG_OK           417   dialog: OK button
+  IDC_DEPDLG_CANCEL       418   dialog: Cancel button
+
+  501–504                       auxiliary label IDs used by UpdateVisibility
+
+================================================================================
+DB TABLE  (external_deps)
+================================================================================
+
+  CREATE TABLE IF NOT EXISTS external_deps (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id        INTEGER NOT NULL,
+    display_name      TEXT    DEFAULT '',
+    is_required       INTEGER DEFAULT 1,
+    delivery          INTEGER DEFAULT 0,
+    install_order     INTEGER DEFAULT 0,
+    detect_reg_key    TEXT    DEFAULT '',
+    detect_file_path  TEXT    DEFAULT '',
+    min_version       TEXT    DEFAULT '',
+    architecture      INTEGER DEFAULT 0,
+    url               TEXT    DEFAULT '',
+    silent_args       TEXT    DEFAULT '',
+    sha256            TEXT    DEFAULT '',
+    license_path      TEXT    DEFAULT '',
+    license_text      TEXT    DEFAULT '',
+    credits_text      TEXT    DEFAULT '',
+    instructions      TEXT    DEFAULT '',
+    offline_behavior  INTEGER DEFAULT 0,
+    FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+  );
+
+DB API (declared in db.h, implemented in db.cpp):
+  int  DB::InsertExternalDep(int projectId, const ExternalDep& dep)
+  std::vector<ExternalDep> DB::GetExternalDepsForProject(int projectId)
+  bool DB::DeleteExternalDepsForProject(int projectId)
+
+================================================================================
+LOCALE KEYS
+================================================================================
+
+  dep_page_title           — "Dependencies"
+  dep_btn_add              — "Add Dependency"
+  dep_btn_add_tip          — tooltip for Add button
+  dep_btn_edit             — "Edit"
+  dep_btn_edit_tip         — tooltip for Edit button
+  dep_btn_remove           — "Remove"
+  dep_btn_remove_tip       — tooltip for Remove button
+  dep_col_name             — ListView column: "Name"
+  dep_col_delivery         — ListView column: "Delivery"
+  dep_col_required         — ListView column: "Required"
+  dep_col_detection        — ListView column: "Detection"
+  dep_required             — cell value: "Required"
+  dep_optional             — cell value: "Optional"
+  dep_detect_reg           — detection cell value: "Registry key"
+  dep_detect_file          — detection cell value: "File path"
+  dep_delivery_bundled     — combo / cell: "Bundled"
+  dep_delivery_download    — combo / cell: "Auto-download"
+  dep_delivery_redirect    — combo / cell: "Redirect URL"
+  dep_delivery_instructions — combo / cell: "Instructions only"
+  dep_ctx_edit             — context menu: "Edit…"
+  dep_ctx_remove           — context menu: "Remove"
+  dep_confirm_remove       — generic confirm message
+  dep_confirm_remove_named — confirm with {0} placeholder for the dep name
+  dep_dialog_title         — dialog caption: "Edit Dependency"
+  dep_dlg_name             — dialog label: "Display name:"
+  dep_dlg_delivery         — dialog label: "Delivery type:"
+  dep_dlg_required         — checkbox label: "Required (cannot be skipped…)"
+  dep_dlg_arch             — dialog label: "Target architecture:"
+  dep_dlg_install_order    — dialog label: "Install order (lower = first):"
+  dep_dlg_detect_reg       — dialog label: "Registry key (HKLM):"
+  dep_dlg_detect_file      — dialog label: "File path to detect:"
+  dep_dlg_min_version      — dialog label: "Minimum version:"
+  dep_dlg_url              — dialog label: "Download / redirect URL:"
+  dep_dlg_silent_args      — dialog label: "Silent install arguments:"
+  dep_dlg_sha256           — dialog label: "SHA-256 (hex):"
+  dep_dlg_offline          — dialog label: "If offline:"
+  dep_dlg_lic_browse       — browse button: "Browse…"
+  dep_dlg_credits          — dialog label: "Credits / attribution:"
+  dep_section_detection    — section header: "Detection"
+  dep_section_network      — section header: "Network"
+  dep_section_license      — section header: "License"
+  dep_section_instructions — section header: "Manual install instructions"
+  dep_arch_any / x64 / arm64  (dep_arch_x86 key still in locale file but unused)
+  dep_offline_abort / warn / skip_opt
+  dep_err_no_name          — validation error: "Please enter a display name."
+
+================================================================================
+WIRING IN MAINWINDOW.CPP
+================================================================================
+
+  1.  SwitchPage case 3:
+        DEP_BuildPage(hwnd, hInst, pageY, clientWidth,
+                      s_hPageTitleFont, s_hGuiFont, s_locale);
+
+  2.  TearDownCurrentPage / SwitchPage generic teardown:
+        DEP_TearDown(hwnd);
+
+  3.  WM_DRAWITEM guard (main window proc):
+        || (dis->CtlID >= IDC_DEP_ADD && dis->CtlID <= IDC_DEP_REMOVE)
+
+  4.  WM_NOTIFY:
+        { bool depH = false; LRESULT depR = DEP_OnNotify(hwnd, nmhdr, &depH);
+          if (depH) return depR; }
+
+  5.  WM_COMMAND:
+        if (DEP_OnCommand(hwnd, wmId, wmEvent, (HWND)lParam)) return 0;
+
+  6.  IDM_FILE_SAVE:
+        DEP_SaveToDb(s_currentProject.id);
+        DEP_LoadFromDb(s_currentProject.id);
+
+  7.  Project open:
+        DEP_Reset();
+        DEP_LoadFromDb(projectId);
+
+  8.  Project close / new project:
+        DEP_Reset();
+
+================================================================================

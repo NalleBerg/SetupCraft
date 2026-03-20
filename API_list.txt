@@ -101,6 +101,14 @@
                                     shell32.dll icon indices used, ImageList lifetime,
                                     and full locale key table.
 
+  deps_INTERNALS.txt                Dependencies page module architecture —
+                                    ExternalDep data model (all 18 fields), enums
+                                    (DepDelivery / DepArch / DepOffline), ListView
+                                    subclass for right-click context menu, modal
+                                    measure-then-create edit dialog, DB table schema
+                                    and CRUD API, control ID ranges, locale key table,
+                                    and mainwindow.cpp wiring guide.
+
   scrollbar_INTERNALS.txt           Shortcuts-page vertical scrollbar — SCROLLINFO
                                     setup, why SW_SCROLLCHILDREN fails for content
                                     that starts below the viewport, correct manual

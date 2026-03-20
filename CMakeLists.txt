@@ -29,6 +29,8 @@ add_executable(SkeletonApp WIN32
     notes_editor.cpp
     shortcuts.cpp
     sc_shortcut_dialog.cpp
+    deps.cpp
+    dep_edit_dialog.cpp
     vfs_picker.cpp
     ${RESOURCE_FILES}
 )

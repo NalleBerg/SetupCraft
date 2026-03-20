@@ -385,6 +385,7 @@ CMakeFiles/SkeletonApp.dir/shortcuts.cpp.obj: \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/vector.tcc \
  C:/mingw64/x86_64-w64-mingw32/include/windowsx.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\db.h \
+ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\deps.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\sc_shortcut_dialog.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\mainwindow.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\dpi.h \

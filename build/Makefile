@@ -280,6 +280,54 @@ db.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/db.cpp.s
 .PHONY : db.cpp.s
 
+dep_edit_dialog.obj: dep_edit_dialog.cpp.obj
+.PHONY : dep_edit_dialog.obj
+
+# target to build an object file
+dep_edit_dialog.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/dep_edit_dialog.cpp.obj
+.PHONY : dep_edit_dialog.cpp.obj
+
+dep_edit_dialog.i: dep_edit_dialog.cpp.i
+.PHONY : dep_edit_dialog.i
+
+# target to preprocess a source file
+dep_edit_dialog.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/dep_edit_dialog.cpp.i
+.PHONY : dep_edit_dialog.cpp.i
+
+dep_edit_dialog.s: dep_edit_dialog.cpp.s
+.PHONY : dep_edit_dialog.s
+
+# target to generate assembly for a file
+dep_edit_dialog.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/dep_edit_dialog.cpp.s
+.PHONY : dep_edit_dialog.cpp.s
+
+deps.obj: deps.cpp.obj
+.PHONY : deps.obj
+
+# target to build an object file
+deps.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/deps.cpp.obj
+.PHONY : deps.cpp.obj
+
+deps.i: deps.cpp.i
+.PHONY : deps.i
+
+# target to preprocess a source file
+deps.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/deps.cpp.i
+.PHONY : deps.cpp.i
+
+deps.s: deps.cpp.s
+.PHONY : deps.s
+
+# target to generate assembly for a file
+deps.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/deps.cpp.s
+.PHONY : deps.cpp.s
+
 dpi.obj: dpi.cpp.obj
 .PHONY : dpi.obj
 
@@ -572,6 +620,12 @@ help:
 	@echo ... db.obj
 	@echo ... db.i
 	@echo ... db.s
+	@echo ... dep_edit_dialog.obj
+	@echo ... dep_edit_dialog.i
+	@echo ... dep_edit_dialog.s
+	@echo ... deps.obj
+	@echo ... deps.i
+	@echo ... deps.s
 	@echo ... dpi.obj
 	@echo ... dpi.i
 	@echo ... dpi.s

@@ -1,6 +1,7 @@
 #pragma once
 #include <string>
 #include <vector>
+#include "deps.h"   // ExternalDep, DepDelivery, DepArch, DepOffline
 
 struct ProjectRow {
     int id;
@@ -103,4 +104,8 @@ namespace DB {
     bool InsertScShortcut(int projectId, const ScShortcutRow& sc);
     bool DeleteScShortcutsForProject(int projectId);
     std::vector<ScShortcutRow> GetScShortcutsForProject(int projectId);
+    // External dependency persistence
+    int  InsertExternalDep(int projectId, const ExternalDep& dep);
+    bool DeleteExternalDepsForProject(int projectId);
+    std::vector<ExternalDep> GetExternalDepsForProject(int projectId);
 }

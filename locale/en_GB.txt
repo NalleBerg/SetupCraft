@@ -302,3 +302,62 @@ vfspicker_root_program_files=Program Files
 vfspicker_root_program_data=ProgramData
 vfspicker_root_appdata=AppData (Roaming)
 vfspicker_root_ask_install=Ask at install
+
+# Dependencies page
+dep_page_title=Dependencies
+dep_btn_add=Add Dependency
+dep_btn_add_tip=Add a new external runtime dependency
+dep_btn_edit=Edit
+dep_btn_edit_tip=Edit the selected dependency
+dep_btn_remove=Remove
+dep_btn_remove_tip=Remove the selected dependency
+dep_col_name=Name
+dep_col_delivery=Delivery
+dep_col_required=Required
+dep_col_detection=Detection
+dep_required=Required
+dep_optional=Optional
+dep_detect_reg=Registry key
+dep_detect_file=File path
+dep_delivery_bundled=Bundled
+dep_delivery_download=Auto-download
+dep_delivery_redirect=Redirect URL
+dep_delivery_instructions=Instructions only
+dep_ctx_edit=Edit…
+dep_ctx_remove=Remove
+dep_confirm_remove=Remove this dependency?
+dep_confirm_remove_named=Remove '{0}'?
+
+# Dependency edit dialog
+dep_dialog_title=Edit Dependency
+dep_dlg_name=Display name:
+dep_dlg_delivery=Delivery type:
+dep_dlg_required=Required (cannot be skipped by the user)
+dep_dlg_arch=Target architecture:
+dep_dlg_install_order=Install order (lower = earlier):
+dep_dlg_detect_reg=Registry key (HKLM path to detect existing install):
+dep_dlg_detect_file=File path (to detect existing install):
+dep_dlg_min_version=Minimum required version:
+dep_dlg_url=Download / redirect URL:
+dep_dlg_silent_args=Silent install arguments:
+dep_dlg_sha256=SHA-256 hash (hex):
+dep_dlg_offline=If offline:
+dep_dlg_lic_browse=Browse…
+dep_dlg_credits=Credits / attribution:
+dep_section_detection=Detection
+dep_section_network=Network
+dep_section_license=License
+dep_section_instructions=Manual install instructions
+dep_arch_any=Any
+dep_arch_x64=x64 (64-bit)
+dep_arch_x86=x86 (32-bit)
+dep_arch_arm64=ARM64
+dep_offline_abort=Abort installation
+dep_offline_warn=Warn, then continue
+dep_offline_skip_opt=Skip if optional
+dep_err_no_name=Please enter a display name for this dependency.
+dep_delivery_bundled=Bundled (included in installer)
+dep_delivery_download=Auto-download
+dep_delivery_redirect=Redirect URL
+dep_delivery_instructions=Instructions only
+

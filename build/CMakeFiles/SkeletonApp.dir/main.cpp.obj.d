@@ -470,6 +470,7 @@ CMakeFiles/SkeletonApp.dir/main.cpp.obj: \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/ctime \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\languages.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\db.h \
+ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\deps.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\button.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\ctrlw.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\mainwindow.h \

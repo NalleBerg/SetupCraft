@@ -1,13 +1,155 @@
 ========================================================================
   SetupCraft — Session State & Where We Are
-  Written: 17.03.2026 — End of day
+  Written: 20.03.2026 — End of session v2026.03.20.11
 ========================================================================
 
-── COMPLETED THIS SESSION ──────────────────────────────────────
+── LAST COMPLETED FEATURE: Dependencies page + edit dialog ─────────────
 
- 1. Shortcuts page extracted to shortcuts.h / shortcuts.cpp / shortcuts_INTERNALS.txt
-    (Modular architecture — mainwindow.cpp now only routes WM_NOTIFY,
-    WM_COMMAND, WM_CONTEXTMENU to the module via SC_On* functions)
+  Files created this session:
+    deps.h               — ExternalDep struct, enums, control IDs, public API
+    deps.cpp             — Full page: ListView, 3 buttons, subclass, CRUD
+    dep_edit_dialog.h    — Dialog header + control IDs 401–418
+    dep_edit_dialog.cpp  — Full modal edit dialog (measure-then-create)
+    deps_INTERNALS.txt   — Architecture reference doc
+
+  Changes to existing files:
+    mainwindow.cpp       — 9 wiring points (include, Reset, Load, TearDown,
+                           SwitchPage case 3, WM_DRAWITEM, WM_NOTIFY,
+                           WM_COMMAND, IDM_FILE_SAVE)
+    db.h / db.cpp        — external_deps table + 3 CRUD functions
+    locale/en_GB.txt     — ~50 dep_* locale keys added
+    CMakeLists.txt       — deps.cpp + dep_edit_dialog.cpp added
+    API_list.txt         — deps_INTERNALS.txt entry added
+
+── WHAT WORKS ───────────────────────────────────────────────────────────
+
+  Dependencies page (page index 3, IDC_TB_ADD_DEPEND → SwitchPage(3)):
+    - ListView with 4 columns: Name / Delivery / Required / Detection
+    - Add (Green), Edit (Blue, disabled until selection), Remove (Red, disabled)
+    - Right-click context menu on ListView rows (Edit… / Remove)
+    - Double-click row opens Edit dialog
+    - All state in-memory (s_deps vector); persisted to DB on Save
+
+  Edit dialog (DEP_EditDialog):
+    - Modal, measure-then-create, scrollable (WS_VSCROLL + WM_VSCROLL +
+      WM_MOUSEWHEEL), height clamped to work area so it never exceeds screen
+    - Fields: Display name, Delivery combo, Required checkbox,
+      Architecture combo (Any / x64 / ARM64 — x86 removed),
+      Install order, Detection section (reg key + file path + min version),
+      Network section (URL + silent args + SHA-256 + offline combo,
+      conditionally shown based on delivery type),
+      License section (path + Browse…), Credits, Instructions (multiline)
+    - Delivery CBN_SELCHANGE hides/shows URL/sha256/silent-args/offline rows
+    - Esc key and X button both dismiss cleanly
+    - WM_CTLCOLORSTATIC — white background for all static labels
+    - WM_DRAWITEM — custom buttons + checkbox draw correctly
+
+── LAYOUT ISSUES NOTED (to fix next session) ───────────────────────────
+
+  1. NETWORK SECTION IS BLANK WHEN DELIVERY = BUNDLED
+     The URL / silent-args / SHA-256 / offline-combo rows are hidden for
+     "Bundled" delivery — that's correct. But there is a big empty gap where
+     they would appear, making the scroll content look broken.
+     Fix: move the network controls' positions UP immediately after
+     UpdateVisibility hides them, or use a layout re-flow that collapses
+     the gap. Best approach: recalculate y positions dynamically in
+     UpdateVisibility rather than just show/hide.
+
+  2. DIALOG TITLE BAR SAYS "Edit Dependency" EVEN FOR ADD
+     When opened from the Add button the title should say "Add Dependency"
+     or read from dep_dialog_title_add locale key. Currently both Add and
+     Edit paths supply the same dep_dialog_title key.
+     Fix: pass a bool isAdd to DEP_EditDialog or add a second locale key
+     dep_dialog_title_add.
+
+  3. LICENSE SECTION STILL FEELS FAR DOWN
+     The fixed gap between Network (even when hidden) and License is ~8
+     rows of space. Needs the scroll/collapse fix from item 1 above.
+
+── ARCHITECTURE: DETECTION PICKERS — NEXT STEP ─────────────────────────
+
+  Registry key picker (IDC_DEPDLG_DETECT_REG row):
+    Use the native Windows registry UI approach:
+      - Small "Browse…" button next to the detect-reg edit (same
+        pattern as the license browse button on the same dialog).
+      - Open a custom tree dialog (new file: reg_picker_dialog.cpp/.h)
+        that shows HKLM\SOFTWARE (64-bit view via KEY_WOW64_64KEY) as
+        a TreeView.  User navigates; clicking OK pastes the key path
+        into the edit field.
+      - Edit field remains editable — user can also paste manually.
+      - App is 64-bit only: always use KEY_WOW64_64KEY, show only
+        HKLM\SOFTWARE subkeys.  No HKCU, no 32-bit view.
+    Control IDs to add (in dep_edit_dialog.h):
+      IDC_DEPDLG_DETECT_REG_BROWSE  419
+
+  File path picker (IDC_DEPDLG_DETECT_FILE row):
+    Use the existing VFS picker (ShowVfsPicker) — same pattern as
+    the shortcut dialog «Browse» for exe files, but allow any file type.
+    Control IDs to add:
+      IDC_DEPDLG_DETECT_FILE_BROWSE  420
+
+  Both pickers:
+    - Edit field is editable/pasteable whether or not Browse is used.
+    - Browse button uses shell32.dll icon index 4 (file-open folder icon,
+      same as shortcut dialog browse buttons) — width S(28) to keep compact.
+    - Height measurement for both rows changes from DD_EDIT_H to
+      DD_EDIT_H (edit fills remaining width), browse button same height.
+
+── ARCHITECTURE: SCROLLBAR REFINEMENTS ─────────────────────────────────
+
+  WM_VSCROLL child-scroll approach (currently in dep_edit_dialog.cpp):
+    Moving ALL children works but can cause combo-box dropdowns to be
+    positioned incorrectly when the user has scrolled.  The standard Win32
+    fix is to use a scrollable container HWND (a plain child STATIC with
+    WS_CLIPCHILDREN) and put all controls inside it; scrolling then moves
+    just the container.  Mark this as a known limitation for now.
+
+── DB CHANGES THIS SESSION ──────────────────────────────────────────────
+
+  New table: external_deps  (18 data columns + AUTOINCREMENT PK + FK)
+  New functions in db.h/.cpp:
+    DB::InsertExternalDep(projectId, dep) → int (new id)
+    DB::GetExternalDepsForProject(projectId) → vector<ExternalDep>
+    DB::DeleteExternalDepsForProject(projectId) → bool
+
+── ENUM CHANGES THIS SESSION ────────────────────────────────────────────
+
+  DepArch (deps.h):
+    DA_ANY   = 0
+    DA_X64   = 1
+    DA_ARM64 = 2   ← was 3; DA_X86 (was 2) removed entirely
+  ExternalDep.architecture default changed: DA_ANY → DA_X64
+
+── NEXT STEPS (in order) ────────────────────────────────────────────────
+
+  1. Layout collapse fix — UpdateVisibility should reflow y-positions of
+     all controls below the hidden rows so there is no dead space.
+     (This requires keeping track of control positions in a small struct
+     or using a container HWND approach.)
+
+  2. Registry key picker dialog (reg_picker_dialog.h / .cpp):
+     - TreeView of HKLM\SOFTWARE (KEY_WOW64_64KEY)
+     - Modal, same measure-then-create pattern
+     - Returns selected key path as wstring
+     - Add entry to API_list.txt as reg_picker_API.txt or _INTERNALS.txt
+
+  3. File path picker — wire ShowVfsPicker to IDC_DEPDLG_DETECT_FILE_BROWSE.
+
+  4. Add/Edit dialog title distinction (dep_dialog_title_add locale key).
+
+  5. When the dep page is working end-to-end, bump version + push to GitHub.
+
+── RULES REMINDER ───────────────────────────────────────────────────────
+
+  - makeit.bat — NO parameters
+  - S() for all pixel values
+  - All strings through locale map
+  - Modular: every page/dialog gets .h + .cpp + _INTERNALS.txt or _API.txt
+  - Always check API_list.txt before coding
+  - No GitHub push until user says so
+  - No magic numbers
+
+========================================================================
 
     WHAT WORKS:
       - Full page layout: Desktop button + opt-out checkbox, Start Menu &

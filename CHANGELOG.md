@@ -2,6 +2,20 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.03.20.11] - 2026-03-20
+
+### Added
+- **Dependencies page** — new modular page (`deps.h` / `deps.cpp` / `deps_INTERNALS.txt`, page index 3). ListView with Name / Delivery / Required / Detection columns, three action buttons (Add / Edit / Remove), right-click context menu, double-click to edit. State held in `s_deps` (in-memory vector); persisted to new `external_deps` DB table on Save. DB API: `InsertExternalDep`, `GetExternalDepsForProject`, `DeleteExternalDepsForProject`.
+- **Edit Dependency dialog** (`dep_edit_dialog.h` / `dep_edit_dialog.cpp`) — modal measure-then-create dialog with all 18 `ExternalDep` fields: delivery type (Bundled / Auto-download / Redirect URL / Instructions only), Required checkbox, architecture (Any / x64 / ARM64), install order, Detection section (registry key, file path, min version), conditional Network section (URL, SHA-256, silent args, offline behaviour), License section (path + Browse… picker), credits, multi-line instructions.
+- **Scrollable dialog** — dialog uses `WS_VSCROLL`, height-clamped to work area. `WM_VSCROLL` and `WM_MOUSEWHEEL` handlers move all child controls. Centers over parent; clamped to work area on all four sides.
+
+### Changed
+- **`DepArch` enum** — `DA_X86` removed; `DA_ARM64` renumbered 3 → 2. App is 64-bit only. Arch combo uses `CB_SETITEMDATA`/`CB_GETITEMDATA`. Default architecture changed `DA_ANY` → `DA_X64`.
+
+### Fixed
+- **Dependencies page title font** — title STATIC now carries `IDC_DEP_PAGE_TITLE (6100)`; `WM_CTLCOLORSTATIC` selects `s_hPageTitleFont`, matching Files and Shortcuts headings.
+- **`DepDlgProc` signature** — corrected from `INT_PTR CALLBACK` to `LRESULT CALLBACK`. Added `WM_CTLCOLORSTATIC`, `WM_KEYDOWN` Escape, `DefWindowProcW` fallthrough. Modal loop aligned with `sc_shortcut_dialog.cpp` pattern.
+
 ## [2026.03.20.09] - 2026-03-20
 
 ### Changed
