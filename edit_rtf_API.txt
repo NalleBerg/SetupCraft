@@ -1,0 +1,258 @@
+================================================================================
+  SetupCraft — Full-Featured RTF Editor  (edit_rtf.h / edit_rtf.cpp)
+================================================================================
+
+  Supersedes: notes_editor — which is kept for the 500-char component-notes
+  popup.  Use edit_rtf wherever richer, unconstrained text editing is needed.
+
+  Test harness: build\rtf_editor_test.exe  (target RtfEditorTest in CMake)
+      Opens the editor directly.  On Save, writes RTF to
+      rtf_editor_test_out.rtf in the working directory.
+      Build:  cmake --build build --target RtfEditorTest
+
+================================================================================
+1. PUBLIC API
+================================================================================
+
+  bool OpenRtfEditor(HWND hwndParent, RtfEditorData& data)
+
+      Opens the editor as a topmost modal popup centred over hwndParent.
+      hwndParent may be NULL (window is centred on the screen).
+      Runs its own GetMessage / DispatchMessage loop (same pattern as
+      notes_editor and sc_shortcut_dialog — IsWindow guard, WM_QUIT re-post).
+      Blocks until the window is destroyed (Save or Cancel).
+
+      Returns true  → user clicked Save; data.outRtf contains the RTF.
+      Returns false → user cancelled or closed the window; data.outRtf
+                      is unchanged.
+
+  Typical call site
+  -----------------
+      RtfEditorData ed;
+      ed.titleText  = s_locale[L"desc_editor_title"];  // e.g. L"Edit Description"
+      ed.okText     = s_locale[L"ok"];
+      ed.cancelText = s_locale[L"cancel"];
+      ed.initRtf    = existingRtfWstring;               // empty = blank
+
+      if (OpenRtfEditor(hwnd, ed)) {
+          myModel.descriptionRtf = ed.outRtf;
+          // ... mark unsaved, refresh preview, etc.
+      }
+
+================================================================================
+2. RtfEditorData STRUCT
+================================================================================
+
+  Field           Type          Default   Notes
+  ──────────────────────────────────────────────────────────────────────────────
+  initRtf         std::wstring  L""       RTF to pre-load.  Empty = blank.
+  outRtf          std::wstring  L""       Filled on Save.  Untouched on Cancel.
+  okClicked       bool          false     Set true on Save; mirrors return value.
+  maxChars        int           -1        -1 = unlimited.  >0 = char-limit mode:
+                                          EM_EXLIMITTEXT applied; status bar
+                                          shows "N characters left".
+  titleText       std::wstring  L""       Window caption.   Fallback: "Edit Text"
+  okText          std::wstring  L""       Save button.      Fallback: "Save"
+  cancelText      std::wstring  L""       Cancel button.    Fallback: "Cancel"
+  charsLeftFmt    std::wstring  L""       printf fmt with one %d.
+                                          Only used when maxChars > 0.
+                                          Fallback: "%d characters left"
+  preferredW      int           0         Window width  in device px.  0 = S(660)
+  preferredH      int           0         Window height in device px.  0 = S(520)
+
+  All string fields are i18n-ready — pass locale-looked-up strings directly.
+
+================================================================================
+3. TOOLBAR LAYOUT
+================================================================================
+
+  Row 1 — character formatting
+  ─────────────────────────────
+  B         Bold             (Ctrl+B — also handled natively by RichEdit)
+  I         Italic           (Ctrl+I)
+  U         Underline        (Ctrl+U)
+  S̶         Strikethrough
+  X₂        Subscript        (mutually exclusive with Superscript)
+  X²        Superscript      (mutually exclusive with Subscript)
+  [Face ▼]  Font face        CBS_DROPDOWNLIST — sorted system fonts.
+                             Segoe UI is pinned at position 0.
+  [Size ▼]  Font size (pt)   Sizes: 8 9 10 11 12 14 16 18 20 22 24 28 32 36 48 72
+                             Default: 12 pt.
+
+  Row 2 — paragraph formatting + colour
+  ──────────────────────────────────────
+  ≡L        Align left
+  ≡C        Align centre
+  ≡R        Align right
+  ≡J        Justify
+  •         Bullet list      (toggles PFN_BULLET, indent 360 twips ≈ 0.25″)
+  1.        Numbered list    (toggles PFN_ARABIC + PFNS_PERIOD)
+  A▼        Text colour      opens CHOOSECOLOR; clears CFE_AUTOCOLOR on selection
+  H▼        Highlight colour sets CFM_BACKCOLOR on the selection
+
+  Toggle buttons (B, I, U, S̶, X₂, X², ≡L-J, •, 1.) use BS_AUTOCHECKBOX |
+  BS_PUSHLIKE.  They update automatically on click AND are synced from the
+  actual char/para format on every EN_SELCHANGE — so the button state always
+  reflects the caret position, not just the last click.
+
+  Win32 TOOLTIPS_CLASS balloon texts are registered for all toolbar buttons.
+
+================================================================================
+4. DEFAULT DOCUMENT FORMAT
+================================================================================
+
+  Font:      Segoe UI  12 pt  DEFAULT_CHARSET
+  Effect:    CFE_AUTOCOLOR (auto text colour — prevents black-on-black on
+             dark-mode / custom-background hosts)
+  Background: RGB(255,255,255) via EM_SETBKGNDCOLOR
+  DLL:       Msftedit.dll (RichEdit 4.1 / RICHEDIT50W) preferred;
+             falls back to Riched20.dll (2.0 / RichEdit20W) automatically.
+             The DLL handle is cached in a static so it is loaded only once.
+
+================================================================================
+5. RTF STREAM IN / OUT
+================================================================================
+
+  Uses EM_STREAMIN (SF_RTF) and EM_STREAMOUT (SF_RTF) via EDITSTREAM callbacks.
+  The stream buffer is a narrow std::string; conversion to/from std::wstring is
+  done with WideCharToMultiByte(CP_UTF8) / MultiByteToWideChar(CP_UTF8).
+
+  The streamout result includes the full RTF header ({\rtf1\ansi\deff0 …}) and
+  is safe to round-trip: streaming the same string back in restores all
+  formatting including colours and paragraph style.
+
+  Storing in the database:   store data.outRtf as a wide-string BLOB or TEXT.
+  Rendering back:            pass it unchanged as data.initRtf.
+
+================================================================================
+6. CHAR FORMAT / PARA FORMAT — BUG-FREE PATTERNS (inherited from notes_editor)
+================================================================================
+
+  Effect toggles (Bold, Italic, Underline, Strikethrough)
+  ────────────────────────────────────────────────────────
+  Read-modify-write via EM_GETCHARFORMAT(SCF_SELECTION) before toggling.
+  dwMask always includes CFM_COLOR so CFE_AUTOCOLOR and crTextColor are
+  written back unchanged.  This prevents "auto colour → black" corruption
+  that a naïve EM_SETCHARFORMAT write would cause.
+
+  Subscript / Superscript
+  ───────────────────────
+  Mutually exclusive.  Both CFE_SUBSCRIPT and CFE_SUPERSCRIPT are cleared
+  before the wanted bit is set; toggling off clears both.
+  dwMask includes CFM_COLOR for the same reason as above.
+
+  Font size and face
+  ──────────────────
+  Applied via EM_SETCHARFORMAT(SCF_SELECTION) — selection is restored with
+  EM_EXSETSEL after each format change so the caret does not jump.
+
+  Paragraph alignment
+  ────────────────────
+  EM_SETPARAFORMAT with PFM_ALIGNMENT.  Values: PFA_LEFT / CENTER / RIGHT / JUSTIFY.
+
+  Lists (bullet / numbered)
+  ──────────────────────────
+  EM_GETPARAFORMAT then EM_SETPARAFORMAT with PFM_NUMBERING | PFM_OFFSET.
+  Toggle off by setting wNumbering = 0 and dxOffset = 0.
+  Numbered uses PFN_ARABIC + PFNS_PERIOD + wNumberingStart = 1.
+
+================================================================================
+7. SELECTION PRESERVATION
+================================================================================
+
+  Every toolbar button handler saves the CHARRANGE before applying the format
+  and restores it via EM_EXSETSEL afterward, then calls SetFocus(hEdit).
+  This keeps the user's selection visible after clicking a toolbar button —
+  no "selection disappears on format click" bug.
+
+================================================================================
+8. WM_SIZE — RESIZABLE WINDOW
+================================================================================
+
+  The editor window is WS_OVERLAPPEDWINDOW (resizable, normal title bar).
+  WM_SIZE repositions:
+    • RichEdit: fills the space between the toolbar rows and the bottom bar.
+    • Status bar (when maxChars > 0): stays above the OK/Cancel row.
+    • OK / Cancel:  recentred horizontally at the bottom every WM_SIZE.
+  Minimum usable size: approximately S(480) × S(380).
+
+================================================================================
+9. WINDOW CLASS
+================================================================================
+
+  Class name:  "RtfEditorWindow"
+  Registered once per process; re-use is safe (GetClassInfoExW guard).
+  Window style: WS_OVERLAPPEDWINDOW | WS_VISIBLE — users can resize.
+  Extended:     WS_EX_TOPMOST so the editor stays above the SetupCraft window.
+  Background:   COLOR_WINDOW+1 brush — child controls fill the rest with white
+                via WM_CTLCOLORBTN / WM_CTLCOLORSTATIC.
+
+================================================================================
+10. CONTROL IDs
+================================================================================
+
+  IDC_RTFE_EDIT         4500    RICHEDIT50W / RichEdit20W
+  IDC_RTFE_BOLD         4501    BS_AUTOCHECKBOX | BS_PUSHLIKE
+  IDC_RTFE_ITALIC       4502
+  IDC_RTFE_UNDERLINE    4503
+  IDC_RTFE_STRIKE       4504
+  IDC_RTFE_SUBSCRIPT    4505
+  IDC_RTFE_SUPERSCRIPT  4506
+  IDC_RTFE_FONTFACE     4507    CBS_DROPDOWNLIST combobox
+  IDC_RTFE_FONTSIZE     4508    CBS_DROPDOWNLIST combobox
+  IDC_RTFE_COLOR        4509    BS_PUSHBUTTON (opens CHOOSECOLOR)
+  IDC_RTFE_HIGHLIGHT    4510    BS_PUSHBUTTON (opens CHOOSECOLOR)
+  IDC_RTFE_ALIGN_L      4511    BS_AUTOCHECKBOX | BS_PUSHLIKE
+  IDC_RTFE_ALIGN_C      4512
+  IDC_RTFE_ALIGN_R      4513
+  IDC_RTFE_ALIGN_J      4514
+  IDC_RTFE_BULLET       4515
+  IDC_RTFE_NUMBERED     4516
+  IDC_RTFE_OK           4517    custom button (Green, MeasureButtonWidth)
+  IDC_RTFE_CANCEL       4518    custom button (Red,   MeasureButtonWidth)
+  IDC_RTFE_STATUSBAR    4519    STATIC  — only created when maxChars > 0
+
+  Range 4500–4530 does not overlap any other module in SetupCraft.
+
+================================================================================
+11. FONT MANAGEMENT
+================================================================================
+
+  The toolbar uses three NONCLIENTMETRICS-derived fonts (all 120% scale,
+  CLEARTYPE_QUALITY), stored as window properties:
+
+    L"rtfeFont"        normal font — applied to all non-RichEdit children
+    L"rtfeBoldFont"    applied to the "B" button
+    L"rtfeItalicFont"  applied to the "I" button
+    L"rtfeStrikeFont"  applied to the "S̶" button
+
+  All are deleted in WM_DESTROY.  The RichEdit manages its own font
+  (set via EM_SETCHARFORMAT SCF_ALL on creation).
+
+================================================================================
+12. DEPENDENCIES / LINK
+================================================================================
+
+  Headers:    edit_rtf.h, dpi.h, button.h, richedit.h, commdlg.h, commctrl.h
+  Sources:    edit_rtf.cpp, button.cpp, dpi.cpp, tooltip.cpp
+  Libs:       comctl32, comdlg32, user32, gdi32, shell32
+
+  tooltip.cpp is needed because button.cpp references ShowMultilingualTooltip
+  (even when SetButtonTooltip is not called — the linker requires it).
+
+================================================================================
+13. ADDING OPENRTFEDITOR TO A NEW PAGE / DIALOG
+================================================================================
+
+  Step 1  Include	"edit_rtf.h"  in your .cpp file.
+  Step 2  Optionally look up locale strings for title/ok/cancel.
+  Step 3  Fill an RtfEditorData with initRtf from your data model.
+  Step 4  Call OpenRtfEditor(hwnd, data).
+  Step 5  On return true: copy data.outRtf back into your model; mark unsaved.
+
+  No globals to initialise, no teardown needed.
+  Multiple editor instances are safe (different top-level HWNDs, each with
+  its own RtfEdState*).  Calling OpenRtfEditor re-entrantly from within the
+  same message loop is not supported.
+
+================================================================================
