@@ -2,6 +2,19 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.03.21.11] - 2026-03-21
+
+### Added
+- **New RTF editor component (`edit_rtf.h` / `edit_rtf.cpp`)** — general-purpose resizable rich-text editor modal (`WS_OVERLAPPEDWINDOW`, default S(660)×S(520)). Two-row toolbar: Bold/Italic/Underline/Strikethrough/Subscript/Superscript/FontFace/FontSize (row 1); Align L/C/R/J / Bullet / Numbered / Text colour / Highlight / Insert Image (row 2). `BS_AUTOCHECKBOX|BS_PUSHLIKE` toggle buttons synced from caret on `EN_SELCHANGE`. RTF streamed in/out via `EM_STREAMIN`/`EM_STREAMOUT`. All `notes_editor` bug-fixes carried forward. Control IDs 4500–4530.
+- **Image insertion (PNG / JPEG)** — 🖼 toolbar button: file picked via `GetOpenFileNameW`, classified by header bytes (PNG 8-byte signature / JPEG SOF marker scan), hex-encoded, streamed into caret as `\pict\pngblip`/`\jpegblip` via `SF_RTF|SFF_SELECTION`. Fully embedded in the RTF string. Zero extra library dependencies.
+- **Toolbar tooltips** — all 17 toolbar controls subclassed via `RtfEd_SetToolTip` / `RtfEd_ToolbarBtnProc`; shows the project's `ShowMultilingualTooltip` on hover. `WM_MOUSELEAVE` / `TrackMouseEvent` for reliable hide.
+- **`rtf_editor_test.cpp`** — standalone WinMain test harness; CMake target `RtfEditorTest`, output `build\rtf_editor_test.exe`.
+- **`edit_rtf_API.txt`** / **`API_list.txt`** — full component reference and index entry.
+- **NSBEdit — standalone RTF notepad** — self-contained, statically-linked RTF notepad built on the `edit_rtf` component patterns: File menu (New / Open / Save / Save As / Exit with unsaved-changes prompt), same two-row formatting toolbar, PNG/JPEG image insertion, English-only hover tooltips, shell32.dll index 70 icon on title bar/taskbar/status bar, command-line file opening. No MinGW runtime DLL dependencies (`-static -static-libgcc -static-libstdc++`). Extracted to author's toolbox for reuse; source not included in the SetupCraft distribution.
+
+### Fixed
+- **`makeit.bat` packaging** — searches `build\SetupCraft.exe` specifically instead of the first `*.exe` found (alphabetically `rtf_editor_test.exe` was always matched first, leaving `SetupCraft.exe` out of the package).
+
 ## [2026.03.21.09] - 2026-03-21
 
 ### Fixed

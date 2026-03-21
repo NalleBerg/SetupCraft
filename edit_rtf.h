@@ -32,6 +32,7 @@
 #define IDC_RTFE_OK           4517
 #define IDC_RTFE_CANCEL       4518
 #define IDC_RTFE_STATUSBAR    4519
+#define IDC_RTFE_IMAGE        4520
 
 // ── Data struct ───────────────────────────────────────────────────────────────
 // Fill all fields before calling OpenRtfEditor().

@@ -44,17 +44,17 @@ if exist "%PKG_DIR%" (
 )
 mkdir "%PKG_DIR%"
 
-REM Find the built executable (first *.exe under build folder)
+REM Find the main SetupCraft.exe under the build folder
 set "EXE_PATH="
 set "EXE_DIR="
-for /f "delims=" %%I in ('dir /b /s "build\*.exe" 2^>nul') do (
+for /f "delims=" %%I in ('dir /b /s "build\SetupCraft.exe" 2^>nul') do (
   set "EXE_PATH=%%~fI"
   set "EXE_DIR=%%~dpI"
   goto :_found_exe
 )
 :_found_exe
 if "%EXE_PATH%"=="" (
-  echo [ERROR] No executable found under build\
+  echo [ERROR] SetupCraft.exe not found under build\
   exit /b 1
 )
 

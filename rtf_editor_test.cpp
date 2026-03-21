@@ -13,6 +13,7 @@
 #include <string>
 #include "dpi.h"
 #include "edit_rtf.h"
+#include "tooltip.h"
 
 // g_dpiScale is defined in dpi.cpp (linked into every target that uses dpi.cpp).
 
@@ -30,28 +31,14 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
     INITCOMMONCONTROLSEX icc = { sizeof(icc), ICC_WIN95_CLASSES };
     InitCommonControlsEx(&icc);
 
-    // ── Pre-load a small RTF snippet so all formatting features can be seen ───
-    // The snippet exercises: bold, italic, underline, list, alignment.
-    const wchar_t* demoRtf =
-        LR"({\rtf1\ansi\deff0)"
-        LR"({\fonttbl{\f0\fswiss\fcharset0 Segoe UI;}})"
-        LR"({\colortbl;\red0\green0\blue0;\red200\green0\blue0;})"
-        LR"(\f0\fs24)"
-        LR"(\pard\qc{\b\fs28 RTF Editor — Test Harness}\par)"
-        LR"(\pard\ql )"
-        LR"(This is {\b bold}, {\i italic}, {\ul underlined} and {\strike strikethrough}.\par)"
-        LR"(Colour: {\cf2 red text}. Sub: H{\sub 2}O. Super: m{\super 2}.\par)"
-        LR"(\pard{\pntext\bullet\tab}\fi-360\li720\ls1 Bullet one\par)"
-        LR"(\pard{\pntext\bullet\tab}\fi-360\li720\ls1 Bullet two\par)"
-        LR"(\pard\ql Select any text and use the toolbar buttons above.)"
-        LR"(})";
+    // ── Tooltip system ────────────────────────────────────────────────────────
+    InitTooltipSystem(hInst);
 
     // ── Open the editor ───────────────────────────────────────────────────────
     RtfEditorData data;
     data.titleText    = L"RTF Editor — Test Harness";
     data.okText       = L"Save";
     data.cancelText   = L"Cancel";
-    data.initRtf      = demoRtf;
     // Uncomment to test the optional char-limit status bar:
     // data.maxChars      = 500;
     // data.charsLeftFmt  = L"%d characters left";
@@ -80,5 +67,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
             L"Editor closed without saving.",
             L"RTF Editor Test", MB_OK | MB_ICONINFORMATION);
     }
+
+    CleanupTooltipSystem();
     return 0;
 }

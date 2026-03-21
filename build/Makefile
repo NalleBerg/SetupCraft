@@ -128,6 +128,19 @@ SkeletonApp/fast:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/build
 .PHONY : SkeletonApp/fast
 
+#=============================================================================
+# Target rules for targets named RtfEditorTest
+
+# Build rule for target.
+RtfEditorTest: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\Makefile2 RtfEditorTest
+.PHONY : RtfEditorTest
+
+# fast build rule for target.
+RtfEditorTest/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\RtfEditorTest.dir\build.make CMakeFiles/RtfEditorTest.dir/build
+.PHONY : RtfEditorTest/fast
+
 SetupCraft.obj: SetupCraft.rc.obj
 .PHONY : SetupCraft.obj
 
@@ -190,6 +203,7 @@ button.obj: button.cpp.obj
 # target to build an object file
 button.cpp.obj:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/button.cpp.obj
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\RtfEditorTest.dir\build.make CMakeFiles/RtfEditorTest.dir/button.cpp.obj
 .PHONY : button.cpp.obj
 
 button.i: button.cpp.i
@@ -198,6 +212,7 @@ button.i: button.cpp.i
 # target to preprocess a source file
 button.cpp.i:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/button.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\RtfEditorTest.dir\build.make CMakeFiles/RtfEditorTest.dir/button.cpp.i
 .PHONY : button.cpp.i
 
 button.s: button.cpp.s
@@ -206,6 +221,7 @@ button.s: button.cpp.s
 # target to generate assembly for a file
 button.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/button.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\RtfEditorTest.dir\build.make CMakeFiles/RtfEditorTest.dir/button.cpp.s
 .PHONY : button.cpp.s
 
 checkbox.obj: checkbox.cpp.obj
@@ -334,6 +350,7 @@ dpi.obj: dpi.cpp.obj
 # target to build an object file
 dpi.cpp.obj:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/dpi.cpp.obj
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\RtfEditorTest.dir\build.make CMakeFiles/RtfEditorTest.dir/dpi.cpp.obj
 .PHONY : dpi.cpp.obj
 
 dpi.i: dpi.cpp.i
@@ -342,6 +359,7 @@ dpi.i: dpi.cpp.i
 # target to preprocess a source file
 dpi.cpp.i:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/dpi.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\RtfEditorTest.dir\build.make CMakeFiles/RtfEditorTest.dir/dpi.cpp.i
 .PHONY : dpi.cpp.i
 
 dpi.s: dpi.cpp.s
@@ -350,6 +368,7 @@ dpi.s: dpi.cpp.s
 # target to generate assembly for a file
 dpi.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/dpi.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\RtfEditorTest.dir\build.make CMakeFiles/RtfEditorTest.dir/dpi.cpp.s
 .PHONY : dpi.cpp.s
 
 dragdrop.obj: dragdrop.cpp.obj
@@ -375,6 +394,33 @@ dragdrop.s: dragdrop.cpp.s
 dragdrop.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/dragdrop.cpp.s
 .PHONY : dragdrop.cpp.s
+
+edit_rtf.obj: edit_rtf.cpp.obj
+.PHONY : edit_rtf.obj
+
+# target to build an object file
+edit_rtf.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/edit_rtf.cpp.obj
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\RtfEditorTest.dir\build.make CMakeFiles/RtfEditorTest.dir/edit_rtf.cpp.obj
+.PHONY : edit_rtf.cpp.obj
+
+edit_rtf.i: edit_rtf.cpp.i
+.PHONY : edit_rtf.i
+
+# target to preprocess a source file
+edit_rtf.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/edit_rtf.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\RtfEditorTest.dir\build.make CMakeFiles/RtfEditorTest.dir/edit_rtf.cpp.i
+.PHONY : edit_rtf.cpp.i
+
+edit_rtf.s: edit_rtf.cpp.s
+.PHONY : edit_rtf.s
+
+# target to generate assembly for a file
+edit_rtf.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/edit_rtf.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\RtfEditorTest.dir\build.make CMakeFiles/RtfEditorTest.dir/edit_rtf.cpp.s
+.PHONY : edit_rtf.cpp.s
 
 languages.obj: languages.cpp.obj
 .PHONY : languages.obj
@@ -472,6 +518,30 @@ notes_editor.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/notes_editor.cpp.s
 .PHONY : notes_editor.cpp.s
 
+rtf_editor_test.obj: rtf_editor_test.cpp.obj
+.PHONY : rtf_editor_test.obj
+
+# target to build an object file
+rtf_editor_test.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\RtfEditorTest.dir\build.make CMakeFiles/RtfEditorTest.dir/rtf_editor_test.cpp.obj
+.PHONY : rtf_editor_test.cpp.obj
+
+rtf_editor_test.i: rtf_editor_test.cpp.i
+.PHONY : rtf_editor_test.i
+
+# target to preprocess a source file
+rtf_editor_test.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\RtfEditorTest.dir\build.make CMakeFiles/RtfEditorTest.dir/rtf_editor_test.cpp.i
+.PHONY : rtf_editor_test.cpp.i
+
+rtf_editor_test.s: rtf_editor_test.cpp.s
+.PHONY : rtf_editor_test.s
+
+# target to generate assembly for a file
+rtf_editor_test.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\RtfEditorTest.dir\build.make CMakeFiles/RtfEditorTest.dir/rtf_editor_test.cpp.s
+.PHONY : rtf_editor_test.cpp.s
+
 sc_shortcut_dialog.obj: sc_shortcut_dialog.cpp.obj
 .PHONY : sc_shortcut_dialog.obj
 
@@ -550,6 +620,7 @@ tooltip.obj: tooltip.cpp.obj
 # target to build an object file
 tooltip.cpp.obj:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/tooltip.cpp.obj
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\RtfEditorTest.dir\build.make CMakeFiles/RtfEditorTest.dir/tooltip.cpp.obj
 .PHONY : tooltip.cpp.obj
 
 tooltip.i: tooltip.cpp.i
@@ -558,6 +629,7 @@ tooltip.i: tooltip.cpp.i
 # target to preprocess a source file
 tooltip.cpp.i:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/tooltip.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\RtfEditorTest.dir\build.make CMakeFiles/RtfEditorTest.dir/tooltip.cpp.i
 .PHONY : tooltip.cpp.i
 
 tooltip.s: tooltip.cpp.s
@@ -566,6 +638,7 @@ tooltip.s: tooltip.cpp.s
 # target to generate assembly for a file
 tooltip.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/tooltip.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\RtfEditorTest.dir\build.make CMakeFiles/RtfEditorTest.dir/tooltip.cpp.s
 .PHONY : tooltip.cpp.s
 
 vfs_picker.obj: vfs_picker.cpp.obj
@@ -600,6 +673,7 @@ help:
 	@echo ... depend
 	@echo ... edit_cache
 	@echo ... rebuild_cache
+	@echo ... RtfEditorTest
 	@echo ... SkeletonApp
 	@echo ... SetupCraft.obj
 	@echo ... about.obj
@@ -632,6 +706,9 @@ help:
 	@echo ... dragdrop.obj
 	@echo ... dragdrop.i
 	@echo ... dragdrop.s
+	@echo ... edit_rtf.obj
+	@echo ... edit_rtf.i
+	@echo ... edit_rtf.s
 	@echo ... languages.obj
 	@echo ... languages.i
 	@echo ... languages.s
@@ -644,6 +721,9 @@ help:
 	@echo ... notes_editor.obj
 	@echo ... notes_editor.i
 	@echo ... notes_editor.s
+	@echo ... rtf_editor_test.obj
+	@echo ... rtf_editor_test.i
+	@echo ... rtf_editor_test.s
 	@echo ... sc_shortcut_dialog.obj
 	@echo ... sc_shortcut_dialog.i
 	@echo ... sc_shortcut_dialog.s

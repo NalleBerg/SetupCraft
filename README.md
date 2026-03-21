@@ -2,12 +2,13 @@
 
 An installer creation tool for making your developed packages distributable. Designed to be simple to use with a clean, native Windows interface.
 
-**Current Release:** Version 2026.03.21.09 (Published: 21.03.2026 09:16)
+**Current Release:** Version 2026.03.21.11 (Published: 21.03.2026 11:03)
 
 > Note: This project is in active development. Entry screen, Files management, Shortcuts, and Dependencies pages are complete.
 
 ## Features
 
+- **RTF Editor Component (`edit_rtf.h` / `edit_rtf.cpp`)**: General-purpose reusable rich-text editor modal — two-row toolbar (Bold / Italic / Underline / Strikethrough / Subscript / Superscript / Font Face / Font Size / Align L/C/R/J / Bullet / Numbered / Text colour / Highlight / Insert Image). `BS_AUTOCHECKBOX|BS_PUSHLIKE` toggle buttons synced from caret on `EN_SELCHANGE`. PNG and JPEG images embedded inline as hex-encoded `\pict\pngblip`/`\jpegblip` RTF blocks — no external files. Hover tooltips on all 17 controls via the project tooltip system. RTF streamed in/out; safe to round-trip through the DB. Test harness: `build\rtf_editor_test.exe` (CMake target `RtfEditorTest`)
 - **DPI-Aware Scaling**: Full per-monitor DPI support via `S()` helper — all pixel values, fonts, tooltip dimensions, and custom dialog sizes scale correctly at any DPI (100%, 125%, 150%, 175%, 200%+). All custom dialogs use named layout constants + `S()` with `AdjustWindowRectEx` outer-window sizing — no hardcoded pixel values anywhere in the dialog system
 - **Consistent Body Font**: All labels, edits, checkboxes, TreeViews, and ListViews — including the entry screen, new-project dialog, and tooltips — use a system-derived `NONCLIENTMETRICS` font at 120% scale for clear, legible text on every screen. Entry-screen labels and the new-project dialog title use the same scaling recipe as the main window (`× 1.2` body, `× 1.5 + FW_SEMIBOLD` title)
 - **Dependencies Page**: New modular page for declaring external dependencies required by the installer — ListView with Name / Delivery / Required / Detection columns, Add / Edit / Remove buttons with right-click context menu. Full edit dialog with 18 fields: delivery type (Bundled / Auto-download / Redirect URL / Instructions only), Required checkbox, architecture (Any / x64 / ARM64 — x86 removed, app is 64-bit only), install order, registry-key and file-path detection, minimum version, conditional Network fields (URL, SHA-256, silent args, offline behaviour), license file picker, credits, and manual-install instructions. Scrollable dialog (`WS_VSCROLL`) clamped to work area. All state persisted to `external_deps` DB table on Save. Module in `deps.h/.cpp`; documented in `deps_INTERNALS.txt`

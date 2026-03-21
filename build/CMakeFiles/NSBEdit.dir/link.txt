@@ -1,0 +1,3 @@
+"C:\Program Files\CMake\bin\cmake.exe" -E rm -f CMakeFiles\NSBEdit.dir/objects.a
+C:\mingw64\bin\ar.exe qc CMakeFiles\NSBEdit.dir/objects.a @CMakeFiles\NSBEdit.dir\objects1.rsp
+C:\mingw64\bin\c++.exe -O3 -DNDEBUG -mwindows -municode -mwindows -static -static-libgcc -static-libstdc++ -Wl,--whole-archive CMakeFiles\NSBEdit.dir/objects.a -Wl,--no-whole-archive -o NSBEdit.exe -Wl,--out-implib,libNSBEdit.dll.a -Wl,--major-image-version,0,--minor-image-version,0 @CMakeFiles\NSBEdit.dir\linkLibs.rsp

@@ -1,12 +1,14 @@
 #include "edit_rtf.h"
 #include "dpi.h"
 #include "button.h"
+#include "tooltip.h"
 #include <richedit.h>
 #include <commdlg.h>
 #include <commctrl.h>
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <stdio.h>
 
 // ─── RTF stream helpers (identical pattern to notes_editor — bug-free) ────────
 
@@ -114,6 +116,117 @@ static void RtfEd_ToggleNumbered(HWND hEdit)
         pf.wNumberingStyle  = PFNS_PERIOD; pf.wNumberingStart = 1;
     }
     SendMessageW(hEdit, EM_SETPARAFORMAT, 0, (LPARAM)&pf);
+}
+
+// ─── Image insertion ────────────────────────────────────────────────────────
+
+enum class RtfImgFmt { Unknown, PNG, JPEG };
+struct RtfImgInfo { RtfImgFmt fmt; int w, h; };
+
+static RtfImgInfo RtfEd_ClassifyImage(const std::vector<unsigned char>& d)
+{
+    RtfImgInfo info = { RtfImgFmt::Unknown, 0, 0 };
+    if (d.size() < 24) return info;
+    // PNG: 8-byte signature, then IHDR chunk — width at [16..19], height at [20..23] (big-endian)
+    if (d[0]==0x89 && d[1]==0x50 && d[2]==0x4E && d[3]==0x47 &&
+        d[4]==0x0D && d[5]==0x0A && d[6]==0x1A && d[7]==0x0A) {
+        info.fmt = RtfImgFmt::PNG;
+        info.w = (d[16]<<24)|(d[17]<<16)|(d[18]<<8)|d[19];
+        info.h = (d[20]<<24)|(d[21]<<16)|(d[22]<<8)|d[23];
+        return info;
+    }
+    // JPEG: starts FF D8, scan for SOF0/SOF1/SOF2 marker (FF C0/C1/C2)
+    if (d[0]==0xFF && d[1]==0xD8) {
+        info.fmt = RtfImgFmt::JPEG;
+        size_t i = 2;
+        while (i + 8 < d.size()) {
+            if (d[i] != 0xFF) break;
+            unsigned char m = d[i+1];
+            if (m == 0xC0 || m == 0xC1 || m == 0xC2) {
+                info.h = (d[i+5]<<8)|d[i+6];
+                info.w = (d[i+7]<<8)|d[i+8];
+                return info;
+            }
+            if (m == 0xD9 || m == 0xD8 || m == 0x01) break;
+            int segLen = (d[i+2]<<8)|d[i+3];
+            i += 2 + (size_t)segLen;
+        }
+        return info;
+    }
+    return info;
+}
+
+static void RtfEd_InsertImage(HWND hwnd, HWND hEdit)
+{
+    wchar_t path[MAX_PATH] = {};
+    OPENFILENAMEW ofn = {}; ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner   = hwnd;
+    ofn.lpstrFilter = L"Image files\0*.png;*.jpg;*.jpeg\0"
+                      L"PNG files (*.png)\0*.png\0"
+                      L"JPEG files (*.jpg;*.jpeg)\0*.jpg;*.jpeg\0\0";
+    ofn.lpstrFile   = path;
+    ofn.nMaxFile    = MAX_PATH;
+    ofn.Flags       = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+    ofn.lpstrTitle  = L"Insert Image";
+    if (!GetOpenFileNameW(&ofn)) return;
+
+    FILE* f = nullptr;
+    if (_wfopen_s(&f, path, L"rb") != 0 || !f) {
+        MessageBoxW(hwnd, L"Could not open image file.", L"Insert Image", MB_OK|MB_ICONERROR);
+        return;
+    }
+    fseek(f, 0, SEEK_END);
+    long fsz = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    std::vector<unsigned char> raw((size_t)fsz);
+    fread(raw.data(), 1, (size_t)fsz, f);
+    fclose(f);
+
+    RtfImgInfo info = RtfEd_ClassifyImage(raw);
+    if (info.fmt == RtfImgFmt::Unknown || info.w <= 0 || info.h <= 0) {
+        MessageBoxW(hwnd, L"Unsupported format. Please use PNG or JPEG.",
+                    L"Insert Image", MB_OK|MB_ICONWARNING);
+        return;
+    }
+
+    // Display size: natural size at 96 dpi (1 px = 15 twips), capped at 4 inches wide.
+    int goalW = info.w * 15;
+    int goalH = info.h * 15;
+    if (goalW > 5760) {  // 4 inches = 5760 twips
+        goalH = (int)((long long)5760 * info.h / info.w);
+        goalW = 5760;
+    }
+    if (goalH > 11520) {
+        goalW = (int)((long long)11520 * info.w / info.h);
+        goalH = 11520;
+    }
+
+    // Hex-encode raw bytes (one line per 64 bytes = 128 hex chars).
+    static const char hx[] = "0123456789ABCDEF";
+    std::string hex;
+    hex.reserve(raw.size() * 2 + raw.size() / 64 + 2);
+    for (size_t i = 0; i < raw.size(); i++) {
+        hex += hx[(raw[i] >> 4) & 0xF];
+        hex += hx[raw[i] & 0xF];
+        if ((i + 1) % 64 == 0) hex += '\n';
+    }
+
+    const char* blip = (info.fmt == RtfImgFmt::PNG) ? "\\pngblip" : "\\jpegblip";
+    std::string snippet = "{\\rtf1\\ansi {\\pict";
+    snippet += blip;
+    snippet += "\\picw"    + std::to_string(info.w);
+    snippet += "\\pich"    + std::to_string(info.h);
+    snippet += "\\picwgoal" + std::to_string(goalW);
+    snippet += "\\pichgoal" + std::to_string(goalH);
+    snippet += "\r\n";
+    snippet += hex;
+    snippet += "}}";
+
+    // Stream into the current caret / selection position.
+    RtfEdStreamBuf rb = { &snippet, 0 };
+    EDITSTREAM es     = { (DWORD_PTR)&rb, 0, RtfEdReadCb };
+    SendMessageW(hEdit, EM_STREAMIN, SF_RTF | SFF_SELECTION, (LPARAM)&es);
+    SetFocus(hEdit);
 }
 
 // ─── Char count ───────────────────────────────────────────────────────────────
@@ -239,6 +352,57 @@ static void RtfEd_UpdateStatus(HWND hwnd, HWND hEdit, const RtfEditorData* pData
     if (hSt) SetWindowTextW(hSt, buf);
 }
 
+// ─── Per-toolbar button tooltip subclass ─────────────────────────────────────
+// Uses the project's custom multilingual tooltip system (tooltip.h/.cpp).
+// Each toolbar button/combo has its tooltip text stored as prop L"rtfeTipText".
+// A shared subclass proc handles WM_MOUSEMOVE / WM_MOUSELEAVE on every control.
+
+static bool s_rtfeTipTracking = false;
+static HWND  s_rtfeTipHwnd    = NULL;
+
+static LRESULT CALLBACK RtfEd_ToolbarBtnProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    WNDPROC prev = (WNDPROC)(LONG_PTR)GetPropW(hwnd, L"rtfeTipProc");
+    if (!prev) return DefWindowProcW(hwnd, msg, wParam, lParam);
+
+    switch (msg) {
+    case WM_MOUSEMOVE:
+        if (!IsTooltipVisible() || s_rtfeTipHwnd != hwnd) {
+            const wchar_t* txt = (const wchar_t*)(void*)GetPropW(hwnd, L"rtfeTipText");
+            if (txt && *txt) {
+                RECT rc; GetWindowRect(hwnd, &rc);
+                std::vector<TooltipEntry> entries = { {L"", txt} };
+                ShowMultilingualTooltip(entries, rc.left, rc.bottom + 4, GetParent(hwnd));
+                s_rtfeTipHwnd = hwnd;
+            }
+        }
+        if (!s_rtfeTipTracking) {
+            TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, hwnd, 0 };
+            TrackMouseEvent(&tme);
+            s_rtfeTipTracking = true;
+        }
+        break;
+    case WM_MOUSELEAVE:
+        HideTooltip();
+        s_rtfeTipHwnd     = NULL;
+        s_rtfeTipTracking = false;
+        break;
+    case WM_NCDESTROY:
+        RemovePropW(hwnd, L"rtfeTipProc");
+        RemovePropW(hwnd, L"rtfeTipText");
+        SetWindowLongPtrW(hwnd, GWLP_WNDPROC, (LONG_PTR)prev);
+        return CallWindowProcW(prev, hwnd, msg, wParam, lParam);
+    }
+    return CallWindowProcW(prev, hwnd, msg, wParam, lParam);
+}
+
+static void RtfEd_SetToolTip(HWND hCtrl, const wchar_t* text)
+{
+    SetPropW(hCtrl, L"rtfeTipText", (HANDLE)(void*)text);
+    WNDPROC prev = (WNDPROC)SetWindowLongPtrW(hCtrl, GWLP_WNDPROC, (LONG_PTR)RtfEd_ToolbarBtnProc);
+    SetPropW(hCtrl, L"rtfeTipProc", (HANDLE)(void*)(LONG_PTR)prev);
+}
+
 // ─── RichEdit dll ─────────────────────────────────────────────────────────────
 
 static HMODULE s_hRtfEditDll = NULL;
@@ -261,6 +425,9 @@ static LRESULT CALLBACK RtfEditorWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
         st->pad             = S(8);
         st->updatingToolbar = false;
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)st);
+
+        // Initialise the project tooltip system (safe to call multiple times).
+        InitTooltipSystem(hInst);
 
         // Load RichEdit: Msftedit.dll (4.1) preferred, Riched20.dll (2.0) fallback.
         if (!s_hRtfEditDll) {
@@ -389,6 +556,11 @@ static LRESULT CALLBACK RtfEditorWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
         CreateWindowExW(0, L"BUTTON", L"H\u25BC",  // H▼ highlight
             WS_CHILD|WS_VISIBLE|BS_PUSHBUTTON,
             x, row2Y, bSz+S(10), bSz, hwnd, (HMENU)IDC_RTFE_HIGHLIGHT, hInst, NULL);
+        x += bSz+S(10) + sG;
+
+        HWND hImgBtn = CreateWindowExW(0, L"BUTTON", L"\U0001F5BC",  // 🖼
+            WS_CHILD|WS_VISIBLE|BS_PUSHBUTTON,
+            x, row2Y, bSz+S(10), bSz, hwnd, (HMENU)IDC_RTFE_IMAGE, hInst, NULL);
 
         // ── RichEdit ──────────────────────────────────────────────────────────
         int editY   = row2Y + bSz + S(6);
@@ -448,37 +620,24 @@ static LRESULT CALLBACK RtfEditorWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
         CreateCustomButtonWithIcon(hwnd, IDC_RTFE_CANCEL, canTxt, ButtonColor::Red,
             L"shell32.dll",  131, startX+wOK+S(10), btnY, wCnl, S(38), hInst);
 
-        // ── Win32 tooltip balloon for toolbar buttons ─────────────────────────
-        HWND hTT = CreateWindowExW(0, TOOLTIPS_CLASS, NULL,
-            WS_POPUP|TTS_ALWAYSTIP|TTS_NOPREFIX,
-            0,0,0,0, hwnd, NULL, hInst, NULL);
-        if (hTT) {
-            SetPropW(hwnd, L"rtfeTooltip", hTT);
-            auto addTip = [&](HWND hCtrl, const wchar_t* tip) {
-                TOOLINFOW ti = {}; ti.cbSize = sizeof(ti);
-                ti.uFlags   = TTF_IDISHWND | TTF_SUBCLASS;
-                ti.hwnd     = hwnd;
-                ti.uId      = (UINT_PTR)hCtrl;
-                ti.lpszText = (wchar_t*)tip;
-                SendMessageW(hTT, TTM_ADDTOOLW, 0, (LPARAM)&ti);
-            };
-            addTip(hBold,     L"Bold  (Ctrl+B)");
-            addTip(hItalic,   L"Italic  (Ctrl+I)");
-            addTip(hUnder,    L"Underline  (Ctrl+U)");
-            addTip(GetDlgItem(hwnd, IDC_RTFE_STRIKE),      L"Strikethrough");
-            addTip(GetDlgItem(hwnd, IDC_RTFE_SUBSCRIPT),   L"Subscript  (e.g. H\u2082O)");
-            addTip(GetDlgItem(hwnd, IDC_RTFE_SUPERSCRIPT), L"Superscript  (e.g. m\u00B2)");
-            addTip(hFace,     L"Font face");
-            addTip(hSzCombo,  L"Font size (pt)");
-            addTip(hColor,    L"Text colour");
-            addTip(GetDlgItem(hwnd, IDC_RTFE_HIGHLIGHT),   L"Highlight colour");
-            addTip(GetDlgItem(hwnd, IDC_RTFE_ALIGN_L),     L"Align left");
-            addTip(GetDlgItem(hwnd, IDC_RTFE_ALIGN_C),     L"Align centre");
-            addTip(GetDlgItem(hwnd, IDC_RTFE_ALIGN_R),     L"Align right");
-            addTip(GetDlgItem(hwnd, IDC_RTFE_ALIGN_J),     L"Justify");
-            addTip(GetDlgItem(hwnd, IDC_RTFE_BULLET),      L"Bullet list");
-            addTip(GetDlgItem(hwnd, IDC_RTFE_NUMBERED),    L"Numbered list");
-        }
+        // ── Custom multilingual tooltips for toolbar buttons ─────────────────
+        RtfEd_SetToolTip(hBold,                                   L"Bold  (Ctrl+B)");
+        RtfEd_SetToolTip(hItalic,                                 L"Italic  (Ctrl+I)");
+        RtfEd_SetToolTip(hUnder,                                  L"Underline  (Ctrl+U)");
+        RtfEd_SetToolTip(GetDlgItem(hwnd, IDC_RTFE_STRIKE),      L"Strikethrough");
+        RtfEd_SetToolTip(GetDlgItem(hwnd, IDC_RTFE_SUBSCRIPT),   L"Subscript  (e.g. H\u2082O)");
+        RtfEd_SetToolTip(GetDlgItem(hwnd, IDC_RTFE_SUPERSCRIPT), L"Superscript  (e.g. m\u00B2)");
+        RtfEd_SetToolTip(hFace,                                   L"Font face");
+        RtfEd_SetToolTip(hSzCombo,                                L"Font size (pt)");
+        RtfEd_SetToolTip(hColor,                                  L"Text colour");
+        RtfEd_SetToolTip(GetDlgItem(hwnd, IDC_RTFE_HIGHLIGHT),   L"Highlight colour");
+        RtfEd_SetToolTip(GetDlgItem(hwnd, IDC_RTFE_ALIGN_L),     L"Align left");
+        RtfEd_SetToolTip(GetDlgItem(hwnd, IDC_RTFE_ALIGN_C),     L"Align centre");
+        RtfEd_SetToolTip(GetDlgItem(hwnd, IDC_RTFE_ALIGN_R),     L"Align right");
+        RtfEd_SetToolTip(GetDlgItem(hwnd, IDC_RTFE_ALIGN_J),     L"Justify");
+        RtfEd_SetToolTip(GetDlgItem(hwnd, IDC_RTFE_BULLET),      L"Bullet list");
+        RtfEd_SetToolTip(GetDlgItem(hwnd, IDC_RTFE_NUMBERED),    L"Numbered list");
+        RtfEd_SetToolTip(hImgBtn,                                 L"Insert image  (PNG / JPEG)");
 
         // ── Fonts ─────────────────────────────────────────────────────────────
         NONCLIENTMETRICSW ncm = {}; ncm.cbSize = sizeof(ncm);
@@ -688,6 +847,9 @@ static LRESULT CALLBACK RtfEditorWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
         if (wmId == IDC_RTFE_BULLET)   { RtfEd_ToggleBullet(hEdit);   RtfEd_SyncToolbar(hwnd, hEdit); SetFocus(hEdit); return 0; }
         if (wmId == IDC_RTFE_NUMBERED) { RtfEd_ToggleNumbered(hEdit); RtfEd_SyncToolbar(hwnd, hEdit); SetFocus(hEdit); return 0; }
 
+        // ── Insert image ──────────────────────────────────────────────────────
+        if (wmId == IDC_RTFE_IMAGE) { RtfEd_InsertImage(hwnd, hEdit); return 0; }
+
         // ── Font face ─────────────────────────────────────────────────────────
         if (wmId == IDC_RTFE_FONTFACE && wmEv == CBN_SELCHANGE && !st->updatingToolbar) {
             CHARRANGE cr = {}; SendMessageW(hEdit, EM_EXGETSEL, 0, (LPARAM)&cr);
@@ -776,9 +938,8 @@ static LRESULT CALLBACK RtfEditorWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
         freeProp(L"rtfeBoldFont");
         freeProp(L"rtfeItalicFont");
         freeProp(L"rtfeStrikeFont");
-        // Tooltip window.
-        HWND hTT = (HWND)GetPropW(hwnd, L"rtfeTooltip");
-        if (hTT) { DestroyWindow(hTT); RemovePropW(hwnd, L"rtfeTooltip"); }
+        // Hide the shared project tooltip if this editor was the one showing it.
+        HideTooltip();
         // Internal state.
         RtfEdState* st = (RtfEdState*)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
         if (st) { delete st; SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0); }

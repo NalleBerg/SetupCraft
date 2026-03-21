@@ -95,7 +95,40 @@
   actual char/para format on every EN_SELCHANGE — so the button state always
   reflects the caret position, not just the last click.
 
-  Win32 TOOLTIPS_CLASS balloon texts are registered for all toolbar buttons.
+  All 17 toolbar controls (buttons and combos) have hover tooltips via the
+  project's custom tooltip system.  Each control is subclassed with
+  RtfEd_ToolbarBtnProc (shared WNDPROC).  WM_MOUSEMOVE shows the tooltip via
+  ShowMultilingualTooltip({L"", text}, screen_x, screen_bottom+4, parent);
+  WM_MOUSELEAVE calls HideTooltip() and resets tracking.
+  RtfEd_SetToolTip(hCtrl, text) stores the tooltip text as window property
+  L"rtfeTipText" and subclasses the control, saving the previous WNDPROC
+  as L"rtfeTipProc".  WM_NCDESTROY cleans up both properties automatically.
+
+================================================================================
+3a. IMAGE INSERTION
+================================================================================
+
+  The "🖼" (IDC_RTFE_IMAGE) button inserts PNG or JPEG images at the caret.
+
+  Flow:
+    1. GetOpenFileNameW — filter: *.png;*.jpg;*.jpeg
+    2. File read in full into std::vector<unsigned char>.
+    3. RtfEd_ClassifyImage() identifies format and pixel dimensions:
+         PNG:  checks 8-byte PNG signature; reads width (bytes 16-19) and
+               height (bytes 20-23) as big-endian uint32.
+         JPEG: checks FF D8 prefix; scans for SOF0/SOF1/SOF2 marker
+               (FF C0/C1/C2) to read height and width.
+    4. Display size: natural size at 96 DPI (1 px = 15 twips), capped at
+       4 inches wide (5760 twips) and 8 inches tall (11520 twips).
+    5. Bytes are hex-encoded (upper-case, 128 chars = 64 bytes per line).
+    6. RTF snippet built:  {\rtf1\ansi {\pict\pngblip\picw…\pich…
+                            \picwgoal…\pichgoal…\r\n<hex>}}
+       or \jpegblip for JPEG.
+    7. Streamed into the caret via EM_STREAMIN(SF_RTF | SFF_SELECTION).
+
+  The image is fully embedded in the RTF string — it round-trips correctly
+  through the database and out to file.  No temporary files, no external
+  image references, no extra library dependencies.
 
 ================================================================================
 4. DEFAULT DOCUMENT FORMAT
@@ -211,6 +244,7 @@
   IDC_RTFE_OK           4517    custom button (Green, MeasureButtonWidth)
   IDC_RTFE_CANCEL       4518    custom button (Red,   MeasureButtonWidth)
   IDC_RTFE_STATUSBAR    4519    STATIC  — only created when maxChars > 0
+  IDC_RTFE_IMAGE        4520    BS_PUSHBUTTON (🖼 — opens image picker)
 
   Range 4500–4530 does not overlap any other module in SetupCraft.
 

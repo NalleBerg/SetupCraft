@@ -1,3 +1,4 @@
 C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir
+C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/RtfEditorTest.dir
 C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/edit_cache.dir
 C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/rebuild_cache.dir
