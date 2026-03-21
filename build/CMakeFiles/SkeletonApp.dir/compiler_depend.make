@@ -3987,6 +3987,7 @@ CMakeFiles/SkeletonApp.dir/edit_rtf.cpp.obj: C:/Users/NalleBerg/Documents/C++/Wo
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_iterator_base_funcs.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_iterator_base_types.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_pair.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_relops.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_tempbuf.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_uninitialized.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_vector.h \
@@ -4023,6 +4024,7 @@ CMakeFiles/SkeletonApp.dir/edit_rtf.cpp.obj: C:/Users/NalleBerg/Documents/C++/Wo
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/string_view \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/tuple \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/type_traits \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/utility \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/vector \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/x86_64-w64-mingw32/bits/c++allocator.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/x86_64-w64-mingw32/bits/c++config.h \
@@ -4270,7 +4272,8 @@ CMakeFiles/SkeletonApp.dir/edit_rtf.cpp.obj: C:/Users/NalleBerg/Documents/C++/Wo
   C:/mingw64/x86_64-w64-mingw32/include/wtypesbase.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/button.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/dpi.h \
-  C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/edit_rtf.h
+  C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/edit_rtf.h \
+  C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/tooltip.h
 
 CMakeFiles/SkeletonApp.dir/languages.cpp.obj: C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/languages.cpp \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/adxintrin.h \

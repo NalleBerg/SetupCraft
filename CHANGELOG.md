@@ -2,6 +2,11 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.03.21.15] - 2026-03-21
+
+### Added
+- **NSBEdit — Print support (File → Print..., Ctrl+P)** — standard `PrintDlgW` dialog; multi-page rendering via `EM_FORMATRANGE`; page geometry computed in twips from printer DC device capabilities (`PHYSICALWIDTH` / `PHYSICALOFFSETX` / `LOGPIXELSX`). Selection restored after printing; printer DC cleaned up. NSBEdit .exe (with print) extracted to author's toolbox; source not included in the SetupCraft distribution.
+
 ## [2026.03.21.11] - 2026-03-21
 
 ### Added
