@@ -1,6 +1,12 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 20 March 2026 &mdash; v2026.03.20.11<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 21 March 2026 &mdash; v2026.03.21.09<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.21.09</span></h3>
+<p><strong>Files page button layout &mdash; mutual width reconciliation for stacked rows (21.03.2026, 09:16):</strong></p>
+<ul>
+<li><strong>Files page buttons fully robust in all locales:</strong> The three Files-page buttons (Add Folder, Add Files, Remove) are now all measured <em>before</em> any button is created. The combined Add Folder&nbsp;+&nbsp;gap&nbsp;+&nbsp;Add Files width is compared against the Remove button&rsquo;s own measured width; if Remove is wider, the extra pixels are added to <code>wFDir</code> so Add Folder grows and the visual block stays flush-left with no text ever clipped. Previously Remove simply inherited the top-row width (a one-way dependency), which would silently clip its text in any locale where &ldquo;Remove&rdquo; translates wider than the two buttons above combined.</li>
+</ul>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.20.11</span></h3>
 <p><strong>Dependencies page &mdash; full implementation, scrollable edit dialog, x86 removed (20.03.2026, 11:06):</strong></p>

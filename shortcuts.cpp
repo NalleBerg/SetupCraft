@@ -969,7 +969,11 @@ int SC_BuildPage(HWND hwnd, HINSTANCE hInst, int pageY, int clientWidth,
 
     // Tree width matches the 3 action buttons beneath it — both are centred
     // together so the tree left/right edges align exactly with the button row.
-    const int addW  = S(150), scW = S(140), remW = S(100), btnGap = S(6);
+    // Widths are measured from locale text so any language fits without truncation.
+    const int btnGap = S(6);
+    const int addW  = MeasureButtonWidth(loc(L"sc_sm_add",    L"Add Subfolder"), true);
+    const int scW   = MeasureButtonWidth(loc(L"sc_sm_addsc",  L"Add Shortcut"),  true);
+    const int remW  = MeasureButtonWidth(loc(L"sc_sm_remove", L"Remove"),        true);
     const int treeW = addW + btnGap + scW + btnGap + remW;
     const int treeX = (clientWidth - treeW) / 2;
 

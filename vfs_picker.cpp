@@ -311,17 +311,18 @@ static LRESULT CALLBACK VfspDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         // OK / Cancel buttons
         std::wstring okTxt = p->okText.empty() ? std::wstring(L"OK") : p->okText;
         std::wstring cnTxt = p->cancelText.empty() ? std::wstring(L"Cancel") : p->cancelText;
-        int btnW = S(130);
+        int wOK_v  = MeasureButtonWidth(okTxt, true);
+        int wCnl_v = MeasureButtonWidth(cnTxt, true);
         int btnGap = S(10);
-        int totalBW = btnW * 2 + btnGap;
+        int totalBW = wOK_v + btnGap + wCnl_v;
         int btnX1 = (W - totalBW) / 2;
-        int btnX2 = btnX1 + btnW + btnGap;
+        int btnX2 = btnX1 + wOK_v + btnGap;
         CreateCustomButtonWithIcon(hwnd, VFSP_OK,
             okTxt.c_str(), ButtonColor::Green,
-            L"imageres.dll", 89, btnX1, btnY, btnW, btnH, hInst);
+            L"imageres.dll", 89, btnX1, btnY, wOK_v, btnH, hInst);
         CreateCustomButtonWithIcon(hwnd, VFSP_CANCEL,
             cnTxt.c_str(), ButtonColor::Red,
-            L"shell32.dll", 131, btnX2, btnY, btnW, btnH, hInst);
+            L"shell32.dll", 131, btnX2, btnY, wCnl_v, btnH, hInst);
 
         // Apply system font (scaled ×1.2 like the rest of the app dialogs)
         {

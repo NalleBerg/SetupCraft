@@ -2,6 +2,11 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.03.21.09] - 2026-03-21
+
+### Fixed
+- **Files page button mutual width reconciliation** — All three Files-page buttons (Add Folder, Add Files, Remove) are now measured before any button is created. `topRowW = wFDir + fBtnGap + wFFiles` is computed; if `wRemove > topRowW`, the extra pixels are added to `wFDir` so Add Folder grows and the visual block stays flush-left. Remove then uses `topRowW` as its width. Previously Remove's width was derived one-way from the top row, which would clip Remove's text in any locale where "Remove" translates wider than the two buttons combined.
+
 ## [2026.03.20.11] - 2026-03-20
 
 ### Added

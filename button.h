@@ -24,6 +24,10 @@ void UpdateButtonText(HWND hButton, const std::wstring &text);
 // Register a plain-text tooltip shown on hover (English). Pass NULL to clear.
 void SetButtonTooltip(HWND hButton, const wchar_t* text);
 
+// Measure the minimum pixel width for a button with the given text.
+// hasIcon: true if the button will use CreateCustomButtonWithIcon.
+int MeasureButtonWidth(const std::wstring& text, bool hasIcon);
+
 // Button subclass procedure for hover effects
 LRESULT CALLBACK ButtonSubclassProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
 

@@ -62,6 +62,66 @@ FILES:
       Changes label and triggers InvalidateRect.
 
 ================================================================================
+2a. AUTO-SIZING BUTTONS (MeasureButtonWidth)
+================================================================================
+
+  int MeasureButtonWidth(const std::wstring& text, bool hasIcon)
+
+      Returns the minimum pixel width for a custom button that will display
+      `text` without truncation.  Uses the same bold DPI-scaled font
+      (SPI_GETNONCLIENTMETRICS ×1.2, FW_BOLD, CLEARTYPE_QUALITY) as
+      DrawCustomButton, so the measurement matches the actual render.
+
+      Width formula:
+        icon button  : S(10) + S(20) + S(15) + textCX + S(8)   (icon+gap+text+pad)
+        text-only    : S(10) + textCX + S(10)
+        minimum      : S(55)  (never returns smaller than this)
+
+      RULE: Every button whose label comes from a locale key MUST use
+      MeasureButtonWidth rather than a hardcoded pixel constant.  The app
+      supports 20+ languages; text length varies significantly.
+
+  Icon-only buttons (empty text string)
+      Pass L"" as text to CreateCustomButton*.  DrawCustomButton detects
+      this (isIconOnly = wcslen(buttonText) == 0) and centres the icon
+      horizontally in the full button rect instead of left-aligning it:
+          iconX = rc.left + (rc.right - rc.left - iconSize) / 2;
+      Use for "browse" / folder-picker buttons and any other icon-only control.
+      MeasureButtonWidth(L"", false) returns S(55) — the minimum.
+
+  Page-level button rows (deps.cpp, mainwindow.cpp Files / Reg / Components,
+  shortcuts.cpp SC page, main.cpp entry screen)
+      Measure each label, store widths, then derive x positions by accumulation:
+          int w0 = MeasureButtonWidth(text0, true);
+          int w1 = MeasureButtonWidth(text1, true);
+          int gap = S(10);
+          CreateCustomButtonWithIcon(..., S(20),         y, w0, btnH, ...);
+          CreateCustomButtonWithIcon(..., S(20)+w0+gap,  y, w1, btnH, ...);
+      Never hardcode x offsets like S(140) or S(260) — they assume fixed widths.
+
+  Stacked rows with a full-width lower button (mainwindow.cpp Files page)
+      When a single button sits below a multi-button row and must span the
+      same total width, measure ALL buttons first, then reconcile:
+          int w0 = MeasureButtonWidth(top0, true);
+          int w1 = MeasureButtonWidth(top1, true);
+          int wb = MeasureButtonWidth(bottom, true);
+          int rowW = w0 + gap + w1;
+          if (wb > rowW) { w0 += wb - rowW; rowW = wb; }  // grow w0 to fill
+          // create top row with updated w0/w1 and x = S(20)+w0+gap for btn1
+          // create bottom button with width = rowW
+      This ensures the bottom button never clips its text, and the top row
+      never creates visual misalignment.  Measure all, reconcile, create once
+      — never destroy-and-recreate.
+
+  Entry screen window auto-resize (main.cpp WndProc WM_CREATE)
+      The four 2×2 grid button texts are measured before any child control is
+      created.  buttonWidth = max(all four measurements, S(140)).
+      clientWidth = max(S(362), 2*buttonWidth + S(13) + S(48)).
+      SetWindowPos is called immediately to resize the window and re-centre it
+      on the work area.  g_entryButtonWidth (static global) carries the value
+      forward to the button-creation block later in WM_CREATE.
+
+================================================================================
 3. TOOLTIP SUPPORT (SetButtonTooltip)
 ================================================================================
 
@@ -146,6 +206,8 @@ FILES:
     3. Draw 1px grey border (RGB 173,173,173) as a native-style button frame.
     4. If "IconDLL" property present: load icon via PrivateExtractIconsW and
        DrawIconEx at the left side of the button (16×16 scaled by DPI).
+       Exception: if isIconOnly (empty text), the icon is horizontally centred
+       in the full button rect — iconX = rc.left + (width − iconSize) / 2.
     5. If "IconDLL2" property present: overlay second icon on same position.
     6. Draw button text with TRANSPARENT background using hFont (bold, DPI-scaled).
        Text is centred in the remaining horizontal space after the icon.

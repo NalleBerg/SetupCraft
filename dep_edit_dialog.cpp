@@ -15,7 +15,7 @@
 // ── Layout constants (design pixels at 96 DPI) ────────────────────────────────
 static const int DD_PAD_H    = 20;   // left/right padding
 static const int DD_PAD_T    = 20;   // top padding
-static const int DD_PAD_B    = 15;   // bottom padding (below buttons)
+static const int DD_PAD_B    = 24;   // bottom padding (below buttons)
 static const int DD_GAP      = 10;   // standard inter-row gap
 static const int DD_GAP_SM   =  4;   // label → control gap
 static const int DD_BTN_H    = 34;   // OK / Cancel height
@@ -28,7 +28,7 @@ static const int DD_CB_H     = 22;   // checkbox height
 static const int DD_COMBO_H  = 26;   // combo-box height
 static const int DD_MLABEL_H = 16;   // section header label
 static const int DD_INSTR_H  = 80;   // multi-line instructions field height
-static const int DD_BROWSE_W = 52;   // width of "Browse…" button
+static const int DD_BROWSE_W = 42;   // width of "..." browse button (matches sc_shortcut_dialog)
 
 // ── Per-invocation heap struct ────────────────────────────────────────────────
 struct DepDlgData {
@@ -41,6 +41,16 @@ struct DepDlgData {
 static bool s_depDlgOk      = false;
 static int  s_depDlgScrollY = 0;   // current vertical scroll offset (scaled px)
 static int  s_depDlgTotalH  = 0;   // full content height (scaled px)
+
+// ── Network-section reflow state ─────────────────────────────────────────────
+// Set once during control construction; used by Reflow() on every delivery change.
+static HWND s_rfNetHdr      = NULL;  // "Network" section-header HWND
+static HWND s_rfNetLabel[4] = {};    // labels: URL / silent-args / SHA-256 / offline
+static HWND s_rfNetCtrl[4]  = {};    // controls: edit / edit / edit / combo
+static int  s_rfNetOriginY  = 0;     // logical Y (scaled px) where Network header begins
+static int  s_rfNetLX       = 0;     // left X shared by all network controls
+static int  s_rfNetEW       = 0;     // width shared by all network controls
+static std::vector<HWND> s_rfAfterNet; // every HWND from the License section onwards
 
 // Safe locale lookup.
 static std::wstring DL(const DepDlgData* d, const wchar_t* key, const wchar_t* fb)
@@ -66,31 +76,100 @@ static int GetComboSel(HWND hDlg, int id)
     return (int)SendDlgItemMessageW(hDlg, id, CB_GETCURSEL, 0, 0);
 }
 
-// ── Show/hide URL / SHA-256 / silent-args / offline group ────────────────────
-// Called after delivery combo changes to show only relevant fields.
-static void UpdateVisibility(HWND hDlg, DepDelivery d)
+// ── Reflow: reposition the network section and everything below it ─────────────
+// Called each time the delivery type changes. Hides/shows the four network rows,
+// then shifts the License section (and everything below it) up or down so there
+// is never a blank gap where hidden rows used to be.
+static void Reflow(HWND hDlg, DepDelivery d)
 {
     bool hasUrl      = (d == DD_AUTO_DOWNLOAD || d == DD_REDIRECT_URL);
     bool hasDownload = (d == DD_AUTO_DOWNLOAD);
     bool hasOffline  = (d == DD_AUTO_DOWNLOAD || d == DD_REDIRECT_URL);
+    bool anyNet      = hasUrl || hasDownload || hasOffline;
+    bool rowVis[4]   = { hasUrl, hasDownload, hasDownload, hasOffline };
 
-    // URL row: label (IDC_DEPDLG_URL - 1000 offset not used: use sibling search)
-    // We identify labels by querying SetWindowTextW — simpler: just show/hide by ID.
-    // The labels live at IDs derived from a naming scheme set up in WM_CREATE.
-    // Here we rely on ShowWindow on the edit controls; labels below are handled
-    // by helper IDs 501-520 allocated in WM_CREATE.
-    auto SW = [&](HWND h, bool vis) {
-        if (h && IsWindow(h)) ShowWindow(h, vis ? SW_SHOW : SW_HIDE);
-    };
+    int y = s_rfNetOriginY;  // logical Y (unscrolled)
 
-    SW(GetDlgItem(hDlg, IDC_DEPDLG_URL),         hasUrl);
-    SW(GetDlgItem(hDlg, 501),                     hasUrl);   // URL label
-    SW(GetDlgItem(hDlg, IDC_DEPDLG_SILENT_ARGS), hasDownload);
-    SW(GetDlgItem(hDlg, 502),                     hasDownload); // silent args label
-    SW(GetDlgItem(hDlg, IDC_DEPDLG_SHA256),      hasDownload);
-    SW(GetDlgItem(hDlg, 503),                     hasDownload); // SHA-256 label
-    SW(GetDlgItem(hDlg, IDC_DEPDLG_OFFLINE),     hasOffline);
-    SW(GetDlgItem(hDlg, 504),                     hasOffline); // offline label
+    // Network section header — only shown when at least one row is visible.
+    if (anyNet) {
+        SetWindowPos(s_rfNetHdr, NULL,
+            s_rfNetLX, y - s_depDlgScrollY, s_rfNetEW, S(DD_MLABEL_H),
+            SWP_NOZORDER | SWP_NOACTIVATE);
+        ShowWindow(s_rfNetHdr, SW_SHOW);
+        y += S(DD_MLABEL_H) + S(DD_GAP_SM);
+    } else {
+        ShowWindow(s_rfNetHdr, SW_HIDE);
+    }
+
+    // Four network rows: URL / silent-args / SHA-256 / offline.
+    // Rows 0-2 are edits (DD_EDIT_H); row 3 is a combo (DD_COMBO_H).
+    for (int i = 0; i < 4; ++i) {
+        if (rowVis[i]) {
+            SetWindowPos(s_rfNetLabel[i], NULL,
+                s_rfNetLX, y - s_depDlgScrollY, s_rfNetEW, S(DD_LABEL_H),
+                SWP_NOZORDER | SWP_NOACTIVATE);
+            ShowWindow(s_rfNetLabel[i], SW_SHOW);
+            y += S(DD_LABEL_H) + S(DD_GAP_SM);
+
+            // Preserve the control's existing size; only change its Y.
+            SetWindowPos(s_rfNetCtrl[i], NULL,
+                s_rfNetLX, y - s_depDlgScrollY, 0, 0,
+                SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+            ShowWindow(s_rfNetCtrl[i], SW_SHOW);
+            y += (i < 3 ? S(DD_EDIT_H) : S(DD_COMBO_H)) + S(DD_GAP);
+        } else {
+            ShowWindow(s_rfNetLabel[i], SW_HIDE);
+            ShowWindow(s_rfNetCtrl[i], SW_HIDE);
+        }
+    }
+
+    // Shift every control from the License section onwards by the vertical delta
+    // needed to close (or open) the gap left by hidden network rows.
+    if (!s_rfAfterNet.empty()) {
+        RECT rc; GetWindowRect(s_rfAfterNet[0], &rc);
+        POINT pt = { rc.left, rc.top }; ScreenToClient(hDlg, &pt);
+        int curLogY = pt.y + s_depDlgScrollY;  // current logical Y of first after-net ctrl
+        int delta   = y - curLogY;
+
+        if (delta != 0) {
+            for (HWND h : s_rfAfterNet) {
+                RECT r2; GetWindowRect(h, &r2);
+                POINT p2 = { r2.left, r2.top }; ScreenToClient(hDlg, &p2);
+                SetWindowPos(h, NULL, p2.x, p2.y + delta, 0, 0,
+                    SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+            }
+            s_depDlgTotalH += delta;
+
+            // If content shrank past the current scroll position, scroll back up.
+            RECT rcC; GetClientRect(hDlg, &rcC);
+            int pageH     = rcC.bottom - rcC.top;
+            int maxScroll = (s_depDlgTotalH > pageH) ? s_depDlgTotalH - pageH : 0;
+            if (s_depDlgScrollY > maxScroll) {
+                int adj     = maxScroll - s_depDlgScrollY; // negative: move controls down
+                s_depDlgScrollY = maxScroll;
+                for (HWND hC = GetWindow(hDlg, GW_CHILD); hC;
+                     hC = GetWindow(hC, GW_HWNDNEXT)) {
+                    RECT r3; GetWindowRect(hC, &r3);
+                    POINT p3 = { r3.left, r3.top }; ScreenToClient(hDlg, &p3);
+                    SetWindowPos(hC, NULL, p3.x, p3.y - adj, 0, 0,
+                        SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+                }
+            }
+
+            // Refresh scrollbar range.
+            SCROLLINFO si  = {};
+            si.cbSize = sizeof(si);
+            si.fMask  = SIF_RANGE | SIF_PAGE | SIF_POS;
+            si.nMin   = 0;
+            si.nMax   = (s_depDlgTotalH > pageH) ? s_depDlgTotalH - 1 : pageH;
+            si.nPage  = (UINT)pageH;
+            si.nPos   = s_depDlgScrollY;
+            SetScrollInfo(hDlg, SB_VERT, &si, TRUE);
+        }
+    }
+
+    InvalidateRect(hDlg, NULL, TRUE);
+    UpdateWindow(hDlg);
 }
 
 // ── Dialog proc ───────────────────────────────────────────────────────────────
@@ -130,7 +209,7 @@ static LRESULT CALLBACK DepDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lP
 
         if (wmId == IDC_DEPDLG_DELIVERY && wmEvent == CBN_SELCHANGE) {
             int sel = GetComboSel(hDlg, IDC_DEPDLG_DELIVERY);
-            UpdateVisibility(hDlg, (DepDelivery)sel);
+            Reflow(hDlg, (DepDelivery)sel);
             return 0;
         }
 
@@ -544,56 +623,60 @@ bool DEP_EditDialog(HWND hwndParent, HINSTANCE hInst,
     y += S(DD_EDIT_H) + S(DD_GAP);
 
     // ── Network section (conditionally visible) ───────────────────────────────
-    MkSectionHeader(LS(L"dep_section_network", L"Network"));
+    // s_rfNetOriginY marks the logical Y where this section starts; Reflow()
+    // begins its layout pass from here each time delivery type changes.
+    s_rfNetOriginY = y;
+    s_rfNetLX      = lX;
+    s_rfNetEW      = eW;
+    s_rfNetHdr = MkSectionHeader(LS(L"dep_section_network", L"Network"));
     y += S(DD_MLABEL_H) + S(DD_GAP_SM);
 
-    // URL label: register auxiliary ID 501 so UpdateVisibility can hide/show it.
-    {
-        HWND hL = CreateWindowExW(0, L"STATIC",
-            LS(L"dep_dlg_url", L"Download / redirect URL:").c_str(),
-            WS_CHILD | WS_VISIBLE | SS_LEFT,
-            lX, y, eW, S(DD_LABEL_H),
-            hDlg, (HMENU)(UINT_PTR)501, hInst, NULL);
-        SetFont(hL);
-    }
+    // URL — row 0
+    s_rfNetLabel[0] = CreateWindowExW(0, L"STATIC",
+        LS(L"dep_dlg_url", L"Download / redirect URL:").c_str(),
+        WS_CHILD | WS_VISIBLE | SS_LEFT,
+        lX, y, eW, S(DD_LABEL_H),
+        hDlg, (HMENU)(UINT_PTR)501, hInst, NULL);
+    SetFont(s_rfNetLabel[0]);
     y += S(DD_LABEL_H) + S(DD_GAP_SM);
-    SetFont(MkEdit(IDC_DEPDLG_URL, dep.url));
+    s_rfNetCtrl[0] = MkEdit(IDC_DEPDLG_URL, dep.url);
+    SetFont(s_rfNetCtrl[0]);
     y += S(DD_EDIT_H) + S(DD_GAP);
 
-    {
-        HWND hL = CreateWindowExW(0, L"STATIC",
-            LS(L"dep_dlg_silent_args", L"Silent install arguments:").c_str(),
-            WS_CHILD | WS_VISIBLE | SS_LEFT,
-            lX, y, eW, S(DD_LABEL_H),
-            hDlg, (HMENU)(UINT_PTR)502, hInst, NULL);
-        SetFont(hL);
-    }
+    // Silent-args — row 1
+    s_rfNetLabel[1] = CreateWindowExW(0, L"STATIC",
+        LS(L"dep_dlg_silent_args", L"Silent install arguments:").c_str(),
+        WS_CHILD | WS_VISIBLE | SS_LEFT,
+        lX, y, eW, S(DD_LABEL_H),
+        hDlg, (HMENU)(UINT_PTR)502, hInst, NULL);
+    SetFont(s_rfNetLabel[1]);
     y += S(DD_LABEL_H) + S(DD_GAP_SM);
-    SetFont(MkEdit(IDC_DEPDLG_SILENT_ARGS, dep.silent_args));
+    s_rfNetCtrl[1] = MkEdit(IDC_DEPDLG_SILENT_ARGS, dep.silent_args);
+    SetFont(s_rfNetCtrl[1]);
     y += S(DD_EDIT_H) + S(DD_GAP);
 
-    {
-        HWND hL = CreateWindowExW(0, L"STATIC",
-            LS(L"dep_dlg_sha256", L"SHA-256 (hex):").c_str(),
-            WS_CHILD | WS_VISIBLE | SS_LEFT,
-            lX, y, eW, S(DD_LABEL_H),
-            hDlg, (HMENU)(UINT_PTR)503, hInst, NULL);
-        SetFont(hL);
-    }
+    // SHA-256 — row 2
+    s_rfNetLabel[2] = CreateWindowExW(0, L"STATIC",
+        LS(L"dep_dlg_sha256", L"SHA-256 (hex):").c_str(),
+        WS_CHILD | WS_VISIBLE | SS_LEFT,
+        lX, y, eW, S(DD_LABEL_H),
+        hDlg, (HMENU)(UINT_PTR)503, hInst, NULL);
+    SetFont(s_rfNetLabel[2]);
     y += S(DD_LABEL_H) + S(DD_GAP_SM);
-    SetFont(MkEdit(IDC_DEPDLG_SHA256, dep.sha256));
+    s_rfNetCtrl[2] = MkEdit(IDC_DEPDLG_SHA256, dep.sha256);
+    SetFont(s_rfNetCtrl[2]);
     y += S(DD_EDIT_H) + S(DD_GAP);
 
-    {
-        HWND hL = CreateWindowExW(0, L"STATIC",
-            LS(L"dep_dlg_offline", L"If offline:").c_str(),
-            WS_CHILD | WS_VISIBLE | SS_LEFT,
-            lX, y, eW, S(DD_LABEL_H),
-            hDlg, (HMENU)(UINT_PTR)504, hInst, NULL);
-        SetFont(hL);
-    }
+    // Offline combo — row 3
+    s_rfNetLabel[3] = CreateWindowExW(0, L"STATIC",
+        LS(L"dep_dlg_offline", L"If offline:").c_str(),
+        WS_CHILD | WS_VISIBLE | SS_LEFT,
+        lX, y, eW, S(DD_LABEL_H),
+        hDlg, (HMENU)(UINT_PTR)504, hInst, NULL);
+    SetFont(s_rfNetLabel[3]);
     y += S(DD_LABEL_H) + S(DD_GAP_SM);
-    HWND hOffline = MkCombo(IDC_DEPDLG_OFFLINE);
+    HWND hOffline    = MkCombo(IDC_DEPDLG_OFFLINE);
+    s_rfNetCtrl[3]   = hOffline;
     SendMessageW(hOffline, CB_ADDSTRING, 0, (LPARAM)LS(L"dep_offline_abort",    L"Abort installation").c_str());
     SendMessageW(hOffline, CB_ADDSTRING, 0, (LPARAM)LS(L"dep_offline_warn",     L"Warn, then continue").c_str());
     SendMessageW(hOffline, CB_ADDSTRING, 0, (LPARAM)LS(L"dep_offline_skip_opt", L"Skip if optional").c_str());
@@ -601,8 +684,14 @@ bool DEP_EditDialog(HWND hwndParent, HINSTANCE hInst,
     SetFont(hOffline);
     y += S(DD_COMBO_H) + S(DD_GAP);
 
+    // ── License section and below — collect HWNDs for Reflow() ───────────────
+    // Every HWND from the License header to the Cancel button is pushed into
+    // s_rfAfterNet so Reflow() can shift them all by a common vertical delta.
+    s_rfAfterNet.clear();
+
     // ── License section ───────────────────────────────────────────────────────
-    MkSectionHeader(LS(L"dep_section_license", L"License"));
+    { HWND h = MkSectionHeader(LS(L"dep_section_license", L"License"));
+      s_rfAfterNet.push_back(h); }
     y += S(DD_MLABEL_H) + S(DD_GAP_SM);
 
     // License path (read-only edit) + Browse button on same row.
@@ -610,25 +699,29 @@ bool DEP_EditDialog(HWND hwndParent, HINSTANCE hInst,
     HWND hLicPath = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT",
         dep.license_path.c_str(),
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_BORDER | ES_AUTOHSCROLL | ES_READONLY,
-        lX, y, eW - browseW - S(DD_GAP), S(DD_EDIT_H),
+        lX, y, eW - browseW - S(DD_GAP_SM), S(DD_EDIT_H),
         hDlg, (HMENU)(UINT_PTR)IDC_DEPDLG_LIC_PATH, hInst, NULL);
     SetFont(hLicPath);
+    s_rfAfterNet.push_back(hLicPath);
     HWND hLicBrowse = CreateCustomButtonWithIcon(
         hDlg, IDC_DEPDLG_LIC_BROWSE,
-        LS(L"dep_dlg_lic_browse", L"Browse…").c_str(),
+        L"",
         ButtonColor::Blue,
-        L"shell32.dll", 3,
+        L"shell32.dll", 4,
         lX + eW - browseW, y, browseW, S(DD_EDIT_H), hInst);
-    (void)hLicBrowse;
+    s_rfAfterNet.push_back(hLicBrowse);
     y += S(DD_EDIT_H) + S(DD_GAP);
 
-    SetFont(MkLabel(LS(L"dep_dlg_credits", L"Credits / attribution:")));
+    { HWND h = MkLabel(LS(L"dep_dlg_credits", L"Credits / attribution:"));
+      SetFont(h); s_rfAfterNet.push_back(h); }
     y += S(DD_LABEL_H) + S(DD_GAP_SM);
-    SetFont(MkEdit(IDC_DEPDLG_CREDITS, dep.credits_text));
+    { HWND h = MkEdit(IDC_DEPDLG_CREDITS, dep.credits_text);
+      SetFont(h); s_rfAfterNet.push_back(h); }
     y += S(DD_EDIT_H) + S(DD_GAP);
 
     // ── Instructions ──────────────────────────────────────────────────────────
-    MkSectionHeader(LS(L"dep_section_instructions", L"Manual install instructions"));
+    { HWND h = MkSectionHeader(LS(L"dep_section_instructions", L"Manual install instructions"));
+      s_rfAfterNet.push_back(h); }
     y += S(DD_MLABEL_H) + S(DD_GAP_SM);
 
     HWND hInstr = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT",
@@ -638,25 +731,32 @@ bool DEP_EditDialog(HWND hwndParent, HINSTANCE hInst,
         lX, y, eW, S(DD_INSTR_H),
         hDlg, (HMENU)(UINT_PTR)IDC_DEPDLG_INSTRUCTIONS, hInst, NULL);
     SetFont(hInstr);
+    s_rfAfterNet.push_back(hInstr);
     y += S(DD_INSTR_H) + S(DD_GAP);
 
     // ── OK / Cancel buttons ───────────────────────────────────────────────────
-    int btnAreaW = S(DD_BTN_W) * 2 + S(DD_BTN_GAP);
+    std::wstring okTxt  = LS(L"ok",     L"OK");
+    std::wstring cnlTxt = LS(L"cancel", L"Cancel");
+    int wOK     = MeasureButtonWidth(okTxt,  true);
+    int wCancel = MeasureButtonWidth(cnlTxt, true);
+    int btnAreaW = wOK + S(DD_BTN_GAP) + wCancel;
     int btnX     = lX + (eW - btnAreaW) / 2;
 
-    CreateCustomButtonWithIcon(
+    { HWND h = CreateCustomButtonWithIcon(
         hDlg, IDC_DEPDLG_OK,
-        LS(L"ok", L"OK").c_str(),
+        okTxt.c_str(),
         ButtonColor::Green,
         L"shell32.dll", 258,
-        btnX, y, S(DD_BTN_W), S(DD_BTN_H), hInst);
+        btnX, y, wOK, S(DD_BTN_H), hInst);
+      s_rfAfterNet.push_back(h); }
 
-    CreateCustomButtonWithIcon(
+    { HWND h = CreateCustomButtonWithIcon(
         hDlg, IDC_DEPDLG_CANCEL,
-        LS(L"cancel", L"Cancel").c_str(),
+        cnlTxt.c_str(),
         ButtonColor::Red,
         L"shell32.dll", 131,
-        btnX + S(DD_BTN_W) + S(DD_BTN_GAP), y, S(DD_BTN_W), S(DD_BTN_H), hInst);
+        btnX + wOK + S(DD_BTN_GAP), y, wCancel, S(DD_BTN_H), hInst);
+      s_rfAfterNet.push_back(h); }
 
     // ── Vertical scrollbar ────────────────────────────────────────────────────
     {
@@ -671,8 +771,9 @@ bool DEP_EditDialog(HWND hwndParent, HINSTANCE hInst,
         SetScrollInfo(hDlg, SB_VERT, &si, TRUE);
     }
 
-    // Initial visibility based on delivery type.
-    UpdateVisibility(hDlg, dep.delivery);
+    // Initial layout pass — collapses network rows that are not relevant
+    // for the current delivery type (e.g. none for Bundled).
+    Reflow(hDlg, dep.delivery);
 
     // ── Disable the parent and run a private message loop ─────────────────────
     EnableWindow(hwndParent, FALSE);

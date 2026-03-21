@@ -162,6 +162,26 @@ void SetButtonTooltip(HWND hButton, const wchar_t* text) {
         RemovePropW(hButton, L"TooltipText");
 }
 
+int MeasureButtonWidth(const std::wstring& text, bool hasIcon) {
+    HDC mdc = GetDC(NULL);
+    NONCLIENTMETRICSW mncm = {};
+    mncm.cbSize = sizeof(mncm);
+    SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(mncm), &mncm, 0);
+    mncm.lfMessageFont.lfHeight = MulDiv(mncm.lfMessageFont.lfHeight, 120, 100);
+    mncm.lfMessageFont.lfWeight = FW_BOLD;
+    mncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+    HFONT mf = CreateFontIndirectW(&mncm.lfMessageFont);
+    HGDIOBJ mold = SelectObject(mdc, mf);
+    SIZE msz = {};
+    GetTextExtentPoint32W(mdc, text.c_str(), (int)text.size(), &msz);
+    SelectObject(mdc, mold);
+    DeleteObject(mf);
+    ReleaseDC(NULL, mdc);
+    int w = hasIcon ? (S(10) + S(20) + S(15) + msz.cx + S(8))
+                    : (S(10) + msz.cx + S(10));
+    return (w < S(55)) ? S(55) : w;
+}
+
 LRESULT CALLBACK ButtonSubclassProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
     // Use window property to store per-button hover state
     BOOL isHovering = (BOOL)(INT_PTR)GetPropW(hwnd, L"IsHovering");
@@ -359,9 +379,10 @@ BOOL DrawCustomButton(LPDRAWITEMSTRUCT dis, ButtonColor color, HFONT hFont) {
     }
     
     if (hIcon) {
-        // Draw icon + text
+        // Draw icon + text (or icon only, centered, when button text is empty)
         int iconSize = S(20);
-        int iconX = rc.left + S(10);
+        int iconX = isIconOnly ? rc.left + (rc.right - rc.left - iconSize) / 2
+                               : rc.left + S(10);
         int iconY = rc.top + (rc.bottom - rc.top - iconSize) / 2;
         
         DrawIconEx(hdc, iconX, iconY, hIcon, iconSize, iconSize, 0, NULL, DI_NORMAL);

@@ -29,7 +29,6 @@ static const int SCDLG_PAD_B    = 15;  // bottom padding (below buttons)
 static const int SCDLG_GAP      = 10;  // standard inter-row gap
 static const int SCDLG_GAP_SM   =  4;  // label-to-control gap
 static const int SCDLG_BTN_H    = 34;  // OK / Cancel button height
-static const int SCDLG_BTN_W    = 120; // OK / Cancel button width each
 static const int SCDLG_BTN_GAP  = 15;  // gap between OK and Cancel
 static const int SCDLG_CONT_W   = 380; // inner content column width
 static const int SCDLG_ICON_SZ  = 48;  // icon preview square side
@@ -165,7 +164,7 @@ static LRESULT CALLBACK ScShortcutDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LP
             SendMessageW(hEdit, WM_SETFONT, (WPARAM)hFont, TRUE);
 
             HWND hBtn = CreateCustomButtonWithIcon(
-                hDlg, IDC_SCDLG_EXE_BROWSE, L"...", ButtonColor::Blue,
+                hDlg, IDC_SCDLG_EXE_BROWSE, L"", ButtonColor::Blue,
                 L"shell32.dll", 4,
                 x0 + editWithBrowseW + S(SCDLG_GAP_SM), y,
                 S(SCDLG_BROWSE_W), S(SCDLG_EDIT_H), hInst);
@@ -213,7 +212,7 @@ static LRESULT CALLBACK ScShortcutDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LP
             SendMessageW(hEdit, WM_SETFONT, (WPARAM)hFont, TRUE);
 
             HWND hBtn = CreateCustomButtonWithIcon(
-                hDlg, IDC_SCDLG_WORKDIR_BROWSE, L"...", ButtonColor::Blue,
+                hDlg, IDC_SCDLG_WORKDIR_BROWSE, L"", ButtonColor::Blue,
                 L"shell32.dll", 4,
                 x0 + editWithBrowseW + S(SCDLG_GAP_SM), y,
                 S(SCDLG_BROWSE_W), S(SCDLG_EDIT_H), hInst);
@@ -302,22 +301,23 @@ static LRESULT CALLBACK ScShortcutDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LP
 
         // ── OK and Cancel ─────────────────────────────────────────────────────
         {
-            int totalBtnW = 2 * S(SCDLG_BTN_W) + S(SCDLG_BTN_GAP);
-            int startX    = (cW - totalBtnW) / 2;
-            int btnY      = rcC.bottom - S(SCDLG_PAD_B) - S(SCDLG_BTN_H);
-
             std::wstring okTxt  = DLoc(pD, L"scdlg_ok",     L"OK");
             std::wstring cnlTxt = DLoc(pD, L"scdlg_cancel", L"Cancel");
+            int wOK     = MeasureButtonWidth(okTxt,  true);
+            int wCancel = MeasureButtonWidth(cnlTxt, true);
+            int totalBtnW = wOK + S(SCDLG_BTN_GAP) + wCancel;
+            int startX    = (cW - totalBtnW) / 2;
+            int btnY      = rcC.bottom - S(SCDLG_PAD_B) - S(SCDLG_BTN_H);
 
             CreateCustomButtonWithIcon(
                 hDlg, IDC_SCDLG_OK, okTxt, ButtonColor::Green,
                 L"shell32.dll", 112,
-                startX, btnY, S(SCDLG_BTN_W), S(SCDLG_BTN_H), hInst);
+                startX, btnY, wOK, S(SCDLG_BTN_H), hInst);
             CreateCustomButtonWithIcon(
                 hDlg, IDC_SCDLG_CANCEL, cnlTxt, ButtonColor::Red,
                 L"shell32.dll", 131,
-                startX + S(SCDLG_BTN_W) + S(SCDLG_BTN_GAP), btnY,
-                S(SCDLG_BTN_W), S(SCDLG_BTN_H), hInst);
+                startX + wOK + S(SCDLG_BTN_GAP), btnY,
+                wCancel, S(SCDLG_BTN_H), hInst);
         }
 
         // Move focus to the name field.

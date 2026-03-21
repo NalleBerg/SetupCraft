@@ -62,6 +62,7 @@ const wchar_t CLASS_NAME[] = L"SetupCraft_EntryScreen";
 static std::map<std::wstring, std::wstring> g_locale;
 static std::vector<std::wstring> g_availableLocales;
 static HFONT g_guiFont = NULL;
+static int   g_entryButtonWidth = 0; // measured per-locale in WM_CREATE, drives window width
 static HFONT g_globeFont = NULL;
 // NOTE: g_tooltipFont is NOT here — the tooltip system owns its own font (tooltip.cpp).
 static std::vector<std::pair<std::wstring, std::wstring>> g_tooltipEntries; // country code, text
@@ -906,13 +907,44 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             SetWindowTextW(hwnd, itApp->second.c_str());
         }
 
+        // Measure the 2×2 button texts to compute the window width needed for any language.
+        {
+            auto getGL_ = [](const wchar_t* k, const wchar_t* fb) -> std::wstring {
+                auto it = g_locale.find(k);
+                return (it != g_locale.end()) ? it->second : fb;
+            };
+            int bw = MeasureButtonWidth(getGL_(L"new_project",    L"New project"),    true);
+            bw = std::max(bw, MeasureButtonWidth(getGL_(L"open_project",   L"Open project"),   true));
+            bw = std::max(bw, MeasureButtonWidth(getGL_(L"delete_project", L"Delete project"), true));
+            bw = std::max(bw, MeasureButtonWidth(getGL_(L"exit",           L"Exit"),           true));
+            if (bw < S(140)) bw = S(140);
+            g_entryButtonWidth = bw;
+        }
+
         // Language combo (show friendly/native names; store index as item data)
         // Center the combo with a globe icon to its left
         const int comboWidth = S(260);
         const int iconSize = S(30); // slightly bigger than dropdown height
         const int iconComboGap = S(8);
         const int totalWidth = iconSize + iconComboGap + comboWidth;
-        const int clientWidth = S(530); // approximate client area at 96 DPI
+        // clientWidth must fit: combo+globe+info row with side pads, and the 2-column button grid
+        // Side pads S(24) each side, gap between columns S(13)
+        const int clientWidth = std::max(S(480), 2 * g_entryButtonWidth + S(13) + S(48));
+        // Resize window to the computed client size
+        {
+            // Client height: top pad + combo bar (S(50)) + buttons (2 rows of S(44), gap S(16)) + bottom pad S(20)
+            const int clientH = S(62) + S(44) + S(16) + S(44) + S(20);
+            RECT rcc = {}; GetClientRect(hwnd, &rcc);
+            DWORD dwS  = (DWORD)GetWindowLongW(hwnd, GWL_STYLE);
+            DWORD dwES = (DWORD)GetWindowLongW(hwnd, GWL_EXSTYLE);
+            RECT adj = {0, 0, clientWidth, clientH};
+            AdjustWindowRectEx(&adj, dwS, FALSE, dwES);
+            int newW = adj.right  - adj.left;
+            int newH = adj.bottom - adj.top;
+            int nx, ny;
+            GetCenteredPosition(NULL, newW, newH, nx, ny);
+            SetWindowPos(hwnd, NULL, nx, ny, newW, newH, SWP_NOZORDER | SWP_NOACTIVATE);
+        }
         const int startX = (clientWidth - totalWidth) / 2;
         const int iconLeft = startX;
         const int comboLeft = iconLeft + iconSize + iconComboGap;
@@ -975,7 +1007,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         InitTooltipSystem(hInst);
 
         // Add info icon to the right of language combo for About dialog
-        const int aboutIconSize = S(24);
+        const int aboutIconSize = iconSize;  // same as globe — S(30)
         const int aboutIconGap = S(8);
         const int aboutIconLeft = comboLeft + comboWidth + aboutIconGap;
         
@@ -983,7 +1015,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             WS_EX_TRANSPARENT,  // Allow mouse events to pass through to parent
             L"STATIC", NULL,
             WS_CHILD | WS_VISIBLE | SS_ICON | SS_CENTERIMAGE,
-            aboutIconLeft, S(15), aboutIconSize, aboutIconSize,
+            aboutIconLeft, S(10), aboutIconSize, aboutIconSize,
             hwnd, (HMENU)IDC_ABOUT_ICON, hInst, NULL);
         
         // Load info icon from shell32.dll (icon #221 is information/about icon)
@@ -1070,12 +1102,12 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         }
 
         // Create buttons in 2x2 grid: New/Open on top, Delete/Exit on bottom
-        const int buttonWidth = S(234);
-        const int buttonHeight = S(39);
-        const int buttonGapH = S(13);  // horizontal gap
-        const int buttonGapV = S(13);  // vertical gap
+        const int buttonWidth = g_entryButtonWidth;
+        const int buttonHeight = S(44);         // taller for breathing room
+        const int buttonGapH = S(16);           // horizontal gap between columns
+        const int buttonGapV = S(16);           // vertical gap between rows
         const int buttonsStartX = (clientWidth - (2 * buttonWidth + buttonGapH)) / 2;
-        const int row1Y = S(72);
+        const int row1Y = S(62);                // top of first button row (below combo bar)
         const int row2Y = row1Y + buttonHeight + buttonGapV;
         
         // Row 1, Column 1: New Project button
@@ -1506,11 +1538,11 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR pCmdLine, int nCmdShow
 
     // Calculate centered position for entry window
     int x, y;
-    GetCenteredPosition(NULL, S(546), S(234), x, y);
+    GetCenteredPosition(NULL, S(560), S(270), x, y);
     
     HWND hwnd = CreateWindowExW(0, CLASS_NAME, L"Skeleton App",
         WS_OVERLAPPEDWINDOW & ~WS_MAXIMIZEBOX & ~WS_THICKFRAME,
-        x, y, S(546), S(234),
+        x, y, S(560), S(270),
         NULL, NULL, hInstance, NULL);
 
     if (!hwnd) return 0;

@@ -211,14 +211,15 @@ static LRESULT CALLBACK NotesEditorDlgProc(HWND hwnd, UINT msg, WPARAM wParam, L
 
         // ── Save / Cancel buttons ─────────────────────────────────────────────
         int btnY2  = statusY + statusH + S(6);
-        int btnW   = S(130);
-        int startX = (cW - 2*btnW - S(10)) / 2;
         const wchar_t* okTxt  = pData->okText.empty()     ? L"Save"   : pData->okText.c_str();
         const wchar_t* canTxt = pData->cancelText.empty() ? L"Cancel" : pData->cancelText.c_str();
+        int wOK_n  = MeasureButtonWidth(okTxt,  true);
+        int wCnl_n = MeasureButtonWidth(canTxt, true);
+        int startX = (cW - wOK_n - S(10) - wCnl_n) / 2;
         CreateCustomButtonWithIcon(hwnd, IDC_NOTES_OK,     okTxt,  ButtonColor::Green,
-            L"imageres.dll", 89,  startX,           btnY2, btnW, S(38), hInst);
+            L"imageres.dll", 89,  startX,              btnY2, wOK_n,  S(38), hInst);
         CreateCustomButtonWithIcon(hwnd, IDC_NOTES_CANCEL, canTxt, ButtonColor::Red,
-            L"shell32.dll",  131, startX+btnW+S(10), btnY2, btnW, S(38), hInst);
+            L"shell32.dll",  131, startX+wOK_n+S(10),  btnY2, wCnl_n, S(38), hInst);
 
         // ── Tooltips ──────────────────────────────────────────────────────────
         SetButtonTooltip(hBold,     L"Bold");

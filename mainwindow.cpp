@@ -1674,23 +1674,32 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
             hwnd, (HMENU)5100, hInst, NULL); // Give it an ID for WM_CTLCOLORSTATIC
         if (s_hPageTitleFont) SendMessageW(hTitle, WM_SETFONT, (WPARAM)s_hPageTitleFont, TRUE);
         
-        // Add Folder button (child of main window, positioned relative to it)
+        // Measure all three button texts first, then reconcile widths so neither row clips.
+        // If Remove is wider than the two-button row, distribute the extra onto wFDir so
+        // Add Folder grows and the visual block stays left-aligned and consistent.
         auto itAddFolder = s_locale.find(L"files_add_folder");
         std::wstring addFolderText = (itAddFolder != s_locale.end()) ? itAddFolder->second : L"Add Folder";
-        s_hPageButton1 = CreateCustomButtonWithIcon(hwnd, IDC_FILES_ADD_DIR, addFolderText, ButtonColor::Blue,
-            L"shell32.dll", 296, S(20), s_toolbarHeight + S(55), S(120), S(35), hInst);
-        
-        // Add Files button (child of main window, positioned relative to it)
         auto itAddFiles = s_locale.find(L"files_add_files");
         std::wstring addFilesText = (itAddFiles != s_locale.end()) ? itAddFiles->second : L"Add Files";
-        s_hPageButton2 = CreateCustomButtonWithIcon(hwnd, IDC_FILES_ADD_FILES, addFilesText, ButtonColor::Blue,
-            L"shell32.dll", 71, S(150), s_toolbarHeight + S(55), S(120), S(35), hInst);
-        
-        // Remove button (for removing selected items)
         auto itRemove = s_locale.find(L"files_remove");
         std::wstring removeText = (itRemove != s_locale.end()) ? itRemove->second : L"Remove";
+
+        int wFDir   = MeasureButtonWidth(addFolderText, true);
+        int wFFiles = MeasureButtonWidth(addFilesText,  true);
+        int wRemove = MeasureButtonWidth(removeText,    true);
+        const int fBtnGap = S(10);
+        int topRowW = wFDir + fBtnGap + wFFiles;
+        if (wRemove > topRowW) {
+            wFDir  += wRemove - topRowW;  // grow Add Folder to fill the gap
+            topRowW = wRemove;
+        }
+
+        s_hPageButton1 = CreateCustomButtonWithIcon(hwnd, IDC_FILES_ADD_DIR, addFolderText, ButtonColor::Blue,
+            L"shell32.dll", 296, S(20), s_toolbarHeight + S(55), wFDir, S(35), hInst);
+        s_hPageButton2 = CreateCustomButtonWithIcon(hwnd, IDC_FILES_ADD_FILES, addFilesText, ButtonColor::Blue,
+            L"shell32.dll", 71, S(20) + wFDir + fBtnGap, s_toolbarHeight + S(55), wFFiles, S(35), hInst);
         HWND hRemoveBtn = CreateCustomButtonWithIcon(hwnd, IDC_FILES_REMOVE, removeText, ButtonColor::Red,
-            L"shell32.dll", 234, S(20), s_toolbarHeight + S(100), S(250), S(35), hInst);
+            L"shell32.dll", 234, S(20), s_toolbarHeight + S(100), topRowW, S(35), hInst);
         
         // Project name label and field
         auto itProjName = s_locale.find(L"files_project_name");
@@ -2268,8 +2277,9 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         }
         
         // Add Icon button (with shell32.dll icon #127)
+        int wRegAddIcon = MeasureButtonWidth(addIcon, true);
         s_hPageButton1 = CreateCustomButtonWithIcon(hwnd, IDC_REG_ADD_ICON, addIcon.c_str(), ButtonColor::Blue,
-            L"shell32.dll", 127, S(80), currentY, S(120), S(30), hInst);
+            L"shell32.dll", 127, S(80), currentY, wRegAddIcon, S(30), hInst);
         
         // Add tooltip for Add Icon button
         if (s_hTooltip) {
@@ -2286,8 +2296,9 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         auto itShowRegkey = s_locale.find(L"reg_show_regkey");
         std::wstring showRegkeyText = (itShowRegkey != s_locale.end()) ? itShowRegkey->second : L"Show Regkey";
         
+        int wRegShowKey = MeasureButtonWidth(showRegkeyText, true);
         CreateCustomButtonWithIcon(hwnd, IDC_REG_SHOW_REGKEY, showRegkeyText.c_str(), ButtonColor::Blue,
-            L"shell32.dll", 268, S(80), currentY + S(35), S(120), S(30), hInst);
+            L"shell32.dll", 268, S(80), currentY + S(35), wRegShowKey, S(30), hInst);
         
         // Display Name field (right side, aligned with icon)
         { HWND hLbl5101 = CreateWindowExW(0, L"STATIC", displayName.c_str(),
@@ -2441,17 +2452,24 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         currentY += paneHeight + S(10);
         
         // Buttons: Add Key, Add Value, Edit, Delete
-        s_hPageButton2 = CreateCustomButtonWithIcon(hwnd, IDC_REG_ADD_KEY, addKeyText.c_str(), ButtonColor::Blue,
-            L"shell32.dll", 4, S(20), currentY, S(110), S(35), hInst);
-        
-        CreateCustomButtonWithIcon(hwnd, IDC_REG_ADD_VALUE, addValueText.c_str(), ButtonColor::Blue,
-            L"shell32.dll", 70, S(140), currentY, S(110), S(35), hInst);
-        
-        CreateCustomButtonWithIcon(hwnd, IDC_REG_EDIT, editText.c_str(), ButtonColor::Blue,
-            L"shell32.dll", 269, S(260), currentY, S(110), S(35), hInst);
-        
-        CreateCustomButtonWithIcon(hwnd, IDC_REG_REMOVE, removeText.c_str(), ButtonColor::Red,
-            L"shell32.dll", 234, S(380), currentY, S(110), S(35), hInst);
+        {
+            const int rGap = S(10);
+            int rw0 = MeasureButtonWidth(addKeyText,   true);
+            int rw1 = MeasureButtonWidth(addValueText, true);
+            int rw2 = MeasureButtonWidth(editText,     true);
+            int rw3 = MeasureButtonWidth(removeText,   true);
+            int rx1 = S(20) + rw0 + rGap;
+            int rx2 = rx1   + rw1 + rGap;
+            int rx3 = rx2   + rw2 + rGap;
+            s_hPageButton2 = CreateCustomButtonWithIcon(hwnd, IDC_REG_ADD_KEY, addKeyText.c_str(), ButtonColor::Blue,
+                L"shell32.dll", 4, S(20), currentY, rw0, S(35), hInst);
+            CreateCustomButtonWithIcon(hwnd, IDC_REG_ADD_VALUE, addValueText.c_str(), ButtonColor::Blue,
+                L"shell32.dll", 70, rx1, currentY, rw1, S(35), hInst);
+            CreateCustomButtonWithIcon(hwnd, IDC_REG_EDIT, editText.c_str(), ButtonColor::Blue,
+                L"shell32.dll", 269, rx2, currentY, rw2, S(35), hInst);
+            CreateCustomButtonWithIcon(hwnd, IDC_REG_REMOVE, removeText.c_str(), ButtonColor::Red,
+                L"shell32.dll", 234, rx3, currentY, rw3, S(35), hInst);
+        }
         
         // Create tooltip for warning icon - removed (using custom tooltip instead)
         
@@ -2685,8 +2703,9 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         auto itEditBtn = s_locale.find(L"comp_edit");
         std::wstring editTxt = (itEditBtn != s_locale.end()) ? itEditBtn->second : L"Edit";
 
+        int wCompEdit = MeasureButtonWidth(editTxt, true);
         CreateCustomButtonWithIcon(hwnd, IDC_COMP_EDIT, editTxt.c_str(), ButtonColor::Blue,
-            L"imageres.dll", 109, S(20), pageY + S(134), S(130), S(34), hInst);
+            L"imageres.dll", 109, S(20), pageY + S(134), wCompEdit, S(34), hInst);
 
         // Split-pane: TreeView (left) + ListView (right), mirroring the Files page layout
         int splitY  = pageY + S(178);
@@ -3377,19 +3396,22 @@ LRESULT CALLBACK RegKeyDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
             hwnd, (HMENU)IDC_REGKEY_DLG_EDIT, hInst, NULL);
 
         // 3 buttons centred, pinned to bottom
-        int totalBtnW = S(RK_BTN_W0)+S(RK_BTN_W1)+S(RK_BTN_W2)+2*S(RK_BTN_GAP);
+        int wNav   = MeasureButtonWidth(pData->navigateText, true);
+        int wCopy  = MeasureButtonWidth(pData->copyText, true);
+        int wClose = MeasureButtonWidth(pData->closeText, true);
+        int totalBtnW = wNav + wCopy + wClose + 2*S(RK_BTN_GAP);
         int startX    = (cW - totalBtnW) / 2;
         int btnY      = cH - S(RK_PAD_B) - S(RK_BTN_H);
 
         CreateCustomButtonWithIcon(hwnd, IDC_REGKEY_DLG_NAVIGATE, pData->navigateText.c_str(), ButtonColor::Blue,
-            L"shell32.dll", 267, startX, btnY, S(RK_BTN_W0), S(RK_BTN_H), hInst);
+            L"shell32.dll", 267, startX, btnY, wNav, S(RK_BTN_H), hInst);
         CreateCustomButtonWithIcon(hwnd, IDC_REGKEY_DLG_COPY, pData->copyText.c_str(), ButtonColor::Blue,
             L"shell32.dll", 64,
-            startX+S(RK_BTN_W0)+S(RK_BTN_GAP), btnY, S(RK_BTN_W1), S(RK_BTN_H), hInst);
+            startX+wNav+S(RK_BTN_GAP), btnY, wCopy, S(RK_BTN_H), hInst);
         CreateCustomButtonWithIcon(hwnd, IDC_REGKEY_DLG_CLOSE, pData->closeText.c_str(), ButtonColor::Blue,
             L"shell32.dll", 300,
-            startX+S(RK_BTN_W0)+S(RK_BTN_GAP)+S(RK_BTN_W1)+S(RK_BTN_GAP), btnY,
-            S(RK_BTN_W2), S(RK_BTN_H), hInst);
+            startX+wNav+S(RK_BTN_GAP)+wCopy+S(RK_BTN_GAP), btnY,
+            wClose, S(RK_BTN_H), hInst);
 
         // Apply system message font to all controls
         {
@@ -3701,13 +3723,15 @@ LRESULT CALLBACK AddValueDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         y += S(AV_ROW_H) + S(AV_GAP_RB);
 
         // Buttons — centred
-        int totalBtnW = S(AV_BTN_W0) + S(AV_BTN_GAP) + S(AV_BTN_W1);
+        int wOK_AV  = MeasureButtonWidth(pData->okText, true);
+        int wCnl_AV = MeasureButtonWidth(pData->cancelText, true);
+        int totalBtnW = wOK_AV + S(AV_BTN_GAP) + wCnl_AV;
         int startX    = (cW - totalBtnW) / 2;
         CreateCustomButtonWithIcon(hwnd, IDC_ADDVAL_OK, pData->okText.c_str(), ButtonColor::Green,
-            L"imageres.dll", 89, startX, y, S(AV_BTN_W0), S(AV_BTN_H), hInst);
+            L"imageres.dll", 89, startX, y, wOK_AV, S(AV_BTN_H), hInst);
         CreateCustomButtonWithIcon(hwnd, IDC_ADDVAL_CANCEL, pData->cancelText.c_str(), ButtonColor::Red,
-            L"shell32.dll", 131, startX + S(AV_BTN_W0) + S(AV_BTN_GAP), y,
-            S(AV_BTN_W1), S(AV_BTN_H), hInst);
+            L"shell32.dll", 131, startX + wOK_AV + S(AV_BTN_GAP), y,
+            wCnl_AV, S(AV_BTN_H), hInst);
 
         // Apply system message font to all controls (labels, edits, combobox)
         {
@@ -3879,13 +3903,15 @@ LRESULT CALLBACK AddKeyDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
         y += S(AK_ROW_H) + S(AK_GAP_EB);
 
         // Buttons — centred
-        int totalBtnW = S(AK_BTN_W0) + S(AK_BTN_GAP) + S(AK_BTN_W1);
+        int wOK_AK  = MeasureButtonWidth(pData->okText, true);
+        int wCnl_AK = MeasureButtonWidth(pData->cancelText, true);
+        int totalBtnW = wOK_AK + S(AK_BTN_GAP) + wCnl_AK;
         int startX    = (cW - totalBtnW) / 2;
         CreateCustomButtonWithIcon(hwnd, IDC_ADDKEY_OK, pData->okText.c_str(), ButtonColor::Green,
-            L"imageres.dll", 89, startX, y, S(AK_BTN_W0), S(AK_BTN_H), hInst);
+            L"imageres.dll", 89, startX, y, wOK_AK, S(AK_BTN_H), hInst);
         CreateCustomButtonWithIcon(hwnd, IDC_ADDKEY_CANCEL, pData->cancelText.c_str(), ButtonColor::Red,
-            L"shell32.dll", 131, startX + S(AK_BTN_W0) + S(AK_BTN_GAP), y,
-            S(AK_BTN_W1), S(AK_BTN_H), hInst);
+            L"shell32.dll", 131, startX + wOK_AK + S(AK_BTN_GAP), y,
+            wCnl_AK, S(AK_BTN_H), hInst);
 
         // Apply system message font to all controls (labels, edits)
         {
@@ -5525,13 +5551,15 @@ LRESULT CALLBACK CompFolderEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
         y += S(CFE_NOTES_BTN_H) + S(CFE_GAP_NB2);
 
         // OK / Cancel — centred
-        int totalBtnW = S(CFE_BTN_W0) + S(CFE_BTN_GAP) + S(CFE_BTN_W1);
+        int wOK_CFE  = MeasureButtonWidth(pData->okText, true);
+        int wCnl_CFE = MeasureButtonWidth(pData->cancelText, true);
+        int totalBtnW = wOK_CFE + S(CFE_BTN_GAP) + wCnl_CFE;
         int startX    = (cW - totalBtnW) / 2;
         CreateCustomButtonWithIcon(hwnd, IDC_COMPDLG_OK,     pData->okText.c_str(),     ButtonColor::Green,
-            L"imageres.dll", 89,  startX, y, S(CFE_BTN_W0), S(CFE_BTN_H), hInst);
+            L"imageres.dll", 89,  startX, y, wOK_CFE, S(CFE_BTN_H), hInst);
         CreateCustomButtonWithIcon(hwnd, IDC_COMPDLG_CANCEL, pData->cancelText.c_str(), ButtonColor::Red,
-            L"shell32.dll",  131, startX + S(CFE_BTN_W0) + S(CFE_BTN_GAP), y,
-            S(CFE_BTN_W1), S(CFE_BTN_H), hInst);
+            L"shell32.dll",  131, startX + wOK_CFE + S(CFE_BTN_GAP), y,
+            wCnl_CFE, S(CFE_BTN_H), hInst);
 
         // Font — set on all children (including the custom checkbox handle)
         NONCLIENTMETRICSW ncm = {}; ncm.cbSize = sizeof(ncm);

@@ -204,7 +204,6 @@ void DEP_BuildPage(HWND hwnd, HINSTANCE hInst,
     const int padT   = S(20);
     const int gap    = S(10);
     const int btnH   = S(34);
-    const int btnW   = S(110);
     const int titleH = S(38);
 
     // ── Page title ────────────────────────────────────────────────────────────
@@ -218,23 +217,30 @@ void DEP_BuildPage(HWND hwnd, HINSTANCE hInst,
     y += titleH + gap;
 
     // ── Action buttons ────────────────────────────────────────────────────────
+    std::wstring addTxt = L10n(L"dep_btn_add",    L"Add Dependency");
+    std::wstring edtTxt = L10n(L"dep_btn_edit",   L"Edit");
+    std::wstring rmvTxt = L10n(L"dep_btn_remove", L"Remove");
+    int wAdd = MeasureButtonWidth(addTxt, true);
+    int wEdt = MeasureButtonWidth(edtTxt, true);
+    int wRmv = MeasureButtonWidth(rmvTxt, true);
+
     // Add (Green, composite: package+arrow = shell32 257+29)
     s_hDepAdd = CreateCustomButtonWithCompositeIcon(
         hwnd, IDC_DEP_ADD,
-        L10n(L"dep_btn_add", L"Add Dependency").c_str(),
+        addTxt.c_str(),
         ButtonColor::Green,
         L"shell32.dll", 257, L"shell32.dll", 29,
-        padH, y, btnW, btnH, hInst);
+        padH, y, wAdd, btnH, hInst);
     SetButtonTooltip(s_hDepAdd,
         L10n(L"dep_btn_add_tip", L"Add a new external dependency").c_str());
 
     // Edit (Blue, magnifier = shell32 87)
     s_hDepEdit = CreateCustomButtonWithIcon(
         hwnd, IDC_DEP_EDIT,
-        L10n(L"dep_btn_edit", L"Edit").c_str(),
+        edtTxt.c_str(),
         ButtonColor::Blue,
         L"shell32.dll", 87,
-        padH + btnW + gap, y, S(90), btnH, hInst);
+        padH + wAdd + gap, y, wEdt, btnH, hInst);
     SetButtonTooltip(s_hDepEdit,
         L10n(L"dep_btn_edit_tip", L"Edit the selected dependency").c_str());
     EnableWindow(s_hDepEdit, FALSE);
@@ -242,10 +248,10 @@ void DEP_BuildPage(HWND hwnd, HINSTANCE hInst,
     // Remove (Red, red X = shell32 131)
     s_hDepRemove = CreateCustomButtonWithIcon(
         hwnd, IDC_DEP_REMOVE,
-        L10n(L"dep_btn_remove", L"Remove").c_str(),
+        rmvTxt.c_str(),
         ButtonColor::Red,
         L"shell32.dll", 131,
-        padH + btnW + gap + S(90) + gap, y, S(90), btnH, hInst);
+        padH + wAdd + gap + wEdt + gap, y, wRmv, btnH, hInst);
     SetButtonTooltip(s_hDepRemove,
         L10n(L"dep_btn_remove_tip", L"Remove the selected dependency").c_str());
     EnableWindow(s_hDepRemove, FALSE);

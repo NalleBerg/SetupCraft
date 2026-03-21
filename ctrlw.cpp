@@ -90,22 +90,24 @@ LRESULT CALLBACK QuitDialogProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lPara
             if (hFont) SendMessageW(hText, WM_SETFONT, (WPARAM)hFont, TRUE);
 
             // Buttons — centred horizontally, pinned to bottom
-            int totalBtnW = 2 * S(DLG_BTN_W) + S(DLG_BTN_GAP);
+            auto itYes = pLocale->find(L"yes");
+            auto itNo  = pLocale->find(L"no");
+            std::wstring yesText = (itYes != pLocale->end()) ? itYes->second : L"Yes";
+            std::wstring noText  = (itNo  != pLocale->end()) ? itNo->second  : L"No";
+            int wYes = MeasureButtonWidth(yesText, true);
+            int wNo  = MeasureButtonWidth(noText,  true);
+            int totalBtnW = wYes + S(DLG_BTN_GAP) + wNo;
             int startX    = (cW - totalBtnW) / 2;
             int btnY      = cH - S(DLG_PAD_B) - S(DLG_BTN_H);
 
-            auto itYes = pLocale->find(L"yes");
-            std::wstring yesText = (itYes != pLocale->end()) ? itYes->second : L"Yes";
             CreateCustomButtonWithIcon(hDlg, IDYES, yesText, ButtonColor::Green,
                 L"shell32.dll", 112,
-                startX, btnY, S(DLG_BTN_W), S(DLG_BTN_H), hInst);
+                startX, btnY, wYes, S(DLG_BTN_H), hInst);
 
-            auto itNo = pLocale->find(L"no");
-            std::wstring noText = (itNo != pLocale->end()) ? itNo->second : L"No";
             CreateCustomButtonWithIcon(hDlg, IDNO, noText, ButtonColor::Red,
                 L"shell32.dll", 131,
-                startX + S(DLG_BTN_W) + S(DLG_BTN_GAP), btnY,
-                S(DLG_BTN_W), S(DLG_BTN_H), hInst);
+                startX + wYes + S(DLG_BTN_GAP), btnY,
+                wNo, S(DLG_BTN_H), hInst);
         }
         
         return 0;
@@ -316,10 +318,6 @@ LRESULT CALLBACK DupDialogProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam
         if (hFont) SendMessageW(hText, WM_SETFONT, (WPARAM)hFont, TRUE);
 
         // 3 buttons centred horizontally, pinned to bottom
-        int totalBtnW = S(DUP_BTN_W0)+S(DUP_BTN_W1)+S(DUP_BTN_W2)+2*S(DLG_BTN_GAP);
-        int startX    = (cW - totalBtnW) / 2;
-        int btnY      = cH - S(DLG_PAD_B) - S(DLG_BTN_H);
-
         auto itOvr = pLocale->find(L"dup_proj_overwrite");
         auto itRen = pLocale->find(L"dup_proj_rename");
         auto itCnl = pLocale->find(L"cancel");
@@ -327,17 +325,28 @@ LRESULT CALLBACK DupDialogProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam
         std::wstring renTxt = (itRen != pLocale->end()) ? itRen->second : L"Rename this one";
         std::wstring cnlTxt = (itCnl != pLocale->end()) ? itCnl->second : L"Cancel";
 
+        auto itW0 = pLocale->find(L"__btn_w0");
+        auto itW1 = pLocale->find(L"__btn_w1");
+        auto itW2 = pLocale->find(L"__btn_w2");
+        int w0 = (itW0 != pLocale->end()) ? std::stoi(itW0->second) : MeasureButtonWidth(ovrTxt, true);
+        int w1 = (itW1 != pLocale->end()) ? std::stoi(itW1->second) : MeasureButtonWidth(renTxt, true);
+        int w2 = (itW2 != pLocale->end()) ? std::stoi(itW2->second) : MeasureButtonWidth(cnlTxt, true);
+
+        int totalBtnW = w0 + w1 + w2 + 2*S(DLG_BTN_GAP);
+        int startX    = (cW - totalBtnW) / 2;
+        int btnY      = cH - S(DLG_PAD_B) - S(DLG_BTN_H);
+
         CreateCustomButtonWithIcon(hDlg, 1, ovrTxt, ButtonColor::Red,
             L"shell32.dll", 240,
-            startX, btnY, S(DUP_BTN_W0), S(DLG_BTN_H), hInst);
+            startX, btnY, w0, S(DLG_BTN_H), hInst);
         CreateCustomButtonWithIcon(hDlg, 2, renTxt, ButtonColor::Blue,
             L"shell32.dll", 296,
-            startX+S(DUP_BTN_W0)+S(DLG_BTN_GAP), btnY,
-            S(DUP_BTN_W1), S(DLG_BTN_H), hInst);
+            startX+w0+S(DLG_BTN_GAP), btnY,
+            w1, S(DLG_BTN_H), hInst);
         CreateCustomButtonWithIcon(hDlg, IDCANCEL, cnlTxt, ButtonColor::Red,
             L"shell32.dll", 131,
-            startX+S(DUP_BTN_W0)+S(DLG_BTN_GAP)+S(DUP_BTN_W1)+S(DLG_BTN_GAP), btnY,
-            S(DUP_BTN_W2), S(DLG_BTN_H), hInst);
+            startX+w0+S(DLG_BTN_GAP)+w1+S(DLG_BTN_GAP), btnY,
+            w2, S(DLG_BTN_H), hInst);
         return 0;
     }
     case WM_COMMAND:
@@ -394,8 +403,17 @@ int ShowDuplicateProjectDialog(HWND hwndParent, const std::wstring& projectName,
     if (p != std::wstring::npos) msgRaw.replace(p, 3, projectName);
     std::wstring msgExpanded = ExpandEscapes(msgRaw);
 
-    // Content width driven by the 3-button row
-    int contW = S(DUP_BTN_W0)+S(DUP_BTN_W1)+S(DUP_BTN_W2)+2*S(DLG_BTN_GAP)+2*S(DLG_PAD_H);
+    // Content width driven by the 3-button row (auto-measured for multilanguage)
+    auto itOvr2 = locale.find(L"dup_proj_overwrite");
+    auto itRen2 = locale.find(L"dup_proj_rename");
+    auto itCnl2 = locale.find(L"cancel");
+    std::wstring ovrTxt2 = (itOvr2 != locale.end()) ? itOvr2->second : L"Overwrite";
+    std::wstring renTxt2 = (itRen2 != locale.end()) ? itRen2->second : L"Rename this one";
+    std::wstring cnlTxt2 = (itCnl2 != locale.end()) ? itCnl2->second : L"Cancel";
+    int dw0 = MeasureButtonWidth(ovrTxt2, true);
+    int dw1 = MeasureButtonWidth(renTxt2, true);
+    int dw2 = MeasureButtonWidth(cnlTxt2, true);
+    int contW = dw0 + dw1 + dw2 + 2*S(DLG_BTN_GAP) + 2*S(DLG_PAD_H);
     int textW = contW - 2*S(DLG_PAD_H);
     int textH = MeasureDialogTextHeight(msgExpanded, textW);
     if (textH < S(20)) textH = S(20);
@@ -421,6 +439,9 @@ int ShowDuplicateProjectDialog(HWND hwndParent, const std::wstring& projectName,
         new std::map<std::wstring,std::wstring>(locale);
     (*pLocCopy)[L"dup_proj_message"] = msgExpanded;
     (*pLocCopy)[L"__dlg_textH"]     = std::to_wstring(textH);
+    (*pLocCopy)[L"__btn_w0"]        = std::to_wstring(dw0);
+    (*pLocCopy)[L"__btn_w1"]        = std::to_wstring(dw1);
+    (*pLocCopy)[L"__btn_w2"]        = std::to_wstring(dw2);
 
     g_dupDialogResult=0;
     HWND hDlg = CreateWindowExW(WS_EX_DLGMODALFRAME|WS_EX_TOPMOST,
@@ -505,13 +526,18 @@ LRESULT CALLBACK RenameDialogProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lPa
         std::wstring okTxt  = (itOK  != pLocale->end()) ? itOK->second  : L"OK";
         std::wstring cnlTxt = (itCnl != pLocale->end()) ? itCnl->second : L"Cancel";
 
+        int wOK_r  = MeasureButtonWidth(okTxt,  true);
+        int wCnl_r = MeasureButtonWidth(cnlTxt, true);
+        totalBtnW = wOK_r + S(DLG_BTN_GAP) + wCnl_r;
+        startX    = (cW - totalBtnW) / 2;
+
         CreateCustomButtonWithIcon(hDlg,IDOK,okTxt,ButtonColor::Green,
             L"shell32.dll",258,
-            startX, btnY, S(REN_BTN_W), S(DLG_BTN_H), hInst);
+            startX, btnY, wOK_r, S(DLG_BTN_H), hInst);
         CreateCustomButtonWithIcon(hDlg,IDCANCEL,cnlTxt,ButtonColor::Red,
             L"shell32.dll",131,
-            startX+S(REN_BTN_W)+S(DLG_BTN_GAP), btnY,
-            S(REN_BTN_W), S(DLG_BTN_H), hInst);
+            startX+wOK_r+S(DLG_BTN_GAP), btnY,
+            wCnl_r, S(DLG_BTN_H), hInst);
         return 0;
     }
     case WM_COMMAND:
@@ -678,10 +704,6 @@ LRESULT CALLBACK UnsavedChangesDialogProc(HWND hDlg, UINT msg, WPARAM wParam, LP
         if (hFont) SendMessageW(hText, WM_SETFONT, (WPARAM)hFont, TRUE);
 
         // 3 buttons centred, pinned to bottom
-        int totalBtnW = S(UNS_BTN_W0)+S(UNS_BTN_W1)+S(UNS_BTN_W2)+2*S(DLG_BTN_GAP);
-        int startX    = (cW - totalBtnW) / 2;
-        int btnY      = cH - S(DLG_PAD_B) - S(DLG_BTN_H);
-
         auto itSave  = pLocale->find(L"save");
         auto itDont  = pLocale->find(L"dont_save");
         auto itCnl   = pLocale->find(L"cancel");
@@ -689,16 +711,27 @@ LRESULT CALLBACK UnsavedChangesDialogProc(HWND hDlg, UINT msg, WPARAM wParam, LP
         std::wstring dontTxt  = (itDont != pLocale->end()) ? itDont->second  : L"Don't Save";
         std::wstring cnlTxt   = (itCnl  != pLocale->end()) ? itCnl->second   : L"Cancel";
 
+        auto itUW0 = pLocale->find(L"__btn_w0");
+        auto itUW1 = pLocale->find(L"__btn_w1");
+        auto itUW2 = pLocale->find(L"__btn_w2");
+        int uw0 = (itUW0 != pLocale->end()) ? std::stoi(itUW0->second) : MeasureButtonWidth(saveTxt, true);
+        int uw1 = (itUW1 != pLocale->end()) ? std::stoi(itUW1->second) : MeasureButtonWidth(dontTxt, true);
+        int uw2 = (itUW2 != pLocale->end()) ? std::stoi(itUW2->second) : MeasureButtonWidth(cnlTxt,  true);
+
+        int totalBtnW = uw0 + uw1 + uw2 + 2*S(DLG_BTN_GAP);
+        int startX    = (cW - totalBtnW) / 2;
+        int btnY      = cH - S(DLG_PAD_B) - S(DLG_BTN_H);
+
         CreateCustomButtonWithIcon(hDlg, 1, saveTxt, ButtonColor::Green,
-            L"shell32.dll", 258, startX, btnY, S(UNS_BTN_W0), S(DLG_BTN_H), hInst);
+            L"shell32.dll", 258, startX, btnY, uw0, S(DLG_BTN_H), hInst);
         CreateCustomButtonWithIcon(hDlg, 3, dontTxt, ButtonColor::Blue,
             L"shell32.dll", 240,
-            startX+S(UNS_BTN_W0)+S(DLG_BTN_GAP), btnY,
-            S(UNS_BTN_W1), S(DLG_BTN_H), hInst);
+            startX+uw0+S(DLG_BTN_GAP), btnY,
+            uw1, S(DLG_BTN_H), hInst);
         CreateCustomButtonWithIcon(hDlg, IDCANCEL, cnlTxt, ButtonColor::Red,
             L"shell32.dll", 131,
-            startX+S(UNS_BTN_W0)+S(DLG_BTN_GAP)+S(UNS_BTN_W1)+S(DLG_BTN_GAP), btnY,
-            S(UNS_BTN_W2), S(DLG_BTN_H), hInst);
+            startX+uw0+S(DLG_BTN_GAP)+uw1+S(DLG_BTN_GAP), btnY,
+            uw2, S(DLG_BTN_H), hInst);
         return 0;
     }
     case WM_COMMAND:
@@ -757,8 +790,17 @@ int ShowUnsavedChangesDialog(HWND hwndParent, const std::map<std::wstring, std::
         : L"You have unsaved changes. Do you want to save before closing?";
     std::wstring msgExpanded = ExpandEscapes(msgRaw);
 
-    // Content width driven by the 3-button row
-    int contW  = S(UNS_BTN_W0) + S(UNS_BTN_W1) + S(UNS_BTN_W2)
+    // Content width driven by the 3-button row (auto-measured for multilanguage)
+    auto itSave2 = locale.find(L"save");
+    auto itDont2 = locale.find(L"dont_save");
+    auto itCnl3  = locale.find(L"cancel");
+    std::wstring saveTxt2 = (itSave2 != locale.end()) ? itSave2->second : L"Save";
+    std::wstring dontTxt2 = (itDont2 != locale.end()) ? itDont2->second : L"Don't Save";
+    std::wstring cnlTxt3  = (itCnl3  != locale.end()) ? itCnl3->second  : L"Cancel";
+    int uw0s = MeasureButtonWidth(saveTxt2, true);
+    int uw1s = MeasureButtonWidth(dontTxt2, true);
+    int uw2s = MeasureButtonWidth(cnlTxt3,  true);
+    int contW  = uw0s + uw1s + uw2s
                + 2*S(DLG_BTN_GAP) + 2*S(DLG_PAD_H);
     int textW  = contW - 2*S(DLG_PAD_H);
     int textH  = MeasureDialogTextHeight(msgExpanded, textW);
@@ -792,6 +834,9 @@ int ShowUnsavedChangesDialog(HWND hwndParent, const std::map<std::wstring, std::
         new std::map<std::wstring, std::wstring>(locale);
     (*pLocaleCopy)[L"close_unsaved_message"] = msgExpanded;
     (*pLocaleCopy)[L"__dlg_textH"]           = std::to_wstring(textH);
+    (*pLocaleCopy)[L"__btn_w0"]              = std::to_wstring(uw0s);
+    (*pLocaleCopy)[L"__btn_w1"]              = std::to_wstring(uw1s);
+    (*pLocaleCopy)[L"__btn_w2"]              = std::to_wstring(uw2s);
 
     g_unsavedChangesDialogResult = 0;
     
