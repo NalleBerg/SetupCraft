@@ -1,6 +1,12 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 22 March 2026 &mdash; v2026.03.22.09<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 22 March 2026 &mdash; v2026.03.22.10<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.22.10</span></h3>
+<p><strong>dep_edit_dialog / db.cpp &mdash; delivery type now saved correctly (22.03.2026, 10:01):</strong></p>
+<ul>
+<li><strong>InsertExternalDep &mdash; dangling-pointer bug fixed:</strong> Integer-valued fields (<code>is_required</code>, <code>delivery</code>, <code>install_order</code>, <code>architecture</code>, <code>offline_behavior</code>) were bound via <code>p_bind_text(stmt, n, std::to_string(&hellip;).c_str(), &hellip;)</code>. The temporary <code>std::string</code> returned by <code>std::to_string</code> was destroyed at the semicolon; the raw pointer passed to SQLite became dangling before <code>p_step</code> read the bound values. The stored integer was effectively always 0 (<code>DD_BUNDLED</code>), causing the delivery type to silently revert to &ldquo;Bundled&rdquo; after every Save. Fixed by giving each integer field a named <code>std::string</code> local variable (<code>sIsReq</code>, <code>sDelivery</code>, <code>sOrder</code>, <code>sArch</code>, <code>sOffline</code>) whose lifetime covers both <code>p_bind_text</code> and <code>p_step</code>.</li>
+</ul>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.22.09</span></h3>
 <p><strong>RTF editor &mdash; Open button, keyboard shortcuts, responsive toolbar, .md support, locale; dep dialog redesign; test harness removed (22.03.2026, 09:39):</strong></p>

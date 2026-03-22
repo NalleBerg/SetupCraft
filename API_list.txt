@@ -46,13 +46,18 @@
 
   edit_rtf_API.txt                  General-purpose resizable RTF editor modal —
                                     OpenRtfEditor() API, RtfEditorData struct,
-                                    two-row toolbar (Bold/Italic/Underline/Strike/
+                                    responsive one/two-row toolbar layout
+                                    (RtfEd_LayoutToolbar, recalculated on WM_SIZE),
+                                    18 controls (Bold/Italic/Underline/Strike/
                                     Subscript/Superscript/FontFace/FontSize/TextColor/
-                                    Highlight/Align/Bullet/Numbered/Insert Image),
+                                    Highlight/Align/Bullet/Numbered/Insert Image/
+                                    Open file), Ctrl+B/I/U keyboard shortcuts,
                                     BS_AUTOCHECKBOX|BS_PUSHLIKE toggle state with
                                     EN_SELCHANGE sync, PNG/JPEG image insertion via
-                                    \pict\pngblip/\jpegblip hex stream, hover tooltips
-                                    on all 17 toolbar controls (RtfEd_SetToolTip /
+                                    \pict\pngblip/\jpegblip hex stream, Open button
+                                    streams RTF/TXT/.md files, pLocale field for
+                                    i18n (27 locale keys), hover tooltips on all 18
+                                    toolbar controls (RtfEd_SetToolTip /
                                     RtfEd_ToolbarBtnProc subclass pattern), RTF stream
                                     in/out, optional char limit, WS_OVERLAPPEDWINDOW
                                     resizable, control ID range 4500–4530.

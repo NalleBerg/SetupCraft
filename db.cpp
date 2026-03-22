@@ -981,28 +981,33 @@ int DB::InsertExternalDep(int projectId, const ExternalDep& dep)
     void *stmt = NULL;
     if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return -1; }
 
-    std::string sPid      = std::to_string(projectId);
-    std::string sName     = WToUtf8(dep.display_name);
-    std::string sRegKey   = WToUtf8(dep.detect_reg_key);
-    std::string sFilePath = WToUtf8(dep.detect_file_path);
-    std::string sMinVer   = WToUtf8(dep.min_version);
-    std::string sUrl      = WToUtf8(dep.url);
-    std::string sSilent   = WToUtf8(dep.silent_args);
-    std::string sSha256   = WToUtf8(dep.sha256);
-    std::string sLicPath  = WToUtf8(dep.license_path);
-    std::string sLicText  = WToUtf8(dep.license_text);
-    std::string sCredits  = WToUtf8(dep.credits_text);
-    std::string sInstr    = WToUtf8(dep.instructions);
+    std::string sPid        = std::to_string(projectId);
+    std::string sName       = WToUtf8(dep.display_name);
+    std::string sIsReq      = std::to_string(dep.is_required ? 1 : 0);
+    std::string sDelivery   = std::to_string((int)dep.delivery);
+    std::string sOrder      = std::to_string(dep.install_order);
+    std::string sRegKey     = WToUtf8(dep.detect_reg_key);
+    std::string sFilePath   = WToUtf8(dep.detect_file_path);
+    std::string sMinVer     = WToUtf8(dep.min_version);
+    std::string sArch       = std::to_string((int)dep.architecture);
+    std::string sUrl        = WToUtf8(dep.url);
+    std::string sSilent     = WToUtf8(dep.silent_args);
+    std::string sSha256     = WToUtf8(dep.sha256);
+    std::string sLicPath    = WToUtf8(dep.license_path);
+    std::string sLicText    = WToUtf8(dep.license_text);
+    std::string sCredits    = WToUtf8(dep.credits_text);
+    std::string sInstr      = WToUtf8(dep.instructions);
+    std::string sOffline    = std::to_string((int)dep.offline_behavior);
 
     p_bind_text(stmt,  1, sPid.c_str(),       -1, NULL);
     p_bind_text(stmt,  2, sName.c_str(),      -1, NULL);
-    p_bind_text(stmt,  3, std::to_string(dep.is_required    ? 1 : 0).c_str(), -1, NULL);
-    p_bind_text(stmt,  4, std::to_string((int)dep.delivery).c_str(),          -1, NULL);
-    p_bind_text(stmt,  5, std::to_string(dep.install_order).c_str(),          -1, NULL);
+    p_bind_text(stmt,  3, sIsReq.c_str(),     -1, NULL);
+    p_bind_text(stmt,  4, sDelivery.c_str(),  -1, NULL);
+    p_bind_text(stmt,  5, sOrder.c_str(),     -1, NULL);
     p_bind_text(stmt,  6, sRegKey.c_str(),    -1, NULL);
     p_bind_text(stmt,  7, sFilePath.c_str(),  -1, NULL);
     p_bind_text(stmt,  8, sMinVer.c_str(),    -1, NULL);
-    p_bind_text(stmt,  9, std::to_string((int)dep.architecture).c_str(),      -1, NULL);
+    p_bind_text(stmt,  9, sArch.c_str(),      -1, NULL);
     p_bind_text(stmt, 10, sUrl.c_str(),       -1, NULL);
     p_bind_text(stmt, 11, sSilent.c_str(),    -1, NULL);
     p_bind_text(stmt, 12, sSha256.c_str(),    -1, NULL);
@@ -1010,7 +1015,7 @@ int DB::InsertExternalDep(int projectId, const ExternalDep& dep)
     p_bind_text(stmt, 14, sLicText.c_str(),   -1, NULL);
     p_bind_text(stmt, 15, sCredits.c_str(),   -1, NULL);
     p_bind_text(stmt, 16, sInstr.c_str(),     -1, NULL);
-    p_bind_text(stmt, 17, std::to_string((int)dep.offline_behavior).c_str(),  -1, NULL);
+    p_bind_text(stmt, 17, sOffline.c_str(),   -1, NULL);
     p_step(stmt);
     if (p_finalize) p_finalize(stmt);
 

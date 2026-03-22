@@ -197,6 +197,17 @@ DB API (declared in db.h, implemented in db.cpp):
   std::vector<ExternalDep> DB::GetExternalDepsForProject(int projectId)
   bool DB::DeleteExternalDepsForProject(int projectId)
 
+BUG FIX — InsertExternalDep dangling pointer (v2026.03.22.10):
+  Integer-valued fields (is_required, delivery, install_order, architecture,
+  offline_behavior) were originally bound as:
+    p_bind_text(stmt, n, std::to_string((int)dep.field).c_str(), -1, NULL)
+  The temporary std::string from std::to_string is destroyed at the semicolon.
+  SQLite stores the raw pointer (SQLITE_STATIC) and dereferences it in p_step;
+  by then the pointer is dangling. Result: all integer fields silently stored 0,
+  so delivery always reverted to DD_BUNDLED (0) after Save.
+  Fix: each such field now uses a named local std::string (sIsReq, sDelivery,
+  sOrder, sArch, sOffline) whose lifetime spans from p_bind_text through p_step.
+
 ================================================================================
 LOCALE KEYS
 ================================================================================

@@ -2,6 +2,11 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.03.22.10] - 2026-03-22
+
+### Fixed
+- **`InsertExternalDep` — dangling-pointer bug** — integer-valued fields (`is_required`, `delivery`, `install_order`, `architecture`, `offline_behavior`) were bound via `p_bind_text(stmt, n, std::to_string(...).c_str(), -1, NULL)`. The temporary `std::string` from `std::to_string` is destroyed at the semicolon; the raw pointer passed to SQLite was dangling when `p_step` read it. The stored value was effectively always 0, causing delivery type to silently revert to `DD_BUNDLED` after every Save. Fixed by giving each integer field a named `std::string` local variable (`sIsReq`, `sDelivery`, `sOrder`, `sArch`, `sOffline`) whose lifetime spans from `p_bind_text` through `p_step`.
+
 ## [2026.03.22.09] - 2026-03-22
 
 ### Added
