@@ -2,6 +2,26 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.03.22.09] - 2026-03-22
+
+### Added
+- **RTF editor — Open file button (`IDC_RTFE_OPEN`)** — new button on the toolbar (shell32.dll icon 38). Opens a file picker for RTF / TXT / `.md` files (filter assembled from the locale map). RTF streamed via `SF_RTF`; plain-text and Markdown decoded from UTF-8, streamed via `SF_TEXT|SF_UNICODE`. Toolbar syncs after load.
+- **RTF editor — responsive toolbar layout (`RtfEd_LayoutToolbar`)** — all 18 controls repositioned on every `WM_SIZE` and at `WM_CREATE`; switches between one row and two rows based on available width. `editY` updated accordingly so the RichEdit always fills the remaining space.
+- **RTF editor — `pLocale` field in `RtfEditorData`** — optional `const std::map<std::wstring,std::wstring>*` for the application locale map. All 27 internal strings (toolbar tooltips, image-picker filter/title, Open dialog filter/title) looked up via `RtfLS()`; English fallbacks used when null. All 27 keys in `edit_rtf_API.txt` §14 and `locale/en_GB.txt`.
+- **dep_edit_dialog — inline RTF editor for License** — file-path + Browse replaced by read-only status indicator + "Edit License…" button that opens `OpenRtfEditor`. License stored as RTF string (`s_depLicRtf`).
+- **dep_edit_dialog — inline RTF editor for Instructions** — plain multiline edit replaced by read-only indicator + "Edit Instructions…" button. Instructions now RTF (`s_depInstrRtf`).
+
+### Changed
+- **dep_edit_dialog — content column widened** from 400 px to 560 px.
+
+### Fixed
+- **RTF editor — Ctrl+B / Ctrl+I / Ctrl+U** — intercepted in `OpenRtfEditor` message loop before `TranslateMessage` while the RichEdit has focus; forwarded to `WM_COMMAND` handlers so toolbar state stays in sync.
+- **RTF editor — Open button painted** — `WM_DRAWITEM` condition now includes `IDC_RTFE_OPEN`; previously the `BS_OWNERDRAW` button was never painted.
+- **RTF editor — tooltip text no longer garbled** — `RtfEd_SetToolTip` heap-allocates a copy (`new wchar_t[len]`); `WM_NCDESTROY` in `RtfEd_ToolbarBtnProc` calls `delete[]`. Previous code stored a pointer into a `std::wstring` temporary's buffer, which became a dangling pointer immediately.
+
+### Removed
+- **`rtf_editor_test.cpp` / `RtfEditorTest` CMake target** — standalone test harness deleted; references removed from `edit_rtf_API.txt` and `API_list.txt`.
+
 ## [2026.03.21.15] - 2026-03-21
 
 ### Added

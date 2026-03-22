@@ -2804,7 +2804,8 @@ CMakeFiles/SkeletonApp.dir/dep_edit_dialog.cpp.obj: C:/Users/NalleBerg/Documents
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/checkbox.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/dep_edit_dialog.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/deps.h \
-  C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/dpi.h
+  C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/dpi.h \
+  C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/edit_rtf.h
 
 CMakeFiles/SkeletonApp.dir/deps.cpp.obj: C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/deps.cpp \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/adxintrin.h \
@@ -3958,6 +3959,7 @@ CMakeFiles/SkeletonApp.dir/edit_rtf.cpp.obj: C:/Users/NalleBerg/Documents/C++/Wo
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/concept_check.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/cpp_type_traits.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/cxxabi_forced.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/erase_if.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/exception.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/exception_defines.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/functexcept.h \
@@ -3969,6 +3971,7 @@ CMakeFiles/SkeletonApp.dir/edit_rtf.cpp.obj: C:/Users/NalleBerg/Documents/C++/Wo
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/memoryfwd.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/move.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/new_allocator.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/node_handle.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/ostream_insert.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/postypes.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/predefined_ops.h \
@@ -3986,9 +3989,12 @@ CMakeFiles/SkeletonApp.dir/edit_rtf.cpp.obj: C:/Users/NalleBerg/Documents/C++/Wo
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_iterator.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_iterator_base_funcs.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_iterator_base_types.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_map.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_multimap.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_pair.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_relops.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_tempbuf.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_tree.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_uninitialized.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_vector.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/string_view.tcc \
@@ -4009,12 +4015,14 @@ CMakeFiles/SkeletonApp.dir/edit_rtf.cpp.obj: C:/Users/NalleBerg/Documents/C++/Wo
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/cwchar \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/debug/assertions.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/debug/debug.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/ext/aligned_buffer.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/ext/alloc_traits.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/ext/numeric_traits.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/ext/string_conversions.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/ext/type_traits.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/initializer_list \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/iosfwd \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/map \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/new \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/pstl/execution_defs.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/pstl/glue_algorithm_defs.h \
@@ -8636,11 +8644,11 @@ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/sm3intrin.h:
 
 C:/mingw64/x86_64-w64-mingw32/include/bcrypt.h:
 
-C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/wmmintrin.h:
+C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/keylockerintrin.h:
 
 C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/edit_rtf.h:
 
-C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/keylockerintrin.h:
+C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/wmmintrin.h:
 
 C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/limits.h:
 
@@ -8652,9 +8660,9 @@ C:/mingw64/x86_64-w64-mingw32/include/virtdisk.h:
 
 C:/mingw64/x86_64-w64-mingw32/include/unknwnbase.h:
 
-C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/mmintrin.h:
-
 C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/dpi.cpp:
+
+C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/mmintrin.h:
 
 C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/movdirintrin.h:
 

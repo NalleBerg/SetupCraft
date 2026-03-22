@@ -51,5 +51,4 @@ set(CMAKE_MAKEFILE_PRODUCTS
 # Dependency information for all targets:
 set(CMAKE_DEPEND_INFO_FILES
   "CMakeFiles/SkeletonApp.dir/DependInfo.cmake"
-  "CMakeFiles/RtfEditorTest.dir/DependInfo.cmake"
   )

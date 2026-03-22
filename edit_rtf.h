@@ -9,6 +9,7 @@
 // See edit_rtf_API.txt for full documentation and usage examples.
 
 #include <windows.h>
+#include <map>
 #include <string>
 
 // ── Control IDs (range 4500-4530 — no conflict with other modules) ───────────
@@ -33,6 +34,7 @@
 #define IDC_RTFE_CANCEL       4518
 #define IDC_RTFE_STATUSBAR    4519
 #define IDC_RTFE_IMAGE        4520
+#define IDC_RTFE_OPEN         4521    // "Open file…" button (shell32.dll icon 38)
 
 // ── Data struct ───────────────────────────────────────────────────────────────
 // Fill all fields before calling OpenRtfEditor().
@@ -57,6 +59,12 @@ struct RtfEditorData {
     // 0 = use defaults (S(660) × S(520)).  Set to override.
     int preferredW = 0;
     int preferredH = 0;
+
+    // ── Locale map ──────────────────────────────────────────────────────────
+    // Optional pointer to the application locale map.  When non-null, the
+    // editor uses it to translate toolbar tooltips and the image-picker dialog.
+    // All rtfe_* locale keys are documented in edit_rtf_API.txt section 14.
+    const std::map<std::wstring, std::wstring>* pLocale = nullptr;
 };
 
 // ── Public API ────────────────────────────────────────────────────────────────

@@ -11,6 +11,7 @@
 #include "dpi.h"          // S()
 #include <commctrl.h>
 #include <commdlg.h>      // GetOpenFileNameW
+#include "edit_rtf.h"     // OpenRtfEditor — for Manual install instructions
 
 // ── Layout constants (design pixels at 96 DPI) ────────────────────────────────
 static const int DD_PAD_H    = 20;   // left/right padding
@@ -21,7 +22,7 @@ static const int DD_GAP_SM   =  4;   // label → control gap
 static const int DD_BTN_H    = 34;   // OK / Cancel height
 static const int DD_BTN_W    = 120;  // OK / Cancel width each
 static const int DD_BTN_GAP  = 15;   // gap between OK and Cancel
-static const int DD_CONT_W   = 400;  // inner content column width
+static const int DD_CONT_W   = 560;  // inner content column width (wider — two-column feel)
 static const int DD_LABEL_H  = 18;   // single-line label height
 static const int DD_EDIT_H   = 26;   // single-line edit height
 static const int DD_CB_H     = 22;   // checkbox height
@@ -41,6 +42,8 @@ struct DepDlgData {
 static bool s_depDlgOk      = false;
 static int  s_depDlgScrollY = 0;   // current vertical scroll offset (scaled px)
 static int  s_depDlgTotalH  = 0;   // full content height (scaled px)
+static std::wstring s_depInstrRtf; // working copy of instructions RTF
+static std::wstring s_depLicRtf;   // working copy of license RTF
 
 // ── Network-section reflow state ─────────────────────────────────────────────
 // Set once during control construction; used by Reflow() on every delivery change.
@@ -191,7 +194,7 @@ static LRESULT CALLBACK DepDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lP
         LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
         if (DrawCustomCheckbox(dis)) return TRUE;
         if (dis->CtlID == IDC_DEPDLG_OK || dis->CtlID == IDC_DEPDLG_CANCEL ||
-            dis->CtlID == IDC_DEPDLG_LIC_BROWSE) {
+            dis->CtlID == IDC_DEPDLG_EDIT_LIC || dis->CtlID == IDC_DEPDLG_EDIT_INSTR) {
             ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
             HFONT hFont = CreateFontW(-S(12), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
                 DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
@@ -213,17 +216,40 @@ static LRESULT CALLBACK DepDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lP
             return 0;
         }
 
-        if (wmId == IDC_DEPDLG_LIC_BROWSE && wmEvent == BN_CLICKED) {
-            wchar_t fileBuf[MAX_PATH] = {};
-            OPENFILENAMEW ofn = {};
-            ofn.lStructSize  = sizeof(ofn);
-            ofn.hwndOwner    = hDlg;
-            ofn.lpstrFilter  = L"License files\0*.rtf;*.txt\0RTF files\0*.rtf\0Text files\0*.txt\0All files\0*.*\0";
-            ofn.lpstrFile    = fileBuf;
-            ofn.nMaxFile     = MAX_PATH;
-            ofn.Flags        = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
-            if (GetOpenFileNameW(&ofn)) {
-                SetDlgItemTextW(hDlg, IDC_DEPDLG_LIC_PATH, fileBuf);
+        if (wmId == IDC_DEPDLG_EDIT_LIC && wmEvent == BN_CLICKED) {
+            RtfEditorData ed;
+            ed.initRtf    = s_depLicRtf;
+            ed.titleText  = DL(pData, L"dep_section_license", L"License");
+            ed.okText     = DL(pData, L"ok",     L"OK");
+            ed.cancelText = DL(pData, L"cancel", L"Cancel");
+            ed.preferredW = S(820);
+            ed.preferredH = S(560);
+            ed.pLocale    = pData->pLocale;
+            if (OpenRtfEditor(hDlg, ed)) {
+                s_depLicRtf = ed.outRtf;
+                SetDlgItemTextW(hDlg, IDC_DEPDLG_LIC_PATH,
+                    s_depLicRtf.empty()
+                    ? DL(pData, L"dep_lic_none",        L"(no license)").c_str()
+                    : DL(pData, L"dep_lic_has_content", L"(formatted text \u2014 click Edit\u2026 to view)").c_str());
+            }
+            return 0;
+        }
+
+        if (wmId == IDC_DEPDLG_EDIT_INSTR && wmEvent == BN_CLICKED) {
+            RtfEditorData ed;
+            ed.initRtf    = s_depInstrRtf;
+            ed.titleText  = DL(pData, L"dep_section_instructions", L"Manual install instructions");
+            ed.okText     = DL(pData, L"ok",     L"OK");
+            ed.cancelText = DL(pData, L"cancel", L"Cancel");
+            ed.preferredW = S(820);
+            ed.preferredH = S(560);
+            ed.pLocale    = pData->pLocale;
+            if (OpenRtfEditor(hDlg, ed)) {
+                s_depInstrRtf = ed.outRtf;
+                SetDlgItemTextW(hDlg, IDC_DEPDLG_INSTRUCTIONS,
+                    s_depInstrRtf.empty()
+                    ? DL(pData, L"dep_instr_none",        L"(no instructions)").c_str()
+                    : DL(pData, L"dep_instr_has_content", L"(formatted text \u2014 click Edit\u2026 to view)").c_str());
             }
             return 0;
         }
@@ -262,9 +288,10 @@ static LRESULT CALLBACK DepDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lP
                 pData->dep.detect_reg_key   = GetEditText(hDlg, IDC_DEPDLG_DETECT_REG);
                 pData->dep.detect_file_path = GetEditText(hDlg, IDC_DEPDLG_DETECT_FILE);
                 pData->dep.min_version      = GetEditText(hDlg, IDC_DEPDLG_MIN_VER);
-                pData->dep.instructions     = GetEditText(hDlg, IDC_DEPDLG_INSTRUCTIONS);
+                pData->dep.instructions     = s_depInstrRtf;
+                pData->dep.license_text     = s_depLicRtf;
+                pData->dep.license_path     = L"";
                 pData->dep.credits_text     = GetEditText(hDlg, IDC_DEPDLG_CREDITS);
-                pData->dep.license_path     = GetEditText(hDlg, IDC_DEPDLG_LIC_PATH);
                 pData->okPressed            = true;
             }
             s_depDlgOk = true;
@@ -353,7 +380,9 @@ bool DEP_EditDialog(HWND hwndParent, HINSTANCE hInst,
                     const std::map<std::wstring, std::wstring>& locale,
                     ExternalDep& dep)
 {
-    s_depDlgOk = false;
+    s_depDlgOk    = false;
+    s_depInstrRtf = dep.instructions;
+    s_depLicRtf   = dep.license_text;
 
     DepDlgData data;
     data.dep       = dep;
@@ -434,11 +463,13 @@ bool DEP_EditDialog(HWND hwndParent, HINSTANCE hInst,
     AddRow(contentH, DD_LABEL_H, DD_COMBO_H, DD_GAP_SM, DD_GAP); // offline
     // ── License section ──
     contentH += DD_MLABEL_H + DD_GAP_SM;
-    contentH += DD_EDIT_H + DD_GAP;  // license path + browse (same row)
+    contentH += DD_EDIT_H   + DD_GAP_SM;  // read-only indicator
+    contentH += DD_BTN_H    + DD_GAP;     // Edit License… button
     AddRow(contentH, DD_LABEL_H, DD_EDIT_H, DD_GAP_SM, DD_GAP); // credits
     // ── Instructions ──
     contentH += DD_MLABEL_H + DD_GAP_SM;
-    contentH += DD_INSTR_H + DD_GAP;
+    contentH += DD_EDIT_H   + DD_GAP_SM;  // read-only indicator
+    contentH += DD_BTN_H    + DD_GAP;     // Edit Instructions… button
     // Buttons
     contentH += DD_BTN_H + DD_PAD_B;
 
@@ -694,23 +725,27 @@ bool DEP_EditDialog(HWND hwndParent, HINSTANCE hInst,
       s_rfAfterNet.push_back(h); }
     y += S(DD_MLABEL_H) + S(DD_GAP_SM);
 
-    // License path (read-only edit) + Browse button on same row.
-    int browseW = S(DD_BROWSE_W);
-    HWND hLicPath = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT",
-        dep.license_path.c_str(),
-        WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_BORDER | ES_AUTOHSCROLL | ES_READONLY,
-        lX, y, eW - browseW - S(DD_GAP_SM), S(DD_EDIT_H),
-        hDlg, (HMENU)(UINT_PTR)IDC_DEPDLG_LIC_PATH, hInst, NULL);
-    SetFont(hLicPath);
-    s_rfAfterNet.push_back(hLicPath);
-    HWND hLicBrowse = CreateCustomButtonWithIcon(
-        hDlg, IDC_DEPDLG_LIC_BROWSE,
-        L"",
-        ButtonColor::Blue,
-        L"shell32.dll", 4,
-        lX + eW - browseW, y, browseW, S(DD_EDIT_H), hInst);
-    s_rfAfterNet.push_back(hLicBrowse);
-    y += S(DD_EDIT_H) + S(DD_GAP);
+    // Read-only indicator — reflects whether inline license RTF is present.
+    { HWND h = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT",
+          s_depLicRtf.empty()
+              ? L"(no license)"
+              : L"(formatted text \u2014 click Edit\u2026 to view)",
+          WS_CHILD | WS_VISIBLE | ES_READONLY | ES_LEFT,
+          lX, y, eW, S(DD_EDIT_H),
+          hDlg, (HMENU)(UINT_PTR)IDC_DEPDLG_LIC_PATH, hInst, NULL);
+      SetFont(h); s_rfAfterNet.push_back(h); }
+    y += S(DD_EDIT_H) + S(DD_GAP_SM);
+
+    // "Edit License…" button — opens RTF editor with File→Open available.
+    { std::wstring elt = LS(L"dep_dlg_edit_lic", L"Edit License\u2026");
+      int wElt = MeasureButtonWidth(elt.c_str(), true);
+      HWND h = CreateCustomButtonWithIcon(
+          hDlg, IDC_DEPDLG_EDIT_LIC, elt,
+          ButtonColor::Blue,
+          L"shell32.dll", 38,
+          lX, y, wElt, S(DD_BTN_H), hInst);
+      s_rfAfterNet.push_back(h); }
+    y += S(DD_BTN_H) + S(DD_GAP);
 
     { HWND h = MkLabel(LS(L"dep_dlg_credits", L"Credits / attribution:"));
       SetFont(h); s_rfAfterNet.push_back(h); }
@@ -724,15 +759,27 @@ bool DEP_EditDialog(HWND hwndParent, HINSTANCE hInst,
       s_rfAfterNet.push_back(h); }
     y += S(DD_MLABEL_H) + S(DD_GAP_SM);
 
-    HWND hInstr = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT",
-        dep.instructions.c_str(),
-        WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_BORDER |
-        ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL,
-        lX, y, eW, S(DD_INSTR_H),
-        hDlg, (HMENU)(UINT_PTR)IDC_DEPDLG_INSTRUCTIONS, hInst, NULL);
-    SetFont(hInstr);
-    s_rfAfterNet.push_back(hInstr);
-    y += S(DD_INSTR_H) + S(DD_GAP);
+    // Read-only indicator — reflects whether RTF content is present.
+    { HWND h = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT",
+          s_depInstrRtf.empty()
+              ? L"(no instructions)"
+              : L"(formatted text \u2014 click Edit\u2026 to view)",
+          WS_CHILD | WS_VISIBLE | ES_READONLY | ES_LEFT,
+          lX, y, eW, S(DD_EDIT_H),
+          hDlg, (HMENU)(UINT_PTR)IDC_DEPDLG_INSTRUCTIONS, hInst, NULL);
+      SetFont(h); s_rfAfterNet.push_back(h); }
+    y += S(DD_EDIT_H) + S(DD_GAP_SM);
+
+    // "Edit Instructions…" button.
+    { std::wstring eit = LS(L"dep_dlg_edit_instr", L"Edit Instructions\u2026");
+      int wEit = MeasureButtonWidth(eit.c_str(), true);
+      HWND h = CreateCustomButtonWithIcon(
+          hDlg, IDC_DEPDLG_EDIT_INSTR, eit,
+          ButtonColor::Blue,
+          L"shell32.dll", 87,
+          lX, y, wEit, S(DD_BTN_H), hInst);
+      s_rfAfterNet.push_back(h); }
+    y += S(DD_BTN_H) + S(DD_GAP);
 
     // ── OK / Cancel buttons ───────────────────────────────────────────────────
     std::wstring okTxt  = LS(L"ok",     L"OK");

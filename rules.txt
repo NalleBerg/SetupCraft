@@ -2,7 +2,7 @@
 
 PROJECT RULES
 -------------
-- Always compile with makeit.bat, no parameters.
+- Always compile with makeit.bat, no parameters or piping.
 - No magic numbers — all pixel values go through S(), all strings through locale.
 - i18n observed at all times: strings in locale/en_GB.txt only until the app is
   ready for publishing; all 19 other locales translated in one pass at that point.

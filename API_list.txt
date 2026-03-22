@@ -55,8 +55,7 @@
                                     on all 17 toolbar controls (RtfEd_SetToolTip /
                                     RtfEd_ToolbarBtnProc subclass pattern), RTF stream
                                     in/out, optional char limit, WS_OVERLAPPEDWINDOW
-                                    resizable, rtf_editor_test.exe test harness,
-                                    control ID range 4500–4530.
+                                    resizable, control ID range 4500–4530.
 
   notes_editor_API.txt              Rich-text Notes/Description editor popup —
                                     OpenNotesEditor() API, NotesEditorData struct,

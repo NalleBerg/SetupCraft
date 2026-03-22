@@ -5,11 +5,6 @@
   Supersedes: notes_editor — which is kept for the 500-char component-notes
   popup.  Use edit_rtf wherever richer, unconstrained text editing is needed.
 
-  Test harness: build\rtf_editor_test.exe  (target RtfEditorTest in CMake)
-      Opens the editor directly.  On Save, writes RTF to
-      rtf_editor_test_out.rtf in the working directory.
-      Build:  cmake --build build --target RtfEditorTest
-
 ================================================================================
 1. PUBLIC API
 ================================================================================
@@ -33,6 +28,7 @@
       ed.okText     = s_locale[L"ok"];
       ed.cancelText = s_locale[L"cancel"];
       ed.initRtf    = existingRtfWstring;               // empty = blank
+      ed.pLocale    = &s_locale;                        // for toolbar tooltip i18n
 
       if (OpenRtfEditor(hwnd, ed)) {
           myModel.descriptionRtf = ed.outRtf;
@@ -288,5 +284,59 @@
   Multiple editor instances are safe (different top-level HWNDs, each with
   its own RtfEdState*).  Calling OpenRtfEditor re-entrantly from within the
   same message loop is not supported.
+
+================================================================================
+14. i18n — LOCALE KEYS
+================================================================================
+
+  All user-visible strings inside the editor are looked up via
+  RtfEditorData::pLocale.  Set this field to the project locale map before
+  calling OpenRtfEditor(); English fallbacks are used whenever the field is
+  null or a key is absent.
+
+  Call-site strings (titleText, okText, cancelText, charsLeftFmt) are caller-
+  supplied — look them up before calling OpenRtfEditor() and assign them to
+  the appropriate RtfEditorData field.
+
+  Internal keys — toolbar tooltips
+  ──────────────────────────────────────────────────────────────────────────────
+  Key                    Fallback (en_GB)
+  ─────────────────────  ──────────────────────────────────────────────────────
+  rtfe_tip_bold          Bold  (Ctrl+B)
+  rtfe_tip_italic        Italic  (Ctrl+I)
+  rtfe_tip_underline     Underline  (Ctrl+U)
+  rtfe_tip_strike        Strikethrough
+  rtfe_tip_subscript     Subscript  (e.g. H₂O)
+  rtfe_tip_superscript   Superscript  (e.g. m²)
+  rtfe_tip_fontface      Font face
+  rtfe_tip_fontsize      Font size (pt)
+  rtfe_tip_color         Text colour
+  rtfe_tip_highlight     Highlight colour
+  rtfe_tip_align_l       Align left
+  rtfe_tip_align_c       Align centre
+  rtfe_tip_align_r       Align right
+  rtfe_tip_align_j       Justify
+  rtfe_tip_bullet        Bullet list
+  rtfe_tip_numbered      Numbered list
+  rtfe_tip_image         Insert image  (PNG / JPEG)
+  rtfe_tip_open          Open file…  (RTF / TXT)
+
+  Internal keys — image picker dialog
+  ──────────────────────────────────────────────────────────────────────────────
+  rtfe_img_filter_all    Image files
+  rtfe_img_filter_png    PNG files (*.png)
+  rtfe_img_filter_jpeg   JPEG files (*.jpg;*.jpeg)
+  rtfe_img_dlg_title     Insert Image
+
+  Internal keys — File→Open dialog
+  ──────────────────────────────────────────────────────────────────────────────
+  rtfe_open_filter_all   Supported files (*.rtf;*.txt;*.md)
+  rtfe_open_filter_rtf   RTF files (*.rtf)
+  rtfe_open_filter_txt   Text files (*.txt)
+  rtfe_open_filter_md    Markdown files (*.md)
+  rtfe_open_filter_any   All files
+  rtfe_open_dlg_title    Open File
+
+  All 27 keys above are also present in locale/en_GB.txt.
 
 ================================================================================

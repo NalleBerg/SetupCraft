@@ -745,6 +745,7 @@ CMakeFiles/RtfEditorTest.dir/edit_rtf.cpp.obj: C:/Users/NalleBerg/Documents/C++/
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/concept_check.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/cpp_type_traits.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/cxxabi_forced.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/erase_if.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/exception.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/exception_defines.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/functexcept.h \
@@ -756,6 +757,7 @@ CMakeFiles/RtfEditorTest.dir/edit_rtf.cpp.obj: C:/Users/NalleBerg/Documents/C++/
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/memoryfwd.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/move.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/new_allocator.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/node_handle.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/ostream_insert.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/postypes.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/predefined_ops.h \
@@ -773,9 +775,12 @@ CMakeFiles/RtfEditorTest.dir/edit_rtf.cpp.obj: C:/Users/NalleBerg/Documents/C++/
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_iterator.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_iterator_base_funcs.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_iterator_base_types.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_map.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_multimap.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_pair.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_relops.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_tempbuf.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_tree.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_uninitialized.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_vector.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/string_view.tcc \
@@ -796,12 +801,14 @@ CMakeFiles/RtfEditorTest.dir/edit_rtf.cpp.obj: C:/Users/NalleBerg/Documents/C++/
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/cwchar \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/debug/assertions.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/debug/debug.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/ext/aligned_buffer.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/ext/alloc_traits.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/ext/numeric_traits.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/ext/string_conversions.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/ext/type_traits.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/initializer_list \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/iosfwd \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/map \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/new \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/pstl/execution_defs.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/pstl/glue_algorithm_defs.h \
@@ -1131,6 +1138,7 @@ CMakeFiles/RtfEditorTest.dir/rtf_editor_test.cpp.obj: C:/Users/NalleBerg/Documen
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/concept_check.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/cpp_type_traits.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/cxxabi_forced.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/erase_if.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/exception.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/exception_defines.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/functexcept.h \
@@ -1142,6 +1150,7 @@ CMakeFiles/RtfEditorTest.dir/rtf_editor_test.cpp.obj: C:/Users/NalleBerg/Documen
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/memoryfwd.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/move.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/new_allocator.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/node_handle.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/ostream_insert.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/postypes.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/predefined_ops.h \
@@ -1157,8 +1166,11 @@ CMakeFiles/RtfEditorTest.dir/rtf_editor_test.cpp.obj: C:/Users/NalleBerg/Documen
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_iterator.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_iterator_base_funcs.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_iterator_base_types.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_map.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_multimap.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_pair.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_relops.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_tree.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_uninitialized.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_vector.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/string_view.tcc \
@@ -1178,12 +1190,14 @@ CMakeFiles/RtfEditorTest.dir/rtf_editor_test.cpp.obj: C:/Users/NalleBerg/Documen
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/cwchar \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/debug/assertions.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/debug/debug.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/ext/aligned_buffer.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/ext/alloc_traits.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/ext/numeric_traits.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/ext/string_conversions.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/ext/type_traits.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/initializer_list \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/iosfwd \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/map \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/new \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/pstl/pstl_config.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/stdlib.h \
@@ -2737,6 +2751,10 @@ C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/button.h:
 
 C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_algo.h:
 
+C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_map.h:
+
+C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_multimap.h:
+
 C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/uniform_int_dist.h:
 
 C:/mingw64/x86_64-w64-mingw32/include/richedit.h:
@@ -2748,10 +2766,6 @@ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/cxxabi_init_except
 C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/ios_base.h:
 
 C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/ostream.tcc:
-
-C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_map.h:
-
-C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_multimap.h:
 
 C:/mingw64/x86_64-w64-mingw32/include/mcfgthread/fwd.h:
 

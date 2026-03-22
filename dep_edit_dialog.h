@@ -49,3 +49,5 @@ bool DEP_EditDialog(HWND hwndParent, HINSTANCE hInst,
 #define IDC_DEPDLG_LIC_BROWSE   416   // "Browse…" button
 #define IDC_DEPDLG_OK           417
 #define IDC_DEPDLG_CANCEL       418
+#define IDC_DEPDLG_EDIT_INSTR   419   // "Edit Instructions…" button
+#define IDC_DEPDLG_EDIT_LIC     420   // "Edit License…" button

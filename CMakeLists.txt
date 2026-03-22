@@ -36,23 +36,6 @@ add_executable(SkeletonApp WIN32
     ${RESOURCE_FILES}
 )
 
-# ── RTF editor test harness ───────────────────────────────────────────────────
-# Standalone helper .exe that opens the RTF editor directly.
-# Build: cmake --build build --target RtfEditorTest
-add_executable(RtfEditorTest WIN32
-    rtf_editor_test.cpp
-    edit_rtf.cpp
-    button.cpp
-    tooltip.cpp
-    dpi.cpp
-)
-set_target_properties(RtfEditorTest PROPERTIES OUTPUT_NAME "rtf_editor_test")
-target_link_libraries(RtfEditorTest comctl32 comdlg32 user32 gdi32 gdiplus shell32 shlwapi ole32 uuid)
-target_compile_definitions(RtfEditorTest PRIVATE UNICODE _UNICODE)
-if(MINGW)
-    target_link_options(RtfEditorTest PRIVATE -municode -mwindows)
-endif()
-
 # Produce an executable named SetupCraft.exe (so packaging and icon names match)
 set_target_properties(SkeletonApp PROPERTIES OUTPUT_NAME "SetupCraft")
 

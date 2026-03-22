@@ -372,6 +372,13 @@ CMakeFiles/RtfEditorTest.dir/rtf_editor_test.cpp.obj: \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/tuple \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\dpi.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\edit_rtf.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/map \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_tree.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/ext/aligned_buffer.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/node_handle.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_map.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_multimap.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/erase_if.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\tooltip.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/vector \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_uninitialized.h \
