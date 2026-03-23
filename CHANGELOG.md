@@ -2,6 +2,19 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.03.23.09] - 2026-03-23
+
+### Added
+- **`DepInstallOrder::DIO_UNSPECIFIED (−1)`** — new sentinel value meaning "not yet chosen"; valid at OK (no validation error); stored in DB as `−1`; generated installer will apply a sensible default. `ExternalDep::install_order` default changed from `0` to `DIO_UNSPECIFIED`.
+- **`DepInstallOrder::DIO_CUSTOM_DIALOG (4)`** — new install stage for a developer-defined custom dialog step anywhere in the installer wizard.
+- **Install order — named dropdown** — the install-order field in the Edit Dependency dialog is now a combo box with six named choices: "Choose install step…" / "Before the Welcome screen (silent)" / "After the Welcome dialog" / "Before install (after License page)" / "After the main program installs" / "At a custom dialog step". Previously a free numeric text edit.
+- **Delivery combo — OK validation** — pressing OK without choosing a delivery type (leaving "Choose type…" selected) now shows a validation error (`dep_err_no_delivery`). Previously the sentinel index was silently coerced to `DD_BUNDLED (0)`.
+- **Locale keys** — `dep_install_order_choose` and `dep_install_order_custom_dialog` added to `locale/en_GB.txt`.
+
+### Changed
+- **Install order label** — "Install order:" renamed to "Install step:" (`dep_dlg_install_order`).
+- **Install order locale strings** — four existing `dep_install_order_*` keys reworded for clarity: "Before the Welcome screen (silent)" / "After the Welcome dialog" / "Before install (after License page)" / "After the main program installs".
+
 ## [2026.03.22.10] - 2026-03-22
 
 ### Fixed

@@ -1,6 +1,16 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 22 March 2026 &mdash; v2026.03.22.10<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 23 March 2026 &mdash; v2026.03.23.09<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.23.09</span></h3>
+<p><strong>dep_edit_dialog &mdash; install order redesigned as named dropdown; delivery validation; custom dialog stage added (23.03.2026, 09:15):</strong></p>
+<ul>
+<li><strong>Install order &mdash; named dropdown:</strong> The install-order field in the Edit Dependency dialog is now a named-stage combo box instead of a free numeric text edit. Six choices: <em>Choose install step&hellip;</em> (sentinel, valid to leave unset) / <em>Before the Welcome screen (silent)</em> / <em>After the Welcome dialog</em> / <em>Before install (after License page)</em> / <em>After the main program installs</em> / <em>At a custom dialog step</em>. Stored value is a <code>DepInstallOrder</code> enum integer; <code>DIO_UNSPECIFIED&nbsp;(−1)</code> is valid and means the generated installer decides. New dependencies default to the sentinel; existing dependencies restore their saved stage.</li>
+<li><strong><code>DIO_UNSPECIFIED&nbsp;(−1)</code> — new install-order sentinel:</strong> Added to the <code>DepInstallOrder</code> enum. Means &ldquo;nothing chosen yet&rdquo;. OK does not require a stage to be set. Stored in the DB as <code>−1</code> and round-trips correctly. <code>ExternalDep::install_order</code> default changed from <code>0</code> to <code>DIO_UNSPECIFIED</code>.</li>
+<li><strong><code>DIO_CUSTOM_DIALOG&nbsp;(4)</code> — new install stage:</strong> Added to the <code>DepInstallOrder</code> enum, letting the developer schedule a dependency at a custom dialog step they define in the installer wizard.</li>
+<li><strong>Delivery combo &mdash; validation on OK:</strong> Pressing OK without choosing a delivery type (leaving &ldquo;Choose type&hellip;&rdquo; selected) now shows a validation error (<code>dep_err_no_delivery</code>). Previously the sentinel index was silently coerced to <code>DD_BUNDLED&nbsp;(0)</code>.</li>
+<li><strong>Locale:</strong> Install-order label renamed to &ldquo;Install step:&rdquo; (<code>dep_dlg_install_order</code>); four existing <code>dep_install_order_*</code> strings reworded for clarity; two new keys &mdash; <code>dep_install_order_choose</code> and <code>dep_install_order_custom_dialog</code> &mdash; added to <code>locale/en_GB.txt</code>.</li>
+</ul>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.22.10</span></h3>
 <p><strong>dep_edit_dialog / db.cpp &mdash; delivery type now saved correctly (22.03.2026, 10:01):</strong></p>

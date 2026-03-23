@@ -150,7 +150,7 @@ CONTROL ID RANGES
   IDC_DEPDLG_REQUIRED     403   dialog: required checkbox
   IDC_DEPDLG_ARCH         404   dialog: architecture combo
   IDC_DEPDLG_OFFLINE      405   dialog: offline-behaviour combo
-  IDC_DEPDLG_INSTALL_ORDER 406  dialog: install-order numeric edit
+  IDC_DEPDLG_INSTALL_ORDER 406  dialog: install-order stage combo (DepInstallOrder)
   IDC_DEPDLG_URL          407   dialog: URL edit
   IDC_DEPDLG_SILENT_ARGS  408   dialog: silent-args edit
   IDC_DEPDLG_SHA256       409   dialog: SHA-256 edit
@@ -240,7 +240,13 @@ LOCALE KEYS
   dep_dlg_delivery         — dialog label: "Delivery type:"
   dep_dlg_required         — checkbox label: "Required (cannot be skipped…)"
   dep_dlg_arch             — dialog label: "Target architecture:"
-  dep_dlg_install_order    — dialog label: "Install order (lower = first):"
+  dep_dlg_install_order    — dialog label: "Install step:"
+  dep_install_order_choose        — sentinel: "Choose install step…"
+  dep_install_order_pre_welcome   — combo item: "Before the Welcome screen (silent)"
+  dep_install_order_post_welcome  — combo item: "After the Welcome dialog"
+  dep_install_order_pre_install   — combo item: "Before install (after License page)"
+  dep_install_order_post_install  — combo item: "After the main program installs"
+  dep_install_order_custom_dialog — combo item: "At a custom dialog step"
   dep_dlg_detect_reg       — dialog label: "Registry key (HKLM):"
   dep_dlg_detect_file      — dialog label: "File path to detect:"
   dep_dlg_min_version      — dialog label: "Minimum version:"

@@ -52,6 +52,19 @@ enum DepOffline {
     DO_SKIP_OPTIONAL = 2,  // silently skip if the dep is marked optional
 };
 
+// ── Install order ─────────────────────────────────────────────────────────────
+// Named stage in the installer wizard at which this dependency is installed.
+// DIO_UNSPECIFIED means the developer left the step unset; "nothing chosen" is
+// a valid state — the generated installer will apply a sensible default.
+enum DepInstallOrder {
+    DIO_UNSPECIFIED     = -1, // not chosen; generated installer decides
+    DIO_BEFORE_WELCOME  =  0, // before the Welcome screen appears (silent)
+    DIO_AFTER_WELCOME   =  1, // after the Welcome dialog, before the License page
+    DIO_BEFORE_INSTALL  =  2, // after License / settings, just before file transfer
+    DIO_AFTER_INSTALL   =  3, // after the main program has been installed
+    DIO_CUSTOM_DIALOG   =  4, // at a developer-defined custom dialog step
+};
+
 // ── The dependency record ─────────────────────────────────────────────────────
 struct ExternalDep {
     int          id             = 0;            // DB primary key (0 = not yet saved)
@@ -59,7 +72,7 @@ struct ExternalDep {
     std::wstring display_name;                  // shown in the ListView and install UI
     bool         is_required    = true;         // false = optional / enhancing
     DepDelivery  delivery       = DD_BUNDLED;
-    int          install_order  = 0;            // lower = earlier (relative to main app)
+    int          install_order  = (int)DIO_UNSPECIFIED; // named install stage (DepInstallOrder)
     std::wstring detect_reg_key;                // HKLM path; empty = no registry check
     std::wstring detect_file_path;              // path check; empty = no file check
     std::wstring min_version;                   // minimum acceptable version string

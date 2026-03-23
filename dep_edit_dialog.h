@@ -36,7 +36,7 @@ bool DEP_EditDialog(HWND hwndParent, HINSTANCE hInst,
 #define IDC_DEPDLG_REQUIRED     403   // custom checkbox
 #define IDC_DEPDLG_ARCH         404   // combo box
 #define IDC_DEPDLG_OFFLINE      405   // combo box
-#define IDC_DEPDLG_INSTALL_ORDER 406  // edit (numeric)
+#define IDC_DEPDLG_INSTALL_ORDER 406  // combo: install-order stage (DepInstallOrder)
 #define IDC_DEPDLG_URL          407   // edit
 #define IDC_DEPDLG_SILENT_ARGS  408   // edit
 #define IDC_DEPDLG_SHA256       409   // edit

@@ -121,9 +121,12 @@
 
   deps_INTERNALS.txt                Dependencies page module architecture —
                                     ExternalDep data model (all 18 fields), enums
-                                    (DepDelivery / DepArch / DepOffline), ListView
-                                    subclass for right-click context menu, modal
-                                    measure-then-create edit dialog, DB table schema
+                                    (DepDelivery / DepArch / DepOffline /
+                                    DepInstallOrder with DIO_UNSPECIFIED sentinel
+                                    and DIO_CUSTOM_DIALOG stage), ListView subclass
+                                    for right-click context menu, modal
+                                    measure-then-create edit dialog (install order
+                                    as named dropdown combo), DB table schema
                                     and CRUD API, control ID ranges, locale key table,
                                     and mainwindow.cpp wiring guide.
 
