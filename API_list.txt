@@ -120,14 +120,18 @@
                                     and full locale key table.
 
   deps_INTERNALS.txt                Dependencies page module architecture —
-                                    ExternalDep data model (all 18 fields), enums
-                                    (DepDelivery / DepArch / DepOffline /
-                                    DepInstallOrder with DIO_UNSPECIFIED sentinel
-                                    and DIO_CUSTOM_DIALOG stage), ListView subclass
-                                    for right-click context menu, modal
-                                    measure-then-create edit dialog (install order
-                                    as named dropdown combo), DB table schema
-                                    and CRUD API, control ID ranges, locale key table,
+                                    ExternalDep data model (instructions_list
+                                    vector<wstring> for multi-page RTF instructions;
+                                    dep_instructions DB table), enums (DepDelivery /
+                                    DepArch / DepOffline / DepInstallOrder with
+                                    DIO_UNSPECIFIED sentinel and DIO_CUSTOM_DIALOG
+                                    stage), DIO_BEFORE_WELCOME restriction for
+                                    Instructions Only, ListView subclass for
+                                    right-click context menu, modal measure-then-
+                                    create edit dialog (instructions icon-grid with
+                                    InstrIconCtx / WM_DEPINSTR_REMOVE, install order
+                                    as named dropdown combo), DB table schema and
+                                    CRUD API, control ID ranges, locale key table,
                                     and mainwindow.cpp wiring guide.
 
   scrollbar_INTERNALS.txt           Shortcuts-page vertical scrollbar — SCROLLINFO

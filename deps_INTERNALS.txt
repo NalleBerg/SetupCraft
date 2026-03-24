@@ -33,8 +33,10 @@ ExternalDep (declared in deps.h)
   license_path     wstring      real-disk path to .rtf or .txt file
   license_text     wstring      inline license text (stored in DB)
   credits_text     wstring      short attribution line
-  instructions     wstring      manual-install guidance text
-  offline_behavior DepOffline   0=abort, 1=warn_continue, 2=skip_if_optional
+  instructions_list vector<wstring>  ordered RTF pages for manual-install guidance
+                               (replaces the former single `instructions wstring`;
+                                stored in the separate dep_instructions table)
+  offline_behavior DepOffline  0=abort, 1=warn_continue, 2=skip_if_optional
 
 ================================================================================
 MODULE STATE  (deps.cpp file-scope statics)
@@ -142,9 +144,13 @@ EDIT DIALOG  (dep_edit_dialog.cpp)
     Called once on creation and on every CBN_SELCHANGE for the Delivery combo.
     Each delivery type reveals a different set of sections:
       DD_BUNDLED:            Required · Order · License · Credits
-      DD_AUTO_DOWNLOAD:      Required · Arch · Order · Detection · Network(all) · License · Credits · Instructions
-      DD_REDIRECT_URL:       Required · Arch · Order · Detection · Network(URL+offline) · License · Credits · Instructions
+      DD_AUTO_DOWNLOAD:      Required · Order · Detection (optional) · Network(all) · License · Credits
+      DD_REDIRECT_URL:       Required · Order · Detection (optional) · Network(URL+offline) · License · Credits
       DD_INSTRUCTIONS_ONLY:  Required · Order · Instructions
+    When DD_INSTRUCTIONS_ONLY is active, the DIO_BEFORE_WELCOME item is removed
+    from the Install step combo (silent pre-welcome install requires no user
+    interaction, which conflicts with a manual-steps workflow). It is re-inserted
+    at index 1 when any other delivery type is chosen.
     Controls are grouped into DdSection structs; Reflow() shows/hides whole
     sections and repositions everything below them.  The window is then resized
     to fit the new content height, and the vertical scrollbar is reconfigured.
@@ -174,7 +180,7 @@ CONTROL ID RANGES
   IDC_DEPDLG_NAME         401   dialog: display name edit
   IDC_DEPDLG_DELIVERY     402   dialog: delivery combo
   IDC_DEPDLG_REQUIRED     403   dialog: required checkbox (custom)
-  IDC_DEPDLG_ARCH         404   dialog: architecture combo
+  IDC_DEPDLG_ARCH         404   (retired — architecture always matches the main app)
   IDC_DEPDLG_OFFLINE      405   dialog: offline-behaviour combo
   IDC_DEPDLG_INSTALL_ORDER 406  dialog: install-order stage combo (DepInstallOrder)
   IDC_DEPDLG_URL          407   dialog: URL edit
@@ -189,8 +195,12 @@ CONTROL ID RANGES
   IDC_DEPDLG_LIC_BROWSE   416   (retired — superseded by IDC_DEPDLG_EDIT_LIC)
   IDC_DEPDLG_OK           417   dialog: OK button (custom, Green)
   IDC_DEPDLG_CANCEL       418   dialog: Cancel button (custom, Red)
-  IDC_DEPDLG_EDIT_INSTR   419   dialog: "Edit Instructions…" button (custom, Blue)
+  IDC_DEPDLG_EDIT_INSTR   419   dialog: Add / Edit instruction page button (custom, Blue)
+                               Also used as the WM_COMMAND id posted by double-click
+                               on an icon (lParam = page index as INT_PTR).
   IDC_DEPDLG_EDIT_LIC     420   dialog: "Edit License…" button (custom, Blue)
+  IDC_DEPDLG_INSTR_ICON   421   base ID for instruction-page icon statics
+                               (actual IDs = IDC_DEPDLG_INSTR_ICON + page index)
 
 ================================================================================
 DB TABLE  (external_deps)
@@ -213,10 +223,20 @@ DB TABLE  (external_deps)
     license_path      TEXT    DEFAULT '',
     license_text      TEXT    DEFAULT '',
     credits_text      TEXT    DEFAULT '',
-    instructions      TEXT    DEFAULT '',
+    instructions      TEXT    DEFAULT '',   -- legacy column; new pages in dep_instructions
     offline_behavior  INTEGER DEFAULT 0,
     FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
   );
+
+  CREATE TABLE IF NOT EXISTS dep_instructions (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    dep_id      INTEGER NOT NULL,
+    project_id  INTEGER NOT NULL,
+    sort_order  INTEGER DEFAULT 0,
+    rtf_text    TEXT    DEFAULT ''
+  );
+  No FK constraints enforced; DeleteExternalDepsForProject deletes from
+  dep_instructions WHERE project_id=? manually before deleting external_deps rows.
 
 DB API (declared in db.h, implemented in db.cpp):
   int  DB::InsertExternalDep(int projectId, const ExternalDep& dep)
@@ -263,11 +283,12 @@ LOCALE KEYS
   dep_ctx_remove           — context menu: "Remove"
   dep_confirm_remove       — generic confirm message
   dep_confirm_remove_named — confirm with {0} placeholder for the dep name
-  dep_dialog_title         — dialog caption: "Edit Dependency"
+  dep_dialog_title         — dialog caption / headline when editing an existing dep: "Edit Dependency"
+  dep_dialog_add_title     — dialog caption / headline when adding a new dep: "Add Dependency"
+                             (selected by dep.id == 0 check; both window title and internal headline)
   dep_dlg_name             — dialog label: "Display name:"
   dep_dlg_delivery         — dialog label: "Delivery type:"
   dep_dlg_required         — checkbox label: "Required (cannot be skipped…)"
-  dep_dlg_arch             — dialog label: "Target architecture:"
   dep_dlg_install_order    — dialog label: "Install step:"
   dep_install_order_choose        — sentinel: "Choose install step…"
   dep_install_order_pre_welcome   — combo item: "Before the Welcome screen (silent)"
@@ -277,24 +298,25 @@ LOCALE KEYS
   dep_install_order_custom_dialog — combo item: "At a custom dialog step"
   dep_dlg_detect_reg       — dialog label: "Registry key (HKLM):"
   dep_dlg_detect_file      — dialog label: "File path to detect:"
-  dep_dlg_min_version      — dialog label: "Minimum version:"
+  dep_dlg_min_version      — dialog label: "Minimum required version (optional):"
   dep_dlg_url              — dialog label: "Download / redirect URL:"
-  dep_dlg_silent_args      — dialog label: "Silent install arguments:"
-  dep_dlg_sha256           — dialog label: "SHA-256 (hex):"
+  dep_dlg_silent_args      — dialog label: "Silent install arguments (optional):"
+  dep_dlg_sha256           — dialog label: "SHA-256 hash (hex, optional):"
   dep_dlg_offline          — dialog label: "If offline:"
-  dep_dlg_credits          — dialog label: "Credits / attribution:"
+  dep_dlg_credits          — dialog label: "Credits / attribution (optional):"
   dep_dlg_edit_lic         — Edit License button label: "Edit License…"
-  dep_dlg_edit_instr       — Edit Instructions button label: "Edit Instructions…"
   dep_lic_none             — indicator when no license RTF: "(no license)"
   dep_lic_has_content      — indicator when license RTF present
-  dep_instr_none           — indicator when no instructions RTF: "(no instructions)"
-  dep_instr_has_content    — indicator when instructions RTF present
+  dep_dlg_add_instr        — Add Instructions button label: "Add Instructions…"
+  dep_dlg_instr_icon_tip   — icon hover tooltip line 1: "Double-click to edit"
+  dep_dlg_instr_remove_tip — icon hover tooltip line 2: "Right-click to remove"
+  dep_dlg_instr_remove     — context menu item: "Remove instructions"
   dep_dlg_choose_type      — delivery combo sentinel: "Choose type…"
   dep_section_detection    — section header: "Detection"
   dep_section_network      — section header: "Network"
-  dep_section_license      — section header: "License"
-  dep_section_instructions — section header: "Manual install instructions"
-  dep_arch_any / x64 / arm64  (dep_arch_x86 key still in locale file but unused)
+  dep_section_license      — section header: "License (optional)"
+  dep_arch_any / x64 / arm64  (dep_arch_x86 key still in locale file but unused;
+                               architecture field removed from dialog in v2026.03.24.08)
   dep_offline_abort / warn / skip_opt
   dep_err_no_name          — validation error: "Please enter a display name for this dependency."
   dep_err_no_delivery      — validation error: "Please choose a delivery type."

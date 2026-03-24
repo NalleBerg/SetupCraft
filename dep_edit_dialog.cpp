@@ -19,9 +19,9 @@
  *
  * Delivery → visible sections:
  *   DD_BUNDLED:            Required · Order · License · Credits
- *   DD_AUTO_DOWNLOAD:      Required · Arch · Order · Detection · Network(all) · License · Credits · Instructions
- *   DD_REDIRECT_URL:       Required · Arch · Order · Detection · Network(URL+offline) · License · Credits · Instructions
- *   DD_INSTRUCTIONS_ONLY:  Required · Order · Instructions
+ *   DD_AUTO_DOWNLOAD:      Required · Order · Detection (optional) · Network(all) · License · Credits
+ *   DD_REDIRECT_URL:       Required · Order · Detection (optional) · Network(URL+offline) · License · Credits
+ *   DD_INSTRUCTIONS_ONLY:  Required · Order
  */
 
 #include "dep_edit_dialog.h"
@@ -29,9 +29,14 @@
 #include "checkbox.h"     // CreateCustomCheckbox, DrawCustomCheckbox
 #include "ctrlw.h"        // ShowValidationDialog
 #include "dpi.h"          // S()
+#include "tooltip.h"      // ShowMultilingualTooltip, HideTooltip
 #include <commctrl.h>
 #include <commdlg.h>      // GetOpenFileNameW
 #include "edit_rtf.h"     // OpenRtfEditor
+
+extern "C" __declspec(dllimport) UINT WINAPI PrivateExtractIconsW(
+    LPCWSTR szFileName, int nIconIndex, int cxIcon, int cyIcon,
+    HICON* phicon, UINT* piconid, UINT nIcons, UINT flags);
 
 // ── Layout constants (design pixels at 96 DPI) ────────────────────────────────
 static const int DD_PAD_H    = 20;   // left/right padding
@@ -65,7 +70,7 @@ struct DepDlgData {
 static bool         s_depDlgOk      = false;
 static int          s_depDlgScrollY = 0;   // current vertical scroll offset (scaled px)
 static int          s_depDlgTotalH  = 0;   // full content height (scaled px)
-static std::wstring s_depInstrRtf;          // working copy of instructions RTF
+static std::vector<std::wstring> s_depInstrList;   // working copy of instruction pages (RTF)
 static std::wstring s_depLicRtf;            // working copy of license RTF
 
 // ── All sections tracked for Reflow() ────────────────────────────────────────
@@ -78,15 +83,14 @@ struct DdSection {
 
 // Sections in top-down order (after the always-visible top block).
 static DdSection s_secRequired;     // Required checkbox
-static DdSection s_secArch;         // Architecture combo
 static DdSection s_secOrder;        // Install-order edit
-static DdSection s_secDetection;    // Detection header + three edits
+static DdSection s_secDetection;    // Detection header + three edits (all optional)
 static DdSection s_secNetAll;       // Network header + URL + silent-args + SHA-256 + offline
 static DdSection s_secNetUrlOnly;   // (subset of Network) shown for DD_REDIRECT_URL
 //   Note: DD_REDIRECT_URL shows only URL (row 0) and Offline (row 3) from the network
 //   block.  Rather than duplicating HWNDs we track sub-visibility inside Reflow().
 static DdSection s_secLicense;      // License section header + indicator + button + credits
-static DdSection s_secInstructions; // Instructions header + indicator + button
+static DdSection s_secInstructions; // Instructions header + indicator + button (DD_INSTRUCTIONS_ONLY only)
 
 // The OK/Cancel buttons — always visible, always repositioned last by Reflow().
 static HWND s_hBtnOK     = NULL;
@@ -158,8 +162,6 @@ static void Reflow(HWND hDlg, int deliveryVal)
     // ── Which sections are visible for this delivery type? ────────────────────
     bool hasAny          = (deliveryVal != DD_DELIVERY_NONE);
     bool hasRequired     = hasAny;
-    bool hasArch         = (deliveryVal == DD_AUTO_DOWNLOAD ||
-                            deliveryVal == DD_REDIRECT_URL);
     bool hasOrder        = hasAny;
     bool hasDetection    = (deliveryVal == DD_AUTO_DOWNLOAD ||
                             deliveryVal == DD_REDIRECT_URL);
@@ -168,16 +170,13 @@ static void Reflow(HWND hDlg, int deliveryVal)
     bool hasLicense      = (deliveryVal == DD_BUNDLED ||
                             deliveryVal == DD_AUTO_DOWNLOAD ||
                             deliveryVal == DD_REDIRECT_URL);
-    bool hasInstructions = (deliveryVal == DD_AUTO_DOWNLOAD ||
-                            deliveryVal == DD_REDIRECT_URL ||
-                            deliveryVal == DD_INSTRUCTIONS_ONLY);
+    bool hasInstructions = (deliveryVal == DD_INSTRUCTIONS_ONLY);
 
     // ── Show/hide each section ────────────────────────────────────────────────
-    ShowSection(s_secRequired,     hasRequired);
-    ShowSection(s_secArch,         hasArch);
-    ShowSection(s_secOrder,        hasOrder);
-    ShowSection(s_secDetection,    hasDetection);
-    ShowSection(s_secNetAll,       hasNetAll);
+    ShowSection(s_secRequired,  hasRequired);
+    ShowSection(s_secOrder,     hasOrder);
+    ShowSection(s_secDetection, hasDetection);
+    ShowSection(s_secNetAll,    hasNetAll);
     // For Redirect URL the Network block reuses s_secNetAll HWNDs but only shows
     // the URL row (index 0,1) and Offline row (index 6,7) — pairs: label+ctrl.
     // Indices: 0=netHdr, 1=urlLbl, 2=urlEdit, 3=argsLbl, 4=argsEdit,
@@ -198,6 +197,41 @@ static void Reflow(HWND hDlg, int deliveryVal)
     }
     ShowSection(s_secLicense,      hasLicense);
     ShowSection(s_secInstructions, hasInstructions);
+
+    // ── Manage DIO_BEFORE_WELCOME in install-order combo ─────────────────────
+    // "Before the Welcome screen (silent)" makes no sense for Instructions Only
+    // (the user must perform the step manually — it can never be silent).
+    // Remove the item when Instructions is selected; restore it otherwise.
+    if (hasOrder) {
+        HWND hOrd = GetDlgItem(hDlg, IDC_DEPDLG_INSTALL_ORDER);
+        if (hOrd) {
+            int n = (int)SendMessageW(hOrd, CB_GETCOUNT, 0, 0);
+            int preWelcomeIdx = -1;
+            for (int i = 0; i < n; i++)
+                if ((int)SendMessageW(hOrd, CB_GETITEMDATA, (WPARAM)i, 0) == (int)DIO_BEFORE_WELCOME)
+                    { preWelcomeIdx = i; break; }
+
+            if (hasInstructions && preWelcomeIdx >= 0) {
+                // If it's currently selected, fall back to DIO_UNSPECIFIED
+                int curSel = (int)SendMessageW(hOrd, CB_GETCURSEL, 0, 0);
+                if (curSel == preWelcomeIdx) {
+                    for (int i = 0; i < n; i++)
+                        if ((int)SendMessageW(hOrd, CB_GETITEMDATA, (WPARAM)i, 0) == (int)DIO_UNSPECIFIED)
+                            { SendMessageW(hOrd, CB_SETCURSEL, (WPARAM)i, 0); break; }
+                }
+                SendMessageW(hOrd, CB_DELETESTRING, (WPARAM)preWelcomeIdx, 0);
+            } else if (!hasInstructions && preWelcomeIdx < 0) {
+                // Re-insert at index 1 (right after "Choose install step…")
+                DepDlgData* pd = (DepDlgData*)GetWindowLongPtrW(hDlg, GWLP_USERDATA);
+                std::wstring txt = pd
+                    ? DL(pd, L"dep_install_order_pre_welcome", L"Before the Welcome screen (silent)")
+                    : L"Before the Welcome screen (silent)";
+                int idx = (int)SendMessageW(hOrd, CB_INSERTSTRING, (WPARAM)1, (LPARAM)txt.c_str());
+                if (idx != CB_ERR && idx != CB_ERRSPACE)
+                    SendMessageW(hOrd, CB_SETITEMDATA, (WPARAM)idx, (LPARAM)(int)DIO_BEFORE_WELCOME);
+            }
+        }
+    }
 
     // ── Lay out sections top to bottom ───────────────────────────────────────
     // s_depDlgTotalH is reset from scratch each Reflow call.
@@ -238,11 +272,6 @@ static void Reflow(HWND hDlg, int deliveryVal)
     // Required checkbox
     if (hasRequired && !s_secRequired.ctrls.empty()) {
         PlaceW(s_secRequired.ctrls[0], DD_CB_H, DD_GAP, s_ddEW);
-    }
-    // Architecture: label then combo
-    if (hasArch && s_secArch.ctrls.size() >= 2) {
-        PlaceW(s_secArch.ctrls[0], DD_LABEL_H, DD_GAP_SM, s_ddEW);
-        PlaceW(s_secArch.ctrls[1], DD_COMBO_H, DD_GAP,    s_ddEW);
     }
     // Install order: label then combo
     if (hasOrder && s_secOrder.ctrls.size() >= 2) {
@@ -288,11 +317,38 @@ static void Reflow(HWND hDlg, int deliveryVal)
         PlaceW(s_secLicense.ctrls[3], DD_LABEL_H, DD_GAP_SM, s_ddEW); // credits lbl
         PlaceW(s_secLicense.ctrls[4], DD_EDIT_H,  DD_GAP,    s_ddEW); // credits edit
     }
-    // Instructions: header + indicator + button
-    if (hasInstructions && s_secInstructions.ctrls.size() >= 3) {
-        PlaceW(s_secInstructions.ctrls[0], DD_MLABEL_H, DD_GAP_SM, s_ddEW); // header
-        PlaceW(s_secInstructions.ctrls[1], DD_EDIT_H,   DD_GAP_SM, s_ddEW); // indicator
-        { HWND h = s_secInstructions.ctrls[2];
+    // ── Place OK / Cancel at the bottom
+    // Instructions: N icons (2 cols each) in wrapped rows + add button
+    if (hasInstructions) {
+        auto& ctrls = s_secInstructions.ctrls;
+        int N        = ((int)ctrls.size() - 1) / 2; // icon+label pairs; last ctrl is addBtn
+        if (N > 0) {
+            const int iconSz  = S(40);
+            const int labelH  = S(16);
+            const int cellW   = iconSz;
+            const int cellH   = iconSz + S(4) + labelH;
+            const int hGap    = S(12);
+            const int vGap    = S(8);
+            int iconsPerRow   = std::max(1, (s_ddEW + hGap) / (cellW + hGap));
+            for (int i = 0; i < N; i++) {
+                int row = i / iconsPerRow;
+                int col = i % iconsPerRow;
+                int rowStart     = row * iconsPerRow;
+                int itemsInRow   = std::min(iconsPerRow, N - rowStart);
+                int rowTotalW    = itemsInRow * cellW + (itemsInRow - 1) * hGap;
+                int rowX0        = s_ddLX + (s_ddEW - rowTotalW) / 2;
+                int cx = rowX0 + col * (cellW + hGap);
+                int cy = y + row * (cellH + vGap);
+                SetWindowPos(ctrls[i * 2],     NULL, cx, cy - s_depDlgScrollY,
+                    iconSz, iconSz, SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+                SetWindowPos(ctrls[i * 2 + 1], NULL, cx, cy + iconSz + S(4) - s_depDlgScrollY,
+                    cellW, labelH, SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+            }
+            int rows = (N + iconsPerRow - 1) / iconsPerRow;
+            y += rows * (cellH + vGap) - vGap + S(DD_GAP_SM);
+        }
+        // Add button — always centred at the bottom of the section
+        { HWND h = ctrls.back();
           RECT rc; GetWindowRect(h, &rc);
           int bw = rc.right - rc.left;
           int bx = s_ddLX + (s_ddEW - bw) / 2;
@@ -363,6 +419,104 @@ static void Reflow(HWND hDlg, int deliveryVal)
     UpdateWindow(hDlg);
 }
 
+// Custom message posted by an icon subclass to the dialog to remove an instruction.
+#define WM_DEPINSTR_REMOVE (WM_USER + 42)
+
+// ── Instructions icon subclass ────────────────────────────────────────────────
+// Each document-icon STATIC gets an InstrIconCtx* in GWLP_USERDATA so it can
+// track its own HICON, previous WndProc, and mouse-tracking flag independently.
+struct InstrIconCtx {
+    HICON   hIco     = NULL;
+    WNDPROC prevProc = NULL;
+    bool    tracking = false;
+};
+
+static LRESULT CALLBACK InstrIconSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    InstrIconCtx* ctx = (InstrIconCtx*)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+    switch (msg) {
+    case WM_ERASEBKGND: {
+        RECT rc; GetClientRect(hwnd, &rc);
+        FillRect((HDC)wParam, &rc, GetSysColorBrush(COLOR_WINDOW));
+        return TRUE;
+    }
+    case WM_PAINT: {
+        PAINTSTRUCT ps;
+        HDC hdc = BeginPaint(hwnd, &ps);
+        RECT rc; GetClientRect(hwnd, &rc);
+        FillRect(hdc, &rc, GetSysColorBrush(COLOR_WINDOW));
+        if (ctx && ctx->hIco) DrawIconEx(hdc, 0, 0, ctx->hIco, rc.right, rc.bottom, 0, NULL, DI_NORMAL);
+        EndPaint(hwnd, &ps);
+        return 0;
+    }
+    case WM_LBUTTONDBLCLK: {
+        // Find which index this icon is in s_secInstructions.ctrls (icon at even positions)
+        HWND hDlg = GetParent(hwnd);
+        int instrIdx = -1;
+        for (int i = 0; i + 1 < (int)s_secInstructions.ctrls.size() - 1; i += 2)
+            if (s_secInstructions.ctrls[i] == hwnd) { instrIdx = i / 2; break; }
+        if (instrIdx >= 0)
+            PostMessageW(hDlg, WM_COMMAND, MAKEWPARAM(IDC_DEPDLG_EDIT_INSTR, BN_CLICKED),
+                         (LPARAM)(INT_PTR)instrIdx);
+        return 0;
+    }
+    case WM_RBUTTONUP: {
+        // Find index of this icon
+        int instrIdx = -1;
+        for (int i = 0; i + 1 < (int)s_secInstructions.ctrls.size() - 1; i += 2)
+            if (s_secInstructions.ctrls[i] == hwnd) { instrIdx = i / 2; break; }
+        if (instrIdx < 0) return 0;
+        DepDlgData* pd = (DepDlgData*)GetWindowLongPtrW(GetParent(hwnd), GWLP_USERDATA);
+        std::wstring menuText = pd
+            ? DL(pd, L"dep_dlg_instr_remove", L"Remove instructions")
+            : L"Remove instructions";
+        HMENU hMenu = CreatePopupMenu();
+        AppendMenuW(hMenu, MF_STRING, 1, menuText.c_str());
+        POINT pt; GetCursorPos(&pt);
+        int cmd = (int)TrackPopupMenu(hMenu,
+            TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_NONOTIFY,
+            pt.x, pt.y, 0, hwnd, NULL);
+        DestroyMenu(hMenu);
+        if (cmd == 1)
+            PostMessageW(GetParent(hwnd), WM_DEPINSTR_REMOVE, (WPARAM)instrIdx, 0);
+        return 0;
+    }
+    case WM_MOUSEMOVE:
+        if (!IsTooltipVisible()) {
+            DepDlgData* pd = (DepDlgData*)GetWindowLongPtrW(GetParent(hwnd), GWLP_USERDATA);
+            std::wstring tipEdit   = pd ? DL(pd, L"dep_dlg_instr_icon_tip",   L"Double-click to edit")   : L"Double-click to edit";
+            std::wstring tipRemove = pd ? DL(pd, L"dep_dlg_instr_remove_tip", L"Right-click to remove") : L"Right-click to remove";
+            std::vector<std::pair<std::wstring,std::wstring>> tip = {
+                { L"", tipEdit + L"\n" + tipRemove }
+            };
+            RECT rc; GetWindowRect(hwnd, &rc);
+            ShowMultilingualTooltip(tip, rc.left, rc.bottom + 5, GetParent(hwnd));
+        }
+        if (ctx && !ctx->tracking) {
+            TRACKMOUSEEVENT tme = {};
+            tme.cbSize = sizeof(tme); tme.dwFlags = TME_LEAVE; tme.hwndTrack = hwnd;
+            TrackMouseEvent(&tme);
+            ctx->tracking = true;
+        }
+        break;
+    case WM_MOUSELEAVE:
+        HideTooltip();
+        if (ctx) ctx->tracking = false;
+        break;
+    case WM_NCDESTROY:
+        if (ctx) {
+            if (ctx->hIco) DestroyIcon(ctx->hIco);
+            WNDPROC prev = ctx->prevProc;
+            delete ctx;
+            SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+            SetWindowLongPtrW(hwnd, GWLP_WNDPROC, (LONG_PTR)prev);
+            return CallWindowProcW(prev, hwnd, msg, wParam, lParam);
+        }
+        return 0;
+    }
+    return CallWindowProcW(ctx ? ctx->prevProc : DefWindowProcW, hwnd, msg, wParam, lParam);
+}
+
 // ── Dialog proc ───────────────────────────────────────────────────────────────
 
 static LRESULT CALLBACK DepDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
@@ -424,20 +578,63 @@ static LRESULT CALLBACK DepDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lP
         }
 
         if (wmId == IDC_DEPDLG_EDIT_INSTR && wmEvent == BN_CLICKED) {
+            // lParam encodes who triggered this:
+            //   >= 0  : index of an existing instruction (double-click on its icon)
+            //   -1 (button HWND cast misinterpretation handled below): Add button
+            // We distinguish by sign: PostMessage from icon uses a non-HWND small int.
+            INT_PTR lpVal = (INT_PTR)lParam;
+            bool fromIcon = (lpVal >= 0 && lpVal < (INT_PTR)s_depInstrList.size());
+            int  editIdx  = fromIcon ? (int)lpVal : -1;
+
             RtfEditorData ed;
-            ed.initRtf    = s_depInstrRtf;
+            ed.initRtf    = fromIcon ? s_depInstrList[editIdx] : L"";
             ed.titleText  = DL(pData, L"dep_section_instructions", L"Manual install instructions");
             ed.okText     = DL(pData, L"ok",     L"OK");
             ed.cancelText = DL(pData, L"cancel", L"Cancel");
             ed.preferredW = S(880);
             ed.preferredH = S(560);
             ed.pLocale    = pData->pLocale;
-            if (OpenRtfEditor(hDlg, ed)) {
-                s_depInstrRtf = ed.outRtf;
-                SetDlgItemTextW(hDlg, IDC_DEPDLG_INSTRUCTIONS,
-                    s_depInstrRtf.empty()
-                    ? DL(pData, L"dep_instr_none",        L"(no instructions)").c_str()
-                    : DL(pData, L"dep_instr_has_content", L"(formatted text \u2014 click Edit\u2026 to view)").c_str());
+            if (OpenRtfEditor(hDlg, ed) && !ed.outRtf.empty()) {
+                if (fromIcon) {
+                    // Replace existing page in-place (icon stays, no layout change)
+                    s_depInstrList[editIdx] = ed.outRtf;
+                } else {
+                    // Append new page; create icon+label controls dynamically
+                    s_depInstrList.push_back(ed.outRtf);
+                    int newIdx = (int)s_depInstrList.size() - 1;
+                    int iconSz = S(40);
+                    wchar_t shell32Path[MAX_PATH];
+                    GetSystemDirectoryW(shell32Path, MAX_PATH);
+                    wcscat_s(shell32Path, L"\\shell32.dll");
+                    HWND hIco = CreateWindowExW(0, L"STATIC", NULL,
+                        WS_CHILD | SS_NOTIFY,
+                        0, 0, iconSz, iconSz,
+                        hDlg, (HMENU)(UINT_PTR)(IDC_DEPDLG_INSTR_ICON + newIdx), pData->hInst, NULL);
+                    if (hIco) {
+                        InstrIconCtx* ctx = new InstrIconCtx();
+                        PrivateExtractIconsW(shell32Path, 70, iconSz, iconSz, &ctx->hIco, NULL, 1, 0);
+                        if (!ctx->hIco) ExtractIconExW(shell32Path, 70, &ctx->hIco, NULL, 1);
+                        ctx->prevProc = (WNDPROC)SetWindowLongPtrW(
+                            hIco, GWLP_WNDPROC, (LONG_PTR)InstrIconSubclassProc);
+                        SetWindowLongPtrW(hIco, GWLP_USERDATA, (LONG_PTR)ctx);
+                    }
+                    std::wstring numStr = std::to_wstring(newIdx + 1);
+                    HWND hLbl = CreateWindowExW(0, L"STATIC", numStr.c_str(),
+                        WS_CHILD | SS_CENTER,
+                        0, 0, S(40), S(16),
+                        hDlg, NULL, pData->hInst, NULL);
+                    // Bold body font for the number label
+                    NONCLIENTMETRICSW ncmD = {}; ncmD.cbSize = sizeof(ncmD);
+                    SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncmD), &ncmD, 0);
+                    LOGFONTW lfB = ncmD.lfMessageFont; lfB.lfWeight = FW_BOLD;
+                    HFONT hFB = CreateFontIndirectW(&lfB);
+                    if (hLbl && hFB) SendMessageW(hLbl, WM_SETFONT, (WPARAM)hFB, FALSE);
+                    // Insert before the Add button (last element)
+                    auto& ctrls = s_secInstructions.ctrls;
+                    ctrls.insert(ctrls.end() - 1, hIco);
+                    ctrls.insert(ctrls.end() - 1, hLbl);
+                    Reflow(hDlg, GetDeliveryChoice(hDlg));
+                }
             }
             return 0;
         }
@@ -480,9 +677,6 @@ static LRESULT CALLBACK DepDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lP
                 pData->dep.delivery         = (DepDelivery)deliveryVal;
                 pData->dep.is_required      = (SendDlgItemMessageW(hDlg, IDC_DEPDLG_REQUIRED,
                                                 BM_GETCHECK, 0, 0) == BST_CHECKED);
-                { int ai = GetComboSel(hDlg, IDC_DEPDLG_ARCH);
-                  LRESULT av = SendDlgItemMessageW(hDlg, IDC_DEPDLG_ARCH, CB_GETITEMDATA, (WPARAM)ai, 0);
-                  pData->dep.architecture = (av != CB_ERR) ? (DepArch)(int)av : DA_X64; }
                 pData->dep.offline_behavior = (DepOffline)GetComboSel(hDlg, IDC_DEPDLG_OFFLINE);
 
                 // Install order: read item data from selected combo item; sentinel (-1) is valid.
@@ -498,7 +692,7 @@ static LRESULT CALLBACK DepDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lP
                 pData->dep.detect_reg_key   = GetEditText(hDlg, IDC_DEPDLG_DETECT_REG);
                 pData->dep.detect_file_path = GetEditText(hDlg, IDC_DEPDLG_DETECT_FILE);
                 pData->dep.min_version      = GetEditText(hDlg, IDC_DEPDLG_MIN_VER);
-                pData->dep.instructions     = s_depInstrRtf;
+                pData->dep.instructions_list = s_depInstrList;
                 pData->dep.license_text     = s_depLicRtf;
                 pData->dep.license_path     = L"";
                 pData->dep.credits_text     = GetEditText(hDlg, IDC_DEPDLG_CREDITS);
@@ -565,6 +759,26 @@ static LRESULT CALLBACK DepDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lP
         return (LRESULT)GetSysColorBrush(COLOR_WINDOW);
     }
 
+    default:
+        // Remove an instruction page (posted by right-click context menu on an icon)
+        if ((UINT)msg == WM_DEPINSTR_REMOVE) {
+            int instrIdx = (int)wParam;
+            int N = (int)s_depInstrList.size();
+            if (instrIdx < 0 || instrIdx >= N) return 0;
+            s_depInstrList.erase(s_depInstrList.begin() + instrIdx);
+            auto& ctrls = s_secInstructions.ctrls;
+            int base = instrIdx * 2;
+            DestroyWindow(ctrls[base]);     // icon  (WM_NCDESTROY frees InstrIconCtx)
+            DestroyWindow(ctrls[base + 1]); // label
+            ctrls.erase(ctrls.begin() + base, ctrls.begin() + base + 2);
+            // Renumber remaining labels
+            for (int i = instrIdx; i < (int)s_depInstrList.size(); i++)
+                SetWindowTextW(ctrls[i * 2 + 1], std::to_wstring(i + 1).c_str());
+            Reflow(hDlg, GetDeliveryChoice(hDlg));
+            return 0;
+        }
+        break;
+
     case WM_KEYDOWN:
         if (wParam == VK_ESCAPE) {
             s_depDlgOk = false;
@@ -591,7 +805,7 @@ bool DEP_EditDialog(HWND hwndParent, HINSTANCE hInst,
                     ExternalDep& dep)
 {
     s_depDlgOk    = false;
-    s_depInstrRtf = dep.instructions;
+    s_depInstrList = dep.instructions_list;
     s_depLicRtf   = dep.license_text;
 
     DepDlgData data;
@@ -647,8 +861,10 @@ bool DEP_EditDialog(HWND hwndParent, HINSTANCE hInst,
     if (dlgX + dlgW > rcWork.right)  dlgX = rcWork.right  - dlgW;
     if (dlgY + dlgH > rcWork.bottom) dlgY = rcWork.bottom - dlgH;
 
-    auto it = locale.find(L"dep_dialog_title");
-    std::wstring dlgTitle = (it != locale.end()) ? it->second : L"Edit Dependency";
+    bool isNewDep = (dep.id == 0);
+    auto it = locale.find(isNewDep ? L"dep_dialog_add_title" : L"dep_dialog_title");
+    std::wstring dlgTitle = (it != locale.end()) ? it->second
+                          : (isNewDep ? L"Add Dependency" : L"Edit Dependency");
 
     HWND hDlg = CreateWindowExW(
         dlgExStyle, L"DepEditDialog", dlgTitle.c_str(),
@@ -665,7 +881,6 @@ bool DEP_EditDialog(HWND hwndParent, HINSTANCE hInst,
 
     // Initialise section structs fresh for this invocation.
     s_secRequired     = {};
-    s_secArch         = {};
     s_secOrder        = {};
     s_secDetection    = {};
     s_secNetAll       = {};
@@ -723,6 +938,9 @@ bool DEP_EditDialog(HWND hwndParent, HINSTANCE hInst,
 
     HFONT hFont = CreateFontIndirectW(&ncm.lfMessageFont);
     auto SF = [&](HWND hw) { if (hw && hFont) SendMessageW(hw, WM_SETFONT, (WPARAM)hFont, TRUE); };
+    LOGFONTW lfBoldBody = ncm.lfMessageFont; lfBoldBody.lfWeight = FW_BOLD;
+    HFONT hFontBold = CreateFontIndirectW(&lfBoldBody);
+    auto SFBold = [&](HWND hw) { if (hw && hFontBold) SendMessageW(hw, WM_SETFONT, (WPARAM)hFontBold, TRUE); };
 
     // ── Dialog title (always visible) ─────────────────────────────────────────
     {
@@ -794,27 +1012,6 @@ bool DEP_EditDialog(HWND hwndParent, HINSTANCE hInst,
         s_secRequired.ctrls.push_back(h);
     }
 
-    // ── Architecture (hidden) ─────────────────────────────────────────────────
-    {
-        HWND hLbl = MkLabel(LS(L"dep_dlg_arch", L"Target architecture:"), false);
-        SF(hLbl); s_secArch.ctrls.push_back(hLbl);
-
-        HWND hArch = MkCombo(IDC_DEPDLG_ARCH, false);
-        auto AddArch = [&](const wchar_t* key, const wchar_t* fb, int ev) {
-            int idx = (int)SendMessageW(hArch, CB_ADDSTRING, 0, (LPARAM)LS(key, fb).c_str());
-            SendMessageW(hArch, CB_SETITEMDATA, (WPARAM)idx, (LPARAM)ev);
-        };
-        AddArch(L"dep_arch_any",   L"Any",   (int)DA_ANY);
-        AddArch(L"dep_arch_x64",   L"x64",   (int)DA_X64);
-        AddArch(L"dep_arch_arm64", L"ARM64", (int)DA_ARM64);
-        { int n = (int)SendMessageW(hArch, CB_GETCOUNT, 0, 0); bool sel = false;
-          for (int i = 0; i < n && !sel; ++i)
-              if ((int)SendMessageW(hArch, CB_GETITEMDATA, (WPARAM)i, 0) == (int)dep.architecture)
-                  { SendMessageW(hArch, CB_SETCURSEL, (WPARAM)i, 0); sel = true; }
-          if (!sel) SendMessageW(hArch, CB_SETCURSEL, 1, 0); } // fallback x64
-        SF(hArch); s_secArch.ctrls.push_back(hArch);
-    }
-
     // ── Install order (hidden) ────────────────────────────────────────────────
     {
         HWND hLbl = MkLabel(LS(L"dep_dlg_install_order", L"Install step:"), false);
@@ -831,9 +1028,14 @@ bool DEP_EditDialog(HWND hwndParent, HINSTANCE hInst,
           AddOrd(L"dep_install_order_pre_install",   L"Before install (after License page)", (int)DIO_BEFORE_INSTALL);
           AddOrd(L"dep_install_order_post_install",  L"After the main program installs",     (int)DIO_AFTER_INSTALL);
           AddOrd(L"dep_install_order_custom_dialog", L"At a custom dialog step",             (int)DIO_CUSTOM_DIALOG);
-          // For new deps pre-select the sentinel; for existing deps match by stored value.
+          // For new deps pre-select DIO_BEFORE_INSTALL (most common case);
+          // for existing deps match by stored value.
           if (dep.id == 0) {
-              SendMessageW(hOrd, CB_SETCURSEL, 0, 0);
+              int n2 = (int)SendMessageW(hOrd, CB_GETCOUNT, 0, 0); bool sel2 = false;
+              for (int i = 0; i < n2 && !sel2; ++i)
+                  if ((int)SendMessageW(hOrd, CB_GETITEMDATA, (WPARAM)i, 0) == (int)DIO_BEFORE_INSTALL)
+                      { SendMessageW(hOrd, CB_SETCURSEL, (WPARAM)i, 0); sel2 = true; }
+              if (!sel2) SendMessageW(hOrd, CB_SETCURSEL, 0, 0);
           } else {
               int n = (int)SendMessageW(hOrd, CB_GETCOUNT, 0, 0); bool sel = false;
               for (int i = 0; i < n && !sel; ++i)
@@ -858,7 +1060,7 @@ bool DEP_EditDialog(HWND hwndParent, HINSTANCE hInst,
         };
         DetRow(L"dep_dlg_detect_reg",  L"Registry key (HKLM):", IDC_DEPDLG_DETECT_REG,  dep.detect_reg_key);
         DetRow(L"dep_dlg_detect_file", L"File path to detect:", IDC_DEPDLG_DETECT_FILE,  dep.detect_file_path);
-        DetRow(L"dep_dlg_min_version", L"Minimum version:",     IDC_DEPDLG_MIN_VER,      dep.min_version);
+        DetRow(L"dep_dlg_min_version", L"Minimum required version (optional):", IDC_DEPDLG_MIN_VER, dep.min_version);
     }
 
     // ── Network section (hidden) ──────────────────────────────────────────────
@@ -873,7 +1075,7 @@ bool DEP_EditDialog(HWND hwndParent, HINSTANCE hInst,
         HWND hUrl  = MkEdit(IDC_DEPDLG_URL, dep.url, false);
         SF(hUrl);  s_secNetAll.ctrls.push_back(hUrl);
 
-        HWND hArgL = MkLabel(LS(L"dep_dlg_silent_args", L"Silent install arguments:"), false);
+        HWND hArgL = MkLabel(LS(L"dep_dlg_silent_args", L"Silent install arguments (optional):"), false);
         SF(hArgL); s_secNetAll.ctrls.push_back(hArgL);
         HWND hArg  = MkEdit(IDC_DEPDLG_SILENT_ARGS, dep.silent_args, false);
         SF(hArg);  s_secNetAll.ctrls.push_back(hArg);
@@ -896,7 +1098,7 @@ bool DEP_EditDialog(HWND hwndParent, HINSTANCE hInst,
     // ── License section (hidden) ──────────────────────────────────────────────
     // ctrls order: [0]=header [1]=indicator [2]=editBtn [3]=creditsLbl [4]=creditsEdit
     {
-        HWND hHdr = MkSection(LS(L"dep_section_license", L"License"), false);
+        HWND hHdr = MkSection(LS(L"dep_section_license", L"License (optional)"), false);
         s_secLicense.ctrls.push_back(hHdr);
 
         HWND hInd = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT",
@@ -915,32 +1117,50 @@ bool DEP_EditDialog(HWND hwndParent, HINSTANCE hInst,
             s_ddLX, y, wElt, S(DD_BTN_H), hInst);
         s_secLicense.ctrls.push_back(hBtn);
 
-        HWND hCL = MkLabel(LS(L"dep_dlg_credits", L"Credits / attribution:"), false);
+        HWND hCL = MkLabel(LS(L"dep_dlg_credits", L"Credits / attribution (optional):"), false);
         SF(hCL); s_secLicense.ctrls.push_back(hCL);
         HWND hCE = MkEdit(IDC_DEPDLG_CREDITS, dep.credits_text, false);
         SF(hCE); s_secLicense.ctrls.push_back(hCE);
     }
 
-    // ── Instructions section (hidden) ─────────────────────────────────────────
-    // ctrls order: [0]=header [1]=indicator [2]=editBtn
+    // ── Instructions section (hidden; shown only for DD_INSTRUCTIONS_ONLY) ───
+    // ctrls layout: [icon0, label0, icon1, label1, ..., addBtn]
+    // Helper: create one icon+label pair for instruction at index i and push onto ctrls.
+    auto MkInstrIcon = [&](int i) {
+        int iconSz = S(40);
+        wchar_t shell32Path[MAX_PATH];
+        GetSystemDirectoryW(shell32Path, MAX_PATH);
+        wcscat_s(shell32Path, L"\\shell32.dll");
+        HWND hIco = CreateWindowExW(0, L"STATIC", NULL,
+            WS_CHILD | SS_NOTIFY,
+            s_ddLX, y, iconSz, iconSz,
+            hDlg, (HMENU)(UINT_PTR)(IDC_DEPDLG_INSTR_ICON + i), hInst, NULL);
+        if (hIco) {
+            InstrIconCtx* ctx = new InstrIconCtx();
+            PrivateExtractIconsW(shell32Path, 70, iconSz, iconSz, &ctx->hIco, NULL, 1, 0);
+            if (!ctx->hIco) ExtractIconExW(shell32Path, 70, &ctx->hIco, NULL, 1);
+            ctx->prevProc = (WNDPROC)SetWindowLongPtrW(
+                hIco, GWLP_WNDPROC, (LONG_PTR)InstrIconSubclassProc);
+            SetWindowLongPtrW(hIco, GWLP_USERDATA, (LONG_PTR)ctx);
+        }
+        s_secInstructions.ctrls.push_back(hIco);
+        // Number label, centered below the icon
+        std::wstring numStr = std::to_wstring(i + 1);
+        HWND hLbl = CreateWindowExW(0, L"STATIC", numStr.c_str(),
+            WS_CHILD | SS_CENTER,
+            s_ddLX, y, S(40), S(16),
+            hDlg, NULL, hInst, NULL);
+        SFBold(hLbl);
+        s_secInstructions.ctrls.push_back(hLbl);
+    };
     {
-        HWND hHdr = MkSection(LS(L"dep_section_instructions", L"Manual install instructions"), false);
-        s_secInstructions.ctrls.push_back(hHdr);
-
-        HWND hInd = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT",
-            s_depInstrRtf.empty()
-                ? LS(L"dep_instr_none",        L"(no instructions)").c_str()
-                : LS(L"dep_instr_has_content", L"(formatted text \u2014 click Edit\u2026 to view)").c_str(),
-            WS_CHILD | WS_TABSTOP | WS_BORDER | ES_READONLY | ES_LEFT,
-            s_ddLX, y, s_ddEW, S(DD_EDIT_H),
-            hDlg, (HMENU)(UINT_PTR)IDC_DEPDLG_INSTRUCTIONS, hInst, NULL);
-        SF(hInd); s_secInstructions.ctrls.push_back(hInd);
-
-        std::wstring eit = LS(L"dep_dlg_edit_instr", L"Edit Instructions\u2026");
-        int wEit = MeasureButtonWidth(eit.c_str(), true);
-        HWND hBtn = CreateCustomButtonWithIcon(hDlg, IDC_DEPDLG_EDIT_INSTR, eit,
+        for (int i = 0; i < (int)s_depInstrList.size(); i++) MkInstrIcon(i);
+        // Add Instructions… button — always the last element in ctrls
+        std::wstring ait = LS(L"dep_dlg_add_instr", L"Add Instructions\u2026");
+        int wAit = MeasureButtonWidth(ait.c_str(), true);
+        HWND hBtn = CreateCustomButtonWithIcon(hDlg, IDC_DEPDLG_EDIT_INSTR, ait,
             ButtonColor::Blue, L"shell32.dll", 87,
-            s_ddLX, y, wEit, S(DD_BTN_H), hInst);
+            s_ddLX, y, wAit, S(DD_BTN_H), hInst);
         s_secInstructions.ctrls.push_back(hBtn);
     }
 

@@ -2,6 +2,20 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.03.24.10] - 2026-03-24
+
+### Added
+- **`dep_instructions` DB table** — `(id PK, dep_id, project_id, sort_order, rtf_text)` created by `InitDb`. `InsertExternalDep` inserts each `instructions_list` item; `GetExternalDepsForProject` loads pages per dep ordered by `sort_order`; `DeleteExternalDepsForProject` deletes from `dep_instructions` before the main rows (no FK cascade).
+- **`ExternalDep::instructions_list`** — `std::vector<std::wstring>` replaces the single `instructions` wstring, allowing any number of ordered RTF pages per dependency.
+- **`InstrIconCtx` struct** — heap-allocated per icon, stored in `GWLP_USERDATA`; fields: `HICON hIco`, `WNDPROC prevProc`, `bool tracking`. Freed via `WM_NCDESTROY` so each icon is fully self-contained.
+- **`WM_DEPINSTR_REMOVE` custom message** (`WM_USER + 42`) — posted by the icon subclass right-click handler and handled by `DepDlgProc default:` to remove a page, destroy its controls, renumber remaining labels, and re-Reflow.
+- **New locale keys** — `dep_dlg_add_instr`, `dep_dlg_instr_icon_tip`, `dep_dlg_instr_remove_tip`, `dep_dlg_instr_remove`, `dep_instr_none`, `dep_instr_has_content` added to `locale/en_GB.txt`.
+
+### Changed
+- **Instructions section redesigned — icon grid**: Each page shown as a shell32.dll icon #70 (document, 40×40 px) with a **bold** page number centred below. Icons row-wrap when the row fills. Double-click opens the RTF editor for that page; right-click → context menu removes it. An "Add Instructions…" button (shell32 #87, Blue) always appears below the grid.
+- **`DIO_BEFORE_WELCOME` restricted for Instructions Only**: When the delivery type is switched to `DD_INSTRUCTIONS_ONLY`, the "Before the Welcome screen (silent)" item is removed from the Install step combo (silent pre-welcome install is incompatible with a manual-steps workflow). Switching to any other delivery type restores it at index 1.
+- **Bold number labels**: The numeric label below each instruction icon now uses `FW_BOLD` (derived from `SPI_GETNONCLIENTMETRICS`) in both the initial creation path and the dynamic Add path.
+
 ## [2026.03.24.08] - 2026-03-24
 
 ### Added
@@ -9,14 +23,20 @@ All notable changes to SetupCraft will be documented in this file.
 - **`DD_TITLE_H = 28`** — new layout constant for the Edit Dependency dialog title headline. Replaces the reuse of `DD_LABEL_H = 18`; prevents text clipping at high DPI.
 - **`i18n_INTERNALS.txt`** — new documentation: English-first policy (only `locale/en_GB.txt` maintained during development), locale file format, key naming conventions, safe-fallback lookup pattern, `ExpandEscapes` usage, guide for adding new keys. Registered in `API_list.txt`.
 - **`dep_dlg_delivery_bundled` locale key** — long-form "Bundled (included in installer)" for the dialog combo, separate from `dep_delivery_bundled` (short form for ListView cells). Eliminates a key collision.
+- **Add/Edit title awareness** — dialog title bar and headline show "Add Dependency" for new records (`dep.id == 0`) and "Edit Dependency" for existing ones. New locale key `dep_dialog_add_title` in `locale/en_GB.txt`.
 
 ### Changed
-- **dep_edit_dialog — progressive disclosure complete for Bundled** — Bundled delivery type now shows only: Required · Install step · License · Credits. Architecture, Detection, and Instructions sections are hidden (they are not relevant to bundled dependencies). Full map: Bundled → Required · Order · License · Credits; Auto-download → Required · Arch · Order · Detection · Network(all) · License · Credits · Instructions; Redirect URL → Required · Arch · Order · Detection · Network(URL+offline) · License · Credits · Instructions; Instructions only → Required · Order · Instructions.
+- **dep_edit_dialog — progressive disclosure complete for Bundled** — Bundled delivery type now shows only: Required · Install step · License · Credits. Full map: Bundled → Required · Order · License · Credits; Auto-download → Required · Order · Detection (optional) · Network(all) · License · Credits; Redirect URL → Required · Order · Detection (optional) · Network(URL+offline) · License · Credits; Instructions only → Required · Order.
 - **dep_edit_dialog — fonts match main app** — body label font changed from hardcoded `CreateFontW(-S(11), ...)` to `SPI_GETNONCLIENTMETRICS lfMessageFont × 1.2` + `CLEARTYPE_QUALITY` (matches `s_scaledFont`). Title headline changed to `× 1.5 + FW_SEMIBOLD` (matches `s_hPageTitleFont`). Section headers use a bold variant of the same NCM font.
-- **dep_edit_dialog — RTF editor width** — `preferredW` on both `OpenRtfEditor` calls increased from `S(820)` to `S(880)`. Toolbar now fits in a single row at default sizes (one-row threshold ~808 px client width).
-- **dep_edit_dialog — edit buttons centred** — "Edit License…" and "Edit Instructions…" buttons are now centred under their indicator fields (`bx = s_ddLX + (s_ddEW - bw) / 2`).
-- **dep_edit_dialog — dialog placement** — dialog opens with its title bar `S(3)` px below the main window's title bar (`dlgY = rcParent.top + S(3)`), work-area clamped. Previously centred vertically on the work area.
+- **dep_edit_dialog — RTF editor width** — `preferredW` on both `OpenRtfEditor` calls increased from `S(820)` to `S(880)`. Toolbar now fits in a single row at default sizes.
+- **dep_edit_dialog — edit buttons centred** — "Edit License…" button centred under its indicator field (`bx = s_ddLX + (s_ddEW - bw) / 2`).
+- **dep_edit_dialog — dialog placement** — dialog opens with its title bar `S(3)` px below the main window's title bar (`dlgY = rcParent.top + S(3)`), work-area clamped.
 - **dep_edit_dialog — validation errors** — both `MessageBoxW` calls replaced with `ShowValidationDialog()`. Title from `validation_error` locale key; messages from `dep_err_no_name` / `dep_err_no_delivery`.
+- **dep_edit_dialog — optional field labels** — five fields now labelled explicitly as optional: Silent install arguments, SHA-256 hash, Minimum required version, License section header, Credits / attribution.
+
+### Removed
+- **dep_edit_dialog — Architecture field** — the architecture combo and label removed from the dialog. The dependency's architecture always matches the main application.
+- **dep_edit_dialog — Instructions section** — the Manual install instructions RTF section (indicator + "Edit Instructions…" button) removed. The dependency's own installer handles its documentation.
 
 ## [2026.03.23.09] - 2026-03-23
 

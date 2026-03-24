@@ -172,7 +172,14 @@ bool DB::InitDb() {
         "offline_behavior INTEGER DEFAULT 0, "
         "FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);",
         NULL, NULL, &errmsg);
-    
+    p_exec(db, "CREATE TABLE IF NOT EXISTS dep_instructions ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "dep_id INTEGER NOT NULL, "
+        "project_id INTEGER NOT NULL, "
+        "sort_order INTEGER DEFAULT 0, "
+        "rtf_text TEXT DEFAULT '');",
+        NULL, NULL, &errmsg);
+
     // Check if projects table is empty, if so add SetupCraft project
     const char *countSql = "SELECT COUNT(*) FROM projects;";
     void *stmt = NULL;
@@ -996,7 +1003,7 @@ int DB::InsertExternalDep(int projectId, const ExternalDep& dep)
     std::string sLicPath    = WToUtf8(dep.license_path);
     std::string sLicText    = WToUtf8(dep.license_text);
     std::string sCredits    = WToUtf8(dep.credits_text);
-    std::string sInstr      = WToUtf8(dep.instructions);
+    std::string sInstr      = "";  // instructions stored in dep_instructions table
     std::string sOffline    = std::to_string((int)dep.offline_behavior);
 
     p_bind_text(stmt,  1, sPid.c_str(),       -1, NULL);
@@ -1026,6 +1033,28 @@ int DB::InsertExternalDep(int projectId, const ExternalDep& dep)
         if (p_step(idStmt) == 100) newId = (int)p_col_int64(idStmt, 0);
         if (p_finalize) p_finalize(idStmt);
     }
+
+    // Insert each instruction page into dep_instructions
+    if (newId > 0 && !dep.instructions_list.empty()) {
+        const char *instrSql =
+            "INSERT INTO dep_instructions (dep_id, project_id, sort_order, rtf_text) "
+            "VALUES (?,?,?,?);";
+        for (int i = 0; i < (int)dep.instructions_list.size(); i++) {
+            void *iStmt = NULL;
+            if (p_prepare(db, instrSql, -1, &iStmt, NULL) != 0) continue;
+            std::string sDepId  = std::to_string(newId);
+            std::string sProjId = std::to_string(projectId);
+            std::string sOrd    = std::to_string(i);
+            std::string sRtf    = WToUtf8(dep.instructions_list[i]);
+            p_bind_text(iStmt, 1, sDepId.c_str(),  -1, NULL);
+            p_bind_text(iStmt, 2, sProjId.c_str(), -1, NULL);
+            p_bind_text(iStmt, 3, sOrd.c_str(),    -1, NULL);
+            p_bind_text(iStmt, 4, sRtf.c_str(),    -1, NULL);
+            p_step(iStmt);
+            if (p_finalize) p_finalize(iStmt);
+        }
+    }
+
     p_close(db);
     return newId;
 }
@@ -1037,6 +1066,15 @@ bool DB::DeleteExternalDepsForProject(int projectId)
     void *db = NULL;
     int flags = 0x00000002 | 0x00000004;
     if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return false;
+    // Delete instruction pages first (no FK cascade enforced)
+    const char *sqlInstr = "DELETE FROM dep_instructions WHERE project_id=?;";
+    void *stmtI = NULL;
+    if (p_prepare(db, sqlInstr, -1, &stmtI, NULL) == 0) {
+        std::string sPid = std::to_string(projectId);
+        p_bind_text(stmtI, 1, sPid.c_str(), -1, NULL);
+        p_step(stmtI);
+        if (p_finalize) p_finalize(stmtI);
+    }
     const char *sql = "DELETE FROM external_deps WHERE project_id=?;";
     void *stmt = NULL;
     if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return false; }
@@ -1090,11 +1128,28 @@ std::vector<ExternalDep> DB::GetExternalDepsForProject(int projectId)
         d.license_path     = T(12);
         d.license_text     = T(13);
         d.credits_text     = T(14);
-        d.instructions     = T(15);
         d.offline_behavior = (DepOffline)(int)p_col_int64(stmt, 16);
+        // instructions_list populated below after we know d.id
         out.push_back(d);
     }
     if (p_finalize) p_finalize(stmt);
+
+    // Load instruction pages for each dep (ordered by sort_order)
+    const char *iSql =
+        "SELECT rtf_text FROM dep_instructions "
+        "WHERE dep_id=? ORDER BY sort_order ASC;";
+    for (auto& d : out) {
+        void *iStmt = NULL;
+        if (p_prepare(db, iSql, -1, &iStmt, NULL) != 0) continue;
+        std::string sId = std::to_string(d.id);
+        p_bind_text(iStmt, 1, sId.c_str(), -1, NULL);
+        while (p_step(iStmt) == 100) {
+            const unsigned char *c = p_col_text(iStmt, 0);
+            d.instructions_list.push_back(Utf8ToW(c ? (const char*)c : ""));
+        }
+        if (p_finalize) p_finalize(iStmt);
+    }
+
     p_close(db);
     return out;
 }

@@ -72,7 +72,7 @@ struct ExternalDep {
     std::wstring display_name;                  // shown in the ListView and install UI
     bool         is_required    = true;         // false = optional / enhancing
     DepDelivery  delivery       = DD_BUNDLED;
-    int          install_order  = (int)DIO_UNSPECIFIED; // named install stage (DepInstallOrder)
+    int          install_order  = (int)DIO_BEFORE_INSTALL; // named install stage (DepInstallOrder)
     std::wstring detect_reg_key;                // HKLM path; empty = no registry check
     std::wstring detect_file_path;              // path check; empty = no file check
     std::wstring min_version;                   // minimum acceptable version string
@@ -83,7 +83,7 @@ struct ExternalDep {
     std::wstring license_path;                  // real-disk path to .rtf or .txt file
     std::wstring license_text;                  // inline license text (stored in DB)
     std::wstring credits_text;                  // short attribution line
-    std::wstring instructions;                  // manual-install guidance text
+    std::vector<std::wstring> instructions_list; // manual-install guidance pages (RTF), in order
     DepOffline   offline_behavior = DO_ABORT;
 };
 

@@ -4,8 +4,8 @@
  *
  * DEP_EditDialog() opens a fixed-width modal dialog where the developer
  * fills in all fields of an ExternalDep record: display name, delivery type,
- * architecture, detection paths, download URL, SHA-256, silent args, offline
- * behaviour, license file, credits, and free-text instructions.
+ * detection paths (optional), download URL, SHA-256, silent args, offline
+ * behaviour, license file, and credits.
  *
  * ── Caller protocol ──────────────────────────────────────────────────────────
  *   1. Create an ExternalDep (either blank for Add, or a copy for Edit).
@@ -49,5 +49,6 @@ bool DEP_EditDialog(HWND hwndParent, HINSTANCE hInst,
 #define IDC_DEPDLG_LIC_BROWSE   416   // "Browse…" button
 #define IDC_DEPDLG_OK           417
 #define IDC_DEPDLG_CANCEL       418
-#define IDC_DEPDLG_EDIT_INSTR   419   // "Edit Instructions…" button
+#define IDC_DEPDLG_EDIT_INSTR   419   // "Add Instructions…" button
 #define IDC_DEPDLG_EDIT_LIC     420   // "Edit License…" button
+#define IDC_DEPDLG_INSTR_ICON   421   // SS_NOTIFY icon (shell32 #70) shown when instructions exist

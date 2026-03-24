@@ -2521,6 +2521,7 @@ CMakeFiles/SkeletonApp.dir/dep_edit_dialog.cpp.obj: C:/Users/NalleBerg/Documents
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_map.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_multimap.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_pair.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_relops.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_tree.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_uninitialized.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_vector.h \
@@ -2556,6 +2557,7 @@ CMakeFiles/SkeletonApp.dir/dep_edit_dialog.cpp.obj: C:/Users/NalleBerg/Documents
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/string_view \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/tuple \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/type_traits \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/utility \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/vector \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/x86_64-w64-mingw32/bits/c++allocator.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/x86_64-w64-mingw32/bits/c++config.h \
@@ -2806,7 +2808,8 @@ CMakeFiles/SkeletonApp.dir/dep_edit_dialog.cpp.obj: C:/Users/NalleBerg/Documents
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/dep_edit_dialog.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/deps.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/dpi.h \
-  C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/edit_rtf.h
+  C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/edit_rtf.h \
+  C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/tooltip.h
 
 CMakeFiles/SkeletonApp.dir/deps.cpp.obj: C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/deps.cpp \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/adxintrin.h \
