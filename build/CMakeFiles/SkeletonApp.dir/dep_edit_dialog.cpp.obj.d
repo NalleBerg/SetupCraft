@@ -386,5 +386,6 @@ CMakeFiles/SkeletonApp.dir/dep_edit_dialog.cpp.obj: \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/vector.tcc \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\button.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\checkbox.h \
+ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\ctrlw.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\dpi.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\edit_rtf.h

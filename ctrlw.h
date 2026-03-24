@@ -30,6 +30,10 @@ bool ShowRenameProjectDialog(HWND hwndParent, std::wstring& inOutName,
 // Returns true if user clicked Yes, false otherwise.
 bool ShowConfirmDeleteDialog(HWND hwndParent, const std::wstring& title, const std::wstring& message, const std::map<std::wstring, std::wstring>& locale);
 
+// Show a single-button OK dialog (validation errors, informational notices).
+// title and message are pre-formatted by the caller; locale supplies the OK button label.
+void ShowValidationDialog(HWND hwndParent, const std::wstring& title, const std::wstring& message, const std::map<std::wstring, std::wstring>& locale);
+
 // Check if Ctrl+W is pressed in the current message
 bool IsCtrlWPressed(UINT msg, WPARAM wParam);
 

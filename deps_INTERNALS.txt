@@ -114,14 +114,40 @@ EDIT DIALOG  (dep_edit_dialog.cpp)
           the screen; the vertical scrollbar makes all fields reachable.
           WM_VSCROLL + WM_MOUSEWHEEL move all child windows by delta.
 
-  Visibility toggle (UpdateVisibility):
+  Dialog placement:
+    dlgY = rcParent.top + S(3)  — dialog title bar opens S(3) px below the main
+    window's title bar, giving a natural "stacked" appearance.
+    Work-area clamped on all four sides as a fallback.
+
+  Fonts (all derived from SPI_GETNONCLIENTMETRICS; same recipe as mainwindow.cpp):
+    Body:    lfMessageFont.lfHeight × 1.2  + CLEARTYPE_QUALITY  (= s_scaledFont)
+    Title:   body height × (1.5f/1.2f)     + FW_SEMIBOLD        (= s_hPageTitleFont)
+    Headers: body font                      + FW_BOLD
+    Title label height uses DD_TITLE_H = 28 (not DD_LABEL_H = 18) to prevent
+    clipping at high DPI.
+
+  RTF editor width: both OpenRtfEditor calls use preferredW = S(880).
+    At 96 DPI the editor client area ≈ 848 px > one-row threshold (~808 px),
+    so the RTF toolbar always opens on a single row.
+
+  Edit buttons centred: "Edit License…" and "Edit Instructions…" buttons are
+    positioned at bx = s_ddLX + (s_ddEW − bw) / 2, centred under their
+    read-only indicator fields.
+
+  Validation errors: ShowValidationDialog() (ctrlw.h) used instead of MessageBoxW.
+    Title from locale key "validation_error"; messages from dep_err_no_name /
+    dep_err_no_delivery.
+
+  Progressive disclosure (Reflow):
     Called once on creation and on every CBN_SELCHANGE for the Delivery combo.
-    URL / silent-args / SHA-256 rows → visible only for DD_AUTO_DOWNLOAD and
-                                        DD_REDIRECT_URL.
-    Offline-behaviour combo          → visible only for DD_AUTO_DOWNLOAD and
-                                        DD_REDIRECT_URL.
-    The corresponding label controls are registered with auxiliary IDs 501–504
-    so UpdateVisibility can hide/show them by ID.
+    Each delivery type reveals a different set of sections:
+      DD_BUNDLED:            Required · Order · License · Credits
+      DD_AUTO_DOWNLOAD:      Required · Arch · Order · Detection · Network(all) · License · Credits · Instructions
+      DD_REDIRECT_URL:       Required · Arch · Order · Detection · Network(URL+offline) · License · Credits · Instructions
+      DD_INSTRUCTIONS_ONLY:  Required · Order · Instructions
+    Controls are grouped into DdSection structs; Reflow() shows/hides whole
+    sections and repositions everything below them.  The window is then resized
+    to fit the new content height, and the vertical scrollbar is reconfigured.
 
   Modal message loop:
     EnableWindow(hwndParent, FALSE) before ShowWindow.
@@ -147,7 +173,7 @@ CONTROL ID RANGES
 
   IDC_DEPDLG_NAME         401   dialog: display name edit
   IDC_DEPDLG_DELIVERY     402   dialog: delivery combo
-  IDC_DEPDLG_REQUIRED     403   dialog: required checkbox
+  IDC_DEPDLG_REQUIRED     403   dialog: required checkbox (custom)
   IDC_DEPDLG_ARCH         404   dialog: architecture combo
   IDC_DEPDLG_OFFLINE      405   dialog: offline-behaviour combo
   IDC_DEPDLG_INSTALL_ORDER 406  dialog: install-order stage combo (DepInstallOrder)
@@ -157,14 +183,14 @@ CONTROL ID RANGES
   IDC_DEPDLG_DETECT_REG   410   dialog: registry-key edit
   IDC_DEPDLG_DETECT_FILE  411   dialog: file-path edit
   IDC_DEPDLG_MIN_VER      412   dialog: min-version edit
-  IDC_DEPDLG_INSTRUCTIONS 413   dialog: multi-line instructions edit
+  IDC_DEPDLG_INSTRUCTIONS 413   read-only indicator for instructions RTF text
   IDC_DEPDLG_CREDITS      414   dialog: credits edit
-  IDC_DEPDLG_LIC_PATH     415   dialog: license path (read-only edit)
-  IDC_DEPDLG_LIC_BROWSE   416   dialog: "Browse…" button
-  IDC_DEPDLG_OK           417   dialog: OK button
-  IDC_DEPDLG_CANCEL       418   dialog: Cancel button
-
-  501–504                       auxiliary label IDs used by UpdateVisibility
+  IDC_DEPDLG_LIC_PATH     415   read-only indicator for license RTF text
+  IDC_DEPDLG_LIC_BROWSE   416   (retired — superseded by IDC_DEPDLG_EDIT_LIC)
+  IDC_DEPDLG_OK           417   dialog: OK button (custom, Green)
+  IDC_DEPDLG_CANCEL       418   dialog: Cancel button (custom, Red)
+  IDC_DEPDLG_EDIT_INSTR   419   dialog: "Edit Instructions…" button (custom, Blue)
+  IDC_DEPDLG_EDIT_LIC     420   dialog: "Edit License…" button (custom, Blue)
 
 ================================================================================
 DB TABLE  (external_deps)
@@ -227,10 +253,12 @@ LOCALE KEYS
   dep_optional             — cell value: "Optional"
   dep_detect_reg           — detection cell value: "Registry key"
   dep_detect_file          — detection cell value: "File path"
-  dep_delivery_bundled     — combo / cell: "Bundled"
-  dep_delivery_download    — combo / cell: "Auto-download"
-  dep_delivery_redirect    — combo / cell: "Redirect URL"
-  dep_delivery_instructions — combo / cell: "Instructions only"
+  dep_delivery_bundled     — ListView cell: "Bundled" (short form; NOT used in dialog combo)
+  dep_delivery_download    — ListView cell / dialog combo: "Auto-download"
+  dep_delivery_redirect    — ListView cell / dialog combo: "Redirect URL"
+  dep_delivery_instructions — ListView cell / dialog combo: "Instructions only"
+  dep_dlg_delivery_bundled — dialog combo only: "Bundled (included in installer)"
+                             (separate key to avoid collision with the short-form cell value)
   dep_ctx_edit             — context menu: "Edit…"
   dep_ctx_remove           — context menu: "Remove"
   dep_confirm_remove       — generic confirm message
@@ -254,15 +282,23 @@ LOCALE KEYS
   dep_dlg_silent_args      — dialog label: "Silent install arguments:"
   dep_dlg_sha256           — dialog label: "SHA-256 (hex):"
   dep_dlg_offline          — dialog label: "If offline:"
-  dep_dlg_lic_browse       — browse button: "Browse…"
   dep_dlg_credits          — dialog label: "Credits / attribution:"
+  dep_dlg_edit_lic         — Edit License button label: "Edit License…"
+  dep_dlg_edit_instr       — Edit Instructions button label: "Edit Instructions…"
+  dep_lic_none             — indicator when no license RTF: "(no license)"
+  dep_lic_has_content      — indicator when license RTF present
+  dep_instr_none           — indicator when no instructions RTF: "(no instructions)"
+  dep_instr_has_content    — indicator when instructions RTF present
+  dep_dlg_choose_type      — delivery combo sentinel: "Choose type…"
   dep_section_detection    — section header: "Detection"
   dep_section_network      — section header: "Network"
   dep_section_license      — section header: "License"
   dep_section_instructions — section header: "Manual install instructions"
   dep_arch_any / x64 / arm64  (dep_arch_x86 key still in locale file but unused)
   dep_offline_abort / warn / skip_opt
-  dep_err_no_name          — validation error: "Please enter a display name."
+  dep_err_no_name          — validation error: "Please enter a display name for this dependency."
+  dep_err_no_delivery      — validation error: "Please choose a delivery type."
+  validation_error         — (from ctrlw / global keys) dialog title for validation errors
 
 ================================================================================
 WIRING IN MAINWINDOW.CPP

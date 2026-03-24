@@ -883,3 +883,164 @@ bool ShowConfirmDeleteDialog(HWND hwndParent, const std::wstring& title,
     patched[L"quit_message"] = message;
     return ShowQuitDialog(hwndParent, patched);
 }
+
+// ── Single-button OK dialog (validation errors, informational notices) ─────────
+struct ValidationDlgData {
+    std::wstring message;
+    std::wstring okText;
+    int          textH;
+    HINSTANCE    hInst;
+};
+
+static LRESULT CALLBACK ValidationDialogProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    switch (msg) {
+    case WM_CREATE: {
+        CREATESTRUCTW* cs   = (CREATESTRUCTW*)lParam;
+        ValidationDlgData* pData = (ValidationDlgData*)cs->lpCreateParams;
+        if (!pData) return 0;
+        SetWindowLongPtr(hDlg, GWLP_USERDATA, (LONG_PTR)pData);
+
+        NONCLIENTMETRICSW ncm = {}; ncm.cbSize = sizeof(ncm);
+        SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+        if (ncm.lfMessageFont.lfHeight < 0)
+            ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
+        ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+        HFONT hFont = CreateFontIndirectW(&ncm.lfMessageFont);
+
+        RECT rcC; GetClientRect(hDlg, &rcC);
+        int cW = rcC.right;
+        int cH = rcC.bottom;
+
+        HWND hText = CreateWindowExW(0, L"STATIC", pData->message.c_str(),
+            WS_CHILD | WS_VISIBLE | SS_CENTER,
+            S(DLG_PAD_H), S(DLG_PAD_T),
+            cW - 2 * S(DLG_PAD_H), pData->textH,
+            hDlg, NULL, pData->hInst, NULL);
+        if (hFont) SendMessageW(hText, WM_SETFONT, (WPARAM)hFont, TRUE);
+
+        int btnW = MeasureButtonWidth(pData->okText, true);
+        int btnX = (cW - btnW) / 2;
+        int btnY = cH - S(DLG_PAD_B) - S(DLG_BTN_H);
+        CreateCustomButtonWithIcon(hDlg, IDOK, pData->okText, ButtonColor::Blue,
+            L"shell32.dll", 112,
+            btnX, btnY, btnW, S(DLG_BTN_H), pData->hInst);
+        return 0;
+    }
+    case WM_COMMAND:
+        if (LOWORD(wParam) == IDOK) { DestroyWindow(hDlg); return 0; }
+        break;
+    case WM_DRAWITEM: {
+        LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
+        if (dis->CtlID == IDOK) {
+            ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
+            NONCLIENTMETRICSW ncm = {}; ncm.cbSize = sizeof(ncm);
+            SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+            if (ncm.lfMessageFont.lfHeight < 0)
+                ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
+            ncm.lfMessageFont.lfWeight = FW_BOLD;
+            ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+            HFONT hFont = CreateFontIndirectW(&ncm.lfMessageFont);
+            LRESULT r = DrawCustomButton(dis, color, hFont);
+            if (hFont) DeleteObject(hFont);
+            return r;
+        }
+        break;
+    }
+    case WM_CTLCOLORSTATIC: {
+        HDC hdcStatic = (HDC)wParam;
+        SetBkMode(hdcStatic, TRANSPARENT);
+        return (LRESULT)GetStockObject(NULL_BRUSH);
+    }
+    case WM_CLOSE:
+        DestroyWindow(hDlg);
+        return 0;
+    case WM_DESTROY:
+        return 0;
+    case WM_KEYDOWN:
+        if (wParam == VK_ESCAPE || wParam == VK_RETURN) {
+            DestroyWindow(hDlg);
+            return 0;
+        }
+        break;
+    }
+    return DefWindowProcW(hDlg, msg, wParam, lParam);
+}
+
+void ShowValidationDialog(HWND hwndParent, const std::wstring& title,
+                          const std::wstring& message,
+                          const std::map<std::wstring, std::wstring>& locale)
+{
+    static bool s_classRegistered = false;
+    if (!s_classRegistered) {
+        WNDCLASSEXW wc = {};
+        wc.cbSize        = sizeof(wc);
+        wc.style         = CS_HREDRAW | CS_VREDRAW;
+        wc.lpfnWndProc   = ValidationDialogProc;
+        wc.hInstance     = GetModuleHandle(NULL);
+        wc.hCursor       = LoadCursor(NULL, IDC_ARROW);
+        wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+        wc.lpszClassName = L"ValidationDialogClass";
+        RegisterClassExW(&wc);
+        s_classRegistered = true;
+    }
+
+    std::wstring msgExpanded = ExpandEscapes(message);
+    int textH = MeasureDialogTextHeight(msgExpanded, S(DLG_CONT_W));
+    if (textH < S(20)) textH = S(20);
+
+    auto itOk = locale.find(L"ok");
+    std::wstring okText = (itOk != locale.end()) ? itOk->second : L"OK";
+
+    int clientW = S(DLG_CONT_W) + 2 * S(DLG_PAD_H);
+    int clientH = S(DLG_PAD_T) + textH + S(DLG_GAP_TB) + S(DLG_BTN_H) + S(DLG_PAD_B);
+
+    RECT wrc = { 0, 0, clientW, clientH };
+    AdjustWindowRectEx(&wrc, WS_POPUP | WS_CAPTION | WS_SYSMENU, FALSE, WS_EX_DLGMODALFRAME);
+    int width  = wrc.right  - wrc.left;
+    int height = wrc.bottom - wrc.top;
+
+    RECT rcParent; GetWindowRect(hwndParent, &rcParent);
+    int x = rcParent.left + (rcParent.right  - rcParent.left - width)  / 2;
+    int y = rcParent.top  + (rcParent.bottom - rcParent.top  - height) / 2;
+
+    RECT rcWork; SystemParametersInfoW(SPI_GETWORKAREA, 0, &rcWork, 0);
+    if (x < rcWork.left)            x = rcWork.left;
+    if (y < rcWork.top)             y = rcWork.top;
+    if (x + width  > rcWork.right)  x = rcWork.right  - width;
+    if (y + height > rcWork.bottom) y = rcWork.bottom - height;
+
+    ValidationDlgData* pData = new ValidationDlgData();
+    pData->message = msgExpanded;
+    pData->okText  = okText;
+    pData->textH   = textH;
+    pData->hInst   = GetModuleHandle(NULL);
+
+    HWND hDlg = CreateWindowExW(
+        WS_EX_DLGMODALFRAME | WS_EX_TOPMOST,
+        L"ValidationDialogClass",
+        title.c_str(),
+        WS_POPUP | WS_CAPTION | WS_SYSMENU,
+        x, y, width, height,
+        hwndParent, NULL, GetModuleHandle(NULL), pData);
+
+    if (hDlg) {
+        EnableWindow(hwndParent, FALSE);
+        ShowWindow(hDlg, SW_SHOW);
+
+        MSG msg = {};
+        while (IsWindow(hDlg)) {
+            BOOL bRet = GetMessageW(&msg, NULL, 0, 0);
+            if (bRet == 0) { PostQuitMessage((int)msg.wParam); break; }
+            if (bRet == -1) break;
+            if (!IsWindow(hDlg)) break;
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+
+        EnableWindow(hwndParent, TRUE);
+        SetForegroundWindow(hwndParent);
+    }
+
+    delete pData;
+}

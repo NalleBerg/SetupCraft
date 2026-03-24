@@ -2,6 +2,22 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.03.24.08] - 2026-03-24
+
+### Added
+- **`ShowValidationDialog()`** — new styled single-button OK dialog in `ctrlw.cpp` / `ctrlw.h`. Custom `ValidationDialogProc` / `ValidationDlgData`, `SPI_GETNONCLIENTMETRICS` font (×1.2), `ButtonColor::Blue` OK button, proper modal loop, DPI-aware, centred on parent. Uses `ok` locale key for button label.
+- **`DD_TITLE_H = 28`** — new layout constant for the Edit Dependency dialog title headline. Replaces the reuse of `DD_LABEL_H = 18`; prevents text clipping at high DPI.
+- **`i18n_INTERNALS.txt`** — new documentation: English-first policy (only `locale/en_GB.txt` maintained during development), locale file format, key naming conventions, safe-fallback lookup pattern, `ExpandEscapes` usage, guide for adding new keys. Registered in `API_list.txt`.
+- **`dep_dlg_delivery_bundled` locale key** — long-form "Bundled (included in installer)" for the dialog combo, separate from `dep_delivery_bundled` (short form for ListView cells). Eliminates a key collision.
+
+### Changed
+- **dep_edit_dialog — progressive disclosure complete for Bundled** — Bundled delivery type now shows only: Required · Install step · License · Credits. Architecture, Detection, and Instructions sections are hidden (they are not relevant to bundled dependencies). Full map: Bundled → Required · Order · License · Credits; Auto-download → Required · Arch · Order · Detection · Network(all) · License · Credits · Instructions; Redirect URL → Required · Arch · Order · Detection · Network(URL+offline) · License · Credits · Instructions; Instructions only → Required · Order · Instructions.
+- **dep_edit_dialog — fonts match main app** — body label font changed from hardcoded `CreateFontW(-S(11), ...)` to `SPI_GETNONCLIENTMETRICS lfMessageFont × 1.2` + `CLEARTYPE_QUALITY` (matches `s_scaledFont`). Title headline changed to `× 1.5 + FW_SEMIBOLD` (matches `s_hPageTitleFont`). Section headers use a bold variant of the same NCM font.
+- **dep_edit_dialog — RTF editor width** — `preferredW` on both `OpenRtfEditor` calls increased from `S(820)` to `S(880)`. Toolbar now fits in a single row at default sizes (one-row threshold ~808 px client width).
+- **dep_edit_dialog — edit buttons centred** — "Edit License…" and "Edit Instructions…" buttons are now centred under their indicator fields (`bx = s_ddLX + (s_ddEW - bw) / 2`).
+- **dep_edit_dialog — dialog placement** — dialog opens with its title bar `S(3)` px below the main window's title bar (`dlgY = rcParent.top + S(3)`), work-area clamped. Previously centred vertically on the work area.
+- **dep_edit_dialog — validation errors** — both `MessageBoxW` calls replaced with `ShowValidationDialog()`. Title from `validation_error` locale key; messages from `dep_err_no_name` / `dep_err_no_delivery`.
+
 ## [2026.03.23.09] - 2026-03-23
 
 ### Added

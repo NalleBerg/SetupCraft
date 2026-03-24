@@ -1,0 +1,128 @@
+================================================================================
+  SetupCraft — Internationalisation (i18n) Reference
+================================================================================
+
+PURPOSE
+-------
+All user-visible text in SetupCraft must come from the locale map — never from
+hardcoded string literals in C++ source code.  This rule applies to every dialog
+title, label, button caption, tooltip, status message, and error string.
+
+The locale map is loaded at startup from the file that matches the user's chosen
+language and is passed down to every subsystem that needs to display text.
+
+================================================================================
+POLICY: ENGLISH FIRST, TRANSLATIONS LATER
+================================================================================
+
+While the application is under active development and features are still being
+finalised, ONLY the English reference file (locale/en_GB.txt) is maintained.
+
+All other locale files (locale/de_DE.txt, locale/fr_FR.txt, etc.) are stubs and
+may be empty or contain only a language-declaration header.  They will be
+populated once the English text has settled.
+
+  *** Do NOT add translated strings to non-English locale files until the
+      feature they describe is complete and the English key/value is final. ***
+
+This avoids wasted translation effort when wording changes during development.
+
+================================================================================
+LOCALE FILE FORMAT
+================================================================================
+
+Each locale file is a plain UTF-8 text file (no BOM required).
+Lines starting with '#' are comments and are ignored.
+All other non-blank lines must be in the form:
+
+    key=value
+
+Keys are ASCII identifiers.  Values are free-form Unicode text.
+Newlines inside a value are encoded as the two-character sequence \n (backslash n).
+To insert a literal backslash, use \\.
+
+Example:
+    dep_err_no_name=Please enter a display name for this dependency.
+    close_unsaved_message=You have unsaved changes.\nDo you want to save?
+
+================================================================================
+NAMING CONVENTIONS
+================================================================================
+
+Keys follow a hierarchical naming scheme:
+
+  <subsystem>_<element>[_<qualifier>]
+
+Examples by subsystem:
+
+  app_*           Top-level application strings (app_name, etc.)
+  quit_*          Quit/close confirmation dialog
+  dep_*           Dependencies page (list, columns, context menu)
+  dep_dlg_*       Edit Dependency modal dialog controls
+  dep_err_*       Validation error messages shown in the Edit Dependency dialog
+  dep_section_*   Section-header labels inside Edit Dependency
+  rtfe_*          RTF editor toolbar tooltips and file-picker filters
+  sc_*            Shortcuts page
+  comp_*          Components page
+
+When a key applies only to a specific dialog and would conflict with a key
+used elsewhere in the same subsystem, add "_dlg_" to distinguish it:
+
+    dep_delivery_bundled        — short form (used in the ListView column)
+    dep_dlg_delivery_bundled    — long form (used in the dialog combo-box only)
+
+================================================================================
+RUNTIME LOOKUP PATTERN
+================================================================================
+
+Always look up a key with a safe fallback:
+
+    auto it = locale.find(L"my_key");
+    std::wstring text = (it != locale.end()) ? it->second : L"Fallback";
+
+The fallback string must be English and should be identical to (or a shortened
+version of) the en_GB.txt value.  Fallbacks exist only as a defensive measure
+against missing keys; they should never be relied upon in production.
+
+================================================================================
+ESCAPE-SEQUENCE HANDLING
+================================================================================
+
+Locale values that will be displayed in STATIC controls or measured with
+DrawTextW MUST have their escape sequences expanded before use.  The helper:
+
+    std::wstring ExpandEscapes(std::wstring s)   — defined in ctrlw.cpp
+
+converts literal "\\n" (\n stored as two characters in the file) into real
+newline characters (char 10).  Call it once, before measurement and before
+setting the control text.
+
+Dialogs built with the measure-then-create pattern (see dialog_INTERNALS.txt)
+expand escapes at the ShowXxx() call site and inject the expanded string back
+into the locale copy via the "__dlg_textH" / message key mechanism so that the
+WM_CREATE handler receives already-expanded text.
+
+================================================================================
+ADDING A NEW LOCALE KEY
+================================================================================
+
+1.  Add the key and its English value to locale/en_GB.txt in the appropriate
+    section.  Choose a key name following the conventions above.
+
+2.  Look it up in C++ with the safe-fallback pattern.
+
+3.  Do NOT add translations to other locale files at this time (see policy above).
+
+4.  Update the relevant *_API.txt or *_INTERNALS.txt "locale key" table so the
+    key is discoverable without reading the source.
+
+================================================================================
+REFERENCE FILE
+================================================================================
+
+    locale/en_GB.txt   — canonical English source of truth for all locale keys.
+
+All other locale files under locale/ are translation targets that lag behind
+en_GB.txt until explicitly updated.
+
+================================================================================

@@ -18,7 +18,7 @@
  * opens with all appropriate controls already visible — no extra click needed.
  *
  * Delivery → visible sections:
- *   DD_BUNDLED:            Required · Arch · Order · Detection · License · Credits · Instructions
+ *   DD_BUNDLED:            Required · Order · License · Credits
  *   DD_AUTO_DOWNLOAD:      Required · Arch · Order · Detection · Network(all) · License · Credits · Instructions
  *   DD_REDIRECT_URL:       Required · Arch · Order · Detection · Network(URL+offline) · License · Credits · Instructions
  *   DD_INSTRUCTIONS_ONLY:  Required · Order · Instructions
@@ -27,6 +27,7 @@
 #include "dep_edit_dialog.h"
 #include "button.h"       // CreateCustomButtonWithIcon, DrawCustomButton
 #include "checkbox.h"     // CreateCustomCheckbox, DrawCustomCheckbox
+#include "ctrlw.h"        // ShowValidationDialog
 #include "dpi.h"          // S()
 #include <commctrl.h>
 #include <commdlg.h>      // GetOpenFileNameW
@@ -46,6 +47,7 @@ static const int DD_EDIT_H   = 26;   // single-line edit height
 static const int DD_CB_H     = 22;   // checkbox height
 static const int DD_COMBO_H  = 26;   // combo-box height
 static const int DD_MLABEL_H = 16;   // section header label
+static const int DD_TITLE_H  = 28;   // dialog headline label (larger font)
 
 // ── Sentinel value for "no delivery type chosen yet" ─────────────────────────
 // Stored as CB_SETITEMDATA on combo index 0; distinguishes "Choose type…" from
@@ -156,19 +158,19 @@ static void Reflow(HWND hDlg, int deliveryVal)
     // ── Which sections are visible for this delivery type? ────────────────────
     bool hasAny          = (deliveryVal != DD_DELIVERY_NONE);
     bool hasRequired     = hasAny;
-    bool hasArch         = (deliveryVal == DD_BUNDLED ||
-                            deliveryVal == DD_AUTO_DOWNLOAD ||
+    bool hasArch         = (deliveryVal == DD_AUTO_DOWNLOAD ||
                             deliveryVal == DD_REDIRECT_URL);
     bool hasOrder        = hasAny;
-    bool hasDetection    = (deliveryVal == DD_BUNDLED ||
-                            deliveryVal == DD_AUTO_DOWNLOAD ||
+    bool hasDetection    = (deliveryVal == DD_AUTO_DOWNLOAD ||
                             deliveryVal == DD_REDIRECT_URL);
     bool hasNetAll       = (deliveryVal == DD_AUTO_DOWNLOAD);
     bool hasNetUrlOnly   = (deliveryVal == DD_REDIRECT_URL);
     bool hasLicense      = (deliveryVal == DD_BUNDLED ||
                             deliveryVal == DD_AUTO_DOWNLOAD ||
                             deliveryVal == DD_REDIRECT_URL);
-    bool hasInstructions = hasAny;
+    bool hasInstructions = (deliveryVal == DD_AUTO_DOWNLOAD ||
+                            deliveryVal == DD_REDIRECT_URL ||
+                            deliveryVal == DD_INSTRUCTIONS_ONLY);
 
     // ── Show/hide each section ────────────────────────────────────────────────
     ShowSection(s_secRequired,     hasRequired);
@@ -275,11 +277,12 @@ static void Reflow(HWND hDlg, int deliveryVal)
     if (hasLicense && s_secLicense.ctrls.size() >= 5) {
         PlaceW(s_secLicense.ctrls[0], DD_MLABEL_H, DD_GAP_SM, s_ddEW); // header
         PlaceW(s_secLicense.ctrls[1], DD_EDIT_H,   DD_GAP_SM, s_ddEW); // indicator
-        // Button: keep its natural (measured) width, don't stretch
+        // Button: centred under the indicator field
         { HWND h = s_secLicense.ctrls[2];
           RECT rc; GetWindowRect(h, &rc);
           int bw = rc.right - rc.left;
-          SetWindowPos(h, NULL, s_ddLX, y - s_depDlgScrollY, bw, S(DD_BTN_H),
+          int bx = s_ddLX + (s_ddEW - bw) / 2;
+          SetWindowPos(h, NULL, bx, y - s_depDlgScrollY, bw, S(DD_BTN_H),
               SWP_NOZORDER | SWP_NOACTIVATE);
           y += S(DD_BTN_H) + S(DD_GAP); }
         PlaceW(s_secLicense.ctrls[3], DD_LABEL_H, DD_GAP_SM, s_ddEW); // credits lbl
@@ -292,7 +295,8 @@ static void Reflow(HWND hDlg, int deliveryVal)
         { HWND h = s_secInstructions.ctrls[2];
           RECT rc; GetWindowRect(h, &rc);
           int bw = rc.right - rc.left;
-          SetWindowPos(h, NULL, s_ddLX, y - s_depDlgScrollY, bw, S(DD_BTN_H),
+          int bx = s_ddLX + (s_ddEW - bw) / 2;
+          SetWindowPos(h, NULL, bx, y - s_depDlgScrollY, bw, S(DD_BTN_H),
               SWP_NOZORDER | SWP_NOACTIVATE);
           y += S(DD_BTN_H) + S(DD_GAP); }
     }
@@ -406,7 +410,7 @@ static LRESULT CALLBACK DepDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lP
             ed.titleText  = DL(pData, L"dep_section_license", L"License");
             ed.okText     = DL(pData, L"ok",     L"OK");
             ed.cancelText = DL(pData, L"cancel", L"Cancel");
-            ed.preferredW = S(820);
+            ed.preferredW = S(880);
             ed.preferredH = S(560);
             ed.pLocale    = pData->pLocale;
             if (OpenRtfEditor(hDlg, ed)) {
@@ -425,7 +429,7 @@ static LRESULT CALLBACK DepDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lP
             ed.titleText  = DL(pData, L"dep_section_instructions", L"Manual install instructions");
             ed.okText     = DL(pData, L"ok",     L"OK");
             ed.cancelText = DL(pData, L"cancel", L"Cancel");
-            ed.preferredW = S(820);
+            ed.preferredW = S(880);
             ed.preferredH = S(560);
             ed.pLocale    = pData->pLocale;
             if (OpenRtfEditor(hDlg, ed)) {
@@ -442,12 +446,15 @@ static LRESULT CALLBACK DepDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lP
             // Validate: display name is required.
             std::wstring name = GetEditText(hDlg, IDC_DEPDLG_NAME);
             if (name.empty()) {
-                std::wstring err = L"Please enter a display name.";
+                std::wstring err = L"Please enter a display name for this dependency.";
+                std::wstring ttl = L"Validation Error";
                 if (pData) {
                     auto it = pData->pLocale->find(L"dep_err_no_name");
                     if (it != pData->pLocale->end()) err = it->second;
+                    auto it2 = pData->pLocale->find(L"validation_error");
+                    if (it2 != pData->pLocale->end()) ttl = it2->second;
                 }
-                MessageBoxW(hDlg, err.c_str(), L"Validation Error", MB_OK | MB_ICONWARNING);
+                ShowValidationDialog(hDlg, ttl, err, pData ? *pData->pLocale : std::map<std::wstring,std::wstring>{});
                 SetFocus(GetDlgItem(hDlg, IDC_DEPDLG_NAME));
                 return 0;
             }
@@ -456,11 +463,14 @@ static LRESULT CALLBACK DepDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lP
             int deliveryVal = GetDeliveryChoice(hDlg);
             if (deliveryVal == DD_DELIVERY_NONE) {
                 std::wstring err = L"Please choose a delivery type.";
+                std::wstring ttl = L"Validation Error";
                 if (pData) {
                     auto it = pData->pLocale->find(L"dep_err_no_delivery");
                     if (it != pData->pLocale->end()) err = it->second;
+                    auto it2 = pData->pLocale->find(L"validation_error");
+                    if (it2 != pData->pLocale->end()) ttl = it2->second;
                 }
-                MessageBoxW(hDlg, err.c_str(), L"Validation Error", MB_OK | MB_ICONWARNING);
+                ShowValidationDialog(hDlg, ttl, err, pData ? *pData->pLocale : std::map<std::wstring,std::wstring>{});
                 SetFocus(GetDlgItem(hDlg, IDC_DEPDLG_DELIVERY));
                 return 0;
             }
@@ -631,7 +641,7 @@ bool DEP_EditDialog(HWND hwndParent, HINSTANCE hInst,
     if (dlgH > maxH) dlgH = maxH;
     RECT rcParent; GetWindowRect(hwndParent, &rcParent);
     int dlgX = rcParent.left + (rcParent.right  - rcParent.left - dlgW) / 2;
-    int dlgY = rcParent.top  + (rcParent.bottom - rcParent.top  - dlgH) / 2;
+    int dlgY = rcParent.top + S(3);
     if (dlgX < rcWork.left)          dlgX = rcWork.left;
     if (dlgY < rcWork.top)           dlgY = rcWork.top;
     if (dlgX + dlgW > rcWork.right)  dlgX = rcWork.right  - dlgW;
@@ -661,6 +671,16 @@ bool DEP_EditDialog(HWND hwndParent, HINSTANCE hInst,
     s_secNetAll       = {};
     s_secLicense      = {};
     s_secInstructions = {};
+
+    // Use the same scaled fonts as the rest of the application.
+    // Body: lfMessageFont * 1.2; Title: lfMessageFont * 1.5, semi-bold.
+    // (Matches mainwindow.cpp s_scaledFont / s_hPageTitleFont construction.)
+    NONCLIENTMETRICSW ncm = {}; ncm.cbSize = sizeof(ncm);
+    SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+    if (ncm.lfMessageFont.lfHeight < 0)
+        ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
+    ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+    ncm.lfMessageFont.lfCharSet = DEFAULT_CHARSET;
 
     auto LS = [&](const wchar_t* key, const wchar_t* fb) -> std::wstring {
         auto it2 = locale.find(key); return it2 != locale.end() ? it2->second : fb;
@@ -694,28 +714,29 @@ bool DEP_EditDialog(HWND hwndParent, HINSTANCE hInst,
         HWND hw = CreateWindowExW(0, L"STATIC", text.c_str(),
             WS_CHILD | vis | SS_LEFT,
             s_ddLX, y, s_ddEW, S(DD_MLABEL_H), hDlg, NULL, hInst, NULL);
-        HFONT hBold = CreateFontW(-S(10), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
-            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+        LOGFONTW lfBold = ncm.lfMessageFont;
+        lfBold.lfWeight = FW_BOLD;
+        HFONT hBold = CreateFontIndirectW(&lfBold);
         SendMessageW(hw, WM_SETFONT, (WPARAM)hBold, TRUE);
         return hw;
     };
 
-    HFONT hFont = CreateFontW(-S(11), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+    HFONT hFont = CreateFontIndirectW(&ncm.lfMessageFont);
     auto SF = [&](HWND hw) { if (hw && hFont) SendMessageW(hw, WM_SETFONT, (WPARAM)hFont, TRUE); };
 
     // ── Dialog title (always visible) ─────────────────────────────────────────
     {
-        HFONT hBig = CreateFontW(-S(14), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
-            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+        // Title font: same family, ~150 % of body size, semi-bold — matches s_hPageTitleFont.
+        LOGFONTW lfTitle = ncm.lfMessageFont; // already * 1.2
+        if (lfTitle.lfHeight < 0)
+            lfTitle.lfHeight = (LONG)(lfTitle.lfHeight * (1.5f / 1.2f)); // bring to * 1.5 overall
+        lfTitle.lfWeight = FW_SEMIBOLD;
+        HFONT hBig = CreateFontIndirectW(&lfTitle);
         HWND hT = CreateWindowExW(0, L"STATIC", dlgTitle.c_str(),
             WS_CHILD | WS_VISIBLE | SS_LEFT,
-            s_ddLX, y, s_ddEW, S(DD_LABEL_H), hDlg, NULL, hInst, NULL);
+            s_ddLX, y, s_ddEW, S(DD_TITLE_H), hDlg, NULL, hInst, NULL);
         SendMessageW(hT, WM_SETFONT, (WPARAM)hBig, TRUE);
-        y += S(DD_LABEL_H) + S(DD_GAP);
+        y += S(DD_TITLE_H) + S(DD_GAP);
     }
 
     // ── Display name (always visible) ─────────────────────────────────────────
@@ -738,7 +759,7 @@ bool DEP_EditDialog(HWND hwndParent, HINSTANCE hInst,
         int idx = (int)SendMessageW(hDelivery, CB_ADDSTRING, 0, (LPARAM)LS(key, fb).c_str());
         SendMessageW(hDelivery, CB_SETITEMDATA, (WPARAM)idx, (LPARAM)val);
     };
-    AddDel(L"dep_delivery_bundled",      L"Bundled (included in installer)", DD_BUNDLED);
+    AddDel(L"dep_dlg_delivery_bundled",  L"Bundled (included in installer)", DD_BUNDLED);
     AddDel(L"dep_delivery_download",     L"Auto-download",                   DD_AUTO_DOWNLOAD);
     AddDel(L"dep_delivery_redirect",     L"Redirect URL",                    DD_REDIRECT_URL);
     AddDel(L"dep_delivery_instructions", L"Instructions only",               DD_INSTRUCTIONS_ONLY);

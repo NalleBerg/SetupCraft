@@ -2802,6 +2802,7 @@ CMakeFiles/SkeletonApp.dir/dep_edit_dialog.cpp.obj: C:/Users/NalleBerg/Documents
   C:/mingw64/x86_64-w64-mingw32/include/wtypesbase.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/button.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/checkbox.h \
+  C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/ctrlw.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/dep_edit_dialog.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/deps.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/dpi.h \

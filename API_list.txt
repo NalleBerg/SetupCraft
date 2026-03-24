@@ -139,4 +139,12 @@
                                     SC_TearDown cleanup protocol, and status-bar
                                     HWND_TOP anti-overlap technique.
 
+  i18n_INTERNALS.txt                Internationalisation policy — English-first rule
+                                    (only en_GB.txt maintained during development),
+                                    locale file format (key=value, \\n escapes),
+                                    key naming conventions (subsystem_ prefix,
+                                    _dlg_ qualifier), runtime lookup pattern with
+                                    fallback, ExpandEscapes usage, and step-by-step
+                                    guide for adding a new locale key.
+
 ================================================================================

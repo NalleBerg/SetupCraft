@@ -115,6 +115,11 @@ ctrlw.cpp dialogs (all DONE):
   QuitDialogProc / ShowQuitDialog          — generic yes/no
   ShowCloseProjectDialog                   — reuses ShowQuitDialog
   ShowConfirmDeleteDialog                  — reuses ShowQuitDialog
+  ValidationDialogProc / ShowValidationDialog — single-button OK (validation errors,
+                                             informational notices); ValidationDlgData
+                                             carries pre-measured textH + okText; Blue
+                                             OK button; Enter/Escape both close it;
+                                             title from locale key "validation_error"
   DupDialogProc / ShowDuplicateProjectDialog   — 3 buttons, 2 lines; DUP_BTN_W* constants
   RenameDialogProc / ShowRenameProjectDialog   — edit box + 2 buttons; REN_* constants
   UnsavedChangesDialogProc / ShowUnsavedChangesDialog — 3 buttons; UNS_BTN_W* constants
