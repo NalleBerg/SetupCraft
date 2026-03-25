@@ -116,6 +116,10 @@ struct ShortcutDef {
 // Call from MainWindow::Create() before loading any project data.
 void SC_Reset();
 
+// Return true when at least one shortcut opt-out checkbox is enabled.
+// Used by IDLG_BuildPage to decide whether to show the Shortcuts dialog row.
+bool SC_HasOptOut();
+
 // Build the entire Shortcuts page inside hwnd.
 //   hwnd           — the main window (parent of all page controls).
 //   hInst          — application HINSTANCE.

@@ -1,0 +1,304 @@
+================================================================================
+  dialogs_INTERNALS.txt
+  Dialogs Page Module — Architecture & Implementation Reference
+================================================================================
+
+  Module files : dialogs.h / dialogs.cpp
+  Toolbar index: 4  (sixth button from left — "Dialogs")
+  DB table      : installer_dialogs
+
+--------------------------------------------------------------------------------
+1. CONTROL ID RANGES
+--------------------------------------------------------------------------------
+
+  IDC_IDLG_PAGE_TITLE         7000    "Installer Dialogs" heading STATIC
+  IDC_IDLG_INST_SECTION_BASE  7001    (reserved)
+
+  IDC_IDLG_ROW_BASE           7010    stride 4; layout per row (i = 0..8):
+    ROW_BASE + i*4 + 0  = icon STATIC    (32×32, SS_ICON)
+    ROW_BASE + i*4 + 1  = name STATIC    (label)
+    ROW_BASE + i*4 + 2  = "Edit Content…" button (BS_OWNERDRAW)
+    ROW_BASE + i*4 + 3  = "Preview…" button (BS_OWNERDRAW)
+
+  IDC_IDLG_INST_ICON_PREVIEW  7110    48×48 SS_ICON STATIC — shows chosen icon
+  IDC_IDLG_INST_CHANGE_ICON   7111    "Change Icon…" BS_OWNERDRAW button
+  IDC_IDLG_INST_TITLE_LABEL   7112    "Installer title:" STATIC
+  IDC_IDLG_INST_TITLE_EDIT    7113    ES_AUTOHSCROLL edit field
+  IDC_IDLG_INST_DIVIDER       7114    SS_ETCHEDHORZ separator beneath section
+
+  Preview-dialog controls (PreviewWndProc, local IDs):
+    IDC_IDLG_PRV_CONTENT      7100    read-only RichEdit (ES_MULTILINE | ES_READONLY)
+    IDC_IDLG_PRV_BACK         7101    "◀  Back" BS_PUSHBUTTON
+    IDC_IDLG_PRV_NEXT         7102    "Next  ▶" BS_PUSHBUTTON
+    IDC_IDLG_PRV_CANCEL       7103    "Cancel"  BS_PUSHBUTTON
+
+  IDLG_COUNT = 9  (number of dialog rows, matching InstallerDialogType values 0–8)
+
+--------------------------------------------------------------------------------
+2. InstallerDialogType ENUM
+--------------------------------------------------------------------------------
+
+  IDT_WELCOME         = 0   Always shown
+  IDT_LICENSE         = 1   Always shown
+  IDT_DEPENDENCIES    = 2   Shown iff DEP_HasAny()
+  IDT_FOLDERSELECT    = 3   Shown iff MainWindow::AskAtInstallEnabled()
+  IDT_COMPONENTS      = 4   Shown iff MainWindow::UseComponents()
+  IDT_SHORTCUTS       = 5   Shown iff SC_HasOptOut()
+  IDT_READY           = 6   Always shown
+  IDT_INSTALLING      = 7   Always shown
+  IDT_FINISH          = 8   Always shown
+
+  "Show iff" conditions are re-evaluated in IDLG_BuildPage on every page switch.
+  Rows with a hidden condition have their four controls destroyed / not created;
+  the remaining rows are repacked upwards with no gaps.
+
+  Shell32 icon sequential indices for each row icon (loaded via
+  PrivateExtractIconsW at 32×32 px):
+    IDT_WELCOME      → shell32 #99  (waving-hand / welcome)
+    IDT_LICENSE      → shell32 #134 (document with badge)
+    IDT_DEPENDENCIES → shell32 #148 (chain links / dependency)
+    IDT_FOLDERSELECT → shell32 #4   (classic folder)
+    IDT_COMPONENTS   → shell32 #162 (puzzle piece)
+    IDT_SHORTCUTS    → shell32 #29  (shortcut badge)
+    IDT_READY        → shell32 #24  (checkmark)
+    IDT_INSTALLING   → shell32 #67  (rotating arrow / install)
+    IDT_FINISH       → shell32 #302 (thumbs-up / completion)
+
+--------------------------------------------------------------------------------
+3. MODULE-PRIVATE STATE
+--------------------------------------------------------------------------------
+
+  Each dialog type's RTF content:
+    static std::wstring s_rtfContent[IDLG_COUNT]  // in-memory only; DB on Save
+
+  Installer title section:
+    static std::wstring  s_installTitle       // set by IDLG_SetInstallerInfo()
+    static std::wstring  s_installIconPath    // empty = default shell32 #2
+    static HICON         s_hInstallIcon       // loaded icon; destroyed in TearDown
+    static HWND          s_hInstIconPreview   // IDC_IDLG_INST_ICON_PREVIEW HWND
+
+  Per-row cached icons (freed in TearDown):
+    static HICON s_hRowIcons[IDLG_COUNT]
+
+  Active control HWNDs (valid between BuildPage and TearDown):
+    static HWND s_hRowIcon[IDLG_COUNT]
+    static HWND s_hRowName[IDLG_COUNT]
+    static HWND s_hRowEdit[IDLG_COUNT]
+    static HWND s_hRowPreview[IDLG_COUNT]
+
+--------------------------------------------------------------------------------
+4. LIFECYCLE
+--------------------------------------------------------------------------------
+
+  IDLG_Reset(hParent)
+    Called from mainwindow.cpp before IDLG_SetInstallerInfo().
+    Clears s_rtfContent[], resets icon path/handle, nulls all HWNDs.
+    Does NOT destroy HWNDs (they are dead already after a page switch).
+
+  IDLG_SetInstallerInfo(title, iconPath)
+    Stores title/iconPath into s_installTitle / s_installIconPath.
+    Called immediately after IDLG_Reset() from mainwindow.cpp with
+    project.name and the saved icon path (empty on new projects).
+
+  IDLG_BuildPage(hParent)
+    Creates all controls.
+    Order of creation:
+      1. IDC_IDLG_PAGE_TITLE STATIC
+      2. Installer-title section:
+           a. IDC_IDLG_INST_ICON_PREVIEW SS_ICON STATIC (48×48 DPI-scaled)
+              → if s_installIconPath non-empty: LoadImageW from path
+              → else: shell32 #2 via PrivateExtractIconsW
+           b. IDC_IDLG_INST_CHANGE_ICON   (btnX, btnY, wChange, S(26))
+           c. IDC_IDLG_INST_TITLE_LABEL   (btnX + wChange + gap, midY, ...)
+           d. IDC_IDLG_INST_TITLE_EDIT    (lblX + lblW + 6, editY, ...)
+           e. IDC_IDLG_INST_DIVIDER       (SS_ETCHEDHORZ, full width)
+      3. Row loop (i = 0..IDLG_COUNT-1):
+           if !IsDialogVisible(i) → skip
+           load icon via PrivateExtractIconsW, store to s_hRowIcons[i]
+           create icon STATIC, name STATIC, Edit button, Preview button
+           SetButtonTooltip(hEdit, L(idlg_btn_edit_tip))
+           SetButtonTooltip(hPreview, L(idlg_btn_preview_tip))
+
+  IDLG_TearDown()
+    Destroys s_hInstallIcon if non-null; sets s_hInstIconPreview = nullptr.
+    Destroys all s_hRowIcons[i].
+    (Child HWNDs are destroyed by the parent.)
+
+--------------------------------------------------------------------------------
+5. IDLG_OnCommand — COMMAND DISPATCH
+--------------------------------------------------------------------------------
+
+  Called from mainwindow.cpp WM_COMMAND:
+    if (IDLG_OnCommand(hwnd, wParam, lParam)) return 0;
+
+  Handled cases:
+
+  a) EN_CHANGE on IDC_IDLG_INST_TITLE_EDIT
+       GetWindowTextW → store to s_installTitle
+       mainwindow MarkUnsaved()
+
+  b) BN_CLICKED on IDC_IDLG_INST_CHANGE_ICON
+       OPENFILENAMEW with:
+         OFN_EXPLORER | OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST
+         lpstrFilter = L"Icon files (*.ico)\0*.ico\0"  (no *.*  entry)
+       On OK: LoadImageW(0, path, IMAGE_ICON, S(48), S(48), LR_LOADFROMFILE)
+              SendMessageW(s_hInstIconPreview, STM_SETICON, (WPARAM)hIco, 0)
+              DestroyIcon on previous s_hInstallIcon
+              s_hInstallIcon = hIco; s_installIconPath = path
+
+  c) BN_CLICKED on IDC_IDLG_ROW_BASE + i*4 + 2  ("Edit Content…")
+       Opens OpenRtfEditor() with the RTF for that dialog type.
+
+  d) BN_CLICKED on IDC_IDLG_ROW_BASE + i*4 + 3  ("Preview…")
+       Creates PreviewWndProc modeless window (see §6).
+
+--------------------------------------------------------------------------------
+6. PREVIEW DIALOG (PreviewWndProc)
+--------------------------------------------------------------------------------
+
+  Window class: L"IDLGPreviewWnd"
+  Style: WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, NOT resizable (fixed size).
+  Created via CreateWindowExW; drives its own message loop (GetMessage / DispatchMessage).
+
+  Controls:
+    - Heading STATIC (dialog type name, bold font ×1.2 NONCLIENTMETRICS)
+    - RichEdit (RICHEDIT_CLASS, ES_MULTILINE | ES_READONLY | WS_VSCROLL)
+      Pre-loaded with s_rtfContent[type] via EM_STREAMIN SF_RTF.
+      If empty: EM_SETTEXT with L(idlg_preview_no_content) placeholder.
+    - "◀  Back"  BS_PUSHBUTTON — width = MeasureButtonWidth(hDlg, L"◀  Back") + S(12)
+    - "Next  ▶"  BS_PUSHBUTTON — width = MeasureButtonWidth(hDlg, L"Next  ▶") + S(12)
+    - "Cancel"   BS_PUSHBUTTON — width = MeasureButtonWidth(hDlg, L"Cancel")  + S(12)
+
+  Back button disabled (EnableWindow FALSE) when type == IDT_WELCOME.
+
+  WHY plain BS_PUSHBUTTON and not BS_OWNERDRAW:
+    Native Windows installers (NSIS, Inno Setup) use standard CTA-style buttons
+    with no custom drawing. Glyph triangles (◀ ▶) in the button text give the
+    directional affordance without any drawing code; they render correctly with
+    the NONCLIENTMETRICS font as long as the font is applied to the button HWND.
+
+--------------------------------------------------------------------------------
+7. DB SCHEMA
+--------------------------------------------------------------------------------
+
+  Table: installer_dialogs
+  ─────────────────────────────────────────────────────────────────────────────
+  Column        Type     Notes
+  ─────────────────────────────────────────────────────────────────────────────
+  id            INTEGER  PRIMARY KEY AUTOINCREMENT
+  project_id    INTEGER  FK → projects.id
+  dialog_type   INTEGER  InstallerDialogType value (0–8)
+  content_rtf   TEXT     RTF string for this dialog's content RichEdit
+  ─────────────────────────────────────────────────────────────────────────────
+  UNIQUE(project_id, dialog_type)  — upsert-safe
+
+  Functions in db.cpp:
+    UpsertInstallerDialog(projectId, type, rtf)
+    DeleteInstallerDialogsForProject(projectId)
+    GetInstallerDialogsForProject(projectId) → vector<pair<int,wstring>>
+
+  Called from:
+    IDLG_SaveToDb(projectId)   → in IDM_FILE_SAVE handler
+    IDLG_LoadFromDb(projectId) → in project-open path (after IDLG_Reset + SetInstallerInfo)
+
+  NOTE (as of 2026.03.25.09):
+    installer_title and installer_icon_path are NOT yet persisted to DB.
+    Accessors IDLG_GetInstallerTitle() and IDLG_GetInstallerIconPath() are ready.
+    A future session should add columns to the projects table and call the
+    accessors from the Save path.
+
+--------------------------------------------------------------------------------
+8. MAINWINDOW.CPP WIRING CHECKLIST
+--------------------------------------------------------------------------------
+
+  Six points that MUST be wired for a correct Dialogs page:
+
+  [1] #include "dialogs.h"
+
+  [2] WM_DESTROY / project-close path:
+        IDLG_TearDown();
+
+  [3] Project-open / new-project path (after IDLG_Reset):
+        IDLG_Reset(hwnd);
+        IDLG_SetInstallerInfo(project.name, L"");   // or load icon path from DB
+        IDLG_LoadFromDb(project.id);
+
+  [4] Toolbar page-switch (case 4 in ShowPage switch):
+        IDLG_BuildPage(hwnd);
+
+  [5] WM_DRAWITEM condition — must include ALL IDLG custom-draw buttons:
+        (id >= IDC_IDLG_ROW_BASE && id < IDC_IDLG_ROW_BASE + IDLG_COUNT * 4) ||
+        id == IDC_IDLG_INST_CHANGE_ICON
+
+  [6] WM_COMMAND dispatch:
+        if (IDLG_OnCommand(hwnd, wParam, lParam)) return 0;
+        // Must appear BEFORE the default break so it can catch EN_CHANGE from
+        // IDC_IDLG_INST_TITLE_EDIT (high-word == EN_CHANGE == 0x0300).
+
+  MISTAKE HISTORY:
+    - [5] was missing initially → row buttons rendered as blank grey rectangles.
+    - [6] was missing initially → BN_CLICKED on all IDLG buttons silently dropped.
+      Both were caught in the same debugging session (2026.03.25) and fixed.
+
+--------------------------------------------------------------------------------
+9. LAYOUT CONSTANTS
+--------------------------------------------------------------------------------
+
+  All values are unscaled pixels; pass through S() before use.
+
+  Section padding:
+    IDLG_MARGIN  = 12
+    IDLG_GAP     = 8
+
+  Installer-title section heights:
+    IDLG_ICON_SZ = 48   (preview icon; loaded at S(48)×S(48))
+    IDLG_BTN_H   = 26   (Change Icon… button height)
+
+  Row layout:
+    ROW_ICON_W   = 32
+    ROW_ICON_H   = 32
+    ROW_H        = 36   (row height including vertical padding)
+    ROW_BTN_H    = 26
+    ROW_NAME_W   = 160  (dialog type name static width)
+
+  Dynamic widths (computed at BuildPage time):
+    wChange  = MeasureButtonWidth(hParent, L(idlg_change_icon)) + S(12)
+    wEdit    = MeasureButtonWidth(hParent, L(idlg_btn_edit))    + S(12)
+    wPreview = MeasureButtonWidth(hParent, L(idlg_btn_preview)) + S(12)
+
+--------------------------------------------------------------------------------
+10. LOCALE KEY TABLE
+--------------------------------------------------------------------------------
+
+  Key                     Value (en_GB)
+  ─────────────────────────────────────────────────────────────────────────────
+  idlg_page_title         Installer Dialogs
+  idlg_inst_title_label   Installer title:
+  idlg_change_icon        Change Icon…
+  idlg_change_icon_tip    Browse for a custom installer icon (.ico file)
+  idlg_btn_edit           Edit Content…
+  idlg_btn_preview        Preview…
+  idlg_btn_edit_tip       Open the RTF editor for this dialog's content
+  idlg_btn_preview_tip    Preview this dialog as it will appear in the installer
+  idlg_name_welcome       Welcome
+  idlg_name_license       License Agreement
+  idlg_name_dependencies  Dependencies
+  idlg_name_folderselect  Installation Folder
+  idlg_name_components    Components
+  idlg_name_shortcuts     Shortcuts
+  idlg_name_ready         Ready to Install
+  idlg_name_installing    Installing
+  idlg_name_finish        Finish
+  idlg_edit_title         Edit Dialog Content
+  idlg_edit_save          Save
+  idlg_edit_cancel        Cancel
+  idlg_preview_caption    Dialog Preview
+  idlg_preview_no_content (No content yet — click Edit Content… to add text)
+  idlg_preview_back       Back
+  idlg_preview_next       Next
+  idlg_preview_cancel     Cancel
+
+  (Unicode glyphs ◀ and ▶ are embedded in C++ string literals, not locale keys,
+   so they display correctly regardless of locale file encoding.)
+
+================================================================================

@@ -328,6 +328,30 @@ deps.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/deps.cpp.s
 .PHONY : deps.cpp.s
 
+dialogs.obj: dialogs.cpp.obj
+.PHONY : dialogs.obj
+
+# target to build an object file
+dialogs.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/dialogs.cpp.obj
+.PHONY : dialogs.cpp.obj
+
+dialogs.i: dialogs.cpp.i
+.PHONY : dialogs.i
+
+# target to preprocess a source file
+dialogs.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/dialogs.cpp.i
+.PHONY : dialogs.cpp.i
+
+dialogs.s: dialogs.cpp.s
+.PHONY : dialogs.s
+
+# target to generate assembly for a file
+dialogs.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/dialogs.cpp.s
+.PHONY : dialogs.cpp.s
+
 dpi.obj: dpi.cpp.obj
 .PHONY : dpi.obj
 
@@ -650,6 +674,9 @@ help:
 	@echo ... deps.obj
 	@echo ... deps.i
 	@echo ... deps.s
+	@echo ... dialogs.obj
+	@echo ... dialogs.i
+	@echo ... dialogs.s
 	@echo ... dpi.obj
 	@echo ... dpi.i
 	@echo ... dpi.s

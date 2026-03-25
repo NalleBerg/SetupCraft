@@ -108,4 +108,9 @@ namespace DB {
     int  InsertExternalDep(int projectId, const ExternalDep& dep);
     bool DeleteExternalDepsForProject(int projectId);
     std::vector<ExternalDep> GetExternalDepsForProject(int projectId);
+    // Installer dialog content persistence
+    bool UpsertInstallerDialog(int projectId, int dialogType, const std::wstring& rtf);
+    bool DeleteInstallerDialogsForProject(int projectId);
+    // Returns vector of (dialog_type, content_rtf) pairs ordered by dialog_type.
+    std::vector<std::pair<int,std::wstring>> GetInstallerDialogsForProject(int projectId);
 }

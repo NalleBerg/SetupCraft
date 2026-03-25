@@ -151,4 +151,19 @@
                                     fallback, ExpandEscapes usage, and step-by-step
                                     guide for adding a new locale key.
 
+  dialogs_INTERNALS.txt             Dialogs page module (toolbar index 4) —
+                                    InstallerDialogType enum (0–8) and row
+                                    visibility rules, installer-title section
+                                    (48×48 icon preview, OFN_EXPLORER .ico picker,
+                                    title edit field, IDLG_SetInstallerInfo /
+                                    IDLG_GetInstallerTitle / IDLG_GetInstallerIconPath),
+                                    control ID ranges (7000–7114), module-private
+                                    state variables, IDLG_OnCommand dispatch cases,
+                                    preview dialog PreviewWndProc (BS_PUSHBUTTON
+                                    ◀/▶ glyph buttons, MeasureButtonWidth sizing),
+                                    installer_dialogs DB schema and CRUD API,
+                                    mainwindow.cpp 6-point wiring checklist
+                                    (with mistake history), layout constants,
+                                    and full locale key table.
+
 ================================================================================

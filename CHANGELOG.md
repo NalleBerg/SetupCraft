@@ -2,6 +2,22 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.03.25.09] - 2026-03-25
+
+### Added
+- **Dialogs page — new module (`dialogs.h` / `dialogs.cpp`)**: Fully implemented installer-dialogs page at toolbar index 4. Renders one row per dialog type (Welcome, License, Dependencies, For Me/All Users, Components, Shortcuts, Ready to Install, Install, Finish) with a 32×32 shell32.dll icon, type name, "Edit Content…" button, and "Preview…" button per row. Conditional rows (Dependencies, For Me/All Users, Components, Shortcuts) appear only when the corresponding feature is enabled in the project. Control IDs 7000–7045.
+- **Installer title & icon section**: Panel at the top of the Dialogs page — 48×48 icon preview (default: shell32 #2), "Change Icon…" button (OFN_EXPLORER shell picker, *.ico only), and "Installer title:" edit field auto-filled from the project name. `IDLG_SetInstallerInfo()`, `IDLG_GetInstallerTitle()`, `IDLG_GetInstallerIconPath()` accessors for mainwindow—module seeding and persistence. Etched `SS_ETCHEDHORZ` divider separates the section from the dialog rows below.
+- **Preview dialog**: Read-only facsimile of an installer page — page title label, scrollable read-only RichEdit (pre-loaded from saved RTF or placeholder), and plain `BS_PUSHBUTTON` Back (`◀  Back`) / Next (`Next  ▶`) / Cancel buttons sized via `MeasureButtonWidth`. Back is disabled on the Welcome dialog.
+- **`installer_dialogs` DB table**: `(id PK, project_id, dialog_type INTEGER, content_rtf TEXT, UNIQUE(project_id, dialog_type))`. Three new `db.cpp` functions: `UpsertInstallerDialog`, `DeleteInstallerDialogsForProject`, `GetInstallerDialogsForProject`.
+- **New accessors**: `MainWindow::UseComponents()`, `MainWindow::AskAtInstallEnabled()`, `DEP_HasAny()`, `SC_HasOptOut()` — used by `IDLG_BuildPage` to compute row visibility.
+- **`dialogs_INTERNALS.txt`**: Architecture reference for the Dialogs page module. Registered in `API_list.txt`.
+- **Locale keys** (both `locale/en_GB.txt` copies): `idlg_page_title`, `idlg_btn_edit`, `idlg_btn_preview`, `idlg_btn_edit_tip`, `idlg_btn_preview_tip`, `idlg_change_icon`, `idlg_change_icon_tip`, `idlg_inst_title_label`, `idlg_name_*` (9 dialog type names), `idlg_edit_title`, `idlg_edit_save`, `idlg_edit_cancel`, `idlg_preview_caption`, `idlg_preview_no_content`, `idlg_preview_back`, `idlg_preview_next`, `idlg_preview_cancel`.
+
+### Fixed
+- **WM_DRAWITEM range for Dialogs page**: The main WndProc `WM_DRAWITEM` condition now covers `IDC_IDLG_ROW_BASE`…`+IDLG_COUNT*4` and `IDC_IDLG_INST_CHANGE_ICON`. Previously all row buttons rendered as blank grey rectangles.
+- **IDLG_OnCommand not dispatched**: `IDLG_OnCommand()` was never called from the main `WM_COMMAND` handler — all row buttons and the Change Icon button were silently dropped. Added the call alongside `SC_OnCommand` / `DEP_OnCommand`.
+- **Installer-title layout**: Label and edit field x-positions are now computed from the actual measured button width (`btnX + wChange + gap`) instead of hardcoded `S(220)` / `S(335)`, preventing truncation at any DPI or locale.
+
 ## [2026.03.24.10] - 2026-03-24
 
 ### Added

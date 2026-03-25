@@ -22,6 +22,7 @@
 #include "notes_editor.h"
 #include "shortcuts.h"
 #include "deps.h"
+#include "dialogs.h"
 #include <richedit.h>
 #include <commdlg.h>
 #include <fstream>
@@ -469,9 +470,15 @@ HWND MainWindow::Create(HINSTANCE hInstance, const ProjectRow &project, const st
     s_filesPageHasContent = false;
     SC_Reset();
     DEP_Reset();
+    IDLG_Reset();
     s_components.clear();   // load once here, never on page switch
     s_currentProject = project;
     s_locale = locale;
+
+    // Seed the installer-title section with the project name as default.
+    // IDLG_SetInstallerInfo must be called AFTER IDLG_Reset() and after
+    // s_currentProject is assigned so the name is available.
+    IDLG_SetInstallerInfo(project.name, L"");
 
     // Load components for existing projects into memory now.
     // They stay in memory for the lifetime of the project window;
@@ -481,8 +488,9 @@ HWND MainWindow::Create(HINSTANCE hInstance, const ProjectRow &project, const st
         for (auto& comp : s_components)
             if (comp.id > 0)
                 comp.dependencies = DB::GetDependenciesForComponent(comp.id);
-        SC_LoadFromDb(project.id);  // load shortcuts + menu nodes + opt-out flags
-        DEP_LoadFromDb(project.id);  // load external dependencies
+        SC_LoadFromDb(project.id);   // load shortcuts + menu nodes + opt-out flags
+        DEP_LoadFromDb(project.id);   // load external dependencies
+        IDLG_LoadFromDb(project.id);  // load installer dialog RTF content
     }
 
     // Restore ask-at-install preference for this project
@@ -1638,6 +1646,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
     // It lives in memory for the full project session and is only written
     // to DB on explicit Save (IDM_FILE_SAVE).  SwitchPage(9) reads it directly.
 
+    IDLG_TearDown(hwnd);
     SC_TearDown(hwnd);
     DEP_TearDown(hwnd);
 
@@ -2538,22 +2547,8 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
     }
     case 4: // Dialogs page
     {
-        s_hCurrentPage = CreateWindowExW(
-            0, L"STATIC", L"",
-            WS_CHILD | WS_VISIBLE,
-            0, pageY, rc.right, pageHeight,
-            hwnd, NULL, hInst, NULL);
-
-        HWND hTitle = CreateWindowExW(0, L"STATIC", L"Custom Dialogs",
-            WS_CHILD | WS_VISIBLE | SS_LEFT,
-            S(20), S(20), rc.right - S(40), S(38),
-            s_hCurrentPage, NULL, hInst, NULL);
-        if (s_hPageTitleFont) SendMessageW(hTitle, WM_SETFONT, (WPARAM)s_hPageTitleFont, TRUE);
-
-        CreateWindowExW(0, L"STATIC", L"Custom installer dialogs (welcome, license, finish, etc.) to be implemented",
-            WS_CHILD | WS_VISIBLE | SS_LEFT,
-            S(20), S(60), rc.right - S(40), S(20),
-            s_hCurrentPage, NULL, hInst, NULL);
+        IDLG_BuildPage(hwnd, hInst, pageY, rc.right,
+                       s_hPageTitleFont, s_hGuiFont, s_locale);
         break;
     }
     case 5: // Settings page
@@ -6967,6 +6962,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         int wmEvent = HIWORD(wParam);
         if (SC_OnCommand(hwnd, wmId, wmEvent, (HWND)lParam)) return 0;
         if (DEP_OnCommand(hwnd, wmId, wmEvent, (HWND)lParam)) return 0;
+        if (IDLG_OnCommand(hwnd, wmId, wmEvent, (HWND)lParam)) return 0;
 
         // Handle registry page field changes — persist values in statics so they
         // survive page switches (pages are destroyed/recreated on switch)
@@ -9138,9 +9134,11 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 
             s_hasUnsavedChanges = false;
             if (s_hStatus && IsWindow(s_hStatus)) InvalidateRect(s_hStatus, NULL, TRUE);
-            SC_SaveToDb(s_currentProject.id);  // persist shortcuts + menu nodes
+            SC_SaveToDb(s_currentProject.id);    // persist shortcuts + menu nodes
             DEP_SaveToDb(s_currentProject.id);    // persist external dependencies
             DEP_LoadFromDb(s_currentProject.id);  // refresh IDs from DB
+            IDLG_SaveToDb(s_currentProject.id);   // persist installer dialog content
+            IDLG_LoadFromDb(s_currentProject.id); // refresh from DB
             return 0;
         }
             
@@ -9627,7 +9625,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         HDC hdc = (HDC)wParam;
         HWND hControl = (HWND)lParam;
         int ctrlId = GetDlgCtrlID(hControl);
-        if (ctrlId == 5100 || ctrlId == 5300 || ctrlId == 5301 || ctrlId == 5302 || ctrlId == 5303 || ctrlId == 5304 || ctrlId == IDC_DEP_PAGE_TITLE) {  // page title statics (Files + Shortcuts + SC column headings + Dependencies)
+        if (ctrlId == 5100 || ctrlId == 5300 || ctrlId == 5301 || ctrlId == 5302 || ctrlId == 5303 || ctrlId == 5304 || ctrlId == IDC_DEP_PAGE_TITLE || ctrlId == IDC_IDLG_PAGE_TITLE) {  // page title statics (Files + Shortcuts + SC column headings + Dependencies + Dialogs)
             if (s_hPageTitleFont) SelectObject(hdc, s_hPageTitleFont);
         } else {
             if (s_hGuiFont) SelectObject(hdc, s_hGuiFont);
@@ -9733,7 +9731,9 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             (dis->CtlID >= IDC_COMP_ADD && dis->CtlID <= IDC_COMP_REMOVE) ||
             (dis->CtlID >= IDC_SC_DESKTOP_BTN && dis->CtlID <= IDC_SC_SM_REMOVE) ||
              dis->CtlID == IDC_SC_SM_ADDSC ||
-            (dis->CtlID >= IDC_DEP_ADD && dis->CtlID <= IDC_DEP_REMOVE)) {
+            (dis->CtlID >= IDC_DEP_ADD && dis->CtlID <= IDC_DEP_REMOVE) ||
+            (dis->CtlID >= IDC_IDLG_ROW_BASE && dis->CtlID < IDC_IDLG_ROW_BASE + IDLG_COUNT * 4) ||
+             dis->CtlID == IDC_IDLG_INST_CHANGE_ICON) {
             ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
             // Create bold font for buttons (scaled for DPI)
             HFONT hFont = CreateFontW(-S(12), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,

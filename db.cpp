@@ -179,6 +179,13 @@ bool DB::InitDb() {
         "sort_order INTEGER DEFAULT 0, "
         "rtf_text TEXT DEFAULT '');",
         NULL, NULL, &errmsg);
+    p_exec(db, "CREATE TABLE IF NOT EXISTS installer_dialogs ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "project_id INTEGER NOT NULL, "
+        "dialog_type INTEGER NOT NULL, "
+        "content_rtf TEXT DEFAULT '', "
+        "UNIQUE(project_id, dialog_type));",
+        NULL, NULL, &errmsg);
 
     // Check if projects table is empty, if so add SetupCraft project
     const char *countSql = "SELECT COUNT(*) FROM projects;";
@@ -1154,3 +1161,71 @@ std::vector<ExternalDep> DB::GetExternalDepsForProject(int projectId)
     return out;
 }
 
+// ── Installer dialog persistence ──────────────────────────────────────────────
+
+bool DB::UpsertInstallerDialog(int projectId, int dialogType, const std::wstring& rtf)
+{
+    std::wstring dbPath = GetAppDataDbPath();
+    std::string dbPathUtf8 = WToUtf8(dbPath);
+    void* db = NULL;
+    int flags = 0x00000002 | 0x00000004;
+    if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return false;
+    const char* sql =
+        "INSERT OR REPLACE INTO installer_dialogs (project_id, dialog_type, content_rtf) "
+        "VALUES (?, ?, ?);";
+    void* stmt = NULL;
+    if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return false; }
+    std::string sPid  = std::to_string(projectId);
+    std::string sType = std::to_string(dialogType);
+    std::string sRtf  = WToUtf8(rtf);
+    p_bind_text(stmt, 1, sPid.c_str(),  -1, NULL);
+    p_bind_text(stmt, 2, sType.c_str(), -1, NULL);
+    p_bind_text(stmt, 3, sRtf.c_str(),  -1, NULL);
+    p_step(stmt);
+    if (p_finalize) p_finalize(stmt);
+    p_close(db);
+    return true;
+}
+
+bool DB::DeleteInstallerDialogsForProject(int projectId)
+{
+    std::wstring dbPath = GetAppDataDbPath();
+    std::string dbPathUtf8 = WToUtf8(dbPath);
+    void* db = NULL;
+    int flags = 0x00000002 | 0x00000004;
+    if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return false;
+    const char* sql = "DELETE FROM installer_dialogs WHERE project_id=?;";
+    void* stmt = NULL;
+    if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return false; }
+    std::string sPid = std::to_string(projectId);
+    p_bind_text(stmt, 1, sPid.c_str(), -1, NULL);
+    p_step(stmt);
+    if (p_finalize) p_finalize(stmt);
+    p_close(db);
+    return true;
+}
+
+std::vector<std::pair<int,std::wstring>> DB::GetInstallerDialogsForProject(int projectId)
+{
+    std::vector<std::pair<int,std::wstring>> out;
+    std::wstring dbPath = GetAppDataDbPath();
+    std::string dbPathUtf8 = WToUtf8(dbPath);
+    void* db = NULL;
+    int flags = 0x00000002 | 0x00000004;
+    if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return out;
+    const char* sql =
+        "SELECT dialog_type, content_rtf FROM installer_dialogs "
+        "WHERE project_id=? ORDER BY dialog_type ASC;";
+    void* stmt = NULL;
+    if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return out; }
+    std::string sPid = std::to_string(projectId);
+    p_bind_text(stmt, 1, sPid.c_str(), -1, NULL);
+    while (p_step(stmt) == 100 /*SQLITE_ROW*/) {
+        int type = (int)p_col_int64(stmt, 0);
+        const unsigned char* c = p_col_text(stmt, 1);
+        out.push_back({ type, Utf8ToW(c ? (const char*)c : "") });
+    }
+    if (p_finalize) p_finalize(stmt);
+    p_close(db);
+    return out;
+}

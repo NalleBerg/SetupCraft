@@ -41,6 +41,9 @@ public:
     static HTREEITEM GetProgramFilesRoot()  { return s_hProgramFilesRoot; }
     static HTREEITEM GetProgramDataRoot()   { return s_hProgramDataRoot; }
     static HTREEITEM GetAppDataRoot()       { return s_hAppDataRoot; }
+    // Accessors for conditional dialog-row visibility (used by dialogs.cpp)
+    static bool UseComponents()       { return s_currentProject.use_components != 0; }
+    static bool AskAtInstallEnabled() { return s_askAtInstallEnabled; }
     static HTREEITEM AddTreeNode(HWND hTree, HTREEITEM hParent, const std::wstring &text, const std::wstring &fullPath);
     static void EnsureTreeSnapshotsFromDb();
     static const std::vector<TreeNodeSnapshot>& TreeSnapshot_ProgramFiles();

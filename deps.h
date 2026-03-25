@@ -104,6 +104,10 @@ struct ExternalDep {
 // Clear all in-memory dependency state (call on project open/close).
 void DEP_Reset();
 
+// Return true when the in-memory dependency list is non-empty.
+// Used by IDLG_BuildPage to decide whether to show the Dependencies dialog row.
+bool DEP_HasAny();
+
 // Build all page controls as children of hwnd.
 // pageY        — top of the available page area in hwnd's client coords.
 // clientWidth  — current client width of hwnd.

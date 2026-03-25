@@ -16,6 +16,8 @@ file(REMOVE_RECURSE
   "CMakeFiles/SkeletonApp.dir/dep_edit_dialog.cpp.obj.d"
   "CMakeFiles/SkeletonApp.dir/deps.cpp.obj"
   "CMakeFiles/SkeletonApp.dir/deps.cpp.obj.d"
+  "CMakeFiles/SkeletonApp.dir/dialogs.cpp.obj"
+  "CMakeFiles/SkeletonApp.dir/dialogs.cpp.obj.d"
   "CMakeFiles/SkeletonApp.dir/dpi.cpp.obj"
   "CMakeFiles/SkeletonApp.dir/dpi.cpp.obj.d"
   "CMakeFiles/SkeletonApp.dir/dragdrop.cpp.obj"

@@ -376,6 +376,33 @@ dep_dlg_edit_lic=Edit License…
 dep_lic_none=(no license)
 dep_lic_has_content=(formatted text — click Edit… to view)
 
+# Installer Dialogs page (page index 4)
+idlg_page_title=Installer Dialogs
+idlg_btn_edit=Edit Content…
+idlg_btn_preview=Preview…
+idlg_btn_edit_tip=Edit the content of this installer dialog
+idlg_btn_preview_tip=Preview this dialog as the end user will see it
+idlg_change_icon=Change Icon…
+idlg_change_icon_tip=Select a custom icon for the installer
+idlg_inst_title_label=Installer title:
+idlg_name_welcome=Welcome
+idlg_name_license=License
+idlg_name_dependencies=Dependencies
+idlg_name_for_me_all=For Me / All Users
+idlg_name_components=Components
+idlg_name_shortcuts=Shortcuts
+idlg_name_ready=Ready to Install
+idlg_name_install=Install
+idlg_name_finish=Finish
+idlg_edit_title=Edit Dialog Content
+idlg_edit_save=Save
+idlg_edit_cancel=Cancel
+idlg_preview_caption=Preview
+idlg_preview_no_content=(No content defined for this dialog yet)
+idlg_preview_back=Back
+idlg_preview_next=Next
+idlg_preview_cancel=Cancel
+
 # RTF editor toolbar tooltips and image picker
 rtfe_tip_bold=Bold  (Ctrl+B)
 rtfe_tip_italic=Italic  (Ctrl+I)

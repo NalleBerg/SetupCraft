@@ -98,6 +98,11 @@ void SC_Reset()
     s_scScrollOffset   = 0;
 }
 
+bool SC_HasOptOut()
+{
+    return s_scDesktopOptOut || s_scSmPinOptOut || s_scTbPinOptOut;
+}
+
 // Forward declaration — SC_RefreshDesktopStrip is defined after SC_DskMiniSubclassProc.
 void SC_RefreshDesktopStrip(HWND hwnd, HINSTANCE hInst);
 

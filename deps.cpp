@@ -174,6 +174,11 @@ void DEP_Reset()
     s_nextDepId  = 1;
 }
 
+bool DEP_HasAny()
+{
+    return !s_deps.empty();
+}
+
 // ── DEP_TearDown ──────────────────────────────────────────────────────────────
 
 void DEP_TearDown(HWND /*hwnd*/)

@@ -32,6 +32,7 @@ add_executable(SkeletonApp WIN32
     sc_shortcut_dialog.cpp
     deps.cpp
     dep_edit_dialog.cpp
+    dialogs.cpp
     vfs_picker.cpp
     ${RESOURCE_FILES}
 )
