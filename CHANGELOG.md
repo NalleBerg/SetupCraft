@@ -2,6 +2,22 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.03.25.15] - 2026-03-25
+
+### Added
+- **Preview dialog overhaul**: Style is now `WS_POPUP | WS_CAPTION` — no `WS_SYSMENU`, no × button (Alt+F4 still cancels). Title bar shows `{Installer title} — Preview — {Dialog name}`, updated on every navigation.
+- **Sizer panel (`IDLGSizerClass`)**: Floating tool window left of the preview with Width / Height spinners (200–1400 / 150–1000 logical px). Changes applied live: `EN_CHANGE` → `SetWindowPos` on preview → `WM_SIZE` → `LayoutPreviewControls`. Default 460×360 logical px; DPI-scaled via `S()` + `AdjustWindowRectEx`. Owned by the preview window so both sink behind other apps together; `WS_EX_TOOLWINDOW` keeps it off Alt+Tab.
+- **`LayoutPreviewControls()`**: New helper called from `WM_CREATE` and `WM_SIZE`. Positions type-title STATIC, RichEdit, and all three buttons from the live client rect; button widths remeasured on every call.
+- **Back / Next navigation**: `NextVisibleType()` / `PrevVisibleType()` skip invisible conditional types. Back disabled at first visible; Next becomes "Finish ✔" at last and closes on click. `NavigateTo()` re-streams RTF, updates title bar and heading.
+- **DB persistence for preview size**: `s_previewLogW` / `s_previewLogH` saved/loaded via `installer_preview_w_<id>` / `installer_preview_h_<id>` settings keys.
+- **New locale keys** (both `en_GB.txt` copies): `idlg_preview_finish`, `idlg_sizer_title`, `idlg_sizer_w_label`, `idlg_sizer_h_label`, `idlg_sizer_w_tip`, `idlg_sizer_h_tip`.
+- **New control IDs**: `IDC_IDLG_SZR_W_EDIT` / `W_SPIN` / `H_EDIT` / `H_SPIN` (7120–7123) in `dialogs.h`.
+- **Z-order / always-on-top policy**: New section in `dialog_INTERNALS.txt` — rule against `WS_EX_TOPMOST`, ownership-based Z-order pattern, `WS_EX_TOOLWINDOW` guidance, and audit checklist for the translation pass.
+
+### Fixed
+- **Back button had no text**: `LayoutPreviewControls` was missing `SetWindowTextW` for the Back button; label was blank after creation.
+- **Sizer was globally always-on-top**: Removed `WS_EX_TOPMOST`; owner changed from `hwndParent` to `hPreview` so the sizer stays above the preview without floating over unrelated apps.
+
 ## [2026.03.25.09] - 2026-03-25
 
 ### Added

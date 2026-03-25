@@ -401,7 +401,13 @@ idlg_preview_caption=Preview
 idlg_preview_no_content=(No content defined for this dialog yet)
 idlg_preview_back=Back
 idlg_preview_next=Next
+idlg_preview_finish=Finish
 idlg_preview_cancel=Cancel
+idlg_sizer_title=Dialog Size
+idlg_sizer_w_label=Width (px):
+idlg_sizer_h_label=Height (px):
+idlg_sizer_w_tip=Installer dialog width in logical pixels (96 dpi / 100% scaling). The preview scales to match your current display DPI.
+idlg_sizer_h_tip=Installer dialog height in logical pixels (96 dpi / 100% scaling). The preview scales to match your current display DPI.
 
 # RTF editor toolbar tooltips and image picker
 rtfe_tip_bold=Bold  (Ctrl+B)

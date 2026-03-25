@@ -171,16 +171,149 @@ static void StreamRtfIn(HWND hEdit, const std::wstring& wrtf)
 }
 
 // ── Preview dialog ────────────────────────────────────────────────────────────
-// A modal popup that shows an installer dialog exactly as the end user will
-// see it: page title, RTF content area, and Back / Next / Cancel buttons.
-// The Next button uses shell32.dll icon #137 drawn to the RIGHT of the text.
+// A modal popup that shows an installer dialog as the end user will see it.
+// A companion "sizer" panel (always-on-top, to the left) lets the developer
+// set the dialog dimensions; changes apply instantly via WM_SIZE relayout.
 
+// Per-project installer dialog preview dimensions (logical px at 96 dpi / 100%).
+// Persisted via DB::SetSetting; applied as S(value) so DPI is always correct.
+static int s_previewLogW = 460;
+static int s_previewLogH = 360;
+
+// Preview and sizer styles — defined once so AdjustWindowRectEx is consistent.
+static const DWORD kPreviewStyle   = WS_POPUP | WS_CAPTION; // no WS_SYSMENU → no ×
+static const DWORD kPreviewExStyle = WS_EX_DLGMODALFRAME;
+
+// Interior-HWND storage; set during WM_CREATE, used by layout/navigation helpers.
 struct PreviewData {
-    InstallerDialogType type;
+    InstallerDialogType type;        // currently displayed dialog type
     HFONT               hGuiFont;
     HFONT               hTitleFont;
-    bool                running;
+    bool                running;     // false → exit the modal loop
+    // Interior controls for relayout and navigation
+    HWND                hTypeTitle;  // dialog-type name STATIC at the top
+    HWND                hContent;    // RichEdit (content area)
+    HWND                hBack;       // Back button
+    HWND                hNext;       // Next / Finish button
+    HWND                hCancel;     // Cancel button
 };
+
+// Sizer panel data; GWLP_USERDATA on the sizer window.
+struct SizerData {
+    PreviewData* pd;          // pointer to the shared preview state
+    HWND         hPreview;    // preview window handle (set after creation)
+    HFONT        hFont;       // borrowed gui font — do NOT destroy
+    bool         ignoring;    // suppress EN_CHANGE during programmatic init
+};
+
+// ── Navigation helpers ────────────────────────────────────────────────────────
+
+static InstallerDialogType NextVisibleType(InstallerDialogType cur)
+{
+    for (int i = (int)cur + 1; i < IDLG_COUNT; i++)
+        if (IsDialogVisible((InstallerDialogType)i))
+            return (InstallerDialogType)i;
+    return cur; // already at the last visible
+}
+
+static InstallerDialogType PrevVisibleType(InstallerDialogType cur)
+{
+    for (int i = (int)cur - 1; i >= 0; i--)
+        if (IsDialogVisible((InstallerDialogType)i))
+            return (InstallerDialogType)i;
+    return cur; // already at the first visible
+}
+
+// ── Layout helper — positions all interior controls from the current client rect ──
+
+static void LayoutPreviewControls(HWND hwnd, PreviewData* pd)
+{
+    RECT rc; GetClientRect(hwnd, &rc);
+    int cW = rc.right, cH = rc.bottom;
+    const int pad    = S(16);
+    const int btnH   = S(30);
+    const int gap    = S(8);
+    const int titleH = S(36);
+    const int btnY   = cH - pad - btnH;
+
+    // Title label
+    if (pd->hTypeTitle && IsWindow(pd->hTypeTitle))
+        SetWindowPos(pd->hTypeTitle, NULL, pad, pad,
+                     cW - pad * 2, titleH, SWP_NOZORDER | SWP_NOACTIVATE);
+
+    // Content RichEdit
+    if (pd->hContent && IsWindow(pd->hContent)) {
+        int editY = pad + titleH + gap;
+        int editH = cH - editY - gap - btnH - pad;
+        SetWindowPos(pd->hContent, NULL, pad, editY,
+                     cW - pad * 2, editH, SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+
+    // Measure button widths for the current type (Next/Finish text may differ)
+    bool bIsFinish = (NextVisibleType(pd->type) == pd->type); // true = already at last
+    std::wstring backTxt   = L"\u25C0  " + L10n(L"idlg_preview_back",   L"Back");
+    std::wstring nextTxt   = bIsFinish
+        ? (L10n(L"idlg_preview_finish", L"Finish") + L"  \u2714")
+        : (L10n(L"idlg_preview_next",   L"Next")   + L"  \u25B6");
+    std::wstring cancelTxt = L10n(L"idlg_preview_cancel", L"Cancel");
+    int wBack   = MeasureButtonWidth(backTxt,   false) + S(8);
+    int wNext   = MeasureButtonWidth(nextTxt,   false) + S(8);
+    int wCancel = MeasureButtonWidth(cancelTxt, false) + S(8);
+
+    if (pd->hBack && IsWindow(pd->hBack)) {
+        SetWindowPos(pd->hBack, NULL, pad, btnY, wBack, btnH, SWP_NOZORDER | SWP_NOACTIVATE);
+        SetWindowTextW(pd->hBack, backTxt.c_str());
+        EnableWindow(pd->hBack, PrevVisibleType(pd->type) != pd->type ? TRUE : FALSE);
+    }
+    if (pd->hCancel && IsWindow(pd->hCancel))
+        SetWindowPos(pd->hCancel, NULL, cW - pad - wCancel, btnY,
+                     wCancel, btnH, SWP_NOZORDER | SWP_NOACTIVATE);
+    if (pd->hNext && IsWindow(pd->hNext)) {
+        SetWindowPos(pd->hNext, NULL, cW - pad - wCancel - gap - wNext, btnY,
+                     wNext, btnH, SWP_NOZORDER | SWP_NOACTIVATE);
+        SetWindowTextW(pd->hNext, nextTxt.c_str());
+    }
+}
+
+// ── Navigation — update content and UI for a new dialog type ─────────────────
+
+static void NavigateTo(HWND hwnd, PreviewData* pd, InstallerDialogType newType)
+{
+    pd->type = newType;
+
+    // Window caption: "{Installer title} — Preview — {Dialog name}"
+    std::wstring dlgName = L10n(kDialogNameKeys[(int)newType], kDialogNameFallbacks[(int)newType]);
+    std::wstring caption = s_installTitle + L"  \u2014  "
+        + L10n(L"idlg_preview_caption", L"Preview") + L"  \u2014  " + dlgName;
+    SetWindowTextW(hwnd, caption.c_str());
+
+    // Update the heading label inside the window
+    if (pd->hTypeTitle) SetWindowTextW(pd->hTypeTitle, dlgName.c_str());
+
+    // Re-stream RTF (must be writable during EM_STREAMIN)
+    if (pd->hContent) {
+        SendMessageW(pd->hContent, EM_SETREADONLY, FALSE, 0);
+        // Clear existing content
+        SendMessageW(pd->hContent, EM_SETSEL, 0, (LPARAM)-1);
+        SendMessageW(pd->hContent, EM_REPLACESEL, FALSE, (LPARAM)L"");
+
+        const std::wstring& rtf = s_dialogs[(int)newType].content_rtf;
+        if (!rtf.empty()) {
+            StreamRtfIn(pd->hContent, rtf);
+        } else {
+            std::wstring ph = L10n(L"idlg_preview_no_content", L"(No content defined for this dialog yet)");
+            SetWindowTextW(pd->hContent, ph.c_str());
+        }
+        SendMessageW(pd->hContent, EM_SETREADONLY, TRUE, 0);
+        SendMessageW(pd->hContent, EM_SETSEL, 0, 0);
+        SendMessageW(pd->hContent, EM_SCROLLCARET, 0, 0);
+    }
+
+    // Reposition buttons (text and enable state may have changed)
+    LayoutPreviewControls(hwnd, pd);
+}
+
+// ── Preview window proc ───────────────────────────────────────────────────────
 
 static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
@@ -204,95 +337,96 @@ static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
             (s_hRe && GetClassInfoExW(s_hRe, L"RICHEDIT50W", &wce))
             ? L"RICHEDIT50W" : L"RichEdit20W";
 
-        RECT rc; GetClientRect(hwnd, &rc);
-        int cW  = rc.right;
-        int cH  = rc.bottom;
-        int pad = S(16);
-        int btnH = S(30);
-        int gap  = S(8);
-        int titleH = S(36);
-
-        // Page title label (shows dialog type name at the top)
-        std::wstring titleTxt = L10n(kDialogNameKeys[(int)pd->type],
-                                     kDialogNameFallbacks[(int)pd->type]);
-        HWND hTitle = CreateWindowExW(0, L"STATIC", titleTxt.c_str(),
+        // Create all interior controls at placeholder positions; LayoutPreviewControls
+        // will position them correctly immediately afterwards.
+        std::wstring dlgName = L10n(kDialogNameKeys[(int)pd->type],
+                                    kDialogNameFallbacks[(int)pd->type]);
+        pd->hTypeTitle = CreateWindowExW(0, L"STATIC", dlgName.c_str(),
             WS_CHILD | WS_VISIBLE | SS_LEFT,
-            pad, pad, cW - pad * 2, titleH,
-            hwnd, NULL, cs->hInstance, NULL);
-        if (pd->hTitleFont) SendMessageW(hTitle, WM_SETFONT, (WPARAM)pd->hTitleFont, TRUE);
+            0, 0, 10, 10, hwnd, NULL, cs->hInstance, NULL);
+        if (pd->hTitleFont) SendMessageW(pd->hTypeTitle, WM_SETFONT, (WPARAM)pd->hTitleFont, TRUE);
 
-        // Read-only RichEdit for content
-        int editY = pad + titleH + gap;
-        int editH = cH - editY - gap - btnH - pad;
-        HWND hEdit = CreateWindowExW(WS_EX_CLIENTEDGE, reClass, L"",
-            WS_CHILD | WS_VISIBLE | WS_VSCROLL |
-            ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL,
-            pad, editY, cW - pad * 2, editH,
+        // RichEdit — created writable so EM_STREAMIN works; made read-only after.
+        pd->hContent = CreateWindowExW(WS_EX_CLIENTEDGE, reClass, L"",
+            WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_AUTOVSCROLL,
+            0, 0, 10, 10,
             hwnd, (HMENU)(UINT_PTR)IDC_IDLG_PRV_CONTENT, cs->hInstance, NULL);
-        if (pd->hGuiFont) SendMessageW(hEdit, WM_SETFONT, (WPARAM)pd->hGuiFont, TRUE);
-        SendMessageW(hEdit, EM_SETBKGNDCOLOR, 0, RGB(255, 255, 255));
+        if (pd->hGuiFont) SendMessageW(pd->hContent, WM_SETFONT, (WPARAM)pd->hGuiFont, TRUE);
+        SendMessageW(pd->hContent, EM_SETBKGNDCOLOR, 0, RGB(255, 255, 255));
 
-        // Stream in saved RTF, or show placeholder
         const std::wstring& rtf = s_dialogs[(int)pd->type].content_rtf;
         if (!rtf.empty()) {
-            StreamRtfIn(hEdit, rtf);
+            StreamRtfIn(pd->hContent, rtf);
         } else {
-            std::wstring placeholder =
-                L10n(L"idlg_preview_no_content", L"(No content defined for this dialog yet)");
-            SetWindowTextW(hEdit, placeholder.c_str());
+            SetWindowTextW(pd->hContent,
+                L10n(L"idlg_preview_no_content", L"(No content defined for this dialog yet)").c_str());
         }
+        SendMessageW(pd->hContent, EM_SETREADONLY, TRUE, 0);
+        SendMessageW(pd->hContent, EM_SETSEL, 0, 0);
+        SendMessageW(pd->hContent, EM_SCROLLCARET, 0, 0);
 
-        // Bottom button row — y aligned to bottom of client area
-        int btnY = cH - pad - btnH;
-
-        // Measure button widths from their text
-        std::wstring backTxt   = L"\u25C0  " + L10n(L"idlg_preview_back",   L"Back");
-        std::wstring nextTxt   = L10n(L"idlg_preview_next",   L"Next") + L"  \u25B6";
-        std::wstring cancelTxt = L10n(L"idlg_preview_cancel", L"Cancel");
-        int wBack   = MeasureButtonWidth(backTxt,   false);
-        int wNext   = MeasureButtonWidth(nextTxt,   false);
-        int wCancel = MeasureButtonWidth(cancelTxt, false);
-
-        // Back (disabled for Welcome)
-        HWND hBack = CreateWindowExW(0, L"BUTTON",
-            backTxt.c_str(),
-            WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-            pad, btnY, wBack, btnH,
+        // Buttons — text will be updated by LayoutPreviewControls anyway.
+        pd->hBack = CreateWindowExW(0, L"BUTTON", L"",
+            WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 10, 10,
             hwnd, (HMENU)(UINT_PTR)IDC_IDLG_PRV_BACK, cs->hInstance, NULL);
-        if (pd->hGuiFont) SendMessageW(hBack, WM_SETFONT, (WPARAM)pd->hGuiFont, TRUE);
-        EnableWindow(hBack, pd->type != IDLG_WELCOME ? TRUE : FALSE);
+        if (pd->hGuiFont) SendMessageW(pd->hBack, WM_SETFONT, (WPARAM)pd->hGuiFont, TRUE);
 
-        // Cancel (far right)
-        HWND hCancel = CreateWindowExW(0, L"BUTTON",
-            cancelTxt.c_str(),
-            WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-            cW - pad - wCancel, btnY, wCancel, btnH,
-            hwnd, (HMENU)(UINT_PTR)IDC_IDLG_PRV_CANCEL, cs->hInstance, NULL);
-        if (pd->hGuiFont) SendMessageW(hCancel, WM_SETFONT, (WPARAM)pd->hGuiFont, TRUE);
-
-        // Next (placed between Back and Cancel)
-        HWND hNext = CreateWindowExW(0, L"BUTTON",
-            nextTxt.c_str(),
-            WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-            cW - pad - wCancel - gap - wNext, btnY, wNext, btnH,
+        pd->hNext = CreateWindowExW(0, L"BUTTON", L"",
+            WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 10, 10,
             hwnd, (HMENU)(UINT_PTR)IDC_IDLG_PRV_NEXT, cs->hInstance, NULL);
-        if (pd->hGuiFont) SendMessageW(hNext, WM_SETFONT, (WPARAM)pd->hGuiFont, TRUE);
+        if (pd->hGuiFont) SendMessageW(pd->hNext, WM_SETFONT, (WPARAM)pd->hGuiFont, TRUE);
+
+        pd->hCancel = CreateWindowExW(0, L"BUTTON", L"",
+            WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 10, 10,
+            hwnd, (HMENU)(UINT_PTR)IDC_IDLG_PRV_CANCEL, cs->hInstance, NULL);
+        if (pd->hGuiFont) SendMessageW(pd->hCancel, WM_SETFONT, (WPARAM)pd->hGuiFont, TRUE);
+        std::wstring cancelTxt = L10n(L"idlg_preview_cancel", L"Cancel");
+        SetWindowTextW(pd->hCancel, cancelTxt.c_str());
+
+        // Final layout pass positions all controls correctly.
+        LayoutPreviewControls(hwnd, pd);
         return 0;
     }
 
+    case WM_SIZE:
+        // Triggered both by the user resizing (if WS_THICKFRAME is added later)
+        // and by the sizer panel calling SetWindowPos on the preview window.
+        if (pd) LayoutPreviewControls(hwnd, pd);
+        return 0;
+
     case WM_COMMAND: {
         int id = LOWORD(wParam);
-        if (id == IDC_IDLG_PRV_BACK  ||
-            id == IDC_IDLG_PRV_NEXT  ||
-            id == IDC_IDLG_PRV_CANCEL)
-        {
-            if (pd) pd->running = false;
+        if (!pd) return 0;
+
+        if (id == IDC_IDLG_PRV_BACK) {
+            // Navigate to the previous visible dialog type.
+            InstallerDialogType prev = PrevVisibleType(pd->type);
+            if (prev != pd->type) NavigateTo(hwnd, pd, prev);
+            return 0;
+        }
+        if (id == IDC_IDLG_PRV_NEXT) {
+            // Navigate to the next visible dialog type; close when already at last.
+            InstallerDialogType next = NextVisibleType(pd->type);
+            if (next == pd->type) {
+                // At Finish — treat button click as closing the preview.
+                pd->running = false;
+                DestroyWindow(hwnd);
+            } else {
+                NavigateTo(hwnd, pd, next);
+            }
+            return 0;
+        }
+        if (id == IDC_IDLG_PRV_CANCEL) {
+            pd->running = false;
             DestroyWindow(hwnd);
+            return 0;
         }
         return 0;
     }
 
     case WM_CLOSE:
+        // No WS_SYSMENU means no × button, but WM_CLOSE can still arrive via
+        // Alt+F4, so honour it by treating it the same as Cancel.
         if (pd) pd->running = false;
         DestroyWindow(hwnd);
         return 0;
@@ -304,69 +438,294 @@ static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
     return DefWindowProcW(hwnd, msg, wParam, lParam);
 }
 
+// ── Sizer panel ───────────────────────────────────────────────────────────────
+// A small always-on-top floating window with Width and Height spinners.
+// Changes to either value immediately resize the preview window so the
+// developer sees the result in real time.
+
+// Forward declaration so SizerWndProc can call it.
+static void ResizePreview(SizerData* sd, int logW, int logH);
+
+static LRESULT CALLBACK SizerWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    SizerData* sd = (SizerData*)(LONG_PTR)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+
+    switch (msg) {
+    case WM_CREATE: {
+        CREATESTRUCTW* cs = (CREATESTRUCTW*)lParam;
+        sd = (SizerData*)cs->lpCreateParams;
+        if (!sd) return -1;
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)sd);
+
+        // Require InitCommonControlsEx for UPDOWN_CLASS registration.
+        INITCOMMONCONTROLSEX icc = { sizeof(icc), ICC_UPDOWN_CLASS };
+        InitCommonControlsEx(&icc);
+
+        HFONT hF = sd->hFont;
+        HINSTANCE hI = cs->hInstance;
+        const int pad  = S(10);
+        const int lblW = S(80);
+        const int edW  = S(52);
+        const int spW  = S(18);
+        const int rowH = S(22);
+        const int gap  = S(8);
+        int y = pad;
+
+        // Row 1: Width
+        HWND hWL = CreateWindowExW(0, L"STATIC",
+            L10n(L"idlg_sizer_w_label", L"Width (px):").c_str(),
+            WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
+            pad, y, lblW, rowH, hwnd, NULL, hI, NULL);
+        if (hF) SendMessageW(hWL, WM_SETFONT, (WPARAM)hF, TRUE);
+
+        HWND hWE = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
+            WS_CHILD | WS_VISIBLE | ES_NUMBER | ES_RIGHT,
+            pad + lblW + gap, y, edW, rowH,
+            hwnd, (HMENU)(UINT_PTR)IDC_IDLG_SZR_W_EDIT, hI, NULL);
+        if (hF) SendMessageW(hWE, WM_SETFONT, (WPARAM)hF, TRUE);
+
+        HWND hWS = CreateWindowExW(0, UPDOWN_CLASSW, L"",
+            WS_CHILD | WS_VISIBLE | UDS_SETBUDDYINT | UDS_ALIGNRIGHT | UDS_ARROWKEYS | UDS_HOTTRACK,
+            0, 0, spW, rowH,
+            hwnd, (HMENU)(UINT_PTR)IDC_IDLG_SZR_W_SPIN, hI, NULL);
+        SendMessageW(hWS, UDM_SETBUDDY,   (WPARAM)hWE,  0);
+        SendMessageW(hWS, UDM_SETRANGE32, 200,           1400);
+        sd->ignoring = true;
+        SendMessageW(hWS, UDM_SETPOS32,   0, (LPARAM)s_previewLogW);
+        sd->ignoring = false;
+
+        y += rowH + gap;
+
+        // Row 2: Height
+        HWND hHL = CreateWindowExW(0, L"STATIC",
+            L10n(L"idlg_sizer_h_label", L"Height (px):").c_str(),
+            WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
+            pad, y, lblW, rowH, hwnd, NULL, hI, NULL);
+        if (hF) SendMessageW(hHL, WM_SETFONT, (WPARAM)hF, TRUE);
+
+        HWND hHE = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
+            WS_CHILD | WS_VISIBLE | ES_NUMBER | ES_RIGHT,
+            pad + lblW + gap, y, edW, rowH,
+            hwnd, (HMENU)(UINT_PTR)IDC_IDLG_SZR_H_EDIT, hI, NULL);
+        if (hF) SendMessageW(hHE, WM_SETFONT, (WPARAM)hF, TRUE);
+
+        HWND hHS = CreateWindowExW(0, UPDOWN_CLASSW, L"",
+            WS_CHILD | WS_VISIBLE | UDS_SETBUDDYINT | UDS_ALIGNRIGHT | UDS_ARROWKEYS | UDS_HOTTRACK,
+            0, 0, spW, rowH,
+            hwnd, (HMENU)(UINT_PTR)IDC_IDLG_SZR_H_SPIN, hI, NULL);
+        SendMessageW(hHS, UDM_SETBUDDY,   (WPARAM)hHE,  0);
+        SendMessageW(hHS, UDM_SETRANGE32, 150,           1000);
+        sd->ignoring = true;
+        SendMessageW(hHS, UDM_SETPOS32,   0, (LPARAM)s_previewLogH);
+        sd->ignoring = false;
+
+        // Tooltips on the edit fields
+        HWND hTT = CreateWindowExW(0, TOOLTIPS_CLASSW, NULL,
+            WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX,
+            CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
+            hwnd, NULL, hI, NULL);
+        SendMessageW(hTT, TTM_SETMAXTIPWIDTH, 0, S(280));
+
+        TOOLINFOW ti = {}; ti.cbSize = sizeof(ti); ti.uFlags = TTF_IDISHWND | TTF_SUBCLASS;
+        ti.hwnd = hwnd;
+
+        std::wstring wTip = L10n(L"idlg_sizer_w_tip",
+            L"Installer dialog width in logical pixels (96 dpi / 100% scaling).\n"
+            L"The preview scales automatically to match your current display DPI.");
+        ti.uId = (UINT_PTR)hWE;
+        ti.lpszText = const_cast<wchar_t*>(wTip.c_str());
+        SendMessageW(hTT, TTM_ADDTOOLW, 0, (LPARAM)&ti);
+
+        std::wstring hTip = L10n(L"idlg_sizer_h_tip",
+            L"Installer dialog height in logical pixels (96 dpi / 100% scaling).\n"
+            L"The preview scales automatically to match your current display DPI.");
+        ti.uId = (UINT_PTR)hHE;
+        ti.lpszText = const_cast<wchar_t*>(hTip.c_str());
+        SendMessageW(hTT, TTM_ADDTOOLW, 0, (LPARAM)&ti);
+
+        return 0;
+    }
+
+    case WM_COMMAND: {
+        if (!sd || sd->ignoring) return 0;
+        int id    = LOWORD(wParam);
+        int event = HIWORD(wParam);
+        if ((id == IDC_IDLG_SZR_W_EDIT || id == IDC_IDLG_SZR_H_EDIT) && event == EN_CHANGE) {
+            // Read both values; clamp; update globals; resize preview.
+            HWND hWE = GetDlgItem(hwnd, IDC_IDLG_SZR_W_EDIT);
+            HWND hHE = GetDlgItem(hwnd, IDC_IDLG_SZR_H_EDIT);
+            wchar_t buf[16];
+            GetWindowTextW(hWE, buf, _countof(buf));  int newW = _wtoi(buf);
+            GetWindowTextW(hHE, buf, _countof(buf));  int newH = _wtoi(buf);
+            // Only act on valid non-zero values to avoid thrashing on empty edit.
+            if (newW >= 200 && newH >= 150) {
+                newW = std::min(newW, 1400);
+                newH = std::min(newH, 1000);
+                s_previewLogW = newW;
+                s_previewLogH = newH;
+                if (sd->hPreview && IsWindow(sd->hPreview))
+                    ResizePreview(sd, newW, newH);
+                MainWindow::MarkAsModified();
+            }
+        }
+        return 0;
+    }
+
+    case WM_CLOSE:
+        // Sizer cannot be closed independently; it closes with the preview.
+        return 0;
+
+    case WM_DESTROY:
+        return 0;
+    }
+
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+// Resize the preview window to logical dimensions logW × logH (at 96 dpi).
+// The sizer calls this on every EN_CHANGE; WM_SIZE on the preview then
+// calls LayoutPreviewControls automatically.
+static void ResizePreview(SizerData* sd, int logW, int logH)
+{
+    RECT adj = { 0, 0, S(logW), S(logH) };
+    AdjustWindowRectEx(&adj, kPreviewStyle, FALSE, kPreviewExStyle);
+    SetWindowPos(sd->hPreview, NULL, 0, 0,
+                 adj.right - adj.left, adj.bottom - adj.top,
+                 SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+}
+
+// ── ShowPreviewDialog ─────────────────────────────────────────────────────────
+
 static void ShowPreviewDialog(HWND hwndParent, InstallerDialogType type)
 {
-    // Register the window class once.
-    static bool s_classRegistered = false;
-    if (!s_classRegistered) {
+    // Register window classes once per process.
+    static bool s_classesOk = false;
+    if (!s_classesOk) {
         WNDCLASSEXW wc = {};
-        wc.cbSize        = sizeof(wc);
-        wc.lpfnWndProc   = PreviewWndProc;
+        wc.cbSize = sizeof(wc);
         wc.hInstance     = s_hInst;
         wc.hCursor       = LoadCursor(NULL, IDC_ARROW);
         wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+
+        wc.lpfnWndProc   = PreviewWndProc;
         wc.lpszClassName = L"IDLGPreviewClass";
         RegisterClassExW(&wc);
-        s_classRegistered = true;
+
+        wc.lpfnWndProc   = SizerWndProc;
+        wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
+        wc.lpszClassName = L"IDLGSizerClass";
+        RegisterClassExW(&wc);
+
+        s_classesOk = true;
     }
 
-    PreviewData pd    = {};
-    pd.type           = type;
-    pd.hGuiFont       = s_hGuiFont;
-    pd.hTitleFont     = s_hTitleFont;
-    pd.running        = true;
-
-    // Client area target
-    const DWORD style   = WS_POPUP | WS_CAPTION | WS_SYSMENU;
-    const DWORD exStyle = WS_EX_DLGMODALFRAME;
-    int clientW = S(460);
-    int clientH = S(360);
-    RECT rcAdj = { 0, 0, clientW, clientH };
-    AdjustWindowRectEx(&rcAdj, style, FALSE, exStyle);
+    // ── Compute preview outer size ────────────────────────────────────────────
+    RECT rcAdj = { 0, 0, S(s_previewLogW), S(s_previewLogH) };
+    AdjustWindowRectEx(&rcAdj, kPreviewStyle, FALSE, kPreviewExStyle);
     int wndW = rcAdj.right  - rcAdj.left;
     int wndH = rcAdj.bottom - rcAdj.top;
 
-    // Centre over parent
+    // ── Compute sizer outer size ──────────────────────────────────────────────
+    const DWORD sizerStyle   = WS_POPUP | WS_CAPTION | WS_BORDER;
+    // WS_EX_TOOLWINDOW keeps sizer off Alt+Tab. No WS_EX_TOPMOST — we want
+    // the sizer to stay above the preview (achieved by ownership) but NOT
+    // float above unrelated apps when the developer switches programs.
+    const DWORD sizerExStyle = WS_EX_TOOLWINDOW;
+    RECT rcSz = { 0, 0, S(165), S(82) };
+    AdjustWindowRectEx(&rcSz, sizerStyle, FALSE, sizerExStyle);
+    int szW = rcSz.right  - rcSz.left;
+    int szH = rcSz.bottom - rcSz.top;
+
+    // ── Position both windows (preview centred; sizer to its left) ────────────
     RECT rcParent; GetWindowRect(hwndParent, &rcParent);
-    int x = rcParent.left + (rcParent.right  - rcParent.left - wndW) / 2;
-    int y = rcParent.top  + (rcParent.bottom - rcParent.top  - wndH) / 2;
+    int px = rcParent.left + (rcParent.right  - rcParent.left - wndW) / 2;
+    int py = rcParent.top  + (rcParent.bottom - rcParent.top  - wndH) / 2;
+    // Clamp preview to work area
+    MONITORINFO mi = {}; mi.cbSize = sizeof(mi);
+    HMONITOR hMon = MonitorFromWindow(hwndParent, MONITOR_DEFAULTTONEAREST);
+    if (hMon && GetMonitorInfoW(hMon, &mi)) {
+        RECT& wa = mi.rcWork;
+        if (px + wndW > wa.right)  px = wa.right  - wndW;
+        if (py + wndH > wa.bottom) py = wa.bottom - wndH;
+        if (px < wa.left)  px = wa.left;
+        if (py < wa.top)   py = wa.top;
+    }
+    int sxX = px - S(8) - szW; // sizer to the left of preview
+    int sxY = py;               // aligned to preview top
 
-    // Window caption: "Preview — <dialog type name>"
+    // ── Installer icon for the preview title bar ──────────────────────────────
+    wchar_t sysDir[MAX_PATH];
+    GetSystemDirectoryW(sysDir, _countof(sysDir));
+    std::wstring shell32Path = std::wstring(sysDir) + L"\\shell32.dll";
+    int szSm = GetSystemMetrics(SM_CXSMICON);
+    int szLg = GetSystemMetrics(SM_CXICON);
+    HICON hSmIcon = NULL, hLgIcon = NULL;
+    if (!s_installIconPath.empty()) {
+        hSmIcon = (HICON)LoadImageW(NULL, s_installIconPath.c_str(),
+            IMAGE_ICON, szSm, szSm, LR_LOADFROMFILE);
+        hLgIcon = (HICON)LoadImageW(NULL, s_installIconPath.c_str(),
+            IMAGE_ICON, szLg, szLg, LR_LOADFROMFILE);
+    }
+    if (!hSmIcon) PrivateExtractIconsW(shell32Path.c_str(), 2, szSm, szSm, &hSmIcon, NULL, 1, 0);
+    if (!hLgIcon) PrivateExtractIconsW(shell32Path.c_str(), 2, szLg, szLg, &hLgIcon, NULL, 1, 0);
+
+    // ── Create preview ────────────────────────────────────────────────────────
+    PreviewData pd = {};
+    pd.type      = type;
+    pd.hGuiFont  = s_hGuiFont;
+    pd.hTitleFont = s_hTitleFont;
+    pd.running   = true;
+
+    // Window caption: "{Installer title} — Preview — {Dialog name}"
     std::wstring dlgName = L10n(kDialogNameKeys[(int)type], kDialogNameFallbacks[(int)type]);
-    std::wstring caption = L10n(L"idlg_preview_caption", L"Preview") + L" — " + dlgName;
+    std::wstring caption = s_installTitle + L"  \u2014  "
+        + L10n(L"idlg_preview_caption", L"Preview") + L"  \u2014  " + dlgName;
 
-    HWND hPreview = CreateWindowExW(exStyle,
-        L"IDLGPreviewClass", caption.c_str(), style,
-        x, y, wndW, wndH,
-        hwndParent, NULL, s_hInst, &pd);
-    if (!hPreview) return;
+    HWND hPreview = CreateWindowExW(kPreviewExStyle,
+        L"IDLGPreviewClass", caption.c_str(), kPreviewStyle,
+        px, py, wndW, wndH, hwndParent, NULL, s_hInst, &pd);
+    if (!hPreview) { if (hSmIcon) DestroyIcon(hSmIcon); if (hLgIcon) DestroyIcon(hLgIcon); return; }
+
+    if (hSmIcon) SendMessageW(hPreview, WM_SETICON, ICON_SMALL, (LPARAM)hSmIcon);
+    if (hLgIcon) SendMessageW(hPreview, WM_SETICON, ICON_BIG,   (LPARAM)hLgIcon);
+
+    // ── Create sizer ──────────────────────────────────────────────────────────
+    SizerData sd  = {};
+    sd.pd         = &pd;
+    sd.hPreview   = hPreview;
+    sd.hFont      = s_hGuiFont;
+    sd.ignoring   = false;
+
+    std::wstring sizerCaption = L10n(L"idlg_sizer_title", L"Dialog Size");
+    // Owner = hPreview: Windows guarantees owned popups are Z-ordered above
+    // their owner, so the sizer stays above the preview without being globally
+    // always-on-top.  When the preview is behind another app, so is the sizer.
+    HWND hSizer = CreateWindowExW(sizerExStyle,
+        L"IDLGSizerClass", sizerCaption.c_str(), sizerStyle,
+        sxX, sxY, szW, szH, hPreview, NULL, s_hInst, &sd);
+    if (!hSizer) hSizer = NULL; // non-fatal; preview works without the sizer
 
     ShowWindow(hPreview, SW_SHOW);
     UpdateWindow(hPreview);
+    if (hSizer) { ShowWindow(hSizer, SW_SHOW); UpdateWindow(hSizer); }
 
-    // Disable parent for modal behaviour
     EnableWindow(hwndParent, FALSE);
 
     MSG m;
     while (pd.running && GetMessageW(&m, NULL, 0, 0) > 0) {
-        if (!IsDialogMessageW(hPreview, &m)) {
-            TranslateMessage(&m);
-            DispatchMessageW(&m);
-        }
+        bool handled = false;
+        if (hSizer && IsWindow(hSizer) && IsDialogMessageW(hSizer,   &m)) handled = true;
+        if (!handled && IsWindow(hPreview) && IsDialogMessageW(hPreview, &m)) handled = true;
+        if (!handled) { TranslateMessage(&m); DispatchMessageW(&m); }
     }
+
+    if (hSizer  && IsWindow(hSizer))  DestroyWindow(hSizer);
+    if (hPreview && IsWindow(hPreview)) DestroyWindow(hPreview);
 
     EnableWindow(hwndParent, TRUE);
     SetForegroundWindow(hwndParent);
+    if (hSmIcon) DestroyIcon(hSmIcon);
+    if (hLgIcon) DestroyIcon(hLgIcon);
 }
 
 // ── IDLG_Reset ────────────────────────────────────────────────────────────────
@@ -677,6 +1036,14 @@ void IDLG_SaveToDb(int projectId)
     for (int i = 0; i < IDLG_COUNT; i++) {
         DB::UpsertInstallerDialog(projectId, i, s_dialogs[i].content_rtf);
     }
+
+    // Persist installer title and icon path using the project-scoped settings
+    // pattern (same scheme as ask_at_install_<id>, last_picker_folder_<id>, etc.).
+    std::wstring pid = std::to_wstring(projectId);
+    DB::SetSetting(L"installer_title_" + pid, s_installTitle);
+    DB::SetSetting(L"installer_icon_"  + pid, s_installIconPath);
+    DB::SetSetting(L"installer_preview_w_" + pid, std::to_wstring(s_previewLogW));
+    DB::SetSetting(L"installer_preview_h_" + pid, std::to_wstring(s_previewLogH));
 }
 
 // ── IDLG_LoadFromDb ───────────────────────────────────────────────────────────
@@ -694,6 +1061,19 @@ void IDLG_LoadFromDb(int projectId)
         if (row.first >= 0 && row.first < IDLG_COUNT)
             s_dialogs[row.first].content_rtf = row.second;
     }
+
+    // Restore installer title and icon path saved during the last explicit Save.
+    // Only override if a value was actually stored (preserves the default project
+    // name on the very first open before a Save has occurred).
+    std::wstring pid = std::to_wstring(projectId);
+    std::wstring savedTitle, savedIcon;
+    if (DB::GetSetting(L"installer_title_" + pid, savedTitle))
+        s_installTitle = savedTitle;
+    if (DB::GetSetting(L"installer_icon_"  + pid, savedIcon))
+        s_installIconPath = savedIcon;
+    std::wstring sPrevW, sPrevH;
+    if (DB::GetSetting(L"installer_preview_w_" + pid, sPrevW) && !sPrevW.empty()) s_previewLogW = _wtoi(sPrevW.c_str());
+    if (DB::GetSetting(L"installer_preview_h_" + pid, sPrevH) && !sPrevH.empty()) s_previewLogH = _wtoi(sPrevH.c_str());
 }
 
 // ── IDLG_SetInstallerInfo ─────────────────────────────────────────────────────

@@ -66,10 +66,19 @@ struct InstallerDialog {
 #define IDC_IDLG_ROW_BASE    7010
 
 // Preview dialog internal controls (range 7100–7109)
-#define IDC_IDLG_PRV_CONTENT 7100   // read-only RichEdit showing content
-#define IDC_IDLG_PRV_BACK    7101   // "< Back" button (disabled for Welcome)
-#define IDC_IDLG_PRV_NEXT    7102   // "Next >" button
-#define IDC_IDLG_PRV_CANCEL  7103   // "Cancel" button
+#define IDC_IDLG_PRV_CONTENT 7100   // RichEdit showing dialog content
+#define IDC_IDLG_PRV_BACK    7101   // "◀ Back" button (disabled on first visible dialog)
+#define IDC_IDLG_PRV_NEXT    7102   // "Next ▶" / "Finish ✔" navigation button
+#define IDC_IDLG_PRV_CANCEL  7103   // "Cancel" — closes preview
+
+// Preview size panel ("sizer") controls (range 7120–7129)
+// A small always-on-top floating panel to the left of the preview that lets
+// the developer set the installer dialog dimensions (stored to DB on project
+// Save; applied as S(value) so the preview always reflects the current DPI).
+#define IDC_IDLG_SZR_W_EDIT  7120   // width buddy edit
+#define IDC_IDLG_SZR_W_SPIN  7121   // width up-down spinner
+#define IDC_IDLG_SZR_H_EDIT  7122   // height buddy edit
+#define IDC_IDLG_SZR_H_SPIN  7123   // height up-down spinner
 
 // Installer-title section controls (range 7110–7119)
 // Displayed at the top of the Dialogs page, above the dialog-type rows.

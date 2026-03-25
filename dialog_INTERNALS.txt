@@ -184,6 +184,71 @@ This must be added to every dialogs that uses COLOR_WINDOW as its background
 and contains STATIC child controls. Affected dialogs: RegKeyDialogProc.
 
 ================================================================================
+Z-ORDER / ALWAYS-ON-TOP POLICY
+================================================================================
+
+THE BUG
+-------
+Many dialogs in the codebase were (or still are) created with WS_EX_TOPMOST.
+That flag makes the window float above every other application globally, which
+is annoying for the developer: switching to a browser, IDE, or file explorer
+while SetupCraft is open leaves the dialog stuck on screen in front of everything.
+
+THE RULE
+--------
+  *** Never use WS_EX_TOPMOST on any SetupCraft dialog or floating panel. ***
+
+The correct way to ensure a dialog stays above its own parent window without
+being globally always-on-top is OWNERSHIP:
+
+  CreateWindowExW(exStyle,
+      className, caption, style,
+      x, y, w, h,
+      hwndOwner,   // <-- pass the PARENT / OPENER window here
+      NULL, hInst, &data);
+
+An owned popup is guaranteed by Windows to be Z-ordered above its owner at all
+times, but it sinks below unrelated applications when the owner loses focus.
+This is the standard behavior the user expects.
+
+WHEN THE SIZER/PANEL MUST FLOAT ABOVE A PREVIEW WINDOW
+-------------------------------------------------------
+If a small floating panel (e.g. the sizer for the dialog preview) needs to stay
+above the preview window itself, make the PREVIEW window the owner of the panel,
+not the main window:
+
+  HWND hSizer = CreateWindowExW(WS_EX_TOOLWINDOW,   // off Alt+Tab, no TOPMOST
+      L"IDLGSizerClass", caption, style,
+      x, y, w, h,
+      hPreview,    // owner = preview, not hwndParent
+      NULL, hInst, &sd);
+
+  Chain of ownership: main window → preview → sizer panel
+  Z-order result:     sizer > preview > main window
+  When app goes to background: all three sink together
+
+WS_EX_TOOLWINDOW
+----------------
+This flag is acceptable and encouraged for small helper panels (like the sizer).
+It keeps the window off the taskbar and Alt+Tab list without affecting Z-order
+relative to other applications.
+
+AUDIT CHECKLIST (to be done before translation / final release)
+--------------------------------------------------------------
+Search the entire codebase for WS_EX_TOPMOST and verify every occurrence:
+
+  grep -rn "WS_EX_TOPMOST" *.cpp *.h
+
+For each hit, either:
+  a) Remove it and rely on ownership for correct Z-order (preferred), or
+  b) If a truly global top-most window is genuinely needed, leave a comment
+     explaining WHY.
+
+Known occurrences to check:
+  - dialogs.cpp  SizerWndProc / ShowPreviewDialog  → FIXED (ownership used)
+  - (add others here as they are found)
+
+================================================================================
 PITFALLS
 ================================================================================
 

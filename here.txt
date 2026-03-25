@@ -1,360 +1,194 @@
-========================================================================
-  SetupCraft — Session State & Where We Are
-  Written: 20.03.2026 — End of session v2026.03.20.11
-========================================================================
-
-── LAST COMPLETED FEATURE: Dependencies page + edit dialog ─────────────
-
-  Files created this session:
-    deps.h               — ExternalDep struct, enums, control IDs, public API
-    deps.cpp             — Full page: ListView, 3 buttons, subclass, CRUD
-    dep_edit_dialog.h    — Dialog header + control IDs 401–418
-    dep_edit_dialog.cpp  — Full modal edit dialog (measure-then-create)
-    deps_INTERNALS.txt   — Architecture reference doc
-
-  Changes to existing files:
-    mainwindow.cpp       — 9 wiring points (include, Reset, Load, TearDown,
-                           SwitchPage case 3, WM_DRAWITEM, WM_NOTIFY,
-                           WM_COMMAND, IDM_FILE_SAVE)
-    db.h / db.cpp        — external_deps table + 3 CRUD functions
-    locale/en_GB.txt     — ~50 dep_* locale keys added
-    CMakeLists.txt       — deps.cpp + dep_edit_dialog.cpp added
-    API_list.txt         — deps_INTERNALS.txt entry added
-
-── WHAT WORKS ───────────────────────────────────────────────────────────
-
-  Dependencies page (page index 3, IDC_TB_ADD_DEPEND → SwitchPage(3)):
-    - ListView with 4 columns: Name / Delivery / Required / Detection
-    - Add (Green), Edit (Blue, disabled until selection), Remove (Red, disabled)
-    - Right-click context menu on ListView rows (Edit… / Remove)
-    - Double-click row opens Edit dialog
-    - All state in-memory (s_deps vector); persisted to DB on Save
-
-  Edit dialog (DEP_EditDialog):
-    - Modal, measure-then-create, scrollable (WS_VSCROLL + WM_VSCROLL +
-      WM_MOUSEWHEEL), height clamped to work area so it never exceeds screen
-    - Fields: Display name, Delivery combo, Required checkbox,
-      Architecture combo (Any / x64 / ARM64 — x86 removed),
-      Install order, Detection section (reg key + file path + min version),
-      Network section (URL + silent args + SHA-256 + offline combo,
-      conditionally shown based on delivery type),
-      License section (path + Browse…), Credits, Instructions (multiline)
-    - Delivery CBN_SELCHANGE hides/shows URL/sha256/silent-args/offline rows
-    - Esc key and X button both dismiss cleanly
-    - WM_CTLCOLORSTATIC — white background for all static labels
-    - WM_DRAWITEM — custom buttons + checkbox draw correctly
-
-── LAYOUT ISSUES NOTED (to fix next session) ───────────────────────────
-
-  1. NETWORK SECTION IS BLANK WHEN DELIVERY = BUNDLED
-     The URL / silent-args / SHA-256 / offline-combo rows are hidden for
-     "Bundled" delivery — that's correct. But there is a big empty gap where
-     they would appear, making the scroll content look broken.
-     Fix: move the network controls' positions UP immediately after
-     UpdateVisibility hides them, or use a layout re-flow that collapses
-     the gap. Best approach: recalculate y positions dynamically in
-     UpdateVisibility rather than just show/hide.
-
-  2. DIALOG TITLE BAR SAYS "Edit Dependency" EVEN FOR ADD
-     When opened from the Add button the title should say "Add Dependency"
-     or read from dep_dialog_title_add locale key. Currently both Add and
-     Edit paths supply the same dep_dialog_title key.
-     Fix: pass a bool isAdd to DEP_EditDialog or add a second locale key
-     dep_dialog_title_add.
-
-  3. LICENSE SECTION STILL FEELS FAR DOWN
-     The fixed gap between Network (even when hidden) and License is ~8
-     rows of space. Needs the scroll/collapse fix from item 1 above.
-
-── ARCHITECTURE: DETECTION PICKERS — NEXT STEP ─────────────────────────
-
-  Registry key picker (IDC_DEPDLG_DETECT_REG row):
-    Use the native Windows registry UI approach:
-      - Small "Browse…" button next to the detect-reg edit (same
-        pattern as the license browse button on the same dialog).
-      - Open a custom tree dialog (new file: reg_picker_dialog.cpp/.h)
-        that shows HKLM\SOFTWARE (64-bit view via KEY_WOW64_64KEY) as
-        a TreeView.  User navigates; clicking OK pastes the key path
-        into the edit field.
-      - Edit field remains editable — user can also paste manually.
-      - App is 64-bit only: always use KEY_WOW64_64KEY, show only
-        HKLM\SOFTWARE subkeys.  No HKCU, no 32-bit view.
-    Control IDs to add (in dep_edit_dialog.h):
-      IDC_DEPDLG_DETECT_REG_BROWSE  419
-
-  File path picker (IDC_DEPDLG_DETECT_FILE row):
-    Use the existing VFS picker (ShowVfsPicker) — same pattern as
-    the shortcut dialog «Browse» for exe files, but allow any file type.
-    Control IDs to add:
-      IDC_DEPDLG_DETECT_FILE_BROWSE  420
-
-  Both pickers:
-    - Edit field is editable/pasteable whether or not Browse is used.
-    - Browse button uses shell32.dll icon index 4 (file-open folder icon,
-      same as shortcut dialog browse buttons) — width S(28) to keep compact.
-    - Height measurement for both rows changes from DD_EDIT_H to
-      DD_EDIT_H (edit fills remaining width), browse button same height.
-
-── ARCHITECTURE: SCROLLBAR REFINEMENTS ─────────────────────────────────
-
-  WM_VSCROLL child-scroll approach (currently in dep_edit_dialog.cpp):
-    Moving ALL children works but can cause combo-box dropdowns to be
-    positioned incorrectly when the user has scrolled.  The standard Win32
-    fix is to use a scrollable container HWND (a plain child STATIC with
-    WS_CLIPCHILDREN) and put all controls inside it; scrolling then moves
-    just the container.  Mark this as a known limitation for now.
-
-── DB CHANGES THIS SESSION ──────────────────────────────────────────────
-
-  New table: external_deps  (18 data columns + AUTOINCREMENT PK + FK)
-  New functions in db.h/.cpp:
-    DB::InsertExternalDep(projectId, dep) → int (new id)
-    DB::GetExternalDepsForProject(projectId) → vector<ExternalDep>
-    DB::DeleteExternalDepsForProject(projectId) → bool
-
-── ENUM CHANGES THIS SESSION ────────────────────────────────────────────
-
-  DepArch (deps.h):
-    DA_ANY   = 0
-    DA_X64   = 1
-    DA_ARM64 = 2   ← was 3; DA_X86 (was 2) removed entirely
-  ExternalDep.architecture default changed: DA_ANY → DA_X64
-
-── NEXT STEPS (in order) ────────────────────────────────────────────────
-
-  1. Layout collapse fix — UpdateVisibility should reflow y-positions of
-     all controls below the hidden rows so there is no dead space.
-     (This requires keeping track of control positions in a small struct
-     or using a container HWND approach.)
-
-  2. Registry key picker dialog (reg_picker_dialog.h / .cpp):
-     - TreeView of HKLM\SOFTWARE (KEY_WOW64_64KEY)
-     - Modal, same measure-then-create pattern
-     - Returns selected key path as wstring
-     - Add entry to API_list.txt as reg_picker_API.txt or _INTERNALS.txt
-
-  3. File path picker — wire ShowVfsPicker to IDC_DEPDLG_DETECT_FILE_BROWSE.
-
-  4. Add/Edit dialog title distinction (dep_dialog_title_add locale key).
-
-  5. When the dep page is working end-to-end, bump version + push to GitHub.
-
-── RULES REMINDER ───────────────────────────────────────────────────────
-
-  - makeit.bat — NO parameters
-  - S() for all pixel values
-  - All strings through locale map
-  - Modular: every page/dialog gets .h + .cpp + _INTERNALS.txt or _API.txt
-  - Always check API_list.txt before coding
-  - No GitHub push until user says so
-  - No magic numbers
-
-========================================================================
-
-    WHAT WORKS:
-      - Full page layout: Desktop button + opt-out checkbox, Start Menu &
-        Programs TreeView, Add Subfolder / Remove buttons, Pin to Start,
-        Pin to Taskbar.
-      - TreeView: inline label editing (TVS_EDITLABELS), fixed root +
-        Programs nodes cannot be renamed/deleted, user subfolders can.
-      - Right-click on tree: context menu with Add Subfolder / Remove.
-      - Right-click on row buttons: grayed «Configure shortcut…» stub
-        (handler in place, dialog deferred).
-      - Image list with shell32 closed/open folder icons (32×32),
-        stored as window property "hScSmTreeIL", destroyed on teardown.
-      - All state in-memory; SC_Reset() called on project open/close.
-      - Clean compile, no warnings.
-
-    DOCUMENTED IN:
-      shortcuts.h, shortcuts.cpp, shortcuts_INTERNALS.txt
-
- 2. Components page Required-icon state — marked DONE in ToDo.txt
-
- 3. ToDo.txt updated:
-      - Item 2 (Components Required) → DONE
-      - Item 1 (Shortcut config dialog) → added at top, full spec
-      - Item 5 (APPDATA/home install location) → added, spec written
-
-── KNOWN VISUAL BUGS TO FIX NEXT SESSION ────────────────────────
-
- A. TREE NOT CENTERED IN ITS BOX
-    The TreeView is positioned at treeX = (clientWidth - treeW) / 2
-    in shortcuts.cpp but is not visually centered.
-    Likely cause: clientWidth passed to SC_BuildPage is rc.right from
-    GetClientRect(hwnd) which includes any chrome area.
-    Fix: verify the correct usable-area width and re-check treeX.
-
- B. NO ICONS ON ADD SUBFOLDER / REMOVE BUTTONS
-    Icon indices shell32 #296 (add folder) and #234 (remove) are correct
-    for the Files page, but the buttons appear without icons here.
-    Likely cause: CreateCustomButtonWithIcon receives the bare string
-    L"shell32.dll" instead of the full system path built by
-    GetSystemDirectoryW (shell32Path[] is already available in SC_BuildPage).
-    Fix: pass shell32Path to CreateCustomButtonWithIcon for these two buttons.
-
- C. "START MENU & PROGRAMS" LABEL NOT BOLD
-    SC_BuildPage passes hPageTitleFont to the SS_CENTER STATIC, but
-    WM_CTLCOLORSTATIC only applies hPageTitleFont to IDs 5100 and 5300.
-    The section label has no assigned control ID.
-    Fix: assign a control ID (e.g. 5301) to the section label and add
-    it to the WM_CTLCOLORSTATIC check in mainwindow.cpp.
-
-── NEXT MAJOR FEATURE (ToDo Item 1) ────────────────────────────────
-
- Shortcut config dialog (SC_EditShortcutDialog in shortcuts.cpp):
-   - Name field (pre-filled from exe filename, editable)
-   - «Run as administrator» checkbox
-   - 48×48 icon preview area + «Change Icon…» (ExtractIconExW picker)
-   - For Start Menu nodes: read-only folder path label
-   - OK / Cancel, tooltips on everything
-   - On OK: populate s_scShortcuts, call MainWindow::MarkAsModified()
-   - Un-grey IDM_SC_CTX_EDIT_SC right-click item when done
-
-── OTHER OPEN ITEMS (ToDo.txt) ───────────────────────────────────
-
-  Item 3 — Quit/close should use Unsaved Changes dialog (NOT STARTED)
-  Item 4 — Update Registry value when Publisher changes (NOT STARTED)
-  Item 5 — Per-user (APPDATA/home) install location support (NOT STARTED)
-
-========================================================================
-
-── FEATURES COMPLETE (built, working) ──────────────────────────────────
-
- 1. Component dependencies panel inside the folder-edit dialog
-    (v2026.03.16.09, with partial fixes applied in same session)
-
-    WHAT WORKS:
-      - Two-column ListView (Name | Type) showing current deps.
-      - Hover tooltip: file rows show virtual path; folder rows show
-        "Double-click to see files".
-      - Double-click on a folder dep row opens ShowDepsFileListPopup
-        (blocking window with a VFS file-tree of that dep folder).
-      - Remove button (shell32 #131, red) cascade-removes selected deps
-        AND any covered file deps under them.
-        Enabled only when rows are selected (LVN_ITEMCHANGED).
-      - Choose button (shell32 #87, blue) opens the dep-picker tree.
-      - Right-click context menu: Remove + "Show files…".
-      - Folder-coverage filter (file deps under a folder dep are hidden
-        but kept in memory).
-
-    DOCUMENTED IN:
-      comp_deps_INTERNALS.txt, button_rightclick_combo_INTERNALS.txt
-      (both in API_list.txt).
-
-    PARTIAL FIXES APPLIED THIS SESSION:
-      Fix A — Excluded folder's children now visible in picker:
-        addVFS had `continue` for the excluded node, skipping its
-        entire subtree.  Fixed to recurse into children:
-          addVFS(hParent, snap.children, secLabel); continue;
-
-      Fix B — Dep init reads from memory, never falls back to DB:
-        fd.initDependencyIds = cmp.dependencies directly (in-memory).
-
-      Fix C — "Choose" after auto-save opens picker immediately:
-        anyUnsaved block previously returned 0 after rebuilding
-        otherComponents.  Now falls through, and outDependencyIds is
-        cleared so stale pre-save IDs are not carried over.
-
-── FEATURE IN PROGRESS — DEP PERSISTENCE (STILL BROKEN) ────────────────
-
- SYMPTOM:
-   User picks a folder in the dep picker, clicks OK, sees it in the
-   dep list — but closing and reopening the folder-edit dialog shows
-   an empty list.
-
- ROOT CAUSE (confirmed):
-   CollectAllFiles (IDC_COMP_ENABLE auto-populate) creates only
-   source_type="file" rows. No source_type="folder" rows are ever
-   auto-created.
-
-   addVFS in the dep picker searches for source_type="folder" comps.
-   None found → lp = -2 for all folder nodes.
-
-   Picker OK handler only collects items where tv.lParam > 0.
-   Folder nodes with lp == -2 are silently dropped from outDeps.
-   outDeps is empty → nothing written → deps gone on reopen.
-
- THE FIX (four changes to mainwindow.cpp):
-
- CHANGE 1 — CompFolderDepPickerData struct (~line 4421):
-   Add a folderSnapMap field:
-     std::map<HTREEITEM, const TreeNodeSnapshot*> folderSnapMap;
-
- CHANGE 2 — addVFS lambda in WM_CREATE (~line 4739):
-   After inserting the folder HTREEITEM hNode, add:
-     if (hNode) pData->folderSnapMap[hNode] = &snap;
-
- CHANGE 3 — OK handler in IDC_FDDP_OK (~line 4856):
-   After the existing `if (lp > 0) { ... }` block, add:
-     } else if (lp == -2) {
-       auto it = pData->folderSnapMap.find(hItem);
-       if (it != pData->folderSnapMap.end() && it->second) {
-         const TreeNodeSnapshot* fs = it->second;
-         if (!fs->fullPath.empty() && pData->projectId > 0) {
-           int foundId = 0;
-           for (const auto& c : s_components)
-             if (c.source_type == L"folder" &&
-                 _wcsicmp(c.source_path.c_str(), fs->fullPath.c_str()) == 0)
-               { foundId = c.id; break; }
-           if (foundId == 0) {
-             ComponentRow nc;
-             nc.project_id  = pData->projectId;
-             nc.display_name = fs->text.empty() ? fs->fullPath : fs->text;
-             nc.source_type = L"folder";
-             nc.source_path = fs->fullPath;
-             int newId = DB::InsertComponent(nc);
-             if (newId > 0) { nc.id = newId; s_components.push_back(nc); foundId = newId; }
-           }
-           if (foundId > 0) pData->outDeps.push_back(foundId);
-         }
-       }
-     }
-
- CHANGE 4 — After picker closes in IDC_FOLDER_DLG_CHOOSE_DEPS (~line 5654):
-   After `pData->outDependencyIds = pickerData.outDeps;`, rebuild
-   otherComponents so that any newly created folder-type comps appear
-   in the dep listbox:
-     {
-       const std::wstring& exPath =
-           pData->excludeNode ? pData->excludeNode->fullPath : L"";
-       pData->otherComponents.clear();
-       for (const auto& oc : s_components) {
-         if (!exPath.empty()) {
-           if (oc.source_path == exPath) continue;
-           if (oc.source_path.size() > exPath.size() &&
-               _wcsnicmp(oc.source_path.c_str(), exPath.c_str(),
-                         exPath.size()) == 0 &&
-               (oc.source_path[exPath.size()] == L'\\' ||
-                oc.source_path[exPath.size()] == L'/')) continue;
-         }
-         pData->otherComponents.push_back(oc);
-       }
-     }
-
- IMPORTANT: The anyUnsaved guard (before picker opens) already ensures
-   projectId > 0 when there are unsaved comps, so DB::InsertComponent
-   in Change 3 is safe for the normal case.
-
-── FEATURES COMPLETE EARLIER (all committed) ────────────────────────────
-
- v2026.03.08.09 — Close Project toolbar button
- v2026.03.08.10 — Picker last-folder memory per project
- v2026.03.13.x  — Components in-memory architecture, Required flag,
-                   dep picker, pre-selected checkbox
- v2026.03.14.08 — Required flag fully persistent after Files page edits
- v2026.03.15.x  — Dep picker AskAtInstall populated, info icon, UX fixes
- v2026.03.16.08 — Components enable checkbox, i18n save dialog
- v2026.03.16.09 — Dep-summary panel UI (ListView, tooltip, dblclick,
-                   Remove/Choose, context menu, folder-coverage filter)
-                   Docs: comp_deps_INTERNALS.txt, btn_rightclick_combo
-
-── PENDING / REMINDERS ─────────────────────────────────────────────────
-
- - Entry page: tooltip support and encoding issues (not started)
- - Drag-and-drop: subclass-based implementation plan from old here.txt
-   (still in git history if needed)
-
-========================================================================
-  END OF SESSION STATE
-========================================================================
-
+================================================================================
+  Session State — SetupCraft
+  Version: 2026.03.25.15  |  Published: 25.03.2026 15:30
+  Commit : (see git log — pushed end of session 25.03.2026)
+================================================================================
+
+------------------------------------------------------------------------
+COMPLETED THIS SESSION (25.03.2026)
+------------------------------------------------------------------------
+
+ [OK]  Preview dialog overhaul:
+         - Style: WS_POPUP | WS_CAPTION (no WS_SYSMENU = no x button; Alt+F4 = cancel)
+         - Title bar: "{Installer title}  —  Preview  —  {Dialog name}", updated
+           on every navigation step
+         - PreviewData struct expanded with interior HWNDs (hTypeTitle, hContent,
+           hBack, hNext, hCancel)
+         - WM_SIZE handler calls LayoutPreviewControls for live relayout
+
+ [OK]  LayoutPreviewControls() helper:
+         - Called from both WM_CREATE and WM_SIZE
+         - Positions all controls from the live client rect using named constants
+         - Measures Back/Next/Cancel button widths via MeasureButtonWidth on every call
+         - Sets Back button text (was missing = blank button bug, now fixed)
+         - Sets Next text: "Finish ✔" when at last visible type, "Next ▶" otherwise
+         - EnableWindow(hBack, ...) based on PrevVisibleType
+
+ [OK]  Back / Next navigation:
+         - NextVisibleType() / PrevVisibleType() skip hidden conditional types
+         - NavigateTo(): re-streams RTF, updates title bar + heading, calls Layout
+         - Back disabled at first visible; Next becomes Finish at last, closes on click
+
+ [OK]  Sizer panel (IDLGSizerClass):
+         - Floating WS_EX_TOOLWINDOW popup, owned by hPreview (not hwndParent)
+         - Width spinner (200-1400) + Height spinner (150-1000) logical px
+         - EN_CHANGE -> ResizePreview() -> SetWindowPos on preview -> WM_SIZE -> Layout
+         - Positioned left of preview; if no room it can overlap (developer can move it)
+         - Sinking: preview + sizer go behind other apps together (no WS_EX_TOPMOST)
+
+ [OK]  DB persistence for preview size:
+         - s_previewLogW / s_previewLogH (defaults 460x360)
+         - Saved via installer_preview_w_<id> / installer_preview_h_<id>
+         - Loaded in IDLG_LoadFromDb
+
+ [OK]  New control IDs in dialogs.h:
+         IDC_IDLG_SZR_W_EDIT = 7120, W_SPIN = 7121, H_EDIT = 7122, H_SPIN = 7123
+
+ [OK]  New locale keys (both en_GB.txt copies):
+         idlg_preview_finish, idlg_sizer_title, idlg_sizer_w_label,
+         idlg_sizer_h_label, idlg_sizer_w_tip, idlg_sizer_h_tip
+
+ [OK]  Z-order / always-on-top policy documented in dialog_INTERNALS.txt:
+         - Rule: never use WS_EX_TOPMOST
+         - Pattern: ownership for intra-app Z-order (owned popup > owner)
+         - Chained ownership: main -> preview -> sizer
+         - Audit checklist (grep WS_EX_TOPMOST) for translation pass
+         - API_list.txt description updated for dialog_INTERNALS.txt
+
+ [OK]  Bugs fixed this session:
+         - Back button text was blank (LayoutPreviewControls missing SetWindowTextW)
+         - Sizer was globally always-on-top (WS_EX_TOPMOST removed, owner = hPreview)
+
+ [OK]  Built clean (v2026.03.25.15), changelog / README / here.txt updated,
+       committed and pushed to main.
+
+------------------------------------------------------------------------
+KNOWN GAPS / NEXT SESSION
+------------------------------------------------------------------------
+
+  AUDIT:  Search for WS_EX_TOPMOST across the codebase before translation.
+          dialog_INTERNALS.txt Z-order section has the checklist and grep command.
+          The sizer is the only known case and is already fixed.
+
+  NORMAL WORK:  No known bugs. Dialogs page is feature-complete.
+                Next session: user will decide what to work on next.
+
+------------------------------------------------------------------------
+ACTIVE PAGES AT THIS POINT
+------------------------------------------------------------------------
+
+  Toolbar index 0: Files          [DONE] complete
+  Toolbar index 1: Components     [DONE] complete
+  Toolbar index 2: Registry       [DONE] complete
+  Toolbar index 3: Shortcuts      [DONE] complete
+  Toolbar index 4: Dependencies   [DONE] complete
+  Toolbar index 5: Dialogs        [DONE] complete
+
+------------------------------------------------------------------------
+KEY MODULE FACTS (quick reference)
+------------------------------------------------------------------------
+
+  dialogs.h / dialogs.cpp
+    s_previewLogW / s_previewLogH  — module-level preview dimensions (logical px)
+    PreviewData struct             — type, fonts, running flag, interior HWNDs
+    SizerData struct               — pd ptr, hPreview, hFont, ignoring flag
+    LayoutPreviewControls(hwnd,pd) — called from WM_CREATE + WM_SIZE
+    NavigateTo(hwnd,pd,type)       — navigation + RTF re-stream
+    NextVisibleType / PrevVisibleType — skip hidden types
+    ResizePreview(sd,logW,logH)    — called from sizer EN_CHANGE
+
+  Control ID ranges:
+    IDC_IDLG_PAGE_TITLE  = 7000
+    IDC_IDLG_ROW_BASE    = 7010  (stride 4, up to 7045 for IDLG_COUNT=9 rows)
+    IDC_IDLG_PRV_*       = 7100-7103  (CONTENT / BACK / NEXT / CANCEL)
+    IDC_IDLG_INST_*      = 7110-7113  (ICON_PREVIEW / CHANGE_ICON / TITLE_LABEL / TITLE_EDIT)
+    IDC_IDLG_SZR_*       = 7120-7123  (W_EDIT / W_SPIN / H_EDIT / H_SPIN)
+
+  DB settings keys (project-scoped, key = name + "_" + projectId):
+    installer_title_<id>       — installer window title text
+    installer_icon_<id>        — path to .ico file
+    installer_preview_w_<id>   — preview width  (logical px)
+    installer_preview_h_<id>   — preview height (logical px)
+
+================================================================================
+================================================================================
+
+------------------------------------------------------------------------
+COMPLETED THIS SESSION
+------------------------------------------------------------------------
+
+ [OK]  Dialogs page fully implemented (dialogs.h / dialogs.cpp):
+         - 9 dialog-type rows, each with shell32 icon + name + Edit Content... + Preview...
+         - Conditional rows (Dependencies, For Me/All Users, Components, Shortcuts)
+           shown iff the corresponding feature is enabled
+         - Installer-title section at top: 48x48 icon preview (shell32 #2 default),
+           Change Icon... button (OFN_EXPLORER, *.ico only), Installer title: edit field
+           auto-filled from project name + SS_ETCHEDHORZ divider
+         - Preview dialog: read-only RichEdit + Back / Next / Cancel buttons
+           (plain BS_PUSHBUTTON with Unicode triangle glyphs, sized via MeasureButtonWidth)
+         - installer_dialogs DB table + 3 CRUD functions
+         - IDLG_SaveToDb / IDLG_LoadFromDb / IDLG_Reset / IDLG_TearDown lifecycle
+         - IDLG_SetInstallerInfo / IDLG_GetInstallerTitle / IDLG_GetInstallerIconPath
+
+ [OK]  WM_DRAWITEM range extended for IDC_IDLG_ROW_BASE..+IDLG_COUNT*4 and
+       IDC_IDLG_INST_CHANGE_ICON -- button rendering was blank grey before this fix.
+
+ [OK]  IDLG_OnCommand wired into mainwindow.cpp WM_COMMAND dispatch (was absent;
+       all IDLG button clicks were silently dropped).
+
+ [OK]  SetButtonTooltip added to every Edit Content... and Preview... row button.
+
+ [OK]  Dynamic layout for installer-title section (no hardcoded x values).
+
+ [OK]  dialogs_INTERNALS.txt created; registered in API_list.txt.
+
+ [OK]  CHANGELOG.md, Changelog.html, README.md updated to v2026.03.25.09.
+
+ [OK]  Built clean, committed (e2bdc1d), pushed to main.
+
+------------------------------------------------------------------------
+KNOWN GAP -- carry into next session
+------------------------------------------------------------------------
+
+  installer_title and installer_icon_path are NOT yet persisted to the DB.
+  Accessors IDLG_GetInstallerTitle() and IDLG_GetInstallerIconPath() are ready.
+  Still needed:
+    - Add two columns to the projects table (or dedicated settings store):
+      installer_title TEXT, installer_icon_path TEXT.
+    - Call accessors from IDM_FILE_SAVE handler and seed from DB in project-open.
+
+------------------------------------------------------------------------
+NEXT SESSION -- suggested work order
+------------------------------------------------------------------------
+
+  1. DB persistence for installer title + icon path (see KNOWN GAP above).
+
+  2. Welcome dialog content editor -- wire "Edit Content..." on IDT_WELCOME to
+     open OpenRtfEditor() and persist via IDLG_SaveToDb on save.
+     Verify round-trip: edit -> save -> close -> reopen -> content restored.
+
+  3. Work through remaining 8 dialog types in the same way (License, etc.).
+
+  4. Preview dialog polish:
+       - Populate RichEdit from DB-loaded RTF if available.
+       - Custom background colour + optional banner strip to match real installer.
+
+  5. Full integration test of the Change Icon... picker end-to-end:
+       - Pick a custom icon, save, close project, reopen -> icon still showing.
+
+------------------------------------------------------------------------
+ACTIVE PAGES AT THIS POINT
+------------------------------------------------------------------------
+
+  Toolbar index 0: Files          [DONE] complete
+  Toolbar index 1: Components     [DONE] complete
+  Toolbar index 2: Registry       [DONE] complete
+  Toolbar index 3: Shortcuts      [DONE] complete
+  Toolbar index 4: Dependencies   [DONE] complete
+  Toolbar index 5: Dialogs        [DONE] UI complete  [!] DB persistence partial
+  Toolbar index 6: Settings       [ ] not started
+  Toolbar index 7: Scripts        [ ] not started
+  Toolbar index 8: Test           [ ] not started
+  Toolbar index 9: Build          [ ] not started
+
+================================================================================

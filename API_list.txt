@@ -41,8 +41,11 @@
                                     dynamic sizing pattern, layout constants,
                                     ExpandEscapes / MeasureDialogTextHeight helpers,
                                     AdjustWindowRectEx sizing recipe, WM_CREATE
-                                    GetClientRect layout, and per-dialog status
-                                    (which dialogs have been converted).
+                                    GetClientRect layout, per-dialog status
+                                    (which dialogs have been converted), and
+                                    Z-order / always-on-top policy (no WS_EX_TOPMOST;
+                                    use ownership for intra-app Z-order; audit
+                                    checklist for translation pass).
 
   edit_rtf_API.txt                  General-purpose resizable RTF editor modal —
                                     OpenRtfEditor() API, RtfEditorData struct,
