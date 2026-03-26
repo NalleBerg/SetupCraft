@@ -80,6 +80,15 @@
   Per-row cached icons (freed in TearDown):
     static HICON s_hRowIcons[IDLG_COUNT]
 
+  Preview persistence (logical px at 96 dpi; restored in IDLG_LoadFromDb):
+    static int  s_previewLogW      = 460   // installer_preview_w_<id>
+    static int  s_previewLogH      = 360   // installer_preview_h_<id>
+    static bool s_previewUserSized = false // installer_preview_user_sized_<id>
+      // True once the developer has adjusted the preview via the sizer.
+      // When true, AutoFitComponentHeight is skipped so the chosen size
+      // is never overwritten by automatic layout calculations.
+      // Reset to false by IDLG_Reset() on project switch / new project.
+
   Active control HWNDs (valid between BuildPage and TearDown):
     static HWND s_hRowIcon[IDLG_COUNT]
     static HWND s_hRowName[IDLG_COUNT]
@@ -154,23 +163,71 @@
        Creates PreviewWndProc modeless window (see §6).
 
 --------------------------------------------------------------------------------
-6. PREVIEW DIALOG (PreviewWndProc)
+6. PREVIEW DIALOG (PreviewWndProc) AND SIZER PANEL (SizerWndProc)
 --------------------------------------------------------------------------------
 
-  Window class: L"IDLGPreviewWnd"
-  Style: WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, NOT resizable (fixed size).
-  Created via CreateWindowExW; drives its own message loop (GetMessage / DispatchMessage).
+  Window classes:
+    "IDLGPreviewClass"  — main preview (WS_POPUP | WS_CAPTION, no WS_SYSMENU)
+    "IDLGSizerClass"    — floating size-picker (WS_POPUP | WS_CAPTION | WS_BORDER)
+                          style WS_EX_TOOLWINDOW (off Alt+Tab); owner = hPreview
 
-  Controls:
-    - Heading STATIC (dialog type name, bold font ×1.2 NONCLIENTMETRICS)
-    - RichEdit (RICHEDIT_CLASS, ES_MULTILINE | ES_READONLY | WS_VSCROLL)
-      Pre-loaded with s_rtfContent[type] via EM_STREAMIN SF_RTF.
-      If empty: EM_SETTEXT with L(idlg_preview_no_content) placeholder.
-    - "◀  Back"  BS_PUSHBUTTON — width = MeasureButtonWidth(hDlg, L"◀  Back") + S(12)
-    - "Next  ▶"  BS_PUSHBUTTON — width = MeasureButtonWidth(hDlg, L"Next  ▶") + S(12)
-    - "Cancel"   BS_PUSHBUTTON — width = MeasureButtonWidth(hDlg, L"Cancel")  + S(12)
+  Both are registered once per process in ShowPreviewDialog.
 
-  Back button disabled (EnableWindow FALSE) when type == IDT_WELCOME.
+  PreviewData struct (heap-local in ShowPreviewDialog, pointed to by GWLP_USERDATA):
+    type          InstallerDialogType     — currently displayed page
+    hGuiFont      HFONT                   — body font (borrowed)
+    hTitleFont    HFONT                   — heading font (borrowed)
+    running       bool                    — false → exit the modal loop
+    hTypeTitle    HWND                    — STATIC heading (dialog type name)
+    hContent      HWND                    — RichEdit (ES_MULTILINE | WS_VSCROLL)
+    hBack/Next/Cancel HWND               — BS_PUSHBUTTON (no BS_OWNERDRAW)
+    showExtras    bool                    — true → split layout
+    contentHidden bool                    — true → RichEdit hidden (no RTF)
+    hExtrasLabel  HWND                    — STATIC above extras controls
+    hRadioMe/All  HWND                    — for IDLG_FOR_ME_ALL page
+    hCompChecks   vector<HWND>            — checkboxes for IDLG_COMPONENTS
+    hSizer        HWND                    — sizer panel (set post-creation)
+
+  SizerData struct (heap-local in ShowPreviewDialog, pointed to by GWLP_USERDATA):
+    pd            PreviewData*
+    hPreview      HWND
+    hFont         HFONT (borrowed)
+    ignoring      bool  — suppress EN_CHANGE during programmatic init
+
+  Layout — LayoutPreviewControls(HWND hwnd, PreviewData* pd)
+    Called from WM_CREATE and WM_SIZE.
+    Constants:  pad=16, btnH=30, gap=8, titleH=36
+    Single (showExtras=false):  RichEdit fills all space between title and buttons.
+    Split  (showExtras=true):
+      avail = btnY - gap - editY   (editY = pad + titleH + gap = 60)
+      contentH = avail / 2         (RTF top half)
+      Lower half: extLblH(22) + extGap(6) + items stacked at chkH(24) + rowGap(4)
+    When contentHidden=true: RichEdit hidden; extras fill full avail height.
+
+  Auto-fit — AutoFitComponentHeight(HWND hPreview, HWND hSizer, PreviewData* pd)
+    Called from NavigateTo and ShowPreviewDialog when type == IDLG_COMPONENTS
+    and s_previewUserSized == false.
+    contentHidden=true:  logH = 144 + max(nItems,1) * 28
+    contentHidden=false: logH = max(2*rtfLogH + 124,  nItems*56 + 190)
+      rtfLogH = MeasureRichEditLogHeight(pd->hContent)
+
+  MeasureRichEditLogHeight(HWND hRE)
+    Uses EM_FORMATRANGE (wParam=FALSE = measure only) on a rect of width
+    = client px of hRE (DPI-correct, falls back to S(s_previewLogW - 32)) and
+    height = 0x0FFFFFFF twips.  After the call fr.rc.top holds content extent
+    in twips; converts via MulDiv(twips, 96, 1440) → logical px.
+    Calls EM_FORMATRANGE again with lParam=0 to release cached state.
+
+  Navigation — NavigateTo(HWND hwnd, PreviewData* pd, InstallerDialogType t)
+    Updates pd->type; calls PopulateExtras, updates caption and heading,
+    re-streams RTF (or sets placeholder text), calls LayoutPreviewControls,
+    then calls AutoFitComponentHeight if type == IDLG_COMPONENTS.
+
+  Foregrounding on close
+    WM_DESTROY: re-enables the owner window immediately so Windows does not
+    activate a third-party window while tearing down.  ShowPreviewDialog then
+    calls SetActiveWindow + SetForegroundWindow after the loop (safe no-op if
+    the parent is already active).
 
   WHY plain BS_PUSHBUTTON and not BS_OWNERDRAW:
     Native Windows installers (NSIS, Inno Setup) use standard CTA-style buttons
@@ -201,12 +258,6 @@
   Called from:
     IDLG_SaveToDb(projectId)   → in IDM_FILE_SAVE handler
     IDLG_LoadFromDb(projectId) → in project-open path (after IDLG_Reset + SetInstallerInfo)
-
-  NOTE (as of 2026.03.25.09):
-    installer_title and installer_icon_path are NOT yet persisted to DB.
-    Accessors IDLG_GetInstallerTitle() and IDLG_GetInstallerIconPath() are ready.
-    A future session should add columns to the projects table and call the
-    accessors from the Save path.
 
 --------------------------------------------------------------------------------
 8. MAINWINDOW.CPP WIRING CHECKLIST

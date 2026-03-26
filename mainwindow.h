@@ -43,6 +43,7 @@ public:
     static HTREEITEM GetAppDataRoot()       { return s_hAppDataRoot; }
     // Accessors for conditional dialog-row visibility (used by dialogs.cpp)
     static bool UseComponents()       { return s_currentProject.use_components != 0; }
+    static const std::vector<ComponentRow>& GetComponents();
     static bool AskAtInstallEnabled() { return s_askAtInstallEnabled; }
     static HTREEITEM AddTreeNode(HWND hTree, HTREEITEM hParent, const std::wstring &text, const std::wstring &fullPath);
     static void EnsureTreeSnapshotsFromDb();

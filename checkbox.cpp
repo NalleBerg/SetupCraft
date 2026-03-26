@@ -189,6 +189,7 @@ static LRESULT CALLBACK CheckboxSubclassProc(
         RemovePropW(hwnd, CBP_CHECKED);
         RemovePropW(hwnd, CBP_HOVERED);
         RemovePropW(hwnd, CBP_MARKER);
+        RemovePropW(hwnd, L"CbRequired");
         break;
     }
 
@@ -233,11 +234,15 @@ BOOL DrawCustomCheckbox(LPDRAWITEMSTRUCT dis)
     bool     hovered  = (GetPropW(dis->hwndItem, CBP_HOVERED) != NULL);
     // When the control is disabled (e.g. Pre-selected locked by Required), mute all
     // colours so it reads as unavailable — both border and text go to system grey.
+    // Exception: if the checkbox is tagged CbRequired (a "required" component)
+    // keep the label in normal window-text colour so only the tick is muted.
     if (dis->itemState & ODS_DISABLED) {
+        bool isRequired = (GetPropW(dis->hwndItem, L"CbRequired") != NULL);
         c.border = RGB(190, 190, 190);
         c.hover  = RGB(190, 190, 190);
         c.tick   = RGB(160, 160, 160);
-        c.label  = GetSysColor(COLOR_GRAYTEXT);
+        c.label  = isRequired ? GetSysColor(COLOR_WINDOWTEXT)
+                              : GetSysColor(COLOR_GRAYTEXT);
         hovered  = false; // no hover highlight on disabled control
     }
 

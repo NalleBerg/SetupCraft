@@ -227,6 +227,51 @@ not the main window:
   Z-order result:     sizer > preview > main window
   When app goes to background: all three sink together
 
+================================================================================
+FUTURE WORK: INSTALLER DIALOG SIZING MUST BE SYSTEM-AWARE
+================================================================================
+
+When the actual installer dialogs (Welcome, License, Install, Finish, etc.) are
+implemented as real windows — not just previewed — their default size MUST be
+derived from the end user's system, not hardcoded.
+
+REQUIREMENTS
+------------
+  1. DPI-aware logical size
+       The dialog width and height chosen in the sizer panel are logical pixels
+       at the developer's DPI. On the end user's machine the same logical values
+       must be scaled via the installer's own DPI context (process-DPI-aware or
+       per-monitor-aware depending on the installer framework).
+       Never store raw pixel values; store logical units and re-apply S()
+       (or equivalent) at runtime on the target machine.
+
+  2. Work-area clamping
+       Query SystemParametersInfoW(SPI_GETWORKAREA) on the user's display and
+       clamp the dialog's outer window rect so it never extends off-screen,
+       even on smaller or differently-scaled monitors.
+
+  3. Centre on the correct monitor
+       For multi-monitor setups, use MonitorFromPoint / GetMonitorInfo to find
+       the monitor the user is working on, then centre the dialog within that
+       monitor's work area — not the primary monitor's.
+
+  4. Respect the persisted preview size as a *default*
+       The width/height the author sets in the sizer panel (stored as
+       installer_preview_w_<id> / installer_preview_h_<id>) is the intended
+       design size. Use it as the starting point, but apply rules 1–3 on top so
+       the dialog looks correct on every machine, not just the developer's.
+
+  5. Font/metric scaling for dialog content
+       RTF content displayed inside installer dialogs must use a font size that
+       is legible at the user's DPI. Hardcoded point sizes will look tiny at
+       200% DPI. Derive the base font from the user's NONCLIENTMETRICS and
+       scale it in proportion to the dialog's logical size.
+
+NOTE: The preview window in SetupCraft already respects the developer's DPI via
+S() — that is intentional so the author sees the dialog at the correct relative
+size. The concern above is strictly about the generated installer's runtime
+behaviour on the end user's machine.
+
 WS_EX_TOOLWINDOW
 ----------------
 This flag is acceptable and encouraged for small helper panels (like the sizer).

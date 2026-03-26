@@ -79,6 +79,12 @@ BOOL DrawCustomCheckbox(LPDRAWITEMSTRUCT dis);
 // invalidates them so they repaint with the updated theme colours.
 void OnCheckboxSettingChange(HWND hwndParent);
 
+// Mark a custom checkbox as "required": when disabled the tick is muted gray
+// but the label text stays in the normal (black) window-text colour.
+inline void MarkCheckboxRequired(HWND hwnd) {
+    SetPropW(hwnd, L"CbRequired", (HANDLE)(LONG_PTR)1);
+}
+
 // Build a 3-entry HIMAGELIST ([0] blank / [1] unchecked / [2] checked) drawn
 // with GDI using the current theme colours.  Each bitmap is sizePx × sizePx.
 // The caller owns the returned handle; destroy it with ImageList_Destroy().

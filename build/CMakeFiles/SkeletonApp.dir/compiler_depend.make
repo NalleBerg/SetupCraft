@@ -3590,6 +3590,7 @@ CMakeFiles/SkeletonApp.dir/dialogs.cpp.obj: C:/Users/NalleBerg/Documents/C++/Wor
   C:/mingw64/x86_64-w64-mingw32/include/wtypes.h \
   C:/mingw64/x86_64-w64-mingw32/include/wtypesbase.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/button.h \
+  C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/checkbox.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/db.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/deps.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/dialogs.h \

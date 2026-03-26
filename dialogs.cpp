@@ -22,6 +22,7 @@
 #include "db.h"
 #include "dpi.h"          // S()
 #include "button.h"       // CreateCustomButtonWithIcon(), MeasureButtonWidth()
+#include "checkbox.h"     // CreateCustomCheckbox, DrawCustomCheckbox
 #include <richedit.h>     // EM_STREAMIN, SF_RTF, EDITSTREAM
 
 // PrivateExtractIconsW — undocumented but reliable fixed-size icon loader.
@@ -178,8 +179,11 @@ static void StreamRtfIn(HWND hEdit, const std::wstring& wrtf)
 
 // Per-project installer dialog preview dimensions (logical px at 96 dpi / 100%).
 // Persisted via DB::SetSetting; applied as S(value) so DPI is always correct.
-static int s_previewLogW = 460;
-static int s_previewLogH = 360;
+static int  s_previewLogW      = 460;
+static int  s_previewLogH      = 360;
+// True once the developer has manually resized via the sizer panel; suppresses
+// all automatic height adjustments from that point on for this project.
+static bool s_previewUserSized = false;
 
 // Preview and sizer styles — defined once so AdjustWindowRectEx is consistent.
 static const DWORD kPreviewStyle   = WS_POPUP | WS_CAPTION; // no WS_SYSMENU → no ×
@@ -197,6 +201,16 @@ struct PreviewData {
     HWND                hBack;       // Back button
     HWND                hNext;       // Next / Finish button
     HWND                hCancel;     // Cancel button
+    // Extras panel — visible for dialog types with interactive controls.
+    // LayoutPreviewControls splits the interior in half when showExtras is true:
+    // RTF content fills the top portion; extras fill the bottom.
+    bool                showExtras;    // true → split layout; false → full-height RichEdit
+    HWND                hExtrasLabel;  // descriptor label above the extras controls
+    HWND                hRadioMe;      // IDLG_FOR_ME_ALL — "Install just for me"
+    HWND                hRadioAll;     // IDLG_FOR_ME_ALL — "Install for all users"
+    std::vector<HWND>   hCompChecks;   // IDLG_COMPONENTS — one per folder component (dynamic)
+    bool                contentHidden; // true when IDLG_COMPONENTS has no RTF — hide RichEdit
+    HWND                hSizer;        // sizer panel (set by ShowPreviewDialog after creation)
 };
 
 // Sizer panel data; GWLP_USERDATA on the sizer window.
@@ -242,12 +256,68 @@ static void LayoutPreviewControls(HWND hwnd, PreviewData* pd)
         SetWindowPos(pd->hTypeTitle, NULL, pad, pad,
                      cW - pad * 2, titleH, SWP_NOZORDER | SWP_NOACTIVATE);
 
-    // Content RichEdit
-    if (pd->hContent && IsWindow(pd->hContent)) {
-        int editY = pad + titleH + gap;
-        int editH = cH - editY - gap - btnH - pad;
-        SetWindowPos(pd->hContent, NULL, pad, editY,
-                     cW - pad * 2, editH, SWP_NOZORDER | SWP_NOACTIVATE);
+    // Interior area between title and button row.
+    int editY = pad + titleH + gap;
+    int avail = btnY - gap - editY;   // total pixels available to distribute
+
+    if (pd->showExtras) {
+        // Split layout: RTF content on top (50%), extras panel below (50%).
+        // Exception: if contentHidden is set (e.g. IDLG_COMPONENTS with no RTF),
+        // the RichEdit is hidden and the extras panel gets the full available height.
+        const int extLblH = S(22);
+        const int extGap  = S(6);
+        int contentH   = pd->contentHidden ? 0 : avail / 2;
+        int contentGap = pd->contentHidden ? 0 : gap;
+        int extrasY    = editY + contentH + contentGap;
+        int extrasH    = avail - contentH - contentGap - extLblH - extGap;
+        if (extrasH < 0) extrasH = 0;
+
+        if (pd->hContent && IsWindow(pd->hContent)) {
+            if (pd->contentHidden)
+                ShowWindow(pd->hContent, SW_HIDE);
+            else {
+                ShowWindow(pd->hContent, SW_SHOW);
+                SetWindowPos(pd->hContent, NULL, pad, editY,
+                             cW - pad * 2, contentH, SWP_NOZORDER | SWP_NOACTIVATE);
+            }
+        }
+
+        if (pd->hExtrasLabel && IsWindow(pd->hExtrasLabel)) {
+            SetWindowPos(pd->hExtrasLabel, NULL, pad, extrasY,
+                         cW - pad * 2, extLblH, SWP_NOZORDER | SWP_NOACTIVATE);
+            ShowWindow(pd->hExtrasLabel, SW_SHOW);
+        }
+
+        int ctrlY = extrasY + extLblH + extGap;
+
+        // Position For Me / All Users radio buttons when visible.
+        if (pd->hRadioMe && IsWindow(pd->hRadioMe) && IsWindowVisible(pd->hRadioMe)) {
+            const int rH = S(24);
+            SetWindowPos(pd->hRadioMe,  NULL, pad + S(4), ctrlY,
+                         cW - pad * 2 - S(4), rH, SWP_NOZORDER | SWP_NOACTIVATE);
+            SetWindowPos(pd->hRadioAll, NULL, pad + S(4), ctrlY + rH + S(6),
+                         cW - pad * 2 - S(4), rH, SWP_NOZORDER | SWP_NOACTIVATE);
+        }
+
+        // Position component checkboxes when visible.
+        {
+            const int chkH = S(24);
+            int cy = ctrlY;
+            for (HWND h : pd->hCompChecks) {
+                if (h && IsWindow(h)) {
+                    SetWindowPos(h, NULL, pad + S(4), cy,
+                                 cW - pad * 2 - S(4), chkH, SWP_NOZORDER | SWP_NOACTIVATE);
+                    cy += chkH + S(4);
+                }
+            }
+        }
+    } else {
+        // Single layout: RichEdit fills all available vertical space.
+        if (pd->hContent && IsWindow(pd->hContent))
+            SetWindowPos(pd->hContent, NULL, pad, editY,
+                         cW - pad * 2, avail, SWP_NOZORDER | SWP_NOACTIVATE);
+        if (pd->hExtrasLabel && IsWindow(pd->hExtrasLabel))
+            ShowWindow(pd->hExtrasLabel, SW_HIDE);
     }
 
     // Measure button widths for the current type (Next/Finish text may differ)
@@ -276,11 +346,202 @@ static void LayoutPreviewControls(HWND hwnd, PreviewData* pd)
     }
 }
 
+// ── PopulateExtras — set up the type-specific extras panel ───────────────────
+// Called from NavigateTo and from WM_CREATE for the initial dialog type.
+// Destroys any dynamic components checkboxes, then creates/shows the controls
+// appropriate for newType.  Sets pd->showExtras so LayoutPreviewControls knows
+// whether to use the split layout.
+
+static void PopulateExtras(HWND hwnd, PreviewData* pd, InstallerDialogType newType)
+{
+    // Destroy component checkboxes from any previous navigation.
+    for (HWND h : pd->hCompChecks) {
+        if (h && IsWindow(h)) DestroyWindow(h);
+    }
+    pd->hCompChecks.clear();
+
+    // Restore content area visibility in case it was hidden for a previous type.
+    pd->contentHidden = false;
+    if (pd->hContent && IsWindow(pd->hContent))
+        ShowWindow(pd->hContent, SW_SHOW);
+
+    // Hide all persistent extras controls; only the relevant ones are shown below.
+    if (pd->hRadioMe  && IsWindow(pd->hRadioMe))  ShowWindow(pd->hRadioMe,  SW_HIDE);
+    if (pd->hRadioAll && IsWindow(pd->hRadioAll)) ShowWindow(pd->hRadioAll, SW_HIDE);
+    if (pd->hExtrasLabel && IsWindow(pd->hExtrasLabel))
+        ShowWindow(pd->hExtrasLabel, SW_HIDE);
+
+    if (newType == IDLG_FOR_ME_ALL) {
+        pd->showExtras = true;
+        // The radio buttons are self-explanatory; no separate label is needed.
+        if (pd->hExtrasLabel && IsWindow(pd->hExtrasLabel))
+            SetWindowTextW(pd->hExtrasLabel, L"");
+        ShowWindow(pd->hRadioMe,  SW_SHOW);
+        ShowWindow(pd->hRadioAll, SW_SHOW);
+
+    } else if (newType == IDLG_COMPONENTS) {
+        pd->showExtras = true;
+
+        // If no RTF text has been entered yet, hide the content area so the
+        // component list fills the whole interior instead of getting half.
+        if (s_dialogs[(int)IDLG_COMPONENTS].content_rtf.empty()) {
+            pd->contentHidden = true;
+            if (pd->hContent && IsWindow(pd->hContent))
+                ShowWindow(pd->hContent, SW_HIDE);
+        }
+
+        if (pd->hExtrasLabel && IsWindow(pd->hExtrasLabel))
+            SetWindowTextW(pd->hExtrasLabel,
+                L10n(L"idlg_prv_comp_label", L"Select which components to install:").c_str());
+
+        // Build controls — required components first, then optional.
+        // Required → disabled custom checkbox (gray tick, black label via MarkCheckboxRequired).
+        // Optional → enabled custom checkbox (interactive).
+        const auto& comps = MainWindow::GetComponents();
+        bool any = false;
+        for (int pass = 0; pass < 2; ++pass) {
+        for (const ComponentRow& c : comps) {
+            if (c.source_type != L"folder" || c.display_name.empty()) continue;
+            bool required = (c.is_required != 0);
+            if (pass == 0 && !required) continue;   // pass 0: required only
+            if (pass == 1 &&  required) continue;   // pass 1: optional only
+            any = true;
+            bool preselected = (c.is_preselected != 0) || required;
+            std::wstring label = required
+                ? c.display_name + L"  " + L10n(L"idlg_prv_comp_required", L"(required)")
+                : c.display_name;
+            int idx = (int)pd->hCompChecks.size();
+            HWND hChk = CreateCustomCheckbox(hwnd,
+                IDC_IDLG_PRV_COMP_BASE + idx,
+                label, preselected,
+                0, 0, 10, 22,
+                s_hInst);
+            if (s_hGuiFont) SendMessageW(hChk, WM_SETFONT, (WPARAM)s_hGuiFont, TRUE);
+            if (required) {
+                MarkCheckboxRequired(hChk);   // black label, gray tick
+                EnableWindow(hChk, FALSE);
+            }
+            pd->hCompChecks.push_back(hChk);
+        }
+        }
+        if (!any) {
+            // Project has no folder-level components yet — show a placeholder.
+            HWND hLbl = CreateWindowExW(0, L"STATIC",
+                L10n(L"idlg_prv_no_comps", L"No components defined yet.").c_str(),
+                WS_CHILD | WS_VISIBLE | SS_LEFT,
+                0, 0, 10, 10,
+                hwnd, NULL, s_hInst, NULL);
+            if (s_hGuiFont) SendMessageW(hLbl, WM_SETFONT, (WPARAM)s_hGuiFont, TRUE);
+            pd->hCompChecks.push_back(hLbl);
+        }
+
+    } else {
+        pd->showExtras = false;
+    }
+}
+
+// Returns the natural content height of hRE in LOGICAL pixels (96 dpi baseline).
+// Uses EM_FORMATRANGE to measure without rendering; the control need not be visible.
+// After formatting the entire content into a very tall rect, fr.rc.top holds the
+// y-extent of the rendered content in twips; divide by 15 to get logical pixels.
+static int MeasureRichEditLogHeight(HWND hRE)
+{
+    if (!hRE || !IsWindow(hRE)) return 0;
+
+    // Content width — use the actual client rect so the measurement matches what
+    // the user sees; fall back on the current logical preview width if not yet sized.
+    RECT rc; GetClientRect(hRE, &rc);
+    int clientWPx = rc.right - rc.left;
+    if (clientWPx <= 0) clientWPx = S(s_previewLogW) - 2 * S(16);
+
+    HDC hdc = GetDC(hRE);
+    if (!hdc) return 0;
+    int dpiX = GetDeviceCaps(hdc, LOGPIXELSX);
+    if (!dpiX) dpiX = 96;
+
+    // 1440 twips per inch; convert physical px to twips.
+    LONG widthTwips = MulDiv(clientWPx, 1440, dpiX);
+
+    FORMATRANGE fr   = {};
+    fr.hdc           = hdc;
+    fr.hdcTarget     = hdc;
+    fr.chrg.cpMin    = 0;
+    fr.chrg.cpMax    = -1;           // format all text
+    fr.rcPage        = { 0, 0, widthTwips, 0x0FFFFFFF };
+    fr.rc            = fr.rcPage;    // same — no margin offset needed
+
+    // wParam = FALSE → measure only, do not render.
+    // After the call fr.rc.top is advanced to the y position past the last line.
+    SendMessageW(hRE, EM_FORMATRANGE, FALSE, (LPARAM)&fr);
+    SendMessageW(hRE, EM_FORMATRANGE, FALSE, 0); // release cached info
+
+    ReleaseDC(hRE, hdc);
+
+    // Convert twips → logical pixels (1440 twips / 96 logical px = 15 twips/lpx).
+    return MulDiv((int)fr.rc.top, 96, 1440);
+}
+
+// Auto-fit the preview window height to the IDLG_COMPONENTS page contents.
+// Two layouts are handled:
+//
+//  contentHidden = true  (no RTF — items fill the full interior)
+//    editY(60) + extLblH(22) + extGap(6) + items + breathing(10) + btnH(30) + pad(16)
+//    → logH = 144 + n×28   (n = max(nItems,1))
+//
+//  contentHidden = false  (RTF present — split: measured RTF top, items bottom)
+//    The RichEdit height is measured with EM_FORMATRANGE so the full content
+//    (including images) is always visible without a scrollbar.
+//    → logH = 68 + measuredRtfH + 36 + n×28
+//             └ editY+gap ┘        └ lower half ┘
+//
+// The sizer height spinner is updated to match the new size.
+static void AutoFitComponentHeight(HWND hPreview, HWND hSizer, PreviewData* pd)
+{
+    int n = std::max((int)pd->hCompChecks.size(), 1);
+    int logH;
+    if (pd->contentHidden) {
+        // No RTF: editY(60) + extLblH(22) + extGap(6) + items + breathing(10)
+        //        + btnH(30) + pad(16) = 144 + n*28
+        logH = 144 + n * 28;
+    } else {
+        // Split layout: LayoutPreviewControls gives the RTF area exactly avail/2,
+        // where avail = logH - 114.  For the full image/content to be visible:
+        //   avail/2 >= rtfLogH  →  logH >= 2*rtfLogH + 114
+        // For all checkboxes to fit in the lower half:
+        //   avail/2 - 36 >= n*28 - 4  →  logH >= n*56 + 178
+        // Use whichever constraint is tighter, plus a small breathing margin.
+        int rtfLogH = MeasureRichEditLogHeight(pd->hContent);
+        if (rtfLogH <= 0) rtfLogH = 80;  // safe fallback
+        int fromRtf   = 2 * rtfLogH + 124;  // +10 margin above 114
+        int fromItems = n * 56 + 190;        // +12 margin above 178
+        logH = std::max(fromRtf, fromItems);
+    }
+    logH = std::max(150, std::min(1000, logH));
+    s_previewLogH = logH;
+
+    RECT adj = { 0, 0, S(s_previewLogW), S(logH) };
+    AdjustWindowRectEx(&adj, kPreviewStyle, FALSE, kPreviewExStyle);
+    SetWindowPos(hPreview, NULL, 0, 0,
+                 adj.right - adj.left, adj.bottom - adj.top,
+                 SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+
+    if (hSizer && IsWindow(hSizer)) {
+        SizerData* sd = (SizerData*)GetWindowLongPtrW(hSizer, GWLP_USERDATA);
+        HWND hHS = GetDlgItem(hSizer, IDC_IDLG_SZR_H_SPIN);
+        if (sd && hHS) {
+            sd->ignoring = true;
+            SendMessageW(hHS, UDM_SETPOS32, 0, (LPARAM)logH);
+            sd->ignoring = false;
+        }
+    }
+}
+
 // ── Navigation — update content and UI for a new dialog type ─────────────────
 
 static void NavigateTo(HWND hwnd, PreviewData* pd, InstallerDialogType newType)
 {
     pd->type = newType;
+    PopulateExtras(hwnd, pd, newType);
 
     // Window caption: "{Installer title} — Preview — {Dialog name}"
     std::wstring dlgName = L10n(kDialogNameKeys[(int)newType], kDialogNameFallbacks[(int)newType]);
@@ -312,6 +573,12 @@ static void NavigateTo(HWND hwnd, PreviewData* pd, InstallerDialogType newType)
 
     // Reposition buttons (text and enable state may have changed)
     LayoutPreviewControls(hwnd, pd);
+
+    // Auto-fit height for the Components page (both split and no-content layouts)
+    // so the window always feels right out of the box.  Skip if the developer has
+    // already manually resized via the sizer — we must respect that choice.
+    if (newType == IDLG_COMPONENTS && !s_previewUserSized)
+        AutoFitComponentHeight(hwnd, pd->hSizer, pd);
 }
 
 // ── Preview window proc ───────────────────────────────────────────────────────
@@ -384,6 +651,34 @@ static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
         std::wstring cancelTxt = L10n(L"idlg_preview_cancel", L"Cancel");
         SetWindowTextW(pd->hCancel, cancelTxt.c_str());
 
+        // Extras controls — created hidden; PopulateExtras shows the right set
+        // based on the initial dialog type, called just before the layout pass.
+        pd->hExtrasLabel = CreateWindowExW(0, L"STATIC", L"",
+            WS_CHILD | SS_LEFT,   // no WS_VISIBLE — shown by PopulateExtras
+            0, 0, 10, 10,
+            hwnd, (HMENU)(UINT_PTR)IDC_IDLG_PRV_EXTRAS_LABEL, cs->hInstance, NULL);
+        if (pd->hGuiFont) SendMessageW(pd->hExtrasLabel, WM_SETFONT, (WPARAM)pd->hGuiFont, TRUE);
+
+        pd->hRadioMe = CreateWindowExW(0, L"BUTTON",
+            L10n(L"idlg_prv_scope_me", L"Install just for me (current user)").c_str(),
+            WS_CHILD | BS_AUTORADIOBUTTON | WS_GROUP,   // no WS_VISIBLE
+            0, 0, 10, 10,
+            hwnd, (HMENU)(UINT_PTR)IDC_IDLG_PRV_RADIO_ME, cs->hInstance, NULL);
+        if (pd->hGuiFont) SendMessageW(pd->hRadioMe, WM_SETFONT, (WPARAM)pd->hGuiFont, TRUE);
+        SendMessageW(pd->hRadioMe, BM_SETCHECK, BST_CHECKED, 0);  // default: for me
+
+        pd->hRadioAll = CreateWindowExW(0, L"BUTTON",
+            L10n(L"idlg_prv_scope_all", L"Install for all users (requires administrator)").c_str(),
+            WS_CHILD | BS_AUTORADIOBUTTON,   // no WS_VISIBLE
+            0, 0, 10, 10,
+            hwnd, (HMENU)(UINT_PTR)IDC_IDLG_PRV_RADIO_ALL, cs->hInstance, NULL);
+        if (pd->hGuiFont) SendMessageW(pd->hRadioAll, WM_SETFONT, (WPARAM)pd->hGuiFont, TRUE);
+
+        // Set up extras for the initial dialog type, then run the layout pass.
+        pd->showExtras    = false;
+        pd->contentHidden = false;
+        PopulateExtras(hwnd, pd, pd->type);
+
         // Final layout pass positions all controls correctly.
         LayoutPreviewControls(hwnd, pd);
         return 0;
@@ -432,7 +727,44 @@ static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
         DestroyWindow(hwnd);
         return 0;
 
+    case WM_GETMINMAXINFO: {
+        // Enforce a minimum preview size so the split layout is always usable.
+        RECT adj = { 0, 0, S(300), S(260) };
+        AdjustWindowRectEx(&adj, kPreviewStyle, FALSE, kPreviewExStyle);
+        MINMAXINFO* mm = (MINMAXINFO*)lParam;
+        mm->ptMinTrackSize.x = adj.right - adj.left;
+        mm->ptMinTrackSize.y = adj.bottom - adj.top;
+        return 0;
+    }
+
+    case WM_DRAWITEM: {
+        // Required by custom themed checkboxes (BS_OWNERDRAW internals).
+        LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
+        if (DrawCustomCheckbox(dis)) return TRUE;
+        return 0;
+    }
+
+    case WM_SETTINGCHANGE:
+        // Repaint custom checkboxes when the system theme changes.
+        OnCheckboxSettingChange(hwnd);
+        return 0;
+
+    case WM_CTLCOLORSTATIC:
+        // Radio buttons send this to the parent; return a white brush to match
+        // the preview window background and avoid a grey strip behind control text.
+        SetBkColor((HDC)wParam, GetSysColor(COLOR_WINDOW));
+        return (LRESULT)GetSysColorBrush(COLOR_WINDOW);
+
     case WM_DESTROY:
+        // Re-enable the owner window HERE, before Windows picks another app to
+        // activate.  ShowPreviewDialog will call EnableWindow(TRUE) again after
+        // the loop — that is a safe no-op since it is already enabled.
+        if (pd) {
+            pd->hCompChecks.clear();
+            HWND hOwner = GetWindow(hwnd, GW_OWNER);
+            if (hOwner && !IsWindowEnabled(hOwner))
+                EnableWindow(hOwner, TRUE);
+        }
         return 0;
     }
 
@@ -564,6 +896,9 @@ static LRESULT CALLBACK SizerWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 newH = std::min(newH, 1000);
                 s_previewLogW = newW;
                 s_previewLogH = newH;
+                // The developer has made a deliberate sizing choice — stop
+                // auto-fitting from this point on for the current project.
+                s_previewUserSized = true;
                 if (sd->hPreview && IsWindow(sd->hPreview))
                     ResizePreview(sd, newW, newH);
                 MainWindow::MarkAsModified();
@@ -706,6 +1041,14 @@ static void ShowPreviewDialog(HWND hwndParent, InstallerDialogType type)
         sxX, sxY, szW, szH, hPreview, NULL, s_hInst, &sd);
     if (!hSizer) hSizer = NULL; // non-fatal; preview works without the sizer
 
+    // Give the preview access to the sizer so NavigateTo can update the
+    // height spinner when auto-fitting the component list.
+    pd.hSizer = hSizer;
+
+    // Auto-fit height when starting on the Components page (same rule as NavigateTo).
+    if (pd.type == IDLG_COMPONENTS && !s_previewUserSized)
+        AutoFitComponentHeight(hPreview, hSizer, &pd);
+
     ShowWindow(hPreview, SW_SHOW);
     UpdateWindow(hPreview);
     if (hSizer) { ShowWindow(hSizer, SW_SHOW); UpdateWindow(hSizer); }
@@ -723,7 +1066,8 @@ static void ShowPreviewDialog(HWND hwndParent, InstallerDialogType type)
     if (hSizer  && IsWindow(hSizer))  DestroyWindow(hSizer);
     if (hPreview && IsWindow(hPreview)) DestroyWindow(hPreview);
 
-    EnableWindow(hwndParent, TRUE);
+    EnableWindow(hwndParent, TRUE);   // safe no-op if WM_DESTROY already did it
+    SetActiveWindow(hwndParent);
     SetForegroundWindow(hwndParent);
     if (hSmIcon) DestroyIcon(hSmIcon);
     if (hLgIcon) DestroyIcon(hLgIcon);
@@ -737,8 +1081,9 @@ void IDLG_Reset()
         s_dialogs[i].type        = (InstallerDialogType)i;
         s_dialogs[i].content_rtf = L"";
     }
-    s_installTitle    = L"";
-    s_installIconPath = L"";
+    s_installTitle     = L"";
+    s_installIconPath  = L"";
+    s_previewUserSized = false;
     // s_hInstallIcon and s_hInstIconPreview are managed by BuildPage/TearDown.
 }
 
@@ -946,8 +1291,13 @@ int IDLG_BuildPage(HWND hwnd, HINSTANCE hInst,
             ButtonColor::Blue,
             L"shell32.dll", 23,   // window / preview
             previewX, btnY, wPreview, btnH, hInst);
-        SetButtonTooltip(hPreview, L10n(L"idlg_btn_preview_tip",
-            L"Preview this dialog as the end user will see it").c_str());
+        {
+            std::wstring tip =
+                L10n(L"idlg_btn_preview_tip",  L"Preview this dialog as the end user will see it") + L"\n"
+              + L10n(L"idlg_btn_preview_tip2", L"Use the sizer panel on the left to adjust the dialog size \u2014 changes apply live.") + L"\n"
+              + L10n(L"idlg_btn_preview_tip3", L"This is a true preview: what you see here is what the end user will see. That also includes the size of the dialog.");
+            SetButtonTooltip(hPreview, tip.c_str());
+        }
 
         y += rowH + gap;
     }
@@ -1058,6 +1408,7 @@ void IDLG_SaveToDb(int projectId)
     DB::SetSetting(L"installer_icon_"  + pid, s_installIconPath);
     DB::SetSetting(L"installer_preview_w_" + pid, std::to_wstring(s_previewLogW));
     DB::SetSetting(L"installer_preview_h_" + pid, std::to_wstring(s_previewLogH));
+    DB::SetSetting(L"installer_preview_user_sized_" + pid, s_previewUserSized ? L"1" : L"0");
 }
 
 // ── IDLG_LoadFromDb ───────────────────────────────────────────────────────────
@@ -1085,9 +1436,10 @@ void IDLG_LoadFromDb(int projectId)
         s_installTitle = savedTitle;
     if (DB::GetSetting(L"installer_icon_"  + pid, savedIcon))
         s_installIconPath = savedIcon;
-    std::wstring sPrevW, sPrevH;
+    std::wstring sPrevW, sPrevH, sPrevSized;
     if (DB::GetSetting(L"installer_preview_w_" + pid, sPrevW) && !sPrevW.empty()) s_previewLogW = _wtoi(sPrevW.c_str());
     if (DB::GetSetting(L"installer_preview_h_" + pid, sPrevH) && !sPrevH.empty()) s_previewLogH = _wtoi(sPrevH.c_str());
+    if (DB::GetSetting(L"installer_preview_user_sized_" + pid, sPrevSized)) s_previewUserSized = (sPrevSized == L"1");
 }
 
 // ── IDLG_SetInstallerInfo ─────────────────────────────────────────────────────

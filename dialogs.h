@@ -66,10 +66,14 @@ struct InstallerDialog {
 #define IDC_IDLG_ROW_BASE    7010
 
 // Preview dialog internal controls (range 7100–7109)
-#define IDC_IDLG_PRV_CONTENT 7100   // RichEdit showing dialog content
-#define IDC_IDLG_PRV_BACK    7101   // "◀ Back" button (disabled on first visible dialog)
-#define IDC_IDLG_PRV_NEXT    7102   // "Next ▶" / "Finish ✔" navigation button
-#define IDC_IDLG_PRV_CANCEL  7103   // "Cancel" — closes preview
+#define IDC_IDLG_PRV_CONTENT      7100   // RichEdit showing dialog content
+#define IDC_IDLG_PRV_BACK         7101   // "◀ Back" button (disabled on first visible dialog)
+#define IDC_IDLG_PRV_NEXT         7102   // "Next ▶" / "Finish ✔" navigation button
+#define IDC_IDLG_PRV_CANCEL       7103   // "Cancel" — closes preview
+#define IDC_IDLG_PRV_EXTRAS_LABEL 7104   // descriptor label above extras panel
+#define IDC_IDLG_PRV_RADIO_ME     7105   // For Me/All Users — "Install just for me"
+#define IDC_IDLG_PRV_RADIO_ALL    7106   // For Me/All Users — "Install for all users"
+#define IDC_IDLG_PRV_COMP_BASE    7200   // base ID for dynamic component checkboxes (7200+index)
 
 // Preview size panel ("sizer") controls (range 7120–7129)
 // A small always-on-top floating panel to the left of the preview that lets

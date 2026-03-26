@@ -2,6 +2,16 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.03.26.16] - 2026-03-26
+
+### Added
+- **Preview — developer-sized lock**: Once the developer manually resizes the preview via the sizer spinners, automatic height adjustments (`AutoFitComponentHeight`) are suppressed for that project. `s_previewUserSized` is set on the first sizer interaction, reset when a new project is opened, and persisted via `installer_preview_user_sized_<id>` so the preference survives across sessions.
+- **Preview — `MeasureRichEditLogHeight()` helper**: Uses `EM_FORMATRANGE` (measure-only, `wParam=FALSE`) to determine the exact natural content height of a RichEdit in logical pixels — works for RTF, plain text, and embedded images.
+- **Preview — smart auto-fit for Components page (both layouts)**: `AutoFitComponentHeight` now handles both the no-RTF layout (`contentHidden=true`: `144 + n×28` logical px) and the split RTF+items layout (`contentHidden=false`: `max(2×rtfH+124, n×56+190)` logical px), deriving window height from the measured RTF content so the full content is visible without a scrollbar.
+
+### Fixed
+- **Preview — app disappears on close**: The main window was going behind other windows after the preview closed. Root cause: `EnableWindow(hwndParent, TRUE)` was called after `DestroyWindow`, by which point Windows had already activated a different window. Fix: `WM_DESTROY` on the preview re-enables the owner immediately; `ShowPreviewDialog` then calls `SetActiveWindow` + `SetForegroundWindow` as a fallback.
+
 ## [2026.03.26.14] - 2026-03-26
 
 ### Added

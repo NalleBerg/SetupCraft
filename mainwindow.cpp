@@ -1301,7 +1301,8 @@ static void CollectAllFiles(const std::vector<TreeNodeSnapshot>& nodes,
                             const std::wstring& sectionRoot);
 static void UpdateCompTreeRequiredIcons(HWND hTree, HTREEITEM hItem,
                                         const std::wstring& sectionHint,
-                                        bool parentIsRequired);
+                                        bool parentIsRequired,
+                                        std::vector<ComponentRow>* pendingFolderRows);
 
 // -- Multi-select tracking set for Files-page TreeView ----------------------
 static WNDPROC g_origFilesTreeProc = NULL;
@@ -1435,7 +1436,8 @@ static std::wstring GetCompTreeItemSection(HWND hTree, HTREEITEM hItem)
 // cascaded required state of their parent.
 static void UpdateCompTreeRequiredIcons(HWND hTree, HTREEITEM hItem,
                                         const std::wstring& sectionHint = L"",
-                                        bool parentIsRequired = false)
+                                        bool parentIsRequired = false,
+                                        std::vector<ComponentRow>* pendingFolderRows = nullptr)
 {
     while (hItem) {
         wchar_t textBuf[256] = {};
@@ -1498,6 +1500,19 @@ static void UpdateCompTreeRequiredIcons(HWND hTree, HTREEITEM hItem,
                 useIcon = allRequired ? 3 : 0;
             else
                 useIcon = parentIsRequired ? 3 : 0;  // inherit parent state
+
+            // When Phase 2 found all files required but no folder row exists,
+            // record this folder so the caller can synthesise a row.
+            if (!folderTypeUsed && anyFound && allRequired && !snap->fullPath.empty() && pendingFolderRows) {
+                ComponentRow r;
+                r.display_name   = snap->text[0] ? std::wstring(snap->text) : snap->fullPath;
+                r.is_required    = 1;
+                r.is_preselected = 1;
+                r.source_type    = L"folder";
+                r.source_path    = snap->fullPath;
+                r.dest_path      = mySection;
+                pendingFolderRows->push_back(std::move(r));
+            }
             tvi.mask = TVIF_IMAGE | TVIF_SELECTEDIMAGE;
             tvi.iImage         = useIcon;
             tvi.iSelectedImage = (useIcon == 3) ? 3 : 1;
@@ -1505,7 +1520,7 @@ static void UpdateCompTreeRequiredIcons(HWND hTree, HTREEITEM hItem,
         }
         // Propagate this node's resolved required state to its children so that
         // component-less sub-folders (img/, locale/ etc.) pick up the cascade.
-        UpdateCompTreeRequiredIcons(hTree, TreeView_GetChild(hTree, hItem), mySection, useIcon == 3);
+        UpdateCompTreeRequiredIcons(hTree, TreeView_GetChild(hTree, hItem), mySection, useIcon == 3, pendingFolderRows);
         hItem = TreeView_GetNextSibling(hTree, hItem);
     }
 }
@@ -2943,8 +2958,17 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
             addRoot(L"AppData (Roaming)", 0, s_treeSnapshot_AppData);
             addRoot(L"AskAtInstall",      2, s_treeSnapshot_AskAtInstall);
 
-            // Mark required folders with special icon
-            UpdateCompTreeRequiredIcons(s_hCompTreeView, TreeView_GetRoot(s_hCompTreeView));
+            // Mark required folders with special icon; auto-synthesise missing folder rows.
+            {
+                std::vector<ComponentRow> pending;
+                UpdateCompTreeRequiredIcons(s_hCompTreeView,
+                    TreeView_GetRoot(s_hCompTreeView), L"", false, &pending);
+                for (auto& r : pending) {
+                    r.project_id = s_currentProject.id;
+                    s_components.push_back(std::move(r));
+                }
+                if (!pending.empty()) MarkAsModified();
+            }
         }
 
         // Apply system message font to non-button controls
@@ -3016,6 +3040,82 @@ HTREEITEM MainWindow::GetAskAtInstallRoot() {
 
 const std::map<std::wstring, std::wstring>& MainWindow::GetLocale() {
     return s_locale;
+}
+
+const std::vector<ComponentRow>& MainWindow::GetComponents() {
+    // Lazily synthesise folder-type ComponentRows for groups of all-required
+    // file rows that aren't yet covered by a folder row.  This handles the
+    // case where the user opens the Dialogs preview without first visiting the
+    // Components page (where UpdateCompTreeRequiredIcons does the synthesis).
+    //
+    // Algorithm: collect parent directories of every required file row, then
+    // keep only "root" dirs — those not contained inside another dir in the
+    // set.  This ensures we synthesise one top-level row per component group
+    // (e.g. WinProgramManager) rather than also synthesising locale/, scripts/
+    // etc. separately.
+    if (s_currentProject.id > 0) {
+        // Gather (parentDir → commonDestPath) for required file rows only.
+        std::map<std::wstring, std::wstring> dirDest; // lower-cased dir → dest
+        for (const auto& c : s_components) {
+            if (c.source_type != L"file" || c.is_required == 0) continue;
+            if (c.source_path.empty()) continue;
+            size_t sl = c.source_path.find_last_of(L"\\/");
+            if (sl == std::wstring::npos) continue;
+            std::wstring dir = c.source_path.substr(0, sl);
+            std::wstring ldir = dir;
+            for (auto& ch : ldir) ch = towlower(ch);
+            if (dirDest.find(ldir) == dirDest.end())
+                dirDest[ldir] = c.dest_path;
+            else if (dirDest[ldir] != c.dest_path)
+                dirDest[ldir] = L""; // mixed sections — leave dest empty
+        }
+        // Keep only root dirs (not a sub-directory of another dir in the set).
+        for (auto it = dirDest.begin(); it != dirDest.end(); ) {
+            bool isChild = false;
+            for (const auto& [other, _] : dirDest) {
+                if (other == it->first) continue;
+                if (it->first.size() > other.size() &&
+                    _wcsnicmp(it->first.c_str(), other.c_str(), other.size()) == 0 &&
+                    (it->first[other.size()] == L'\\' || it->first[other.size()] == L'/'))
+                { isChild = true; break; }
+            }
+            if (isChild) it = dirDest.erase(it); else ++it;
+        }
+        // Synthesise missing folder rows.
+        for (const auto& [ldir, dest] : dirDest) {
+            bool found = false;
+            for (const auto& c : s_components) {
+                if (c.source_type != L"folder") continue;
+                std::wstring lp = c.source_path;
+                for (auto& ch : lp) ch = towlower(ch);
+                if (lp == ldir) { found = true; break; }
+            }
+            if (found) continue;
+            // Recover original-case path from the first matching file row.
+            std::wstring origDir;
+            for (const auto& c : s_components) {
+                if (c.source_type != L"file" || c.is_required == 0) continue;
+                size_t sl = c.source_path.find_last_of(L"\\/");
+                if (sl == std::wstring::npos) continue;
+                std::wstring lp = c.source_path.substr(0, sl);
+                for (auto& ch : lp) ch = towlower(ch);
+                if (lp == ldir) { origDir = c.source_path.substr(0, sl); break; }
+            }
+            if (origDir.empty()) continue;
+            size_t ps = origDir.find_last_of(L"\\/");
+            std::wstring name = (ps != std::wstring::npos) ? origDir.substr(ps + 1) : origDir;
+            ComponentRow r;
+            r.project_id   = s_currentProject.id;
+            r.display_name = name;
+            r.is_required  = 1;
+            r.is_preselected = 1;
+            r.source_type  = L"folder";
+            r.source_path  = origDir;
+            r.dest_path    = dest;
+            s_components.push_back(std::move(r));
+        }
+    }
+    return s_components;
 }
 
 void MainWindow::AddTreeNodeRecursive(HWND hTree, HTREEITEM hParent, const std::wstring &folderPath) {
@@ -9030,7 +9130,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                         s_components.push_back(newComp);
                     }
                 }
-                UpdateCompTreeRequiredIcons(s_hCompTreeView, TreeView_GetRoot(s_hCompTreeView));
+                UpdateCompTreeRequiredIcons(s_hCompTreeView,
+                    TreeView_GetRoot(s_hCompTreeView), L"", false, nullptr);
                 MarkAsModified();
                 // Refresh Required/Pre-selected columns in the component listview
                 // (the listview keeps stale values unless explicitly updated).

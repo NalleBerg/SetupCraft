@@ -1,194 +1,58 @@
 ================================================================================
   Session State — SetupCraft
-  Version: 2026.03.25.15  |  Published: 25.03.2026 15:30
-  Commit : (see git log — pushed end of session 25.03.2026)
+  Version: 2026.03.26.16  |  Published: 26.03.2026 16:32
+  Commit: (see git log — pushed end of session 26.03.2026)
 ================================================================================
 
 ------------------------------------------------------------------------
-COMPLETED THIS SESSION (25.03.2026)
+COMPLETED THIS SESSION (26.03.2026)
 ------------------------------------------------------------------------
 
- [OK]  Preview dialog overhaul:
-         - Style: WS_POPUP | WS_CAPTION (no WS_SYSMENU = no x button; Alt+F4 = cancel)
-         - Title bar: "{Installer title}  —  Preview  —  {Dialog name}", updated
-           on every navigation step
-         - PreviewData struct expanded with interior HWNDs (hTypeTitle, hContent,
-           hBack, hNext, hCancel)
-         - WM_SIZE handler calls LayoutPreviewControls for live relayout
+ [OK]  Preview — developer-sized lock:
+         - s_previewUserSized flag (bool, module-level)
+         - Set to true on first EN_CHANGE in sizer panel (any spin/type)
+         - Once true: all AutoFitComponentHeight calls are skipped
+         - Reset to false in IDLG_Reset() on project switch / new project
+         - Persisted: installer_preview_user_sized_<id> in settings table
+           (saved in IDLG_SaveToDb, loaded in IDLG_LoadFromDb)
 
- [OK]  LayoutPreviewControls() helper:
-         - Called from both WM_CREATE and WM_SIZE
-         - Positions all controls from the live client rect using named constants
-         - Measures Back/Next/Cancel button widths via MeasureButtonWidth on every call
-         - Sets Back button text (was missing = blank button bug, now fixed)
-         - Sets Next text: "Finish ✔" when at last visible type, "Next ▶" otherwise
-         - EnableWindow(hBack, ...) based on PrevVisibleType
+ [OK]  Preview — smart auto-fit for IDLG_COMPONENTS:
+         - AutoFitComponentHeight() now handles both layouts:
+           a) contentHidden=true  (no RTF): 144 + n*28 logical px
+           b) contentHidden=false (split):  max(2*rtfH+124, n*56+190)
+         - MeasureRichEditLogHeight(HWND hRE) helper added:
+             Uses EM_FORMATRANGE (measure-only, wParam=FALSE) on a very
+             tall rect; fr.rc.top after the call = content extent in twips
+             Converts via MulDiv(twips, 96, 1440) -> logical pixels
+         - Called from both NavigateTo (page switch) and ShowPreviewDialog
+           (initial open); skipped if s_previewUserSized is true
 
- [OK]  Back / Next navigation:
-         - NextVisibleType() / PrevVisibleType() skip hidden conditional types
-         - NavigateTo(): re-streams RTF, updates title bar + heading, calls Layout
-         - Back disabled at first visible; Next becomes Finish at last, closes on click
-
- [OK]  Sizer panel (IDLGSizerClass):
-         - Floating WS_EX_TOOLWINDOW popup, owned by hPreview (not hwndParent)
-         - Width spinner (200-1400) + Height spinner (150-1000) logical px
-         - EN_CHANGE -> ResizePreview() -> SetWindowPos on preview -> WM_SIZE -> Layout
-         - Positioned left of preview; if no room it can overlap (developer can move it)
-         - Sinking: preview + sizer go behind other apps together (no WS_EX_TOPMOST)
-
- [OK]  DB persistence for preview size:
-         - s_previewLogW / s_previewLogH (defaults 460x360)
-         - Saved via installer_preview_w_<id> / installer_preview_h_<id>
-         - Loaded in IDLG_LoadFromDb
-
- [OK]  New control IDs in dialogs.h:
-         IDC_IDLG_SZR_W_EDIT = 7120, W_SPIN = 7121, H_EDIT = 7122, H_SPIN = 7123
-
- [OK]  New locale keys (both en_GB.txt copies):
-         idlg_preview_finish, idlg_sizer_title, idlg_sizer_w_label,
-         idlg_sizer_h_label, idlg_sizer_w_tip, idlg_sizer_h_tip
-
- [OK]  Z-order / always-on-top policy documented in dialog_INTERNALS.txt:
-         - Rule: never use WS_EX_TOPMOST
-         - Pattern: ownership for intra-app Z-order (owned popup > owner)
-         - Chained ownership: main -> preview -> sizer
-         - Audit checklist (grep WS_EX_TOPMOST) for translation pass
-         - API_list.txt description updated for dialog_INTERNALS.txt
-
- [OK]  Bugs fixed this session:
-         - Back button text was blank (LayoutPreviewControls missing SetWindowTextW)
-         - Sizer was globally always-on-top (WS_EX_TOPMOST removed, owner = hPreview)
-
- [OK]  Built clean (v2026.03.25.15), changelog / README / here.txt updated,
-       committed and pushed to main.
+ [OK]  Preview — app comes to front on close:
+         - Root cause: EnableWindow(hwndParent, TRUE) was called AFTER
+           DestroyWindow; Windows had already activated another window
+         - Fix: WM_DESTROY on the preview re-enables the owner immediately
+           (before Windows picks a new foreground window)
+         - ShowPreviewDialog then calls SetActiveWindow + SetForegroundWindow
+           as belt-and-suspenders after the loop; EnableWindow is no-op
+           if already enabled
 
 ------------------------------------------------------------------------
-KNOWN GAPS / NEXT SESSION
+KNOWN ISSUES / TODO NEXT
 ------------------------------------------------------------------------
 
-  AUDIT:  Search for WS_EX_TOPMOST across the codebase before translation.
-          dialog_INTERNALS.txt Z-order section has the checklist and grep command.
-          The sizer is the only known case and is already fixed.
+ [!!]  AutoFitComponentHeight — formula still not correct for images:
+         The dialog resizes but the RTF content (e.g. an embedded logo
+         image) is still clipped; the RichEdit area is too short to show
+         the full image without scrolling.
+         - Window grows from its top-left corner (SWP_NOMOVE) rather than
+           re-centering after a size increase
+         - Suspect: EM_FORMATRANGE measurement is off when the RichEdit
+           has not been fully laid out at measurement time (window not yet
+           shown, or GetClientRect returns stale size from a prior pass)
+         - Possible fixes to try next session:
+             1. Force a layout pass (SetWindowPos + UpdateWindow on the
+                preview window) before calling EM_FORMATRANGE
+             2. After resize, re-center the preview on the parent window
+             3. Use EM_GETLINECOUNT x line-height as an alternative measure
 
-  NORMAL WORK:  No known bugs. Dialogs page is feature-complete.
-                Next session: user will decide what to work on next.
-
-------------------------------------------------------------------------
-ACTIVE PAGES AT THIS POINT
-------------------------------------------------------------------------
-
-  Toolbar index 0: Files          [DONE] complete
-  Toolbar index 1: Components     [DONE] complete
-  Toolbar index 2: Registry       [DONE] complete
-  Toolbar index 3: Shortcuts      [DONE] complete
-  Toolbar index 4: Dependencies   [DONE] complete
-  Toolbar index 5: Dialogs        [DONE] complete
-
-------------------------------------------------------------------------
-KEY MODULE FACTS (quick reference)
-------------------------------------------------------------------------
-
-  dialogs.h / dialogs.cpp
-    s_previewLogW / s_previewLogH  — module-level preview dimensions (logical px)
-    PreviewData struct             — type, fonts, running flag, interior HWNDs
-    SizerData struct               — pd ptr, hPreview, hFont, ignoring flag
-    LayoutPreviewControls(hwnd,pd) — called from WM_CREATE + WM_SIZE
-    NavigateTo(hwnd,pd,type)       — navigation + RTF re-stream
-    NextVisibleType / PrevVisibleType — skip hidden types
-    ResizePreview(sd,logW,logH)    — called from sizer EN_CHANGE
-
-  Control ID ranges:
-    IDC_IDLG_PAGE_TITLE  = 7000
-    IDC_IDLG_ROW_BASE    = 7010  (stride 4, up to 7045 for IDLG_COUNT=9 rows)
-    IDC_IDLG_PRV_*       = 7100-7103  (CONTENT / BACK / NEXT / CANCEL)
-    IDC_IDLG_INST_*      = 7110-7113  (ICON_PREVIEW / CHANGE_ICON / TITLE_LABEL / TITLE_EDIT)
-    IDC_IDLG_SZR_*       = 7120-7123  (W_EDIT / W_SPIN / H_EDIT / H_SPIN)
-
-  DB settings keys (project-scoped, key = name + "_" + projectId):
-    installer_title_<id>       — installer window title text
-    installer_icon_<id>        — path to .ico file
-    installer_preview_w_<id>   — preview width  (logical px)
-    installer_preview_h_<id>   — preview height (logical px)
-
-================================================================================
-================================================================================
-
-------------------------------------------------------------------------
-COMPLETED THIS SESSION
-------------------------------------------------------------------------
-
- [OK]  Dialogs page fully implemented (dialogs.h / dialogs.cpp):
-         - 9 dialog-type rows, each with shell32 icon + name + Edit Content... + Preview...
-         - Conditional rows (Dependencies, For Me/All Users, Components, Shortcuts)
-           shown iff the corresponding feature is enabled
-         - Installer-title section at top: 48x48 icon preview (shell32 #2 default),
-           Change Icon... button (OFN_EXPLORER, *.ico only), Installer title: edit field
-           auto-filled from project name + SS_ETCHEDHORZ divider
-         - Preview dialog: read-only RichEdit + Back / Next / Cancel buttons
-           (plain BS_PUSHBUTTON with Unicode triangle glyphs, sized via MeasureButtonWidth)
-         - installer_dialogs DB table + 3 CRUD functions
-         - IDLG_SaveToDb / IDLG_LoadFromDb / IDLG_Reset / IDLG_TearDown lifecycle
-         - IDLG_SetInstallerInfo / IDLG_GetInstallerTitle / IDLG_GetInstallerIconPath
-
- [OK]  WM_DRAWITEM range extended for IDC_IDLG_ROW_BASE..+IDLG_COUNT*4 and
-       IDC_IDLG_INST_CHANGE_ICON -- button rendering was blank grey before this fix.
-
- [OK]  IDLG_OnCommand wired into mainwindow.cpp WM_COMMAND dispatch (was absent;
-       all IDLG button clicks were silently dropped).
-
- [OK]  SetButtonTooltip added to every Edit Content... and Preview... row button.
-
- [OK]  Dynamic layout for installer-title section (no hardcoded x values).
-
- [OK]  dialogs_INTERNALS.txt created; registered in API_list.txt.
-
- [OK]  CHANGELOG.md, Changelog.html, README.md updated to v2026.03.25.09.
-
- [OK]  Built clean, committed (e2bdc1d), pushed to main.
-
-------------------------------------------------------------------------
-KNOWN GAP -- carry into next session
-------------------------------------------------------------------------
-
-  installer_title and installer_icon_path are NOT yet persisted to the DB.
-  Accessors IDLG_GetInstallerTitle() and IDLG_GetInstallerIconPath() are ready.
-  Still needed:
-    - Add two columns to the projects table (or dedicated settings store):
-      installer_title TEXT, installer_icon_path TEXT.
-    - Call accessors from IDM_FILE_SAVE handler and seed from DB in project-open.
-
-------------------------------------------------------------------------
-NEXT SESSION -- suggested work order
-------------------------------------------------------------------------
-
-  1. DB persistence for installer title + icon path (see KNOWN GAP above).
-
-  2. Welcome dialog content editor -- wire "Edit Content..." on IDT_WELCOME to
-     open OpenRtfEditor() and persist via IDLG_SaveToDb on save.
-     Verify round-trip: edit -> save -> close -> reopen -> content restored.
-
-  3. Work through remaining 8 dialog types in the same way (License, etc.).
-
-  4. Preview dialog polish:
-       - Populate RichEdit from DB-loaded RTF if available.
-       - Custom background colour + optional banner strip to match real installer.
-
-  5. Full integration test of the Change Icon... picker end-to-end:
-       - Pick a custom icon, save, close project, reopen -> icon still showing.
-
-------------------------------------------------------------------------
-ACTIVE PAGES AT THIS POINT
-------------------------------------------------------------------------
-
-  Toolbar index 0: Files          [DONE] complete
-  Toolbar index 1: Components     [DONE] complete
-  Toolbar index 2: Registry       [DONE] complete
-  Toolbar index 3: Shortcuts      [DONE] complete
-  Toolbar index 4: Dependencies   [DONE] complete
-  Toolbar index 5: Dialogs        [DONE] UI complete  [!] DB persistence partial
-  Toolbar index 6: Settings       [ ] not started
-  Toolbar index 7: Scripts        [ ] not started
-  Toolbar index 8: Test           [ ] not started
-  Toolbar index 9: Build          [ ] not started
-
-================================================================================
+========================================================================
