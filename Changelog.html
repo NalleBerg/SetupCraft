@@ -1,6 +1,12 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 25 March 2026 &mdash; v2026.03.25.15<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 26 March 2026 &mdash; v2026.03.26.09<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.26.09</span></h3>
+<p><strong>Dialogs page &mdash; vertical scrollbar (26.03.2026, 09:47):</strong></p>
+<ul>
+<li><strong>Dialogs page vertical scrollbar:</strong> <code>WS_VSCROLL</code> is now added to the main window when the Dialogs page content is taller than the available view area. <code>IDLG_BuildPage</code> returns the absolute Y of the last content row (used by <code>SwitchPage</code> to set up <code>SCROLLINFO</code> range and page size). New accessors <code>IDLG_SetScrollOffset()</code>&nbsp;/&nbsp;<code>IDLG_GetScrollOffset()</code> track the current scroll offset in <code>dialogs.cpp</code>. <code>IDLG_TearDown</code> resets the offset to&nbsp;0 and removes <code>WS_VSCROLL</code> from the main window on page switch. Mousewheel scrolling is handled in the main-window <code>WM_MOUSEWHEEL</code> handler for page index&nbsp;4. <code>WS_CLIPSIBLINGS</code> is stamped on all non-toolbar page controls when <code>SwitchPage(4)</code> runs, preventing scrolled controls from overdrawing the fixed status bar. Follows the same pattern as the Shortcuts page scrollbar (documented in <code>scrollbar_INTERNALS.txt</code>).</li>
+</ul>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.25.15</span></h3>
 <p><strong>Dialogs page &mdash; preview overhaul: sizer panel, navigation, live-resize, no-&times; window, Z-order docs (25.03.2026, 15:30):</strong></p>

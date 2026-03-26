@@ -160,10 +160,13 @@
                                     (48×48 icon preview, OFN_EXPLORER .ico picker,
                                     title edit field, IDLG_SetInstallerInfo /
                                     IDLG_GetInstallerTitle / IDLG_GetInstallerIconPath),
-                                    control ID ranges (7000–7114), module-private
+                                    control ID ranges (7000–7123), module-private
                                     state variables, IDLG_OnCommand dispatch cases,
                                     preview dialog PreviewWndProc (BS_PUSHBUTTON
                                     ◀/▶ glyph buttons, MeasureButtonWidth sizing),
+                                    vertical scrollbar (IDLG_BuildPage int return,
+                                    IDLG_SetScrollOffset / IDLG_GetScrollOffset,
+                                    WS_CLIPSIBLINGS, IDLG_TearDown cleanup),
                                     installer_dialogs DB schema and CRUD API,
                                     mainwindow.cpp 6-point wiring checklist
                                     (with mistake history), layout constants,

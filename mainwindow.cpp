@@ -48,7 +48,8 @@ HTREEITEM MainWindow::s_hAskAtInstallRoot = NULL;
 bool MainWindow::s_askAtInstallEnabled = false;
 int MainWindow::s_toolbarHeight = 50;
 int MainWindow::s_currentPageIndex = 0;
-static int  s_scPageContentH = 0;  // absolute Y of first pixel below Shortcuts page content
+static int  s_scPageContentH   = 0;  // absolute Y of first pixel below Shortcuts page content
+static int  s_idlgPageContentH = 0;  // absolute Y of first pixel below Dialogs page content
 static bool s_hasUnsavedChanges = false;
 static bool s_isNewUnsavedProject = false;
 static HTREEITEM s_rightClickedItem = NULL; // Track which TreeView item was right-clicked
@@ -2547,8 +2548,54 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
     }
     case 4: // Dialogs page
     {
-        IDLG_BuildPage(hwnd, hInst, pageY, rc.right,
-                       s_hPageTitleFont, s_hGuiFont, s_locale);
+        s_idlgPageContentH = IDLG_BuildPage(hwnd, hInst, pageY, rc.right,
+                               s_hPageTitleFont, s_hGuiFont, s_locale);
+        // Add a vertical scrollbar when the content is taller than the view.
+        {
+            int statusH = 25;
+            if (s_hStatus && IsWindow(s_hStatus)) {
+                RECT rcSB; GetWindowRect(s_hStatus, &rcSB);
+                statusH = rcSB.bottom - rcSB.top;
+            }
+            int viewH    = rc.bottom - pageY - statusH;
+            int contentH = s_idlgPageContentH - pageY + S(15);  // +15 px gap at bottom
+            if (contentH > viewH) {
+                LONG ws = GetWindowLongW(hwnd, GWL_STYLE);
+                if (!(ws & WS_VSCROLL)) {
+                    SetWindowLongW(hwnd, GWL_STYLE, ws | WS_VSCROLL);
+                    SetWindowPos(hwnd, NULL, 0, 0, 0, 0,
+                        SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+                }
+                SCROLLINFO si = {};
+                si.cbSize = sizeof(si);
+                si.fMask  = SIF_RANGE | SIF_PAGE | SIF_POS | SIF_DISABLENOSCROLL;
+                si.nMin   = 0;
+                si.nMax   = contentH - 1;
+                si.nPage  = (UINT)viewH;
+                si.nPos   = 0;
+                SetScrollInfo(hwnd, SB_VERT, &si, TRUE);
+            }
+        }
+        // WS_CLIPSIBLINGS on every page control so scrolled controls can't
+        // overdraw the status bar (kept at HWND_TOP).
+        {
+            HWND hC = GetWindow(hwnd, GW_CHILD);
+            while (hC) {
+                HWND hN = GetWindow(hC, GW_HWNDNEXT);
+                if (hC != s_hStatus && hC != s_hAboutButton) {
+                    int cid = GetDlgCtrlID(hC);
+                    bool isTB = (cid >= IDC_TB_FILES && cid <= IDC_TB_ABOUT) ||
+                                 cid == IDC_TB_DIALOGS || cid == IDC_TB_COMPONENTS ||
+                                 cid == IDC_TB_EXIT    || cid == IDC_TB_CLOSE_PROJECT;
+                    if (!isTB) {
+                        LONG_PTR st = GetWindowLongPtrW(hC, GWL_STYLE);
+                        if (!(st & WS_CLIPSIBLINGS))
+                            SetWindowLongPtrW(hC, GWL_STYLE, st | WS_CLIPSIBLINGS);
+                    }
+                }
+                hC = hN;
+            }
+        }
         break;
     }
     case 5: // Settings page
@@ -10067,6 +10114,54 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             }
             return 0;
         }
+        else if (s_currentPageIndex == 4) {
+            RECT rcMW; GetClientRect(hwnd, &rcMW);
+            int statusH = 25;
+            if (s_hStatus && IsWindow(s_hStatus)) {
+                RECT rcSB; GetWindowRect(s_hStatus, &rcSB);
+                statusH = rcSB.bottom - rcSB.top;
+            }
+            int spY   = s_toolbarHeight;
+            int svH   = rcMW.bottom - spY - statusH;
+            int scH   = s_idlgPageContentH + S(15) - spY;
+            int maxSc = scH - svH;
+            if (maxSc <= 0) break;
+            int wdelta    = GET_WHEEL_DELTA_WPARAM(wParam);
+            int scrollAmt = -wdelta * 3 * S(20) / WHEEL_DELTA;
+            SCROLLINFO si = {}; si.cbSize = sizeof(si); si.fMask = SIF_POS;
+            GetScrollInfo(hwnd, SB_VERT, &si);
+            int newPos = std::max(0, std::min(si.nPos + scrollAmt, maxSc));
+            if (newPos != si.nPos) {
+                int dy = newPos - si.nPos;
+                si.nPos = newPos;
+                SetScrollInfo(hwnd, SB_VERT, &si, TRUE);
+                HWND hC = GetWindow(hwnd, GW_CHILD);
+                while (hC) {
+                    HWND hN = GetWindow(hC, GW_HWNDNEXT);
+                    if (hC != s_hStatus && hC != s_hAboutButton) {
+                        int cid = GetDlgCtrlID(hC);
+                        bool isTB = (cid >= IDC_TB_FILES && cid <= IDC_TB_ABOUT) ||
+                                     cid == IDC_TB_DIALOGS || cid == IDC_TB_COMPONENTS ||
+                                     cid == IDC_TB_EXIT    || cid == IDC_TB_CLOSE_PROJECT;
+                        if (!isTB) {
+                            RECT rcC; GetWindowRect(hC, &rcC);
+                            MapWindowPoints(HWND_DESKTOP, hwnd, (POINT*)&rcC, 2);
+                            SetWindowPos(hC, NULL, rcC.left, rcC.top - dy, 0, 0,
+                                SWP_NOZORDER | SWP_NOSIZE | SWP_NOACTIVATE);
+                        }
+                    }
+                    hC = hN;
+                }
+                SetWindowPos(s_hStatus, HWND_TOP,
+                    0, rcMW.bottom - statusH, rcMW.right, statusH,
+                    SWP_NOACTIVATE);
+                RECT pageRect = { 0, spY, rcMW.right, rcMW.bottom - statusH };
+                InvalidateRect(hwnd, &pageRect, TRUE);
+                UpdateWindow(s_hStatus);
+                IDLG_SetScrollOffset(newPos);
+            }
+            return 0;
+        }
         break;
     }
 
@@ -10134,6 +10229,69 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 InvalidateRect(hwnd, &pageRect, TRUE);
                 UpdateWindow(s_hStatus);
                 SC_SetScrollOffset(newPos);
+            }
+        }
+        else if (s_currentPageIndex == 4) {
+            RECT rcVS; GetClientRect(hwnd, &rcVS);
+            int statusH = 25;
+            if (s_hStatus && IsWindow(s_hStatus)) {
+                RECT rcSB; GetWindowRect(s_hStatus, &rcSB);
+                statusH = rcSB.bottom - rcSB.top;
+            }
+            int spY   = s_toolbarHeight;
+            int svH   = rcVS.bottom - spY - statusH;
+            int scH   = s_idlgPageContentH + S(15) - spY;
+            int maxSc = scH - svH;
+            if (maxSc <= 0) break;
+            SCROLLINFO si = {}; si.cbSize = sizeof(si); si.fMask = SIF_ALL;
+            GetScrollInfo(hwnd, SB_VERT, &si);
+            int oldPos = si.nPos;
+            int newPos = oldPos;
+            switch (LOWORD(wParam)) {
+            case SB_LINEUP:        newPos -= S(20); break;
+            case SB_LINEDOWN:      newPos += S(20); break;
+            case SB_PAGEUP:        newPos -= svH;   break;
+            case SB_PAGEDOWN:      newPos += svH;   break;
+            case SB_TOP:           newPos  = 0;     break;
+            case SB_BOTTOM:        newPos  = maxSc; break;
+            case SB_THUMBTRACK:
+            case SB_THUMBPOSITION: {
+                SCROLLINFO si2 = {}; si2.cbSize = sizeof(si2);
+                si2.fMask = SIF_TRACKPOS;
+                GetScrollInfo(hwnd, SB_VERT, &si2);
+                newPos = si2.nTrackPos;
+                break;
+            }
+            }
+            newPos = std::max(0, std::min(newPos, maxSc));
+            if (newPos != oldPos) {
+                int dy   = newPos - oldPos;
+                si.fMask = SIF_POS; si.nPos = newPos;
+                SetScrollInfo(hwnd, SB_VERT, &si, TRUE);
+                HWND hC = GetWindow(hwnd, GW_CHILD);
+                while (hC) {
+                    HWND hN = GetWindow(hC, GW_HWNDNEXT);
+                    if (hC != s_hStatus && hC != s_hAboutButton) {
+                        int cid = GetDlgCtrlID(hC);
+                        bool isTB = (cid >= IDC_TB_FILES && cid <= IDC_TB_ABOUT) ||
+                                     cid == IDC_TB_DIALOGS || cid == IDC_TB_COMPONENTS ||
+                                     cid == IDC_TB_EXIT    || cid == IDC_TB_CLOSE_PROJECT;
+                        if (!isTB) {
+                            RECT rcC; GetWindowRect(hC, &rcC);
+                            MapWindowPoints(HWND_DESKTOP, hwnd, (POINT*)&rcC, 2);
+                            SetWindowPos(hC, NULL, rcC.left, rcC.top - dy, 0, 0,
+                                SWP_NOZORDER | SWP_NOSIZE | SWP_NOACTIVATE);
+                        }
+                    }
+                    hC = hN;
+                }
+                SetWindowPos(s_hStatus, HWND_TOP,
+                    0, rcVS.bottom - statusH, rcVS.right, statusH,
+                    SWP_NOACTIVATE);
+                RECT pageRect = { 0, spY, rcVS.right, rcVS.bottom - statusH };
+                InvalidateRect(hwnd, &pageRect, TRUE);
+                UpdateWindow(s_hStatus);
+                IDLG_SetScrollOffset(newPos);
             }
         }
         break;

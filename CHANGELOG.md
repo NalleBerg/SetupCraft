@@ -2,6 +2,11 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.03.26.09] - 2026-03-26
+
+### Added
+- **Dialogs page — vertical scrollbar**: The Dialogs page now adds `WS_VSCROLL` to the main window when its content height exceeds the available view area. `IDLG_BuildPage` returns the absolute Y of the last content row (used by `SwitchPage` for `SCROLLINFO` sizing). `IDLG_SetScrollOffset()` / `IDLG_GetScrollOffset()` expose the current scroll offset. `IDLG_TearDown` now resets the offset to 0 and removes `WS_VSCROLL` on page switch. Mousewheel scrolling wired in `mainwindow.cpp` `WM_MOUSEWHEEL` for page index 4. `WS_CLIPSIBLINGS` stamped on all non-toolbar page controls on `SwitchPage(4)` to prevent scrolled controls from overdrawing the status bar. Follows the same scroll pattern as the Shortcuts page (documented in `scrollbar_INTERNALS.txt`).
+
 ## [2026.03.25.15] - 2026-03-25
 
 ### Added

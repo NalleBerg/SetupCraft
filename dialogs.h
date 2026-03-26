@@ -94,7 +94,9 @@ struct InstallerDialog {
 // Call from MainWindow::Create() before loading any project data.
 void IDLG_Reset();
 
-// Build the entire Dialogs page inside hwnd.
+// Build the entire Dialogs page inside hwnd.  Returns the absolute Y coordinate
+// (in hwnd client coords) of the first pixel below the last content row — used
+// by SwitchPage to size the vertical scrollbar.
 //   hwnd            — the main window (all page controls become its direct children).
 //   hInst           — application HINSTANCE.
 //   pageY           — y-coordinate where the page content area begins.
@@ -102,10 +104,10 @@ void IDLG_Reset();
 //   hPageTitleFont  — semi-bold headline font passed from SwitchPage.
 //   hGuiFont        — scaled body font passed from SwitchPage.
 //   locale          — current locale string map.
-void IDLG_BuildPage(HWND hwnd, HINSTANCE hInst,
-                    int pageY, int clientWidth,
-                    HFONT hPageTitleFont, HFONT hGuiFont,
-                    const std::map<std::wstring,std::wstring>& locale);
+int IDLG_BuildPage(HWND hwnd, HINSTANCE hInst,
+                   int pageY, int clientWidth,
+                   HFONT hPageTitleFont, HFONT hGuiFont,
+                   const std::map<std::wstring,std::wstring>& locale);
 
 // Tear down Dialogs page controls (called from SwitchPage generic teardown).
 // Restores icon subclass procs and destroys loaded HICONs.
@@ -132,3 +134,9 @@ void IDLG_SetInstallerInfo(const std::wstring& title, const std::wstring& iconPa
 // Retrieve current in-memory values for the save handler.
 std::wstring IDLG_GetInstallerTitle();
 std::wstring IDLG_GetInstallerIconPath();
+
+// Scroll-offset accessors — used by the main-window WM_VSCROLL / WM_MOUSEWHEEL
+// handlers to track the current vertical scroll position while the Dialogs page
+// is visible.  IDLG_TearDown resets the offset to 0 on page switch.
+void IDLG_SetScrollOffset(int off);
+int  IDLG_GetScrollOffset();

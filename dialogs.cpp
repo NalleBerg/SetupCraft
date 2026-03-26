@@ -32,6 +32,7 @@ extern "C" __declspec(dllimport) UINT WINAPI PrivateExtractIconsW(
 // ── Module-private state ──────────────────────────────────────────────────────
 
 static InstallerDialog s_dialogs[IDLG_COUNT];  // in-memory RTF content
+static int s_idlgScrollOffset = 0;             // vertical scroll offset (px) while Dialogs page is visible
 
 static HINSTANCE  s_hInst      = NULL;
 static HFONT      s_hGuiFont   = NULL;
@@ -743,7 +744,7 @@ void IDLG_Reset()
 
 // ── IDLG_TearDown ─────────────────────────────────────────────────────────────
 
-void IDLG_TearDown(HWND /*hwnd*/)
+void IDLG_TearDown(HWND hwnd)
 {
     // Restore the original STATIC wndproc on all icon controls, then destroy
     // the HICON resources.  The STATIC windows themselves are destroyed by
@@ -766,14 +767,25 @@ void IDLG_TearDown(HWND /*hwnd*/)
         s_hInstallIcon = NULL;
     }
     s_hInstIconPreview = NULL;
+
+    // Reset scroll offset and remove the vertical scrollbar from the main window.
+    s_idlgScrollOffset = 0;
+    if (hwnd && IsWindow(hwnd)) {
+        LONG ws = GetWindowLongW(hwnd, GWL_STYLE);
+        if (ws & WS_VSCROLL) {
+            SetWindowLongW(hwnd, GWL_STYLE, ws & ~WS_VSCROLL);
+            SetWindowPos(hwnd, NULL, 0, 0, 0, 0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+        }
+    }
 }
 
 // ── IDLG_BuildPage ────────────────────────────────────────────────────────────
 
-void IDLG_BuildPage(HWND hwnd, HINSTANCE hInst,
-                    int pageY, int clientWidth,
-                    HFONT hPageTitleFont, HFONT hGuiFont,
-                    const std::map<std::wstring,std::wstring>& locale)
+int IDLG_BuildPage(HWND hwnd, HINSTANCE hInst,
+                   int pageY, int clientWidth,
+                   HFONT hPageTitleFont, HFONT hGuiFont,
+                   const std::map<std::wstring,std::wstring>& locale)
 {
     s_hInst      = hInst;
     s_hGuiFont   = hGuiFont;
@@ -939,6 +951,8 @@ void IDLG_BuildPage(HWND hwnd, HINSTANCE hInst,
 
         y += rowH + gap;
     }
+
+    return y;  // absolute Y of first pixel below page content (used for scrollbar sizing)
 }
 
 // ── IDLG_OnCommand ────────────────────────────────────────────────────────────
@@ -1090,4 +1104,9 @@ void IDLG_SetInstallerInfo(const std::wstring& title, const std::wstring& iconPa
 
 std::wstring IDLG_GetInstallerTitle()    { return s_installTitle; }
 std::wstring IDLG_GetInstallerIconPath() { return s_installIconPath; }
+
+// ── Scroll-offset accessors ───────────────────────────────────────────────────
+
+void IDLG_SetScrollOffset(int off) { s_idlgScrollOffset = off; }
+int  IDLG_GetScrollOffset()        { return s_idlgScrollOffset; }
 

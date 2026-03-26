@@ -122,6 +122,7 @@
   IDLG_TearDown()
     Destroys s_hInstallIcon if non-null; sets s_hInstIconPreview = nullptr.
     Destroys all s_hRowIcons[i].
+    Resets s_idlgScrollOffset to 0 and removes WS_VSCROLL from the main window.
     (Child HWNDs are destroyed by the parent.)
 
 --------------------------------------------------------------------------------
@@ -267,7 +268,43 @@
     wPreview = MeasureButtonWidth(hParent, L(idlg_btn_preview)) + S(12)
 
 --------------------------------------------------------------------------------
-10. LOCALE KEY TABLE
+10. VERTICAL SCROLLBAR
+--------------------------------------------------------------------------------
+
+  The Dialogs page adds WS_VSCROLL to the main window whenever the total
+  content height (returned by IDLG_BuildPage) exceeds the available view area.
+  This mirrors the Shortcuts-page scroll pattern (see scrollbar_INTERNALS.txt).
+
+  IDLG_BuildPage return value
+    Returns the absolute Y coordinate (in main-window client coords) of the
+    first pixel below the last content row.  SwitchPage stores this in
+    s_idlgPageContentH and uses it to compute SCROLLINFO range and page size.
+
+  Scroll-offset accessors (dialogs.cpp)
+    void IDLG_SetScrollOffset(int off)   — store current scroll position
+    int  IDLG_GetScrollOffset()          — retrieve current scroll position
+    Both are called from the main-window WM_VSCROLL / WM_MOUSEWHEEL handlers.
+
+  SCROLLINFO setup  (mainwindow.cpp, SwitchPage case 4)
+    int pageY   = s_toolbarHeight;
+    int statusH = <measured from s_hStatus>;
+    int viewH   = rc.bottom - pageY - statusH;
+    int contentH = s_idlgPageContentH - pageY + S(15);  // +15 px bottom gap
+    if (contentH > viewH) {
+        // Add WS_VSCROLL + SetScrollInfo(SIF_RANGE | SIF_PAGE | SIF_POS)
+    }
+
+  WS_CLIPSIBLINGS
+    On SwitchPage(4), every non-toolbar child HWND has WS_CLIPSIBLINGS stamped
+    on it.  This prevents controls that have scrolled partly off-screen from
+    overdrawing the status bar (which stays at HWND_TOP).
+
+  Cleanup
+    IDLG_TearDown resets s_idlgScrollOffset = 0 and removes WS_VSCROLL with
+    SetWindowLongW + SWP_FRAMECHANGED, so the next page switch starts clean.
+
+--------------------------------------------------------------------------------
+11. LOCALE KEY TABLE
 --------------------------------------------------------------------------------
 
   Key                     Value (en_GB)
