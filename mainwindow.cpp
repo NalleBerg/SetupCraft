@@ -1662,7 +1662,24 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
     RedrawWindow(hwnd, NULL, NULL, RDW_ERASE | RDW_INVALIDATE | RDW_ALLCHILDREN);
     
     s_currentPageIndex = pageIndex;
-    
+
+    // Update active-page highlight on toolbar buttons
+    static const struct { int pageIdx; int btnId; } kPageBtns[] = {
+        {0, IDC_TB_FILES},       {1, IDC_TB_ADD_REGISTRY}, {2, IDC_TB_ADD_SHORTCUT},
+        {3, IDC_TB_ADD_DEPEND},  {4, IDC_TB_DIALOGS},      {5, IDC_TB_SETTINGS},
+        {6, IDC_TB_BUILD},       {7, IDC_TB_TEST},          {8, IDC_TB_SCRIPTS},
+        {9, IDC_TB_COMPONENTS},
+    };
+    for (auto& entry : kPageBtns) {
+        HWND hBtn = GetDlgItem(hwnd, entry.btnId);
+        if (!hBtn) continue;
+        if (entry.pageIdx == pageIndex)
+            SetPropW(hBtn, L"IsActivePage", (HANDLE)(INT_PTR)1);
+        else
+            RemovePropW(hBtn, L"IsActivePage");
+        InvalidateRect(hBtn, NULL, TRUE);
+    }
+
     RECT rc;
     GetClientRect(hwnd, &rc);
     HINSTANCE hInst = (HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE);

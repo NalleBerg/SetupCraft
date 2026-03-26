@@ -1,6 +1,12 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 26 March 2026 &mdash; v2026.03.26.09<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 26 March 2026 &mdash; v2026.03.26.14<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.26.14</span></h3>
+<p><strong>Toolbar active-page highlight (26.03.2026, 14:20):</strong></p>
+<ul>
+<li><strong>Active toolbar button light blue background:</strong> The toolbar button for the currently open page now displays a distinct light blue background (<code>RGB(196,&nbsp;224,&nbsp;246)</code>), making the active page immediately obvious at a glance. All ten page-linked buttons participate: Files, Registry, Shortcuts, Dependencies, Dialogs, Settings, Build, Test, Scripts, and Components. The three non-page buttons (Save, Close Project, Exit) are not affected. <code>SwitchPage()</code> sets an <code>IsActivePage</code> window property on the active button and removes it from all inactive ones, then calls <code>InvalidateRect</code> on each. <code>DrawCustomButton</code> reads the property and overrides the base colour for text buttons that are not currently pressed or hovered &mdash; hover and pressed states still apply their own colours on top.</li>
+</ul>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.26.09</span></h3>
 <p><strong>Dialogs page &mdash; vertical scrollbar (26.03.2026, 09:47):</strong></p>

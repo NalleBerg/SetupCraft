@@ -292,7 +292,12 @@ BOOL DrawCustomButton(LPDRAWITEMSTRUCT dis, ButtonColor color, HFONT hFont) {
         }
     } else {
         // For text buttons, use full color scheme
-        bgColor = pressed ? colors.pressed : (hover ? colors.hover : colors.base);
+        BOOL isActive = (BOOL)(INT_PTR)GetPropW(dis->hwndItem, L"IsActivePage");
+        if (isActive && !pressed && !hover) {
+            bgColor = RGB(196, 224, 246);  // light blue for active page button
+        } else {
+            bgColor = pressed ? colors.pressed : (hover ? colors.hover : colors.base);
+        }
     }
     
     // Fill background

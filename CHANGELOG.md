@@ -2,6 +2,11 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.03.26.14] - 2026-03-26
+
+### Added
+- **Toolbar active-page highlight**: The active toolbar button now displays a light blue background (`RGB(196, 224, 246)`) so the current page is immediately visible. All ten page-linked buttons participate (Files, Registry, Shortcuts, Dependencies, Dialogs, Settings, Build, Test, Scripts, Components). The three non-page buttons (Save, Close Project, Exit) are unaffected. `SwitchPage()` sets an `IsActivePage` window property on the matching button and removes it from all others, then triggers redraws. `DrawCustomButton` checks `IsActivePage` and overrides the base colour when the button is neither pressed nor hovered — hover and pressed states still use their own colours on top of the active background.
+
 ## [2026.03.26.09] - 2026-03-26
 
 ### Added

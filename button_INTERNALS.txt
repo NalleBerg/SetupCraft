@@ -23,6 +23,16 @@ FILES:
     Red    : (205,92,92)   / (220,120,120) / (180,70,70)
     Green  : (70,140,70)   / (90,160,90)   / (50,120,50)
 
+  Active-page override (not a ButtonColor value — a window property):
+    When a toolbar button is the active page, SwitchPage() sets the
+    "IsActivePage" window property (value 1) on that button and removes it
+    from all other page buttons. DrawCustomButton checks this property and
+    substitutes the base colour with (196, 224, 246) — a clear light blue —
+    whenever the button is neither pressed nor hovered. Hover and pressed
+    colours still apply normally on top of the active state.
+    The three non-page buttons (Save, Close Project, Exit) are never added to
+    the page-button table and never receive this property.
+
 ================================================================================
 2. CREATION API
 ================================================================================
@@ -151,6 +161,9 @@ FILES:
   State is stored entirely in window properties (no global variables):
 
     "IsHovering"   — (HANDLE)1 / (HANDLE)0
+    "IsActivePage" — (HANDLE)1 when this button is the active page button;
+                     removed (RemovePropW) when the button becomes inactive.
+                     Set/cleared by SwitchPage() in mainwindow.cpp.
     "IconDLL"      — malloc'd wchar_t*  (freed in WM_NCDESTROY)
     "IconIndex"    — cast HANDLE
     "IconDLL2"     — malloc'd wchar_t*  (freed in WM_NCDESTROY)
@@ -199,9 +212,13 @@ FILES:
       ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
 
   Draw order:
-    1. Determine bgColor from color triplet + hover/pressed state.
-       Icon-only buttons (empty text) use COLOR_BTNFACE with subtle shade
+    1. Determine bgColor from color triplet + hover/pressed/active state.
+       For icon-only buttons (empty text): use COLOR_BTNFACE with subtle shade
        adjustment to blend with the toolbar background.
+       For text buttons: if "IsActivePage" property is set and button is not
+       pressed or hovered, override base with (196,224,246) — light blue.
+       Otherwise: pressed → colors.pressed, hover → colors.hover, else
+       colors.base.
     2. Fill background with bgColor.
     3. Draw 1px grey border (RGB 173,173,173) as a native-style button frame.
     4. If "IconDLL" property present: load icon via PrivateExtractIconsW and
