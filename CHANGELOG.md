@@ -2,6 +2,20 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.03.27.13] - 2026-03-27
+
+### Added
+- **RTF editor — table dialog: column width fields**: "Column width (px, 0=auto)" spinner (0–9999) and "Column width (%, 0=auto)" spinner (0–100) added; changing one automatically syncs the other. Both default to 0 (auto). `colWidthPx` stored in `RtfTableParams`; applied as `colWidthPx×15` twips in both `RtfEd_InsertTableNative` and `RtfEd_ApplyTableProps` when > 0. `edWidthPx` threaded into the dialog via `RtfEd_ShowTableDialog` for accurate px↔pct conversion.
+- **RTF editor — table dialog: cell H alignment**: "Cell H alignment" combo (Left / Centre / Right) added. `cellHAlign` stored in `RtfTableParams`; applied via `EM_SETPARAFORMAT PFM_ALIGNMENT` on the full table selection in both insert and edit paths.
+- **RTF editor — table dialog: label clarifications**: "H alignment" renamed to "Table alignment"; "V alignment" renamed to "Cell V alignment".
+- **RTF editor — right-click: cell alignment submenu**: Right-click inside a table now shows "Table properties…" + "Cell alignment ▶" submenu (Align left / Align centre / Align right). Each item calls `RtfEd_SetAlignment(hwnd, PFA_*)` via `EM_SETPARAFORMAT PFM_ALIGNMENT`.
+- **RTF editor — right-click: `WM_CONTEXTMENU` approach**: Replaced `WM_RBUTTONUP` with `WM_RBUTTONDOWN` (pre-position caret) + `WM_CONTEXTMENU` (correct Win32 pattern). Keyboard-invoked context menu (`lParam == -1`) handled via `EM_POSFROMCHAR`.
+- **RTF editor — toolbar tooltip fix**: Insert table tooltip changed from `"Insert table  (2 × 2)"` to `"Insert table…"`.
+
+### Fixed
+- **RTF editor — main window foreground after editor closes**: `OpenRtfEditor` now calls `SetForegroundWindow` + `BringWindowToTop(hwndParent)` after the modal loop, preventing the main window from going behind other apps when the editor is closed.
+- **RTF editor — column width auto-override bug**: The old code computed `initPx` from `editorWidth × widthPct ÷ cols` in `WM_CREATE`; that value was saved on OK as an explicit column-width override, causing column widths to change unintentionally when adding columns. Column width spinners now initialise to the stored value only (0 for new tables).
+
 ## [2026.03.26.16] - 2026-03-26
 
 ### Added

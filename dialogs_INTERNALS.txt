@@ -88,6 +88,19 @@
       // When true, AutoFitComponentHeight is skipped so the chosen size
       // is never overwritten by automatic layout calculations.
       // Reset to false by IDLG_Reset() on project switch / new project.
+      //
+      // BUG (to fix next session):
+      //   This flag is global (one bool for all dialog types).  The correct
+      //   design is per-dialog-type so that resizing on the Components page
+      //   does not suppress auto-fit when the developer later opens a
+      //   different dialog type (e.g. Shortcuts).
+      //
+      //   Planned fix:
+      //     bool s_previewUserSized[IDLG_COUNT] = {};
+      //     Sizer EN_CHANGE: s_previewUserSized[pd->type] = true
+      //     AutoFitComponentHeight checks: s_previewUserSized[IDLG_COMPONENTS]
+      //     Persistence keys: installer_preview_user_sized_<id>_<type>
+      //     IDLG_Reset: memset(s_previewUserSized, 0, sizeof(s_previewUserSized))
 
   Active control HWNDs (valid between BuildPage and TearDown):
     static HWND s_hRowIcon[IDLG_COUNT]
@@ -210,6 +223,11 @@
     contentHidden=true:  logH = 144 + max(nItems,1) * 28
     contentHidden=false: logH = max(2*rtfLogH + 124,  nItems*56 + 190)
       rtfLogH = MeasureRichEditLogHeight(pd->hContent)
+
+    Auto-fit is per-dialog-type by design: resizing on the Components page
+    must not suppress auto-fit on any other page, and vice versa.
+    Current implementation uses a single s_previewUserSized bool (bug —
+    see section 3 state notes); the fix is s_previewUserSized[IDLG_COUNT].
 
   MeasureRichEditLogHeight(HWND hRE)
     Uses EM_FORMATRANGE (wParam=FALSE = measure only) on a rect of width

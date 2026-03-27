@@ -389,6 +389,7 @@ CMakeFiles/SkeletonApp.dir/edit_rtf.cpp.obj: \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_relops.h \
  C:/mingw64/x86_64-w64-mingw32/include/richedit.h \
  C:/mingw64/x86_64-w64-mingw32/include/commctrl.h \
+ C:/mingw64/x86_64-w64-mingw32/include/windowsx.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/algorithm \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_algo.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/algorithmfwd.h \

@@ -20,6 +20,7 @@
 #define IDC_NOTES_COLOR       337   // Text-color picker button
 #define IDC_NOTES_OK          338   // Save button
 #define IDC_NOTES_CANCEL      339   // Cancel button
+#define IDC_NOTES_TABLE       340   // Insert table button
 
 // ── Data struct ───────────────────────────────────────────────────────────────
 // Fill all fields before calling OpenNotesEditor().

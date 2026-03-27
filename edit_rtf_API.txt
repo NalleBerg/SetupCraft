@@ -75,8 +75,8 @@
   [Size ▼]  Font size (pt)   Sizes: 8 9 10 11 12 14 16 18 20 22 24 28 32 36 48 72
                              Default: 12 pt.
 
-  Row 2 — paragraph formatting + colour
-  ──────────────────────────────────────
+  Row 2 — paragraph formatting + colour + insert
+  ───────────────────────────────────────────────
   ≡L        Align left
   ≡C        Align centre
   ≡R        Align right
@@ -85,13 +85,16 @@
   1.        Numbered list    (toggles PFN_ARABIC + PFNS_PERIOD)
   A▼        Text colour      opens CHOOSECOLOR; clears CFE_AUTOCOLOR on selection
   H▼        Highlight colour sets CFM_BACKCOLOR on the selection
+  🖼        Insert image     opens PNG/JPEG file dialog; embeds as hex blob
+  📂        Open file        opens RTF or TXT file; replaces editor contents
+  ⊞         Insert table     opens Insert Table dialog (configurable rows × cols)
 
   Toggle buttons (B, I, U, S̶, X₂, X², ≡L-J, •, 1.) use BS_AUTOCHECKBOX |
   BS_PUSHLIKE.  They update automatically on click AND are synced from the
   actual char/para format on every EN_SELCHANGE — so the button state always
   reflects the caret position, not just the last click.
 
-  All 17 toolbar controls (buttons and combos) have hover tooltips via the
+  All 19 toolbar controls (buttons and combos) have hover tooltips via the
   project's custom tooltip system.  Each control is subclassed with
   RtfEd_ToolbarBtnProc (shared WNDPROC).  WM_MOUSEMOVE shows the tooltip via
   ShowMultilingualTooltip({L"", text}, screen_x, screen_bottom+4, parent);
@@ -127,7 +130,63 @@
   image references, no extra library dependencies.
 
 ================================================================================
-4. DEFAULT DOCUMENT FORMAT
+3b. TABLE INSERTION AND EDITING
+================================================================================
+
+  INSERT (⊞ toolbar button)
+  ────────────────────────
+  Clicking ⊞ opens the "Insert Table" dialog.
+  The last-used settings are remembered for the session.
+
+  Dialog fields
+  ─────────────
+  Field                  Range    Default    Notes
+  ──────────────────────────────────────────────────────────────────────────────
+  Rows                   1–99      2
+  Columns                1–32      2
+  Table width (%)       10–100    100        % of the RichEdit client width
+  Row height (px)        0–999     0          0 = auto (content-driven)
+  Border width (px)      0–20      1          0 = no borders (invisible grid)
+  Border style           combo     Single     None / Single / Thick / Double /
+                                              Dotted / Dashed
+  Border colour          swatch   Black      opens CHOOSECOLOR; persists per session
+  Table alignment        combo     Left       Left / Centre / Right  (row position on page)
+  Cell V alignment       combo     Top        Top / Middle / Bottom   (cell content)
+  Column width (px)      0–9999    0          0 = auto (derive from table-width %);
+                                              explicit value stored in colWidthPx;
+                                              applied as colWidthPx×15 twips per column
+  Column width (%)       0–100     0          0 = auto; linked to px field via
+                                              EN_CHANGE sync (uses edWidthPx for ratio)
+  Cell H alignment       combo     Left       Left / Centre / Right  (cell text
+                                              alignment via EM_SETPARAFORMAT PFM_ALIGNMENT)
+
+  Cells always word-wrap (TO_ADVANCEDTYPOGRAPHY + row.fWrap = 1); cell content
+  never truncates or widens the column.
+
+  Implemented via EM_INSERTTABLE with TABLEROWPARMS / TABLECELLPARMS
+  (requires Msftedit.dll / RichEdit 4.1+).  Falls back gracefully if the
+  DLL is not available (EM_INSERTTABLE silently does nothing).
+
+  EDITING (right-click inside a table)
+  ─────────────────────────────────────
+  Right-clicking anywhere inside a table cell shows a context menu:
+    "Table properties…"   — opens the Table Properties dialog (same layout,
+                             rows/cols hidden; pre-populated via EM_GETTABLEPARMS,
+                             saved via EM_SETTABLEPARMS; all rows updated at once)
+    "Cell alignment ▶"    — submenu: Align left / Align centre / Align right
+                             Each item calls RtfEd_SetAlignment(hwnd, PFA_*)
+                             via EM_SETPARAFORMAT PFM_ALIGNMENT.
+
+  Right-clicking outside a table passes through to the standard RichEdit context
+  menu (cut/copy/paste/…) unchanged.
+
+  Background: The RichEdit is subclassed in WM_CREATE (RtfEd_EditSubclassProc).
+  The subclass proc handles WM_RBUTTONDOWN (pre-positions the caret to the click
+  location before calling the previous proc) and WM_CONTEXTMENU (table check +
+  menu; also handles keyboard-invoked context menu when lParam == -1 by using
+  EM_POSFROMCHAR to derive the screen position from the caret).  Caret-in-table
+  detection uses EM_GETTABLEPARMS with cpStartRow = -1; if cCell > 0 the caret
+  is inside a table.  The subclass proc is restored on WM_NCDESTROY.
 ================================================================================
 
   Font:      Segoe UI  12 pt  DEFAULT_CHARSET
@@ -240,9 +299,29 @@
   IDC_RTFE_OK           4517    custom button (Green, MeasureButtonWidth)
   IDC_RTFE_CANCEL       4518    custom button (Red,   MeasureButtonWidth)
   IDC_RTFE_STATUSBAR    4519    STATIC  — only created when maxChars > 0
-  IDC_RTFE_IMAGE        4520    BS_PUSHBUTTON (🖼 — opens image picker)
+  IDC_RTFE_IMAGE        4520    BS_PUSHBUTTON (🖼 — opens PNG/JPEG picker)
+  IDC_RTFE_OPEN         4521    CreateCustomButtonWithIcon (shell32.dll icon 38 — opens RTF/TXT)
+  IDC_RTFE_TABLE        4522    BS_PUSHBUTTON (⊞ — opens Insert Table dialog)
 
-  Range 4500–4530 does not overlap any other module in SetupCraft.
+  Table dialog control IDs (used inside RtfTblDlg window class only)
+  IDC_RTFE_TD_ROWS      4540    EDIT + UPDOWN spinner  (1–99)
+  IDC_RTFE_TD_COLS      4541    EDIT + UPDOWN spinner  (1–32)
+  IDC_RTFE_TD_WIDTH     4542    EDIT + UPDOWN spinner  (10–100 %)
+  IDC_RTFE_TD_BWIDTH    4543    EDIT + UPDOWN spinner  (0–20 px)
+  IDC_RTFE_TD_BTYPE     4544    CBS_DROPDOWNLIST  (None/Single/Thick/Double/Dotted/Dashed)
+  IDC_RTFE_TD_BCOLOR    4545    BS_OWNERDRAW colour swatch (opens CHOOSECOLOR)
+  IDC_RTFE_TD_COLW      4546    (reserved, not currently used)
+  IDC_RTFE_TD_ROWH      4547    EDIT + UPDOWN spinner  (0–999 px, 0=auto)
+  IDC_RTFE_TD_HALIGN    4548    CBS_DROPDOWNLIST  (Left/Centre/Right)
+  IDC_RTFE_TD_VALIGN    4549    CBS_DROPDOWNLIST  (Top/Middle/Bottom)
+  IDC_RTFE_TD_OK        4550    BS_DEFPUSHBUTTON
+  IDC_RTFE_TD_CANCEL    4551    BS_PUSHBUTTON
+
+  Context-menu command IDs
+  IDM_RTFE_TABLE_PROPS  5001    "Table properties…" (right-click inside table)
+
+  Range 4500–4530 (toolbar/editor) + 4540–4551 (table dialog) +
+  5001 (menu cmd) do not overlap any other module in SetupCraft.
 
 ================================================================================
 11. FONT MANAGEMENT
@@ -263,7 +342,8 @@
 12. DEPENDENCIES / LINK
 ================================================================================
 
-  Headers:    edit_rtf.h, dpi.h, button.h, richedit.h, commdlg.h, commctrl.h
+  Headers:    edit_rtf.h, dpi.h, button.h, richedit.h (with _RICHEDIT_VER 0x0800),
+              commdlg.h, commctrl.h, windowsx.h
   Sources:    edit_rtf.cpp, button.cpp, dpi.cpp, tooltip.cpp
   Libs:       comctl32, comdlg32, user32, gdi32, shell32
 

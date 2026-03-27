@@ -174,6 +174,12 @@ static LRESULT CALLBACK NotesEditorDlgProc(HWND hwnd, UINT msg, WPARAM wParam, L
         HWND hColor = CreateWindowExW(0, L"BUTTON", L"A\u25BC",  // A▼
             WS_CHILD|WS_VISIBLE|BS_PUSHBUTTON,
             x, tbY, btnSz+S(10), btnSz, hwnd, (HMENU)IDC_NOTES_COLOR, hInst, NULL);
+        x += btnSz+S(10) + S(10);
+
+        HWND hTable = CreateWindowExW(0, L"BUTTON", L"\u229E",  // ⊞ table glyph
+            WS_CHILD|WS_VISIBLE|BS_PUSHBUTTON,
+            x, tbY, btnSz+S(10), btnSz, hwnd, (HMENU)IDC_NOTES_TABLE, hInst, NULL);
+        (void)hTable;
 
         // ── RichEdit ──────────────────────────────────────────────────────────
         int editY   = tbY + btnSz + btnGap;
@@ -229,6 +235,7 @@ static LRESULT CALLBACK NotesEditorDlgProc(HWND hwnd, UINT msg, WPARAM wParam, L
         SetButtonTooltip(hSup,      L"Superscript  (e.g. m\u00B2)");
         SetButtonTooltip(hFontSize, L"Font size");
         SetButtonTooltip(hColor,    L"Text color");
+        SetButtonTooltip(GetDlgItem(hwnd, IDC_NOTES_TABLE), L"Insert table (2 \u00d7 2)");
 
         // ── Fonts ─────────────────────────────────────────────────────────────
         NONCLIENTMETRICSW ncm = {}; ncm.cbSize = sizeof(ncm);
@@ -270,11 +277,13 @@ static LRESULT CALLBACK NotesEditorDlgProc(HWND hwnd, UINT msg, WPARAM wParam, L
         int  wmEv  = HIWORD(wParam);
 
         if (wmId == IDC_NOTES_CANCEL || wmId == IDCANCEL) {
+            EnableWindow(GetWindow(hwnd, GW_OWNER), TRUE);
             DestroyWindow(hwnd); return 0;
         }
         if (wmId == IDC_NOTES_OK) {
             pData->outRtf    = hEdit ? NotesEditor_StreamOut(hEdit) : L"";
             pData->okClicked = true;
+            EnableWindow(GetWindow(hwnd, GW_OWNER), TRUE);
             DestroyWindow(hwnd); return 0;
         }
         if (wmId == IDC_NOTES_BOLD && hEdit) {
@@ -303,6 +312,32 @@ static LRESULT CALLBACK NotesEditorDlgProc(HWND hwnd, UINT msg, WPARAM wParam, L
             SendMessageW(hEdit, EM_EXSETSEL, 0, (LPARAM)&cr); SetFocus(hEdit); return 0;
         }
 
+        if (wmId == IDC_NOTES_TABLE && hEdit) {
+            // Insert a 2-column, 2-row table at the current cursor position.
+            // Stream the RTF fragment into the selection (SFF_SELECTION replaces selection).
+            const char kTableRtf[] =
+                "{\\rtf1"
+                "\\trowd\\trgaph108\\trleft0"
+                "\\cellx3240\\cellx6840"
+                "\\intbl\\cell\\intbl\\cell\\row"
+                "\\trowd\\trgaph108\\trleft0"
+                "\\cellx3240\\cellx6840"
+                "\\intbl\\cell\\intbl\\cell\\row}";
+            // Conversion to bytes for EDITSTREAM
+            struct { const char* p; LONG remaining; } ctx{ kTableRtf, (LONG)sizeof(kTableRtf)-1 };
+            EDITSTREAM es{};
+            es.pfnCallback = [](DWORD_PTR cookie, LPBYTE buf, LONG cb, LONG* done) -> DWORD {
+                auto* c = reinterpret_cast<decltype(ctx)*>(cookie);
+                *done = std::min(cb, c->remaining);
+                memcpy(buf, c->p, *done);
+                c->p += *done; c->remaining -= *done;
+                return 0;
+            };
+            es.dwCookie = (DWORD_PTR)&ctx;
+            SendMessageW(hEdit, EM_STREAMIN, SF_RTF | SFF_SELECTION, (LPARAM)&es);
+            SetFocus(hEdit);
+            return 0;
+        }
         if (wmId == IDC_NOTES_COLOR && hEdit) {
             CHARRANGE cr = {}; SendMessageW(hEdit, EM_EXGETSEL, 0, (LPARAM)&cr);
             CHOOSECOLORW cc = {};
@@ -385,6 +420,7 @@ static LRESULT CALLBACK NotesEditorDlgProc(HWND hwnd, UINT msg, WPARAM wParam, L
     }
 
     case WM_CLOSE:
+        EnableWindow(GetWindow(hwnd, GW_OWNER), TRUE);
         DestroyWindow(hwnd); return 0;
     }
     return DefWindowProcW(hwnd, msg, wParam, lParam);
@@ -410,15 +446,23 @@ bool OpenNotesEditor(HWND hwndParent, NotesEditorData& data)
     int  y      = rcPar.top  + (rcPar.bottom - rcPar.top  - dlgH) / 2;
     const wchar_t* title = data.titleText.empty() ? L"Edit Notes" : data.titleText.c_str();
 
-    HWND hDlg = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+    HWND hDlg = CreateWindowExW(WS_EX_TOOLWINDOW,
         L"CompNotesEditor", title,
         WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
         x, y, dlgW, dlgH, hwndParent, NULL, GetModuleHandleW(NULL), &data);
+
+    EnableWindow(hwndParent, FALSE);
 
     MSG m;
     while (GetMessageW(&m, NULL, 0, 0) > 0) {
         if (!IsWindow(hDlg)) break;
         TranslateMessage(&m); DispatchMessageW(&m);
     }
+
+    // Re-enable owner (safe no-op if WM_CLOSE/WM_COMMAND already did it),
+    // then bring it to the foreground via a TOPMOST flash.
+    EnableWindow(hwndParent, TRUE);
+    SetWindowPos(hwndParent, HWND_TOPMOST,   0,0,0,0, SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
+    SetWindowPos(hwndParent, HWND_NOTOPMOST, 0,0,0,0, SWP_NOMOVE|SWP_NOSIZE);
     return data.okClicked;
 }

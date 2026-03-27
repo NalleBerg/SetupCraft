@@ -35,6 +35,30 @@
 #define IDC_RTFE_STATUSBAR    4519
 #define IDC_RTFE_IMAGE        4520
 #define IDC_RTFE_OPEN         4521    // "Open file…" button (shell32.dll icon 38)
+#define IDC_RTFE_TABLE        4522    // Insert table button
+
+// ── Table dialog / context-menu IDs ──────────────────────────────────────────
+// Used inside the table-properties dialog (separate window, not a child of the editor).
+#define IDC_RTFE_TD_ROWS      4540
+#define IDC_RTFE_TD_COLS      4541
+#define IDC_RTFE_TD_WIDTH     4542    // table width % spinner
+#define IDC_RTFE_TD_BWIDTH    4543    // border width (px)
+#define IDC_RTFE_TD_BTYPE     4544    // border type combobox
+#define IDC_RTFE_TD_BCOLOR    4545    // border colour button
+#define IDC_RTFE_TD_COLW      4546    // column width % spinner (0 = equal)
+#define IDC_RTFE_TD_ROWH      4547    // row height px (0 = auto)
+#define IDC_RTFE_TD_HALIGN    4548    // H alignment combo (L/C/R)
+#define IDC_RTFE_TD_VALIGN    4549    // V alignment combo (T/M/B)
+#define IDC_RTFE_TD_OK        4550
+#define IDC_RTFE_TD_CANCEL    4551
+#define IDC_RTFE_TD_COLWPX    4552    // column width px edit
+#define IDC_RTFE_TD_COLWPCT   4553    // column width % edit (linked to px)
+#define IDC_RTFE_TD_CHALIGN   4554    // cell H alignment combo (L/C/R)
+// Context-menu command IDs
+#define IDM_RTFE_TABLE_PROPS      5001    // "Table properties…" menu item
+#define IDM_RTFE_CELL_ALIGN_L     5002    // cell align left
+#define IDM_RTFE_CELL_ALIGN_C     5003    // cell align centre
+#define IDM_RTFE_CELL_ALIGN_R     5004    // cell align right
 
 // ── Data struct ───────────────────────────────────────────────────────────────
 // Fill all fields before calling OpenRtfEditor().

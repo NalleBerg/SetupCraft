@@ -2,9 +2,11 @@
 #include "dpi.h"
 #include "button.h"
 #include "tooltip.h"
+#define _RICHEDIT_VER 0x0800   // enable TABLEROWPARMS / TABLECELLPARMS
 #include <richedit.h>
 #include <commdlg.h>
 #include <commctrl.h>
+#include <windowsx.h>   // GET_X_LPARAM / GET_Y_LPARAM
 #include <string>
 #include <vector>
 #include <algorithm>
@@ -246,7 +248,720 @@ static void RtfEd_InsertImage(HWND hwnd, HWND hEdit, const RtfEditorData* pD)
     SetFocus(hEdit);
 }
 
-// Forward declaration — RtfEd_SyncToolbar is defined after RtfEdState (line ~342).
+// ─── Table insertion / properties ────────────────────────────────────────────
+// Uses EM_INSERTTABLE (RICHEDIT_VER >= 0x0800) so the cells are native RichEdit
+// objects with proper word-wrap.  Requires Msftedit.dll (RichEdit 4.1+).
+//
+// Border style codes stored in TABLECELLPARMS::dxBrdrLeft etc. use the RTF
+// \brdr* mapping from MSDN (negative = RTF style index):
+//  0   = no border       -1  = single (\brdrs)   -2  = thick (\brdrth)
+//  -3  = double (\brdrdb) -4  = dotted (\brdrdot) -5  = dashed (\brdrdash)
+// We store these as app-level indices 0..5 and map before calling EM_INSERTTABLE.
+
+// --- helpers ---
+
+// Convert our 0-based border-style UI index to TABLECELLPARMS border px value.
+// RichEdit expects negative values for styled borders; 0 = none.
+static SHORT RtfEd_BorderStylePx(int uiIdx, int widthPx)
+{
+    // uiIdx: 0=none 1=single 2=thick 3=double 4=dotted 5=dashed
+    if (uiIdx == 0 || widthPx == 0) return 0;
+    // RichEdit uses negative short codes; magnitude is style, not width.
+    // Actual width is encoded separately per MSDN (it uses width in twips).
+    // We return width in twips (1 px = 15 twips at 96 DPI, but we cap at 32767).
+    SHORT twips = (SHORT)(widthPx * 15);
+    return (twips > 0) ? twips : 1;
+}
+
+struct RtfTableParams {
+    int  rows     = 2;
+    int  cols     = 2;
+    int  widthPct = 100;   // table width as % of window (not used by EM_INSERTTABLE directly;
+                           // we distribute among cells)
+    int  borderW  = 1;     // border width in px
+    int  borderStyle = 1;  // 0=none 1=single 2=thick 3=double 4=dotted 5=dashed
+    COLORREF borderColor = RGB(0,0,0);
+    int  rowHeightPx = 0;  // 0 = auto
+    int  colWidthPx  = 0;  // 0 = derive from widthPct; >0 = explicit per-column width
+    int  hAlign   = 0;     // 0=left 1=center 2=right  (table row alignment on page)
+    int  vAlign   = 0;     // 0=top  1=middle 2=bottom (cell vertical alignment)
+    int  cellHAlign = 0;   // 0=left 1=center 2=right  (cell content text alignment)
+};
+
+// Global table dialog border colour (persists across opens).
+static COLORREF s_tblBorderColor = RGB(0, 0, 0);
+static COLORREF s_tblCustomColors[16] = {};
+
+// ─── Table-properties dialog ─────────────────────────────────────────────────
+// A self-contained Win32 dialog that collects table parameters.
+// Pass a pointer to RtfTableParams in CREATESTRUCT::lpCreateParams;
+// it is filled on OK and the dialog is a modal loop caller drives.
+
+struct TblDlgState {
+    RtfTableParams* p;       // in/out
+    bool  isEdit;            // true = editing existing table (hides rows/cols)
+    HBRUSH hBrColorBtn;      // for the colour preview button
+    int   edWidthPx;         // editor client width in px (for px<->pct conversion)
+    bool  syncingWidth;      // guard to prevent recursive EN_CHANGE
+};
+
+static LRESULT CALLBACK TblDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    TblDlgState* st = (TblDlgState*)(LONG_PTR)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+    switch (msg) {
+    case WM_CREATE: {
+        CREATESTRUCTW* cs = (CREATESTRUCTW*)lParam;
+        st = (TblDlgState*)cs->lpCreateParams;
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)st);
+        st->hBrColorBtn = CreateSolidBrush(st->p->borderColor);
+
+        HINSTANCE hi = cs->hInstance;
+        int x = S(10), y = S(10);
+        const int lw = S(130), ew = S(60), eh = S(22), gap = S(6), row = eh + gap;
+
+        auto L = [&](const wchar_t* t, int cx, int cy, int cw, int ch) {
+            CreateWindowExW(0, L"STATIC", t, WS_CHILD|WS_VISIBLE|SS_LEFT,
+                cx, cy + S(3), cw, ch - S(3), hwnd, NULL, hi, NULL);
+        };
+        auto E = [&](int id, int cx, int cy, int cw, int ch, const wchar_t* t = L"") {
+            return CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", t,
+                WS_CHILD|WS_VISIBLE|ES_NUMBER|ES_AUTOHSCROLL,
+                cx, cy, cw, ch, hwnd, (HMENU)(LONG_PTR)id, hi, NULL);
+        };
+        auto Sp = [&](int editId, int cx, int cy, HWND hEdit, int lo, int hi2) {
+            HWND hSpin = CreateWindowExW(0, UPDOWN_CLASS, NULL,
+                WS_CHILD|WS_VISIBLE|UDS_ARROWKEYS|UDS_SETBUDDYINT|UDS_ALIGNRIGHT,
+                0, 0, 0, 0, hwnd, NULL, hi, NULL);
+            SendMessageW(hSpin, UDM_SETBUDDY,    (WPARAM)hEdit, 0);
+            SendMessageW(hSpin, UDM_SETRANGE32,  lo, hi2);
+            SendMessageW(hSpin, UDM_SETPOS32,    0,
+                (LPARAM)*(int*)((char*)st->p + (editId == IDC_RTFE_TD_ROWS ? offsetof(RtfTableParams,rows)
+                              : editId == IDC_RTFE_TD_COLS  ? offsetof(RtfTableParams,cols)
+                              : editId == IDC_RTFE_TD_WIDTH ? offsetof(RtfTableParams,widthPct)
+                              : editId == IDC_RTFE_TD_BWIDTH? offsetof(RtfTableParams,borderW)
+                              : editId == IDC_RTFE_TD_COLW  ? offsetof(RtfTableParams,widthPct) /* unused */
+                              : offsetof(RtfTableParams,rowHeightPx))));
+            return hSpin;
+        };
+
+        int col2 = x + lw + S(6);
+
+        if (!st->isEdit) {
+            // Rows
+            L(L"Rows:", x, y, lw, eh);
+            HWND eRows = E(IDC_RTFE_TD_ROWS, col2, y, ew, eh);
+            SetWindowTextW(eRows, std::to_wstring(st->p->rows).c_str());
+            CreateWindowExW(0, UPDOWN_CLASS, NULL,
+                WS_CHILD|WS_VISIBLE|UDS_ARROWKEYS|UDS_SETBUDDYINT|UDS_ALIGNRIGHT,
+                0,0,0,0, hwnd, NULL, hi, NULL);
+            {HWND hs = FindWindowExW(hwnd,NULL,UPDOWN_CLASS,NULL);
+             SendMessageW(hs,UDM_SETBUDDY,(WPARAM)eRows,0);
+             SendMessageW(hs,UDM_SETRANGE32,1,99);
+             SendMessageW(hs,UDM_SETPOS32,0,(LPARAM)st->p->rows);}
+            y += row;
+
+            // Cols
+            L(L"Columns:", x, y, lw, eh);
+            HWND eCols = E(IDC_RTFE_TD_COLS, col2, y, ew, eh);
+            SetWindowTextW(eCols, std::to_wstring(st->p->cols).c_str());
+            {HWND hs2 = CreateWindowExW(0, UPDOWN_CLASS, NULL,
+                WS_CHILD|WS_VISIBLE|UDS_ARROWKEYS|UDS_SETBUDDYINT|UDS_ALIGNRIGHT,
+                0,0,0,0, hwnd, NULL, hi, NULL);
+             SendMessageW(hs2,UDM_SETBUDDY,(WPARAM)eCols,0);
+             SendMessageW(hs2,UDM_SETRANGE32,1,32);
+             SendMessageW(hs2,UDM_SETPOS32,0,(LPARAM)st->p->cols);}
+            y += row;
+        }
+
+        // Table width %
+        L(L"Table width (%):", x, y, lw, eh);
+        HWND eW = E(IDC_RTFE_TD_WIDTH, col2, y, ew, eh);
+        SetWindowTextW(eW, std::to_wstring(st->p->widthPct).c_str());
+        {HWND hs3 = CreateWindowExW(0, UPDOWN_CLASS, NULL,
+            WS_CHILD|WS_VISIBLE|UDS_ARROWKEYS|UDS_SETBUDDYINT|UDS_ALIGNRIGHT,
+            0,0,0,0, hwnd, NULL, hi, NULL);
+         SendMessageW(hs3,UDM_SETBUDDY,(WPARAM)eW,0);
+         SendMessageW(hs3,UDM_SETRANGE32,10,100);
+         SendMessageW(hs3,UDM_SETPOS32,0,(LPARAM)st->p->widthPct);}
+        y += row;
+
+        // Row height (0=auto)
+        L(L"Row height (px, 0=auto):", x, y, lw, eh);
+        HWND eRH = E(IDC_RTFE_TD_ROWH, col2, y, ew, eh);
+        SetWindowTextW(eRH, std::to_wstring(st->p->rowHeightPx).c_str());
+        {HWND hs4 = CreateWindowExW(0, UPDOWN_CLASS, NULL,
+            WS_CHILD|WS_VISIBLE|UDS_ARROWKEYS|UDS_SETBUDDYINT|UDS_ALIGNRIGHT,
+            0,0,0,0, hwnd, NULL, hi, NULL);
+         SendMessageW(hs4,UDM_SETBUDDY,(WPARAM)eRH,0);
+         SendMessageW(hs4,UDM_SETRANGE32,0,999);
+         SendMessageW(hs4,UDM_SETPOS32,0,(LPARAM)st->p->rowHeightPx);}
+        y += row;
+
+        // Column width px (0=auto/equal)
+        L(L"Column width (px, 0=auto):", x, y, lw, eh);
+        {
+            // Always start at the stored explicit value — 0 means auto (derive from table width%/cols).
+            // Do NOT auto-compute here: a computed value would be saved on OK and override table width%.
+            int initPx = st->p->colWidthPx;
+            HWND eCWPx = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT",
+                std::to_wstring(initPx).c_str(),
+                WS_CHILD|WS_VISIBLE|ES_NUMBER|ES_AUTOHSCROLL,
+                col2, y, ew, eh, hwnd, (HMENU)IDC_RTFE_TD_COLWPX, hi, NULL);
+            HWND sCWPx = CreateWindowExW(0, UPDOWN_CLASS, NULL,
+                WS_CHILD|WS_VISIBLE|UDS_ARROWKEYS|UDS_SETBUDDYINT|UDS_ALIGNRIGHT,
+                0,0,0,0, hwnd, NULL, hi, NULL);
+            SendMessageW(sCWPx,UDM_SETBUDDY,(WPARAM)eCWPx,0);
+            SendMessageW(sCWPx,UDM_SETRANGE32,0,9999);
+            SendMessageW(sCWPx,UDM_SETPOS32,0,(LPARAM)initPx);
+            (void)eCWPx;
+        }
+        y += row;
+
+        // Column width pct (0=auto/equal)
+        L(L"Column width (%, 0=auto):", x, y, lw, eh);
+        {
+            // Only show a non-zero value if there is an explicit colWidthPx set.
+            int initPct = 0;
+            if (st->p->colWidthPx > 0 && st->edWidthPx > 0)
+                initPct = (int)((long long)st->p->colWidthPx * 100 / std::max(1, st->edWidthPx));
+            HWND eCWPct = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT",
+                std::to_wstring(initPct).c_str(),
+                WS_CHILD|WS_VISIBLE|ES_NUMBER|ES_AUTOHSCROLL,
+                col2, y, ew, eh, hwnd, (HMENU)IDC_RTFE_TD_COLWPCT, hi, NULL);
+            HWND sCWPct = CreateWindowExW(0, UPDOWN_CLASS, NULL,
+                WS_CHILD|WS_VISIBLE|UDS_ARROWKEYS|UDS_SETBUDDYINT|UDS_ALIGNRIGHT,
+                0,0,0,0, hwnd, NULL, hi, NULL);
+            SendMessageW(sCWPct,UDM_SETBUDDY,(WPARAM)eCWPct,0);
+            SendMessageW(sCWPct,UDM_SETRANGE32,0,100);
+            SendMessageW(sCWPct,UDM_SETPOS32,0,(LPARAM)initPct);
+            (void)eCWPct;
+        }
+        y += row;
+
+        // Border width
+        L(L"Border width (px):", x, y, lw, eh);
+        HWND eBW = E(IDC_RTFE_TD_BWIDTH, col2, y, ew, eh);
+        SetWindowTextW(eBW, std::to_wstring(st->p->borderW).c_str());
+        {HWND hs5 = CreateWindowExW(0, UPDOWN_CLASS, NULL,
+            WS_CHILD|WS_VISIBLE|UDS_ARROWKEYS|UDS_SETBUDDYINT|UDS_ALIGNRIGHT,
+            0,0,0,0, hwnd, NULL, hi, NULL);
+         SendMessageW(hs5,UDM_SETBUDDY,(WPARAM)eBW,0);
+         SendMessageW(hs5,UDM_SETRANGE32,0,20);
+         SendMessageW(hs5,UDM_SETPOS32,0,(LPARAM)st->p->borderW);}
+        y += row;
+
+        // Border style
+        L(L"Border style:", x, y, lw, eh);
+        HWND hBS = CreateWindowExW(0, L"COMBOBOX", L"",
+            WS_CHILD|WS_VISIBLE|CBS_DROPDOWNLIST|WS_VSCROLL,
+            col2, y, ew + S(40), S(140), hwnd, (HMENU)IDC_RTFE_TD_BTYPE, hi, NULL);
+        const wchar_t* bstyles[] = { L"None", L"Single", L"Thick", L"Double", L"Dotted", L"Dashed" };
+        for (auto s : bstyles) SendMessageW(hBS, CB_ADDSTRING, 0, (LPARAM)s);
+        SendMessageW(hBS, CB_SETCURSEL, st->p->borderStyle, 0);
+        y += row;
+
+        // Border colour
+        L(L"Border colour:", x, y, lw, eh);
+        CreateWindowExW(0, L"BUTTON", L"",
+            WS_CHILD|WS_VISIBLE|BS_OWNERDRAW,
+            col2, y, ew, eh, hwnd, (HMENU)IDC_RTFE_TD_BCOLOR, hi, NULL);
+        y += row;
+
+        // Table alignment (row on page)
+        L(L"Table alignment:", x, y, lw, eh);
+        HWND hHA = CreateWindowExW(0, L"COMBOBOX", L"",
+            WS_CHILD|WS_VISIBLE|CBS_DROPDOWNLIST|WS_VSCROLL,
+            col2, y, ew + S(40), S(110), hwnd, (HMENU)IDC_RTFE_TD_HALIGN, hi, NULL);
+        const wchar_t* haligns[] = { L"Left", L"Centre", L"Right" };
+        for (auto s : haligns) SendMessageW(hHA, CB_ADDSTRING, 0, (LPARAM)s);
+        SendMessageW(hHA, CB_SETCURSEL, st->p->hAlign, 0);
+        y += row;
+
+        // V alignment
+        L(L"Cell V alignment:", x, y, lw, eh);
+        HWND hVA = CreateWindowExW(0, L"COMBOBOX", L"",
+            WS_CHILD|WS_VISIBLE|CBS_DROPDOWNLIST|WS_VSCROLL,
+            col2, y, ew + S(40), S(110), hwnd, (HMENU)IDC_RTFE_TD_VALIGN, hi, NULL);
+        const wchar_t* valigns[] = { L"Top", L"Middle", L"Bottom" };
+        for (auto s : valigns) SendMessageW(hVA, CB_ADDSTRING, 0, (LPARAM)s);
+        SendMessageW(hVA, CB_SETCURSEL, st->p->vAlign, 0);
+        y += row;
+
+        // Cell H alignment (text alignment in cells)
+        L(L"Cell H alignment:", x, y, lw, eh);
+        HWND hCHA = CreateWindowExW(0, L"COMBOBOX", L"",
+            WS_CHILD|WS_VISIBLE|CBS_DROPDOWNLIST|WS_VSCROLL,
+            col2, y, ew + S(40), S(110), hwnd, (HMENU)IDC_RTFE_TD_CHALIGN, hi, NULL);
+        const wchar_t* chaligns[] = { L"Left", L"Centre", L"Right" };
+        for (auto s : chaligns) SendMessageW(hCHA, CB_ADDSTRING, 0, (LPARAM)s);
+        SendMessageW(hCHA, CB_SETCURSEL, st->p->cellHAlign, 0);
+        y += row + S(4);
+
+        // OK / Cancel
+        int bw = S(80), bh = S(28);
+        int totalW = col2 + ew + S(40) + x;
+        int bx = (totalW - bw*2 - S(8)) / 2;
+        CreateWindowExW(0, L"BUTTON", L"OK",
+            WS_CHILD|WS_VISIBLE|BS_PUSHBUTTON|BS_DEFPUSHBUTTON,
+            bx, y, bw, bh, hwnd, (HMENU)IDC_RTFE_TD_OK, hi, NULL);
+        CreateWindowExW(0, L"BUTTON", L"Cancel",
+            WS_CHILD|WS_VISIBLE|BS_PUSHBUTTON,
+            bx+bw+S(8), y, bw, bh, hwnd, (HMENU)IDC_RTFE_TD_CANCEL, hi, NULL);
+
+        // Set a NONCLIENTMETRICS font on all children
+        NONCLIENTMETRICSW ncm = {}; ncm.cbSize = sizeof(ncm);
+        SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+        if (ncm.lfMessageFont.lfHeight < 0)
+            ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.1f);
+        HFONT hF = CreateFontIndirectW(&ncm.lfMessageFont);
+        if (hF) {
+            SetPropW(hwnd, L"tblDlgFont", hF);
+            EnumChildWindows(hwnd, [](HWND hC, LPARAM lp) -> BOOL {
+                SendMessageW(hC, WM_SETFONT, lp, TRUE); return TRUE;
+            }, (LPARAM)hF);
+        }
+        return 0;
+    }
+
+    case WM_COMMAND: {
+        int id = LOWORD(wParam);
+        int ev = HIWORD(wParam);
+        if (id == IDC_RTFE_TD_CANCEL || id == IDCANCEL) {
+            DestroyWindow(hwnd); return 0;
+        }
+
+        // Sync column width px <-> pct when either changes
+        if ((id == IDC_RTFE_TD_COLWPX || id == IDC_RTFE_TD_COLWPCT) && ev == EN_CHANGE && !st->syncingWidth) {
+            if (st->edWidthPx > 0) {
+                st->syncingWidth = true;
+                wchar_t buf[16] = {};
+                if (id == IDC_RTFE_TD_COLWPX) {
+                    GetDlgItemTextW(hwnd, IDC_RTFE_TD_COLWPX, buf, 16);
+                    int px = _wtoi(buf);
+                    int pct = (int)((long long)px * 100 / std::max(1, st->edWidthPx));
+                    pct = std::min(100, std::max(0, pct));
+                    SetDlgItemTextW(hwnd, IDC_RTFE_TD_COLWPCT, std::to_wstring(pct).c_str());
+                } else {
+                    GetDlgItemTextW(hwnd, IDC_RTFE_TD_COLWPCT, buf, 16);
+                    int pct = _wtoi(buf);
+                    int px  = (int)((long long)pct * st->edWidthPx / 100);
+                    SetDlgItemTextW(hwnd, IDC_RTFE_TD_COLWPX, std::to_wstring(px).c_str());
+                }
+                st->syncingWidth = false;
+            }
+        }
+
+        if (id == IDC_RTFE_TD_OK || id == IDOK) {
+            // Read all fields back into st->p
+            auto getInt = [&](int ctrlId, int def) -> int {
+                wchar_t buf[16] = {};
+                GetDlgItemTextW(hwnd, ctrlId, buf, 16);
+                int v = _wtoi(buf);
+                return v;
+            };
+            if (!st->isEdit) {
+                st->p->rows  = std::max(1, std::min(99, getInt(IDC_RTFE_TD_ROWS, 2)));
+                st->p->cols  = std::max(1, std::min(32, getInt(IDC_RTFE_TD_COLS, 2)));
+            }
+            st->p->widthPct    = std::max(10, std::min(100, getInt(IDC_RTFE_TD_WIDTH, 100)));
+            st->p->rowHeightPx = std::max(0, std::min(999, getInt(IDC_RTFE_TD_ROWH, 0)));
+            st->p->colWidthPx  = std::max(0, std::min(9999, getInt(IDC_RTFE_TD_COLWPX, 0)));
+            st->p->borderW     = std::max(0, std::min(20,  getInt(IDC_RTFE_TD_BWIDTH, 1)));
+            st->p->borderStyle = (int)SendDlgItemMessageW(hwnd, IDC_RTFE_TD_BTYPE,   CB_GETCURSEL, 0, 0);
+            st->p->hAlign      = (int)SendDlgItemMessageW(hwnd, IDC_RTFE_TD_HALIGN,  CB_GETCURSEL, 0, 0);
+            st->p->vAlign      = (int)SendDlgItemMessageW(hwnd, IDC_RTFE_TD_VALIGN,  CB_GETCURSEL, 0, 0);
+            st->p->cellHAlign  = (int)SendDlgItemMessageW(hwnd, IDC_RTFE_TD_CHALIGN, CB_GETCURSEL, 0, 0);
+            st->p->borderColor = s_tblBorderColor;
+            st->p->rows = (st->p->rows > 0 ? st->p->rows : 2); // safety
+            DestroyWindow(hwnd); return 0;
+        }
+        if (id == IDC_RTFE_TD_BCOLOR) {
+            CHOOSECOLORW cc = {};
+            cc.lStructSize  = sizeof(cc);
+            cc.hwndOwner    = hwnd;
+            cc.lpCustColors = s_tblCustomColors;
+            cc.rgbResult    = s_tblBorderColor;
+            cc.Flags        = CC_FULLOPEN | CC_RGBINIT;
+            if (ChooseColorW(&cc)) {
+                s_tblBorderColor = cc.rgbResult;
+                if (st->hBrColorBtn) DeleteObject(st->hBrColorBtn);
+                st->hBrColorBtn = CreateSolidBrush(s_tblBorderColor);
+                InvalidateRect(GetDlgItem(hwnd, IDC_RTFE_TD_BCOLOR), NULL, TRUE);
+            }
+            return 0;
+        }
+        break;
+    }
+
+    case WM_DRAWITEM: {
+        LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
+        if (dis->CtlID == IDC_RTFE_TD_BCOLOR) {
+            HBRUSH hBr = st ? st->hBrColorBtn : NULL;
+            if (!hBr) hBr = (HBRUSH)GetStockObject(BLACK_BRUSH);
+            FillRect(dis->hDC, &dis->rcItem, hBr);
+            FrameRect(dis->hDC, &dis->rcItem, (HBRUSH)GetStockObject(BLACK_BRUSH));
+            return TRUE;
+        }
+        break;
+    }
+
+    case WM_KEYDOWN:
+        if (wParam == VK_ESCAPE) { DestroyWindow(hwnd); return 0; }
+        if (wParam == VK_RETURN)  { SendMessageW(hwnd, WM_COMMAND, IDC_RTFE_TD_OK, 0); return 0; }
+        break;
+
+    case WM_DESTROY: {
+        HFONT hF = (HFONT)GetPropW(hwnd, L"tblDlgFont");
+        if (hF) { DeleteObject(hF); RemovePropW(hwnd, L"tblDlgFont"); }
+        if (st && st->hBrColorBtn) { DeleteObject(st->hBrColorBtn); st->hBrColorBtn = NULL; }
+        break;
+    }
+    }
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+// Returns true if the user clicked OK; fills *p.  Parent = editor hwnd.
+// edWidthPx = editor client pixel width (used to convert col width px<->pct).
+static bool RtfEd_ShowTableDialog(HWND parent, RtfTableParams* p, bool isEdit, int edWidthPx = 0)
+{
+    HINSTANCE hInst = GetModuleHandleW(NULL);
+    s_tblBorderColor = p->borderColor;
+
+    // Register class once.
+    WNDCLASSEXW wc = {}; wc.cbSize = sizeof(wc);
+    if (!GetClassInfoExW(hInst, L"RtfTblDlg", &wc)) {
+        wc.lpfnWndProc   = TblDlgProc;
+        wc.hInstance     = hInst;
+        wc.lpszClassName = L"RtfTblDlg";
+        wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
+        wc.hCursor       = LoadCursorW(NULL, IDC_ARROW);
+        RegisterClassExW(&wc);
+    }
+
+    const int dlgW = S(260), dlgH = isEdit ? S(410) : S(490);
+    RECT rp = {}; GetWindowRect(parent, &rp);
+    int cx = rp.left + (rp.right - rp.left - dlgW) / 2;
+    int cy = rp.top  + (rp.bottom - rp.top  - dlgH) / 2;
+
+    TblDlgState st{ p, isEdit, NULL, edWidthPx, false };
+    const wchar_t* title = isEdit ? L"Table Properties" : L"Insert Table";
+
+    HWND hDlg = CreateWindowExW(
+        WS_EX_TOPMOST | WS_EX_DLGMODALFRAME,
+        L"RtfTblDlg", title,
+        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
+        cx, cy, dlgW, dlgH,
+        parent, NULL, hInst, &st);
+    if (!hDlg) return false;
+
+    // Block the editor.
+    EnableWindow(parent, FALSE);
+
+    // Simple modal loop.
+    MSG m;
+    while (GetMessageW(&m, NULL, 0, 0) > 0) {
+        if (!IsWindow(hDlg)) break;
+        if (m.message == WM_QUIT) { PostQuitMessage((int)m.wParam); break; }
+        if (!IsDialogMessageW(hDlg, &m)) {
+            TranslateMessage(&m);
+            DispatchMessageW(&m);
+        }
+    }
+    if (IsWindow(parent)) EnableWindow(parent, TRUE);
+    SetForegroundWindow(parent);
+
+    // OK was pressed iff all fields were written back (rows > 0 check).
+    return (p->rows > 0 && !IsWindow(hDlg));
+}
+
+// ─── Build and insert table via EM_INSERTTABLE ────────────────────────────────
+// Editor window width is used to compute absolute cell widths from widthPct.
+static void RtfEd_InsertTableNative(HWND hwnd, HWND hEdit, const RtfTableParams& tp)
+{
+    // Determine editor pixel width to compute twip widths.
+    RECT rc; GetClientRect(hEdit, &rc);
+    int edPx = rc.right > S(100) ? rc.right : S(500);
+    int cellTwips;
+    if (tp.colWidthPx > 0) {
+        // Explicit column width overrides widthPct
+        cellTwips = tp.colWidthPx * 15;
+    } else {
+        // Derive equal column width from table width %
+        int tblTwips = (int)((long long)edPx * 15 * tp.widthPct / 100);
+        cellTwips = (tp.cols > 0) ? (tblTwips / tp.cols) : tblTwips;
+    }
+    if (cellTwips < 100) cellTwips = 100; // minimum
+
+    // Build cell params array (all cells identical).
+    std::vector<TABLECELLPARMS> cells((size_t)(tp.cols));
+    SHORT brdr = RtfEd_BorderStylePx(tp.borderStyle, tp.borderW);
+    for (auto& c : cells) {
+        c.dxWidth    = cellTwips;
+        c.nVertAlign = (WORD)(tp.vAlign < 3 ? tp.vAlign : 0);
+        c.fMergeTop = c.fMergePrev = c.fVertical = 0;
+        c.fMergeStart = c.fMergeCont = 0;
+        c.wShading   = 0;
+        c.dxBrdrLeft  = brdr; c.dyBrdrTop    = brdr;
+        c.dxBrdrRight = brdr; c.dyBrdrBottom = brdr;
+        c.crBrdrLeft  = tp.borderColor; c.crBrdrTop    = tp.borderColor;
+        c.crBrdrRight = tp.borderColor; c.crBrdrBottom = tp.borderColor;
+        c.crBackPat   = RGB(255,255,255);
+        c.crForePat   = RGB(0,0,0);
+    }
+
+    TABLEROWPARMS row = {};
+    row.cbRow      = sizeof(TABLEROWPARMS);
+    row.cbCell     = sizeof(TABLECELLPARMS);
+    row.cCell      = (BYTE)tp.cols;
+    row.cRow       = (BYTE)tp.rows;
+    row.dxCellMargin = S(4) * 15;  // ~4px converted to twips
+    row.dxIndent   = 0;
+    row.dyHeight   = (tp.rowHeightPx > 0) ? (LONG)(tp.rowHeightPx * 15) : 0;
+    row.nAlignment = (tp.hAlign == 1) ? 2 : (tp.hAlign == 2) ? 3 : 1; // 1=L 2=C 3=R
+    row.fRTL       = 0;
+    row.fKeep      = 0; row.fKeepFollow = 0;
+    row.fWrap      = 1; // word-wrap cells — always on
+    row.fIdentCells = 1;
+    row.cpStartRow = -1;  // insert at current selection
+    row.bTableLevel = 1;
+    row.iCell      = 0;
+
+    SendMessageW(hEdit, EM_INSERTTABLE, (WPARAM)&row, (LPARAM)cells.data());
+
+    // Apply cell text alignment to the entire table just inserted.
+    // Select forward enough chars to cover all cells, then apply.
+    if (tp.cellHAlign != 0) {
+        WORD pfa = (tp.cellHAlign == 1) ? PFA_CENTER : PFA_RIGHT;
+        // Get the extent of the newly inserted table by querying para format.
+        CHARRANGE crAll = { 0, -1 }; // will narrow via EM_GETTABLEPARMS
+        TABLEROWPARMS trq = {}; trq.cbRow = sizeof(trq); trq.cpStartRow = -1;
+        TABLECELLPARMS tcq = {}; tcq.dxWidth = sizeof(tcq);
+        SendMessageW(hEdit, EM_GETTABLEPARMS, (WPARAM)&trq, (LPARAM)&tcq);
+        // trq.cpStartRow is set to the start CP of the table row.
+        if (trq.cpStartRow >= 0) {
+            // Select a large range covering all rows; EM_SETPARAFORMAT clips to table.
+            CHARRANGE crTbl = { trq.cpStartRow, trq.cpStartRow + 65535 };
+            SendMessageW(hEdit, EM_EXSETSEL, 0, (LPARAM)&crTbl);
+            PARAFORMAT2 pf = {}; pf.cbSize = sizeof(pf);
+            pf.dwMask  = PFM_ALIGNMENT;
+            pf.wAlignment = pfa;
+            SendMessageW(hEdit, EM_SETPARAFORMAT, 0, (LPARAM)&pf);
+            // Collapse selection to end.
+            CHARRANGE crEnd = { crTbl.cpMin, crTbl.cpMin };
+            SendMessageW(hEdit, EM_EXSETSEL, 0, (LPARAM)&crEnd);
+        }
+    }
+    SetFocus(hEdit);
+}
+
+// ─── Update existing table properties via EM_SETTABLEPARMS ───────────────────
+// Gets params from hEdit at the caret, updates all rows with new values.
+static void RtfEd_ApplyTableProps(HWND hEdit, const RtfTableParams& tp)
+{
+    // Read current table row/cell params to know cCell/cRow.
+    TABLEROWPARMS curRow = {}; curRow.cbRow = sizeof(curRow);
+    TABLECELLPARMS curCell = {}; curCell.dxWidth = sizeof(curCell); // cbCell not used directly
+    curRow.cpStartRow = -1; // caret row
+
+    // EM_GETTABLEPARMS fills row/cell for the row where the caret is.
+    SendMessageW(hEdit, EM_GETTABLEPARMS, (WPARAM)&curRow, (LPARAM)&curCell);
+
+    int cols = curRow.cCell > 0 ? curRow.cCell : tp.cols;
+
+    RECT rc; GetClientRect(hEdit, &rc);
+    int edPx = rc.right > S(100) ? rc.right : S(500);
+    int cellTwips;
+    if (tp.colWidthPx > 0) {
+        cellTwips = tp.colWidthPx * 15;
+    } else {
+        int tblTwips = (int)((long long)edPx * 15 * tp.widthPct / 100);
+        cellTwips = cols > 0 ? tblTwips / cols : tblTwips;
+    }
+    if (cellTwips < 100) cellTwips = 100;
+
+    std::vector<TABLECELLPARMS> cells((size_t)cols);
+    SHORT brdr = RtfEd_BorderStylePx(tp.borderStyle, tp.borderW);
+    for (auto& c : cells) {
+        c.dxWidth    = cellTwips;
+        c.nVertAlign = (WORD)(tp.vAlign < 3 ? tp.vAlign : 0);
+        c.fMergeTop = c.fMergePrev = c.fVertical = 0;
+        c.fMergeStart = c.fMergeCont = 0;
+        c.wShading   = 0;
+        c.dxBrdrLeft  = brdr; c.dyBrdrTop    = brdr;
+        c.dxBrdrRight = brdr; c.dyBrdrBottom = brdr;
+        c.crBrdrLeft  = tp.borderColor; c.crBrdrTop    = tp.borderColor;
+        c.crBrdrRight = tp.borderColor; c.crBrdrBottom = tp.borderColor;
+        c.crBackPat   = RGB(255,255,255);
+        c.crForePat   = RGB(0,0,0);
+    }
+
+    TABLEROWPARMS row = {};
+    row.cbRow      = sizeof(TABLEROWPARMS);
+    row.cbCell     = sizeof(TABLECELLPARMS);
+    row.cCell      = (BYTE)cols;
+    row.cRow       = curRow.cRow > 0 ? curRow.cRow : 1;
+    row.dxCellMargin = S(4) * 15;
+    row.dxIndent   = 0;
+    row.dyHeight   = (tp.rowHeightPx > 0) ? (LONG)(tp.rowHeightPx * 15) : 0;
+    row.nAlignment = (tp.hAlign == 1) ? 2 : (tp.hAlign == 2) ? 3 : 1;
+    row.fRTL       = 0; row.fKeep = 0; row.fKeepFollow = 0;
+    row.fWrap      = 1;
+    row.fIdentCells = 1;
+    row.cpStartRow = -1;
+    row.bTableLevel = 1; row.iCell = 0;
+
+    SendMessageW(hEdit, EM_SETTABLEPARMS, (WPARAM)&row, (LPARAM)cells.data());
+
+    // Apply cell text alignment to the entire table.
+    if (tp.cellHAlign != 0) {
+        WORD pfa = (tp.cellHAlign == 1) ? PFA_CENTER : PFA_RIGHT;
+        TABLEROWPARMS trq = {}; trq.cbRow = sizeof(trq); trq.cpStartRow = -1;
+        TABLECELLPARMS tcq = {}; tcq.dxWidth = sizeof(tcq);
+        SendMessageW(hEdit, EM_GETTABLEPARMS, (WPARAM)&trq, (LPARAM)&tcq);
+        if (trq.cpStartRow >= 0) {
+            CHARRANGE crTbl = { trq.cpStartRow, trq.cpStartRow + 65535 };
+            SendMessageW(hEdit, EM_EXSETSEL, 0, (LPARAM)&crTbl);
+            PARAFORMAT2 pf = {}; pf.cbSize = sizeof(pf);
+            pf.dwMask  = PFM_ALIGNMENT;
+            pf.wAlignment = pfa;
+            SendMessageW(hEdit, EM_SETPARAFORMAT, 0, (LPARAM)&pf);
+            CHARRANGE crEnd = { trq.cpStartRow, trq.cpStartRow };
+            SendMessageW(hEdit, EM_EXSETSEL, 0, (LPARAM)&crEnd);
+        }
+    }
+    SetFocus(hEdit);
+}
+
+// ─── Check if caret is inside a table ────────────────────────────────────────
+static bool RtfEd_CaretInTable(HWND hEdit)
+{
+    TABLEROWPARMS  trp = {}; trp.cbRow  = sizeof(trp); trp.cpStartRow = -1;
+    TABLECELLPARMS tcp = {}; tcp.dxWidth = sizeof(tcp);
+    LRESULT r = SendMessageW(hEdit, EM_GETTABLEPARMS, (WPARAM)&trp, (LPARAM)&tcp);
+    return (r != 0 && trp.cCell > 0);
+}
+
+// ─── Default table params (last-used, persist per session) ────────────────────
+static RtfTableParams s_lastTableParams;
+
+// ─── RichEdit subclass for right-click table menu ────────────────────────────
+// Stored on the RichEdit as window prop L"rtfeEditProc".
+
+static LRESULT CALLBACK RtfEd_EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    WNDPROC prev = (WNDPROC)(LONG_PTR)GetPropW(hwnd, L"rtfeEditProc");
+    if (!prev) return DefWindowProcW(hwnd, msg, wParam, lParam);
+
+    // WM_RBUTTONDOWN: move caret to the click point so WM_CONTEXTMENU can
+    // reliably detect whether we are inside a table cell.
+    if (msg == WM_RBUTTONDOWN) {
+        LRESULT r = CallWindowProcW(prev, hwnd, msg, wParam, lParam);
+        POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+        POINTL ptl = { pt.x, pt.y };
+        LONG cp = (LONG)SendMessageW(hwnd, EM_CHARFROMPOS, 0, (LPARAM)&ptl);
+        if (cp >= 0) {
+            CHARRANGE cr = { cp, cp };
+            SendMessageW(hwnd, EM_EXSETSEL, 0, (LPARAM)&cr);
+        }
+        return r;
+    }
+
+    // WM_CONTEXTMENU: generated by DefWindowProc after WM_RBUTTONUP.
+    // lParam = screen coords of the click (-1,-1 if keyboard-triggered).
+    if (msg == WM_CONTEXTMENU) {
+        HWND hEditor = GetParent(hwnd);
+        POINT screen = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+        bool keyboard = (lParam == (LPARAM)-1);
+
+        if (!keyboard) {
+            // Move caret to click position (already done in RBUTTONDOWN,
+            // but repeat here as a safety net for keyboard-less mice/touchpads).
+            POINT client = screen;
+            ScreenToClient(hwnd, &client);
+            POINTL ptl = { client.x, client.y };
+            LONG cp = (LONG)SendMessageW(hwnd, EM_CHARFROMPOS, 0, (LPARAM)&ptl);
+            if (cp >= 0) {
+                CHARRANGE cr = { cp, cp };
+                SendMessageW(hwnd, EM_EXSETSEL, 0, (LPARAM)&cr);
+            }
+        } else {
+            // Keyboard-invoked: derive screen position from caret.
+            CHARRANGE cr = {};
+            SendMessageW(hwnd, EM_EXGETSEL, 0, (LPARAM)&cr);
+            POINTL ptl2 = {};
+            SendMessageW(hwnd, EM_POSFROMCHAR, (WPARAM)&ptl2, (LPARAM)cr.cpMin);
+            screen = { ptl2.x, ptl2.y };
+            ClientToScreen(hwnd, &screen);
+        }
+
+        if (RtfEd_CaretInTable(hwnd)) {
+            HMENU hMenu = CreatePopupMenu();
+            AppendMenuW(hMenu, MF_STRING, IDM_RTFE_TABLE_PROPS, L"Table properties\u2026");
+            AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
+            HMENU hAlignSub = CreatePopupMenu();
+            AppendMenuW(hAlignSub, MF_STRING, IDM_RTFE_CELL_ALIGN_L, L"Align left");
+            AppendMenuW(hAlignSub, MF_STRING, IDM_RTFE_CELL_ALIGN_C, L"Align centre");
+            AppendMenuW(hAlignSub, MF_STRING, IDM_RTFE_CELL_ALIGN_R, L"Align right");
+            AppendMenuW(hMenu, MF_POPUP, (UINT_PTR)hAlignSub, L"Cell alignment");
+
+            int cmd = TrackPopupMenu(hMenu, TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY,
+                                     screen.x, screen.y, 0, hEditor, NULL);
+            DestroyMenu(hMenu);
+
+            if (cmd == IDM_RTFE_CELL_ALIGN_L)      { RtfEd_SetAlignment(hwnd, PFA_LEFT); }
+            else if (cmd == IDM_RTFE_CELL_ALIGN_C) { RtfEd_SetAlignment(hwnd, PFA_CENTER); }
+            else if (cmd == IDM_RTFE_CELL_ALIGN_R) { RtfEd_SetAlignment(hwnd, PFA_RIGHT); }
+            else if (cmd == IDM_RTFE_TABLE_PROPS) {
+                TABLEROWPARMS  trp = {}; trp.cbRow = sizeof(trp); trp.cpStartRow = -1;
+                TABLECELLPARMS tcp = {}; tcp.dxWidth = sizeof(tcp);
+                SendMessageW(hwnd, EM_GETTABLEPARMS, (WPARAM)&trp, (LPARAM)&tcp);
+
+                RECT rc; GetClientRect(hwnd, &rc);
+                int edPx  = rc.right > 0 ? rc.right : S(500);
+                int twips = (int)(edPx * 15);
+                int cellT = tcp.dxWidth > 0 ? tcp.dxWidth : (twips / std::max(1,(int)trp.cCell));
+                int cols  = trp.cCell > 0 ? trp.cCell : 1;
+                int totalT = cellT * cols;
+                int pct = totalT > 0 ? (int)((long long)totalT * 100 / twips) : 100;
+                if (pct < 10) pct = 10; if (pct > 100) pct = 100;
+
+                RtfTableParams tp = s_lastTableParams;
+                tp.rows        = trp.cRow > 0 ? trp.cRow : 1;
+                tp.cols        = cols;
+                tp.widthPct    = pct;
+                tp.colWidthPx  = cellT > 0 ? (int)(cellT / 15) : 0;
+                tp.rowHeightPx = trp.dyHeight > 0 ? (int)(trp.dyHeight / 15) : 0;
+                tp.hAlign      = (trp.nAlignment == 2) ? 1 : (trp.nAlignment == 3) ? 2 : 0;
+                tp.vAlign      = tcp.nVertAlign < 3 ? tcp.nVertAlign : 0;
+                tp.borderW     = (tcp.dxBrdrLeft > 0) ? std::max(1, (int)(tcp.dxBrdrLeft / 15)) : 0;
+                tp.borderColor = tcp.crBrdrLeft;
+
+                if (RtfEd_ShowTableDialog(hEditor, &tp, true, edPx)) {
+                    s_lastTableParams = tp;
+                    RtfEd_ApplyTableProps(hwnd, tp);
+                }
+            }
+            return 0;
+        }
+        // Not in a table — fall through so defproc shows the standard RichEdit context menu.
+    }
+
+    if (msg == WM_NCDESTROY) {
+        RemovePropW(hwnd, L"rtfeEditProc");
+        SetWindowLongPtrW(hwnd, GWLP_WNDPROC, (LONG_PTR)prev);
+        return CallWindowProcW(prev, hwnd, msg, wParam, lParam);
+    }
+
+    return CallWindowProcW(prev, hwnd, msg, wParam, lParam);
+}
+
+static void RtfEd_SubclassEdit(HWND hEdit)
+{
+    WNDPROC prev = (WNDPROC)SetWindowLongPtrW(hEdit, GWLP_WNDPROC, (LONG_PTR)RtfEd_EditSubclassProc);
+    SetPropW(hEdit, L"rtfeEditProc", (HANDLE)(LONG_PTR)prev);
+}
+
+// Forward declaration — RtfEd_SyncToolbar is defined after RtfEdState (below).
 static void RtfEd_SyncToolbar(HWND hwnd, HWND hEdit);
 
 // ─── Open file ────────────────────────────────────────────────────────────────
@@ -547,7 +1262,8 @@ static int RtfEd_LayoutToolbar(HWND hwnd, int cW)
     P(IDC_RTFE_COLOR,     wCol, bG, y2);
     P(IDC_RTFE_HIGHLIGHT, wCol, sG, y2);
     P(IDC_RTFE_IMAGE,     wCol, sG, y2);
-    P(IDC_RTFE_OPEN,      S(28), 0, y2);
+    P(IDC_RTFE_OPEN,      S(28), sG, y2);
+    P(IDC_RTFE_TABLE,     wCol, 0,  y2);
 
     return y2 + bSz + S(6);  // top of RichEdit
 }
@@ -718,6 +1434,12 @@ static LRESULT CALLBACK RtfEditorWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
             ButtonColor::Blue,
             L"shell32.dll", 38,
             x, row2Y, S(28), bSz, hInst);
+        x += S(28) + sG;
+
+        // Insert table button
+        CreateWindowExW(0, L"BUTTON", L"\u229E",  // ⊞
+            WS_CHILD|WS_VISIBLE|BS_PUSHBUTTON,
+            x, row2Y, bSz+S(10), bSz, hwnd, (HMENU)IDC_RTFE_TABLE, hInst, NULL);
 
         // ── RichEdit ──────────────────────────────────────────────────────────
         // Reflow toolbar now (may become one row if the window starts wide enough).
@@ -753,6 +1475,13 @@ static LRESULT CALLBACK RtfEditorWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
 
         // Subscribe to both change and selection-change notifications.
         SendMessageW(hEdit, EM_SETEVENTMASK, 0, ENM_CHANGE | ENM_SELCHANGE);
+
+        // ── Enable word-wrap in table cells (EM_SETTYPOGRAPHYOPTIONS) ─────────
+        // Also ensure the edit control allows native table word-wrap.
+        SendMessageW(hEdit, EM_SETTYPOGRAPHYOPTIONS, TO_ADVANCEDTYPOGRAPHY, TO_ADVANCEDTYPOGRAPHY);
+
+        // ── Subclass the RichEdit to intercept right-click for table menu ─────
+        RtfEd_SubclassEdit(hEdit);
 
         if (!pData->initRtf.empty()) RtfEd_StreamIn(hEdit, pData->initRtf);
 
@@ -802,6 +1531,7 @@ static LRESULT CALLBACK RtfEditorWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
         RtfEd_SetToolTip(GetDlgItem(hwnd, IDC_RTFE_NUMBERED),     T(L"rtfe_tip_numbered",    L"Numbered list").c_str());
         RtfEd_SetToolTip(hImgBtn,                                  T(L"rtfe_tip_image",       L"Insert image  (PNG / JPEG)").c_str());
         RtfEd_SetToolTip(hOpenBtn,                                 T(L"rtfe_tip_open",        L"Open file\u2026  (RTF / TXT)").c_str());
+        RtfEd_SetToolTip(GetDlgItem(hwnd, IDC_RTFE_TABLE),        T(L"rtfe_tip_table",       L"Insert table\u2026").c_str());
 
         // ── Fonts ─────────────────────────────────────────────────────────────
         NONCLIENTMETRICSW ncm = {}; ncm.cbSize = sizeof(ncm);
@@ -1014,9 +1744,22 @@ static LRESULT CALLBACK RtfEditorWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
         if (wmId == IDC_RTFE_BULLET)   { RtfEd_ToggleBullet(hEdit);   RtfEd_SyncToolbar(hwnd, hEdit); SetFocus(hEdit); return 0; }
         if (wmId == IDC_RTFE_NUMBERED) { RtfEd_ToggleNumbered(hEdit); RtfEd_SyncToolbar(hwnd, hEdit); SetFocus(hEdit); return 0; }
 
-        // ── Insert image ──────────────────────────────────────────────────────
+        // ── Insert image / open file ──────────────────────────────────────────
         if (wmId == IDC_RTFE_IMAGE) { RtfEd_InsertImage(hwnd, hEdit, st->pData); return 0; }
         if (wmId == IDC_RTFE_OPEN)  { RtfEd_OpenFile(hwnd, hEdit, st->pData);   return 0; }
+
+        // ── Insert table ──────────────────────────────────────────────────────
+        if (wmId == IDC_RTFE_TABLE) {
+            RECT rcE = {}; GetClientRect(hEdit, &rcE);
+            RtfTableParams tp = s_lastTableParams;
+            if (RtfEd_ShowTableDialog(hwnd, &tp, false, rcE.right)) {
+                s_lastTableParams = tp;
+                RtfEd_InsertTableNative(hwnd, hEdit, tp);
+            } else {
+                SetFocus(hEdit);
+            }
+            return 0;
+        }
 
         // ── Font face ─────────────────────────────────────────────────────────
         if (wmId == IDC_RTFE_FONTFACE && wmEv == CBN_SELCHANGE && !st->updatingToolbar) {
@@ -1194,6 +1937,11 @@ bool OpenRtfEditor(HWND hwndParent, RtfEditorData& data)
         }
         TranslateMessage(&m);
         DispatchMessageW(&m);
+    }
+    // Restore parent to foreground after editor closes.
+    if (hwndParent && IsWindow(hwndParent)) {
+        SetForegroundWindow(hwndParent);
+        BringWindowToTop(hwndParent);
     }
     return data.okClicked;
 }
