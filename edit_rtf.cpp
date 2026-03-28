@@ -276,13 +276,17 @@ static SHORT RtfEd_BorderStylePx(int uiIdx, int widthPx)
 struct RtfTableParams {
     int  rows     = 2;
     int  cols     = 2;
-    int  widthPct = 100;   // table width as % of window (not used by EM_INSERTTABLE directly;
-                           // we distribute among cells)
+    int  widthPct = 100;   // table width as % of editor (used to compute auto cell width)
     int  borderW  = 1;     // border width in px
     int  borderStyle = 1;  // 0=none 1=single 2=thick 3=double 4=dotted 5=dashed
     COLORREF borderColor = RGB(0,0,0);
     int  rowHeightPx = 0;  // 0 = auto
-    int  colWidthPx  = 0;  // 0 = derive from widthPct; >0 = explicit per-column width
+    int  colWidthPx  = 0;   // 0 = auto-derive; >0 = absolute px per column (fixed)
+    int  colWidthPct = 50;  // 0 = not in pct-mode; >0 = % of editor width at apply time
+    // colWidthPct and colWidthPx are mutually exclusive (colWidthPct takes priority).
+    // Pct mode recalculates the absolute cell width from the current editor width each
+    // time the table is inserted or edited — so the user's "50%" always means half the
+    // current editor width, not half the editor width at the time the table was created.
     int  hAlign   = 0;     // 0=left 1=center 2=right  (table row alignment on page)
     int  vAlign   = 0;     // 0=top  1=middle 2=bottom (cell vertical alignment)
     int  cellHAlign = 0;   // 0=left 1=center 2=right  (cell content text alignment)
@@ -291,6 +295,15 @@ struct RtfTableParams {
 // Global table dialog border colour (persists across opens).
 static COLORREF s_tblBorderColor = RGB(0, 0, 0);
 static COLORREF s_tblCustomColors[16] = {};
+
+// ─── Per-RichEdit state for table live resize ─────────────────────────────────
+// Allocated on the heap and stored as window prop L"rtfeSt" on the subclassed
+// RichEdit.  Enables proportional re-scaling of table rows when the editor
+// is resized.
+struct RtfEditState {
+    int colWidthPct = 0;  // >0: pct-mode column width — recalculated on resize
+    int cols        = 0;  // column count; 0 = no pct-mode table, don't auto-resize
+};
 
 // ─── Table-properties dialog ─────────────────────────────────────────────────
 // A self-contained Win32 dialog that collects table parameters.
@@ -301,8 +314,9 @@ struct TblDlgState {
     RtfTableParams* p;       // in/out
     bool  isEdit;            // true = editing existing table (hides rows/cols)
     HBRUSH hBrColorBtn;      // for the colour preview button
-    int   edWidthPx;         // editor client width in px (for px<->pct conversion)
-    bool  syncingWidth;      // guard to prevent recursive EN_CHANGE
+    int   edWidthPx;         // editor client width for px<->pct conversion
+    bool  unitIsPct;         // true = % mode active; false = px mode
+    HWND  hColWSpin;         // updown buddy for the column-width edit (range updated on unit change)
 };
 
 static LRESULT CALLBACK TblDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
@@ -397,44 +411,29 @@ static LRESULT CALLBACK TblDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
          SendMessageW(hs4,UDM_SETPOS32,0,(LPARAM)st->p->rowHeightPx);}
         y += row;
 
-        // Column width px (0=auto/equal)
-        L(L"Column width (px, 0=auto):", x, y, lw, eh);
+        // Column width — single field with px/% unit picker button.
+        // unitIsPct tracks which mode is active (set from initial params in TblDlgState init).
+        L(L"Column width (0=auto):", x, y, lw, eh);
         {
-            // Always start at the stored explicit value — 0 means auto (derive from table width%/cols).
-            // Do NOT auto-compute here: a computed value would be saved on OK and override table width%.
-            int initPx = st->p->colWidthPx;
-            HWND eCWPx = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT",
-                std::to_wstring(initPx).c_str(),
+            int initVal = st->unitIsPct ? st->p->colWidthPct : st->p->colWidthPx;
+            int spinHi  = st->unitIsPct ? 100 : 9999;
+            HWND eCW = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT",
+                std::to_wstring(initVal).c_str(),
                 WS_CHILD|WS_VISIBLE|ES_NUMBER|ES_AUTOHSCROLL,
                 col2, y, ew, eh, hwnd, (HMENU)IDC_RTFE_TD_COLWPX, hi, NULL);
-            HWND sCWPx = CreateWindowExW(0, UPDOWN_CLASS, NULL,
+            st->hColWSpin = CreateWindowExW(0, UPDOWN_CLASS, NULL,
                 WS_CHILD|WS_VISIBLE|UDS_ARROWKEYS|UDS_SETBUDDYINT|UDS_ALIGNRIGHT,
                 0,0,0,0, hwnd, NULL, hi, NULL);
-            SendMessageW(sCWPx,UDM_SETBUDDY,(WPARAM)eCWPx,0);
-            SendMessageW(sCWPx,UDM_SETRANGE32,0,9999);
-            SendMessageW(sCWPx,UDM_SETPOS32,0,(LPARAM)initPx);
-            (void)eCWPx;
-        }
-        y += row;
-
-        // Column width pct (0=auto/equal)
-        L(L"Column width (%, 0=auto):", x, y, lw, eh);
-        {
-            // Only show a non-zero value if there is an explicit colWidthPx set.
-            int initPct = 0;
-            if (st->p->colWidthPx > 0 && st->edWidthPx > 0)
-                initPct = (int)((long long)st->p->colWidthPx * 100 / std::max(1, st->edWidthPx));
-            HWND eCWPct = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT",
-                std::to_wstring(initPct).c_str(),
-                WS_CHILD|WS_VISIBLE|ES_NUMBER|ES_AUTOHSCROLL,
-                col2, y, ew, eh, hwnd, (HMENU)IDC_RTFE_TD_COLWPCT, hi, NULL);
-            HWND sCWPct = CreateWindowExW(0, UPDOWN_CLASS, NULL,
-                WS_CHILD|WS_VISIBLE|UDS_ARROWKEYS|UDS_SETBUDDYINT|UDS_ALIGNRIGHT,
-                0,0,0,0, hwnd, NULL, hi, NULL);
-            SendMessageW(sCWPct,UDM_SETBUDDY,(WPARAM)eCWPct,0);
-            SendMessageW(sCWPct,UDM_SETRANGE32,0,100);
-            SendMessageW(sCWPct,UDM_SETPOS32,0,(LPARAM)initPct);
-            (void)eCWPct;
+            SendMessageW(st->hColWSpin, UDM_SETBUDDY,   (WPARAM)eCW, 0);
+            SendMessageW(st->hColWSpin, UDM_SETRANGE32, 0, spinHi);
+            SendMessageW(st->hColWSpin, UDM_SETPOS32,   0, (LPARAM)initVal);
+            // Unit picker: small button showing current unit with a dropdown arrow.
+            CreateWindowExW(0, L"BUTTON",
+                st->unitIsPct ? L"% \u25bc" : L"px \u25bc",
+                WS_CHILD|WS_VISIBLE|BS_PUSHBUTTON,
+                col2 + ew + S(4), y, S(38), eh,
+                hwnd, (HMENU)IDC_RTFE_TD_COLWUNIT, hi, NULL);
+            (void)eCW;
         }
         y += row;
 
@@ -530,25 +529,37 @@ static LRESULT CALLBACK TblDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
             DestroyWindow(hwnd); return 0;
         }
 
-        // Sync column width px <-> pct when either changes
-        if ((id == IDC_RTFE_TD_COLWPX || id == IDC_RTFE_TD_COLWPCT) && ev == EN_CHANGE && !st->syncingWidth) {
-            if (st->edWidthPx > 0) {
-                st->syncingWidth = true;
+        // Unit picker button: show px / % popup and convert the current value.
+        if (id == IDC_RTFE_TD_COLWUNIT && ev == BN_CLICKED) {
+            HMENU hPop = CreatePopupMenu();
+            AppendMenuW(hPop, MF_STRING | (!st->unitIsPct ? MF_CHECKED : 0), 1, L"px");
+            AppendMenuW(hPop, MF_STRING | ( st->unitIsPct ? MF_CHECKED : 0), 2, L"%");
+            HWND hBtn = GetDlgItem(hwnd, IDC_RTFE_TD_COLWUNIT);
+            RECT rc; GetWindowRect(hBtn, &rc);
+            int pick = TrackPopupMenu(hPop,
+                TPM_LEFTALIGN | TPM_TOPALIGN | TPM_RETURNCMD | TPM_NONOTIFY,
+                rc.left, rc.bottom, 0, hwnd, NULL);
+            DestroyMenu(hPop);
+            bool wantPct = (pick == 2);
+            if (pick > 0 && wantPct != st->unitIsPct) {
+                // Read current value and convert between units where possible.
                 wchar_t buf[16] = {};
-                if (id == IDC_RTFE_TD_COLWPX) {
-                    GetDlgItemTextW(hwnd, IDC_RTFE_TD_COLWPX, buf, 16);
-                    int px = _wtoi(buf);
-                    int pct = (int)((long long)px * 100 / std::max(1, st->edWidthPx));
-                    pct = std::min(100, std::max(0, pct));
-                    SetDlgItemTextW(hwnd, IDC_RTFE_TD_COLWPCT, std::to_wstring(pct).c_str());
+                GetDlgItemTextW(hwnd, IDC_RTFE_TD_COLWPX, buf, 16);
+                int val = _wtoi(buf);
+                if (st->edWidthPx > 0 && val > 0) {
+                    val = wantPct
+                        ? std::min(100,  (int)((long long)val * 100 / st->edWidthPx))  // px → %
+                        : std::min(9999, (int)((long long)val * st->edWidthPx / 100)); // % → px
                 } else {
-                    GetDlgItemTextW(hwnd, IDC_RTFE_TD_COLWPCT, buf, 16);
-                    int pct = _wtoi(buf);
-                    int px  = (int)((long long)pct * st->edWidthPx / 100);
-                    SetDlgItemTextW(hwnd, IDC_RTFE_TD_COLWPX, std::to_wstring(px).c_str());
+                    val = 0;  // no editor size known — reset to 0 (auto)
                 }
-                st->syncingWidth = false;
+                st->unitIsPct = wantPct;
+                SetWindowTextW(hBtn, wantPct ? L"% \u25bc" : L"px \u25bc");
+                SendMessageW(st->hColWSpin, UDM_SETRANGE32, 0, wantPct ? 100 : 9999);
+                SendMessageW(st->hColWSpin, UDM_SETPOS32,   0, (LPARAM)val);
+                SetDlgItemTextW(hwnd, IDC_RTFE_TD_COLWPX, std::to_wstring(val).c_str());
             }
+            break;
         }
 
         if (id == IDC_RTFE_TD_OK || id == IDOK) {
@@ -565,7 +576,17 @@ static LRESULT CALLBACK TblDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
             }
             st->p->widthPct    = std::max(10, std::min(100, getInt(IDC_RTFE_TD_WIDTH, 100)));
             st->p->rowHeightPx = std::max(0, std::min(999, getInt(IDC_RTFE_TD_ROWH, 0)));
-            st->p->colWidthPx  = std::max(0, std::min(9999, getInt(IDC_RTFE_TD_COLWPX, 0)));
+            {
+                // Save the value into the correct field based on the active unit mode.
+                int val = std::max(0, getInt(IDC_RTFE_TD_COLWPX, 0));
+                if (st->unitIsPct) {
+                    st->p->colWidthPct = std::min(100,  val);
+                    st->p->colWidthPx  = 0;
+                } else {
+                    st->p->colWidthPx  = std::min(9999, val);
+                    st->p->colWidthPct = 0;
+                }
+            }
             st->p->borderW     = std::max(0, std::min(20,  getInt(IDC_RTFE_TD_BWIDTH, 1)));
             st->p->borderStyle = (int)SendDlgItemMessageW(hwnd, IDC_RTFE_TD_BTYPE,   CB_GETCURSEL, 0, 0);
             st->p->hAlign      = (int)SendDlgItemMessageW(hwnd, IDC_RTFE_TD_HALIGN,  CB_GETCURSEL, 0, 0);
@@ -638,12 +659,12 @@ static bool RtfEd_ShowTableDialog(HWND parent, RtfTableParams* p, bool isEdit, i
         RegisterClassExW(&wc);
     }
 
-    const int dlgW = S(260), dlgH = isEdit ? S(410) : S(490);
+    const int dlgW = S(260), dlgH = isEdit ? S(382) : S(462);
     RECT rp = {}; GetWindowRect(parent, &rp);
     int cx = rp.left + (rp.right - rp.left - dlgW) / 2;
     int cy = rp.top  + (rp.bottom - rp.top  - dlgH) / 2;
 
-    TblDlgState st{ p, isEdit, NULL, edWidthPx, false };
+    TblDlgState st{ p, isEdit, NULL, edWidthPx, (p->colWidthPct > 0), NULL };
     const wchar_t* title = isEdit ? L"Table Properties" : L"Insert Table";
 
     HWND hDlg = CreateWindowExW(
@@ -678,16 +699,35 @@ static bool RtfEd_ShowTableDialog(HWND parent, RtfTableParams* p, bool isEdit, i
 // Editor window width is used to compute absolute cell widths from widthPct.
 static void RtfEd_InsertTableNative(HWND hwnd, HWND hEdit, const RtfTableParams& tp)
 {
-    // Determine editor pixel width to compute twip widths.
-    RECT rc; GetClientRect(hEdit, &rc);
-    int edPx = rc.right > S(100) ? rc.right : S(500);
+    // Use EM_GETRECT to get the actual text-area width (formatting rectangle),
+    // which excludes RichEdit's internal left/right margin insets that
+    // GetClientRect includes — using GetClientRect causes the table to be
+    // fractionally wider than the visible text area ("101%" appearance).
+    RECT fmtRc = {};
+    SendMessageW(hEdit, EM_GETRECT, 0, (LPARAM)&fmtRc);
+    int physPx = fmtRc.right - fmtRc.left;
+    if (physPx < 10) { RECT cr; GetClientRect(hEdit, &cr); physPx = cr.right - cr.left; }
+    const float twipsPerPhysPx = 15.0f / g_dpiScale;
+    int edTwips = (int)(physPx * twipsPerPhysPx + 0.5f);
+
+    // dxCellMargin is the text-inset padding inside each cell — it does NOT
+    // add to the outer cell width.  dxWidth in TABLECELLPARMS is the outer
+    // (border-to-border) cell width.  So the total table width = sum of all
+    // dxWidth values; no margin overhead needs to be subtracted.
+    const int dxCellMarginTwips = 4 * 15;   // 60 twips — must match row.dxCellMargin
+
     int cellTwips;
-    if (tp.colWidthPx > 0) {
-        // Explicit column width overrides widthPct
+    if (tp.colWidthPct > 0) {
+        // Percentage mode: each column = pct% of the editor text-area.
+        // N columns at 50% each = 100% total.  Always recalculates from the
+        // current editor width so the percentage is honoured after resize.
+        cellTwips = (int)((long long)edTwips * tp.colWidthPct / 100);
+    } else if (tp.colWidthPx > 0) {
+        // Absolute mode: logical px value from dialog → twips (DPI-independent).
         cellTwips = tp.colWidthPx * 15;
     } else {
-        // Derive equal column width from table width %
-        int tblTwips = (int)((long long)edPx * 15 * tp.widthPct / 100);
+        // Auto: distribute the requested table width equally across columns.
+        int tblTwips = (int)((long long)edTwips * tp.widthPct / 100);
         cellTwips = (tp.cols > 0) ? (tblTwips / tp.cols) : tblTwips;
     }
     if (cellTwips < 100) cellTwips = 100; // minimum
@@ -714,7 +754,7 @@ static void RtfEd_InsertTableNative(HWND hwnd, HWND hEdit, const RtfTableParams&
     row.cbCell     = sizeof(TABLECELLPARMS);
     row.cCell      = (BYTE)tp.cols;
     row.cRow       = (BYTE)tp.rows;
-    row.dxCellMargin = S(4) * 15;  // ~4px converted to twips
+    row.dxCellMargin = dxCellMarginTwips;  // 4 logical px per side in twips
     row.dxIndent   = 0;
     row.dyHeight   = (tp.rowHeightPx > 0) ? (LONG)(tp.rowHeightPx * 15) : 0;
     row.nAlignment = (tp.hAlign == 1) ? 2 : (tp.hAlign == 2) ? 3 : 1; // 1=L 2=C 3=R
@@ -727,6 +767,12 @@ static void RtfEd_InsertTableNative(HWND hwnd, HWND hEdit, const RtfTableParams&
     row.iCell      = 0;
 
     SendMessageW(hEdit, EM_INSERTTABLE, (WPARAM)&row, (LPARAM)cells.data());
+
+    // Save pct-mode params so the WM_SIZE handler can rescale the table.
+    {
+        RtfEditState* es = (RtfEditState*)(LONG_PTR)GetPropW(hEdit, L"rtfeSt");
+        if (es) { es->colWidthPct = tp.colWidthPct; es->cols = tp.cols; }
+    }
 
     // Apply cell text alignment to the entire table just inserted.
     // Select forward enough chars to cover all cells, then apply.
@@ -768,13 +814,22 @@ static void RtfEd_ApplyTableProps(HWND hEdit, const RtfTableParams& tp)
 
     int cols = curRow.cCell > 0 ? curRow.cCell : tp.cols;
 
-    RECT rc; GetClientRect(hEdit, &rc);
-    int edPx = rc.right > S(100) ? rc.right : S(500);
+    RECT fmtRc2 = {};
+    SendMessageW(hEdit, EM_GETRECT, 0, (LPARAM)&fmtRc2);
+    int physPx2 = fmtRc2.right - fmtRc2.left;
+    if (physPx2 < 10) { RECT cr2; GetClientRect(hEdit, &cr2); physPx2 = cr2.right - cr2.left; }
+    const float twipsPerPhysPx2 = 15.0f / g_dpiScale;
+    int edTwips = (int)(physPx2 * twipsPerPhysPx2 + 0.5f);
+
+    const int dxCellMarginTwips = 4 * 15;   // must match insert path
+
     int cellTwips;
-    if (tp.colWidthPx > 0) {
+    if (tp.colWidthPct > 0) {
+        cellTwips = (int)((long long)edTwips * tp.colWidthPct / 100);
+    } else if (tp.colWidthPx > 0) {
         cellTwips = tp.colWidthPx * 15;
     } else {
-        int tblTwips = (int)((long long)edPx * 15 * tp.widthPct / 100);
+        int tblTwips = (int)((long long)edTwips * tp.widthPct / 100);
         cellTwips = cols > 0 ? tblTwips / cols : tblTwips;
     }
     if (cellTwips < 100) cellTwips = 100;
@@ -800,7 +855,7 @@ static void RtfEd_ApplyTableProps(HWND hEdit, const RtfTableParams& tp)
     row.cbCell     = sizeof(TABLECELLPARMS);
     row.cCell      = (BYTE)cols;
     row.cRow       = curRow.cRow > 0 ? curRow.cRow : 1;
-    row.dxCellMargin = S(4) * 15;
+    row.dxCellMargin = dxCellMarginTwips;
     row.dxIndent   = 0;
     row.dyHeight   = (tp.rowHeightPx > 0) ? (LONG)(tp.rowHeightPx * 15) : 0;
     row.nAlignment = (tp.hAlign == 1) ? 2 : (tp.hAlign == 2) ? 3 : 1;
@@ -811,6 +866,12 @@ static void RtfEd_ApplyTableProps(HWND hEdit, const RtfTableParams& tp)
     row.bTableLevel = 1; row.iCell = 0;
 
     SendMessageW(hEdit, EM_SETTABLEPARMS, (WPARAM)&row, (LPARAM)cells.data());
+
+    // Save pct-mode params so the WM_SIZE handler can rescale the table.
+    {
+        RtfEditState* es = (RtfEditState*)(LONG_PTR)GetPropW(hEdit, L"rtfeSt");
+        if (es) { es->colWidthPct = tp.colWidthPct; es->cols = cols; }
+    }
 
     // Apply cell text alignment to the entire table.
     if (tp.cellHAlign != 0) {
@@ -832,6 +893,54 @@ static void RtfEd_ApplyTableProps(HWND hEdit, const RtfTableParams& tp)
     SetFocus(hEdit);
 }
 
+// ─── Proportional rescale of pct-mode table rows ─────────────────────────────
+// Called (debounced) after the editor window is resized.  Loops every line,
+// moves the caret to each table row so EM_GETTABLEPARMS(cpStartRow=-1) is
+// guaranteed to fill the struct, then sets dxWidth = pct% of the current
+// formatting-rect width via EM_SETTABLEPARMS.
+static void RtfEd_RescalePctTables(HWND hEdit)
+{
+    RtfEditState* es = (RtfEditState*)(LONG_PTR)GetPropW(hEdit, L"rtfeSt");
+    if (!es || es->colWidthPct <= 0 || es->cols <= 0) return;
+
+    RECT fmtRc = {};
+    SendMessageW(hEdit, EM_GETRECT, 0, (LPARAM)&fmtRc);
+    int physPx = fmtRc.right - fmtRc.left;
+    if (physPx < 10) { RECT cr; GetClientRect(hEdit, &cr); physPx = cr.right - cr.left; }
+    int newEdTwips = (int)(physPx * 15.0f / g_dpiScale + 0.5f);
+    SHORT newCellTwips = (SHORT)std::max(100, newEdTwips * es->colWidthPct / 100);
+
+    CHARRANGE crSaved = {};
+    SendMessageW(hEdit, EM_EXGETSEL, 0, (LPARAM)&crSaved);
+
+    int lines = (int)SendMessageW(hEdit, EM_GETLINECOUNT, 0, 0);
+    LONG lastRowCP = -2;
+    for (int ln = 0; ln < lines; ln++) {
+        LONG cp = (LONG)SendMessageW(hEdit, EM_LINEINDEX, (WPARAM)ln, 0);
+        if (cp < 0) continue;
+        CHARRANGE crLine = { cp, cp };
+        SendMessageW(hEdit, EM_EXSETSEL, 0, (LPARAM)&crLine);
+
+        TABLEROWPARMS trp = {}; trp.cbRow = sizeof(trp); trp.cpStartRow = -1;
+        TABLECELLPARMS tcp = {};
+        if (!SendMessageW(hEdit, EM_GETTABLEPARMS, (WPARAM)&trp, (LPARAM)&tcp)) continue;
+        if (trp.cCell == 0) continue;
+        if (trp.cpStartRow == lastRowCP) continue;
+        lastRowCP = trp.cpStartRow;
+
+        tcp.dxWidth = newCellTwips;
+        std::vector<TABLECELLPARMS> cv((size_t)trp.cCell, tcp);
+        TABLEROWPARMS nr = trp;
+        nr.cbCell     = sizeof(TABLECELLPARMS);
+        nr.cRow       = 1;
+        nr.iCell      = 0;
+        nr.cpStartRow = -1;  // caret is in this row
+        SendMessageW(hEdit, EM_SETTABLEPARMS, (WPARAM)&nr, (LPARAM)cv.data());
+    }
+
+    SendMessageW(hEdit, EM_EXSETSEL, 0, (LPARAM)&crSaved);
+}
+
 // ─── Check if caret is inside a table ────────────────────────────────────────
 static bool RtfEd_CaretInTable(HWND hEdit)
 {
@@ -844,16 +953,90 @@ static bool RtfEd_CaretInTable(HWND hEdit)
 // ─── Default table params (last-used, persist per session) ────────────────────
 static RtfTableParams s_lastTableParams;
 
+// ─── Table context-menu helper ────────────────────────────────────────────────
+// Shows the table context menu at the given screen position and handles the
+// chosen command.  Called from both the subclass proc (mouse right-click and
+// keyboard invoke) so the logic lives in one place.
+static void RtfEd_ShowTableContextMenu(HWND hEditor, HWND hEdit, POINT screen)
+{
+    HMENU hMenu = CreatePopupMenu();
+    AppendMenuW(hMenu, MF_STRING, IDM_RTFE_TABLE_PROPS, L"Table properties\u2026");
+    AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
+    HMENU hAlignSub = CreatePopupMenu();
+    AppendMenuW(hAlignSub, MF_STRING, IDM_RTFE_CELL_ALIGN_L, L"Align left");
+    AppendMenuW(hAlignSub, MF_STRING, IDM_RTFE_CELL_ALIGN_C, L"Align centre");
+    AppendMenuW(hAlignSub, MF_STRING, IDM_RTFE_CELL_ALIGN_R, L"Align right");
+    AppendMenuW(hMenu, MF_POPUP, (UINT_PTR)hAlignSub, L"Cell alignment");
+
+    int cmd = TrackPopupMenu(hMenu, TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY,
+                             screen.x, screen.y, 0, hEditor, NULL);
+    DestroyMenu(hMenu);   // also destroys hAlignSub
+
+    if      (cmd == IDM_RTFE_CELL_ALIGN_L) { RtfEd_SetAlignment(hEdit, PFA_LEFT);   }
+    else if (cmd == IDM_RTFE_CELL_ALIGN_C) { RtfEd_SetAlignment(hEdit, PFA_CENTER); }
+    else if (cmd == IDM_RTFE_CELL_ALIGN_R) { RtfEd_SetAlignment(hEdit, PFA_RIGHT);  }
+    else if (cmd == IDM_RTFE_TABLE_PROPS) {
+        // Read current table state from the RichEdit.
+        TABLEROWPARMS  trp = {}; trp.cbRow    = sizeof(trp); trp.cpStartRow = -1;
+        TABLECELLPARMS tcp = {}; tcp.dxWidth  = sizeof(tcp);
+        SendMessageW(hEdit, EM_GETTABLEPARMS, (WPARAM)&trp, (LPARAM)&tcp);
+
+        RECT rc; GetClientRect(hEdit, &rc);
+        int edPx  = rc.right > 0 ? rc.right : S(500);
+        int twips = edPx * 15;
+        // Cell width in twips; fall back to equal distribution if not set.
+        int cellT = tcp.dxWidth > 0 ? tcp.dxWidth
+                                    : (twips / std::max(1, (int)trp.cCell));
+        int cols  = trp.cCell > 0 ? (int)trp.cCell : 1;
+        int totalT = cellT * cols;
+        int pct = totalT > 0 ? (int)((long long)totalT * 100 / twips) : 100;
+        if (pct < 10) pct = 10; if (pct > 100) pct = 100;
+
+        // Seed from last-used params; override with live values from EM_GETTABLEPARMS.
+        // We only have absolute twips here, so we show px mode (colWidthPct = 0);
+        // the user can switch to pct mode in the dialog if they want.
+        RtfTableParams tp = s_lastTableParams;
+        tp.rows       = trp.cRow  > 0 ? (int)trp.cRow  : 1;
+        tp.cols       = cols;
+        tp.widthPct   = pct;
+        tp.colWidthPx = cellT > 0 ? cellT / 15 : 0;
+        tp.colWidthPct = 0;   // absolute twips — no stored pct available
+        tp.rowHeightPx = trp.dyHeight > 0 ? (int)(trp.dyHeight / 15) : 0;
+        tp.hAlign     = (trp.nAlignment == 2) ? 1 : (trp.nAlignment == 3) ? 2 : 0;
+        tp.vAlign     = tcp.nVertAlign < 3 ? tcp.nVertAlign : 0;
+        tp.borderW    = (tcp.dxBrdrLeft > 0) ? std::max(1, (int)(tcp.dxBrdrLeft / 15)) : 0;
+        tp.borderColor = tcp.crBrdrLeft;
+
+        if (RtfEd_ShowTableDialog(hEditor, &tp, true, edPx)) {
+            s_lastTableParams = tp;
+            RtfEd_ApplyTableProps(hEdit, tp);
+        }
+    }
+    SetFocus(hEdit);
+}
+
 // ─── RichEdit subclass for right-click table menu ────────────────────────────
 // Stored on the RichEdit as window prop L"rtfeEditProc".
+//
+// Why WM_RBUTTONUP (not WM_CONTEXTMENU)?
+//   Msftedit.dll intercepts WM_RBUTTONUP internally and shows its own cut/copy/
+//   paste context menu via TrackPopupMenu without ever sending WM_CONTEXTMENU to
+//   the window proc.  Subclassing WM_CONTEXTMENU therefore does not intercept it
+//   reliably.  Instead we intercept WM_RBUTTONUP: if the caret is in a table we
+//   show our custom menu and return without calling the prev proc (suppressing
+//   Msftedit's menu); otherwise we fall through and Msftedit shows its standard
+//   menu as usual.
+//
+//   Keyboard-triggered context menus (Menu key / Shift+F10) still arrive as
+//   WM_CONTEXTMENU with lParam == -1; we handle that separately.
 
 static LRESULT CALLBACK RtfEd_EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
     WNDPROC prev = (WNDPROC)(LONG_PTR)GetPropW(hwnd, L"rtfeEditProc");
     if (!prev) return DefWindowProcW(hwnd, msg, wParam, lParam);
 
-    // WM_RBUTTONDOWN: move caret to the click point so WM_CONTEXTMENU can
-    // reliably detect whether we are inside a table cell.
+    // WM_RBUTTONDOWN: move the caret to the click point before we test whether
+    // the caret is inside a table on WM_RBUTTONUP.
     if (msg == WM_RBUTTONDOWN) {
         LRESULT r = CallWindowProcW(prev, hwnd, msg, wParam, lParam);
         POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
@@ -866,89 +1049,40 @@ static LRESULT CALLBACK RtfEd_EditSubclassProc(HWND hwnd, UINT msg, WPARAM wPara
         return r;
     }
 
-    // WM_CONTEXTMENU: generated by DefWindowProc after WM_RBUTTONUP.
-    // lParam = screen coords of the click (-1,-1 if keyboard-triggered).
-    if (msg == WM_CONTEXTMENU) {
-        HWND hEditor = GetParent(hwnd);
-        POINT screen = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
-        bool keyboard = (lParam == (LPARAM)-1);
+    // WM_RBUTTONUP: lParam carries CLIENT coordinates (LOWORD=x, HIWORD=y).
+    // Show the table menu if the caret is in a table cell; otherwise let
+    // Msftedit handle the message (shows its standard cut/copy/paste menu).
+    if (msg == WM_RBUTTONUP) {
+        if (RtfEd_CaretInTable(hwnd)) {
+            POINT screen = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+            ClientToScreen(hwnd, &screen);
+            RtfEd_ShowTableContextMenu(GetParent(hwnd), hwnd, screen);
+            return 0;  // suppress Msftedit's own menu
+        }
+        // Fall through: Msftedit shows cut/copy/paste.
+    }
 
-        if (!keyboard) {
-            // Move caret to click position (already done in RBUTTONDOWN,
-            // but repeat here as a safety net for keyboard-less mice/touchpads).
-            POINT client = screen;
-            ScreenToClient(hwnd, &client);
-            POINTL ptl = { client.x, client.y };
-            LONG cp = (LONG)SendMessageW(hwnd, EM_CHARFROMPOS, 0, (LPARAM)&ptl);
-            if (cp >= 0) {
-                CHARRANGE cr = { cp, cp };
-                SendMessageW(hwnd, EM_EXSETSEL, 0, (LPARAM)&cr);
-            }
-        } else {
-            // Keyboard-invoked: derive screen position from caret.
+    // WM_CONTEXTMENU: only handle the keyboard-triggered case (lParam == -1).
+    // Mouse right-clicks are handled above in WM_RBUTTONUP.
+    if (msg == WM_CONTEXTMENU && lParam == (LPARAM)-1) {
+        if (RtfEd_CaretInTable(hwnd)) {
             CHARRANGE cr = {};
             SendMessageW(hwnd, EM_EXGETSEL, 0, (LPARAM)&cr);
-            POINTL ptl2 = {};
-            SendMessageW(hwnd, EM_POSFROMCHAR, (WPARAM)&ptl2, (LPARAM)cr.cpMin);
-            screen = { ptl2.x, ptl2.y };
+            POINTL ptl = {};
+            SendMessageW(hwnd, EM_POSFROMCHAR, (WPARAM)&ptl, (LPARAM)cr.cpMin);
+            POINT screen = { ptl.x, ptl.y };
             ClientToScreen(hwnd, &screen);
-        }
-
-        if (RtfEd_CaretInTable(hwnd)) {
-            HMENU hMenu = CreatePopupMenu();
-            AppendMenuW(hMenu, MF_STRING, IDM_RTFE_TABLE_PROPS, L"Table properties\u2026");
-            AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
-            HMENU hAlignSub = CreatePopupMenu();
-            AppendMenuW(hAlignSub, MF_STRING, IDM_RTFE_CELL_ALIGN_L, L"Align left");
-            AppendMenuW(hAlignSub, MF_STRING, IDM_RTFE_CELL_ALIGN_C, L"Align centre");
-            AppendMenuW(hAlignSub, MF_STRING, IDM_RTFE_CELL_ALIGN_R, L"Align right");
-            AppendMenuW(hMenu, MF_POPUP, (UINT_PTR)hAlignSub, L"Cell alignment");
-
-            int cmd = TrackPopupMenu(hMenu, TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY,
-                                     screen.x, screen.y, 0, hEditor, NULL);
-            DestroyMenu(hMenu);
-
-            if (cmd == IDM_RTFE_CELL_ALIGN_L)      { RtfEd_SetAlignment(hwnd, PFA_LEFT); }
-            else if (cmd == IDM_RTFE_CELL_ALIGN_C) { RtfEd_SetAlignment(hwnd, PFA_CENTER); }
-            else if (cmd == IDM_RTFE_CELL_ALIGN_R) { RtfEd_SetAlignment(hwnd, PFA_RIGHT); }
-            else if (cmd == IDM_RTFE_TABLE_PROPS) {
-                TABLEROWPARMS  trp = {}; trp.cbRow = sizeof(trp); trp.cpStartRow = -1;
-                TABLECELLPARMS tcp = {}; tcp.dxWidth = sizeof(tcp);
-                SendMessageW(hwnd, EM_GETTABLEPARMS, (WPARAM)&trp, (LPARAM)&tcp);
-
-                RECT rc; GetClientRect(hwnd, &rc);
-                int edPx  = rc.right > 0 ? rc.right : S(500);
-                int twips = (int)(edPx * 15);
-                int cellT = tcp.dxWidth > 0 ? tcp.dxWidth : (twips / std::max(1,(int)trp.cCell));
-                int cols  = trp.cCell > 0 ? trp.cCell : 1;
-                int totalT = cellT * cols;
-                int pct = totalT > 0 ? (int)((long long)totalT * 100 / twips) : 100;
-                if (pct < 10) pct = 10; if (pct > 100) pct = 100;
-
-                RtfTableParams tp = s_lastTableParams;
-                tp.rows        = trp.cRow > 0 ? trp.cRow : 1;
-                tp.cols        = cols;
-                tp.widthPct    = pct;
-                tp.colWidthPx  = cellT > 0 ? (int)(cellT / 15) : 0;
-                tp.rowHeightPx = trp.dyHeight > 0 ? (int)(trp.dyHeight / 15) : 0;
-                tp.hAlign      = (trp.nAlignment == 2) ? 1 : (trp.nAlignment == 3) ? 2 : 0;
-                tp.vAlign      = tcp.nVertAlign < 3 ? tcp.nVertAlign : 0;
-                tp.borderW     = (tcp.dxBrdrLeft > 0) ? std::max(1, (int)(tcp.dxBrdrLeft / 15)) : 0;
-                tp.borderColor = tcp.crBrdrLeft;
-
-                if (RtfEd_ShowTableDialog(hEditor, &tp, true, edPx)) {
-                    s_lastTableParams = tp;
-                    RtfEd_ApplyTableProps(hwnd, tp);
-                }
-            }
+            RtfEd_ShowTableContextMenu(GetParent(hwnd), hwnd, screen);
             return 0;
         }
-        // Not in a table — fall through so defproc shows the standard RichEdit context menu.
+        // Fall through: Msftedit shows its standard menu.
     }
 
     if (msg == WM_NCDESTROY) {
         RemovePropW(hwnd, L"rtfeEditProc");
-        SetWindowLongPtrW(hwnd, GWLP_WNDPROC, (LONG_PTR)prev);
+        auto* es = (RtfEditState*)(LONG_PTR)GetPropW(hwnd, L"rtfeSt");
+        RemovePropW(hwnd, L"rtfeSt");
+        delete es;
         return CallWindowProcW(prev, hwnd, msg, wParam, lParam);
     }
 
@@ -959,6 +1093,7 @@ static void RtfEd_SubclassEdit(HWND hEdit)
 {
     WNDPROC prev = (WNDPROC)SetWindowLongPtrW(hEdit, GWLP_WNDPROC, (LONG_PTR)RtfEd_EditSubclassProc);
     SetPropW(hEdit, L"rtfeEditProc", (HANDLE)(LONG_PTR)prev);
+    SetPropW(hEdit, L"rtfeSt",      (HANDLE)(LONG_PTR)new RtfEditState{});
 }
 
 // Forward declaration — RtfEd_SyncToolbar is defined after RtfEdState (below).
@@ -1605,6 +1740,12 @@ static LRESULT CALLBACK RtfEditorWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
         if (hEdit && editH > 0)
             SetWindowPos(hEdit, NULL, pad, st->editY, cW - 2*pad, editH, SWP_NOZORDER);
 
+        // Schedule a debounced pct-table rescale on this (parent) window.
+        // Firing the timer here rather than on the subclassed RichEdit proc
+        // ensures the message is processed by a proc we fully own, and that
+        // EM_GETRECT is serviced after the RichEdit has finished its own layout.
+        SetTimer(hwnd, 9901, 80, NULL);
+
         // Status bar (optional).
         if (hStat && statusH > 0) {
             int statusY = cH - S(38) - pad - S(6) - statusH;
@@ -1626,7 +1767,17 @@ static LRESULT CALLBACK RtfEditorWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
         return 0;
     }
 
-    // ── WM_COMMAND ────────────────────────────────────────────────────────────
+    // ── WM_TIMER 9901 — debounced post-resize table rescale ─────────────────
+    case WM_TIMER: {
+        if (wParam == 9901) {
+            KillTimer(hwnd, 9901);
+            HWND hEd = GetDlgItem(hwnd, IDC_RTFE_EDIT);
+            if (hEd) RtfEd_RescalePctTables(hEd);
+        }
+        return 0;
+    }
+
+    // ── WM_COMMAND ──────────────────────────────────────────────────────────────────
     case WM_COMMAND: {
         RtfEdState*    st    = (RtfEdState*)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
         RtfEditorData* pData = st ? st->pData : nullptr;
@@ -1851,6 +2002,8 @@ static LRESULT CALLBACK RtfEditorWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
         freeProp(L"rtfeStrikeFont");
         // Hide the shared project tooltip if this editor was the one showing it.
         HideTooltip();
+        // Cancel any pending rescale timer.
+        KillTimer(hwnd, 9901);
         // Internal state.
         RtfEdState* st = (RtfEdState*)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
         if (st) { delete st; SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0); }

@@ -2,6 +2,17 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.03.28.10] - 2026-03-28
+
+### Added
+- **RTF editor — table column width: unit picker button**: The two separate "Column width (px)" and "Column width (%)" spinners are replaced by a single edit + spinner + **px ▼** / **% ▼** unit picker button (`IDC_RTFE_TD_COLWUNIT`). Selecting a unit converts the current value. Defaults to **50 %** for new tables so a 2-column table fills 100 % of the editor by default.
+- **RTF editor — table: DPI-aware twip calculation**: Cell widths computed as `physPx × 15 / g_dpiScale` (correct at any DPI). `EM_GETRECT` used instead of `GetClientRect` to get the formatting-rectangle width (excludes RichEdit internal margin) — eliminates the prior ~5 % overflow.
+- **RTF editor — table: proportional resize after window resize**: `RtfEd_RescalePctTables()` rescales all pct-mode table rows via `EM_SETTABLEPARMS` 80 ms after the editor window is resized (debounced timer on parent window `WM_TIMER` id 9901). Px-mode columns keep their fixed width.
+- **RTF editor — table: mutually exclusive colWidthPx / colWidthPct**: `RtfTableParams` carries both `colWidthPx` (fixed logical px) and `colWidthPct` (% of editor at apply time). Only one can be active; pct mode takes priority in both `RtfEd_InsertTableNative` and `RtfEd_ApplyTableProps`.
+
+### Fixed
+- **RTF editor — table: right-click context menu**: Switched from `WM_CONTEXTMENU` (never sent by Msftedit.dll for mouse clicks) to `WM_RBUTTONUP` in the subclass proc. If caret is in a table the custom menu is shown; otherwise Msftedit's cut/copy/paste menu appears. Keyboard context menus (`lParam == -1`) still handled via `WM_CONTEXTMENU`.
+
 ## [2026.03.27.13] - 2026-03-27
 
 ### Added

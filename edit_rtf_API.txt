@@ -136,14 +136,14 @@
   INSERT (⊞ toolbar button)
   ────────────────────────
   Clicking ⊞ opens the "Insert Table" dialog.
-  The last-used settings are remembered for the session.
+  The last-used settings are remembered for the session (s_lastTableParams).
 
   Dialog fields
   ─────────────
   Field                  Range    Default    Notes
   ──────────────────────────────────────────────────────────────────────────────
-  Rows                   1–99      2
-  Columns                1–32      2
+  Rows                   1–99      2          Hidden when editing an existing table
+  Columns                1–32      2          Hidden when editing an existing table
   Table width (%)       10–100    100        % of the RichEdit client width
   Row height (px)        0–999     0          0 = auto (content-driven)
   Border width (px)      0–20      1          0 = no borders (invisible grid)
@@ -152,16 +152,37 @@
   Border colour          swatch   Black      opens CHOOSECOLOR; persists per session
   Table alignment        combo     Left       Left / Centre / Right  (row position on page)
   Cell V alignment       combo     Top        Top / Middle / Bottom   (cell content)
-  Column width (px)      0–9999    0          0 = auto (derive from table-width %);
-                                              explicit value stored in colWidthPx;
-                                              applied as colWidthPx×15 twips per column
-  Column width (%)       0–100     0          0 = auto; linked to px field via
-                                              EN_CHANGE sync (uses edWidthPx for ratio)
+  Column width (0=auto)  0–9999    0          Single edit + updown spinner.
+                                              A unit picker button to its right
+                                              (IDC_RTFE_TD_COLWUNIT) shows the active
+                                              unit: "px ▼" or "% ▼".
+                                              Clicking it opens a small popup (px / %)
+                                              and converts the current value between
+                                              units using the editor pixel width.
+                                              0 in either unit = auto (derive from
+                                              table-width % equally across all columns).
+                                              Saves to colWidthPx or colWidthPct in
+                                              RtfTableParams (the other is zeroed).
   Cell H alignment       combo     Left       Left / Centre / Right  (cell text
                                               alignment via EM_SETPARAFORMAT PFM_ALIGNMENT)
 
-  Cells always word-wrap (TO_ADVANCEDTYPOGRAPHY + row.fWrap = 1); cell content
-  never truncates or widens the column.
+  Cells always word-wrap (row.fWrap = 1); cell content never truncates or widens
+  the column.
+
+  RtfTableParams — relevant fields
+  ──────────────────────────────────
+  colWidthPx   int   0  0 = auto; >0 = fixed logical px per column.
+  colWidthPct  int  50  0 = auto; >0 = % of RichEdit formatting-rect width.
+                        Default 50 → a 2-column table occupies 100 % of the
+                        editor width on creation.
+  These two fields are mutually exclusive; the dialog zeros the inactive one
+  when OK is pressed.  Priority at insert/apply time:
+    1. colWidthPct > 0  →  edPx = EM_GETRECT formatting-rect width (physical px)
+                           cellTwips = edPx * 15.0f / g_dpiScale * colWidthPct / 100
+                           (DPI-correct; EM_GETRECT excludes the RichEdit internal
+                            margin so the table hits exactly 100 % of text width)
+    2. colWidthPx  > 0  →  cellTwips = colWidthPx * 15
+    3. both == 0        →  cellTwips = edTwips * widthPct / 100 / cols
 
   Implemented via EM_INSERTTABLE with TABLEROWPARMS / TABLECELLPARMS
   (requires Msftedit.dll / RichEdit 4.1+).  Falls back gracefully if the
@@ -172,7 +193,10 @@
   Right-clicking anywhere inside a table cell shows a context menu:
     "Table properties…"   — opens the Table Properties dialog (same layout,
                              rows/cols hidden; pre-populated via EM_GETTABLEPARMS,
-                             saved via EM_SETTABLEPARMS; all rows updated at once)
+                             saved via EM_SETTABLEPARMS; all rows updated at once).
+                             EM_GETTABLEPARMS returns absolute twips, so the dialog
+                             opens in px mode (colWidthPct = 0); the user can switch
+                             to % mode via the unit picker button.
     "Cell alignment ▶"    — submenu: Align left / Align centre / Align right
                              Each item calls RtfEd_SetAlignment(hwnd, PFA_*)
                              via EM_SETPARAFORMAT PFM_ALIGNMENT.
@@ -180,13 +204,56 @@
   Right-clicking outside a table passes through to the standard RichEdit context
   menu (cut/copy/paste/…) unchanged.
 
-  Background: The RichEdit is subclassed in WM_CREATE (RtfEd_EditSubclassProc).
-  The subclass proc handles WM_RBUTTONDOWN (pre-positions the caret to the click
-  location before calling the previous proc) and WM_CONTEXTMENU (table check +
-  menu; also handles keyboard-invoked context menu when lParam == -1 by using
-  EM_POSFROMCHAR to derive the screen position from the caret).  Caret-in-table
-  detection uses EM_GETTABLEPARMS with cpStartRow = -1; if cCell > 0 the caret
-  is inside a table.  The subclass proc is restored on WM_NCDESTROY.
+  Background: The RichEdit is subclassed in WM_CREATE via RtfEd_SubclassEdit()
+  (stores prev WNDPROC as window prop L"rtfeEditProc").
+  RtfEd_EditSubclassProc handles:
+
+    WM_RBUTTONDOWN  Calls the previous proc first (so Msftedit positions the
+                    caret), then manually moves the caret to the click point via
+                    EM_CHARFROMPOS + EM_EXSETSEL so that the table test on
+                    WM_RBUTTONUP reflects the right cell.
+
+    WM_RBUTTONUP    If RtfEd_CaretInTable() returns true: show our menu via
+                    RtfEd_ShowTableContextMenu() and return 0 (suppresses
+                    Msftedit's own cut/copy/paste popup).  Otherwise fall
+                    through so Msftedit shows its standard menu as usual.
+                    NOTE: WM_CONTEXTMENU is NOT used for mouse clicks because
+                    Msftedit.dll intercepts WM_RBUTTONUP internally and calls
+                    TrackPopupMenu before ever sending WM_CONTEXTMENU — so
+                    subclassing WM_CONTEXTMENU is unreliable for mouse events.
+
+    WM_CONTEXTMENU  Only handled when lParam == -1 (keyboard-triggered:
+                    Menu key or Shift+F10).  Derives screen position from caret
+                    via EM_POSFROMCHAR and calls RtfEd_ShowTableContextMenu().
+
+    WM_NCDESTROY    Restores the original WNDPROC and removes the prop.
+
+  RtfEd_CaretInTable(HWND hEdit)
+    Sends EM_GETTABLEPARMS with cpStartRow = -1; returns true if cCell > 0
+    (caret is inside a table row).
+
+  RtfEditState (internal per-control struct, stored as window prop L"rtfeSt")
+  ─────────────────────────────────────────────────────────────────────────────
+    int colWidthPct;  // >0 = the pct value used at last insert/apply
+    int cols;         // >0 = number of columns in the pct-mode table
+  Allocated by RtfEd_SubclassEdit(); freed in WM_NCDESTROY of the subclass proc.
+  Set (or updated) by RtfEd_InsertTableNative and RtfEd_ApplyTableProps after
+  every table insert or edit.
+
+  RtfEd_RescalePctTables(HWND hEdit)  [static, internal]
+  ─────────────────────────────────────────────────────────
+    Reads RtfEditState* from prop L"rtfeSt".  If colWidthPct > 0 and cols > 0,
+    re-computes edTwips from the current EM_GETRECT width and calls
+    EM_SETTABLEPARMS (cpStartRow = -1) for every unique table row in the
+    document, distributing newEdTwips * pct / 100 twips equally across each
+    cell.  Saves and restores the selection around the operation.
+    Called from the parent editor window's WM_TIMER (id 9901) 80 ms after
+    the last WM_SIZE so window-resize rescaling is debounced.
+
+  RtfEd_ShowTableContextMenu(HWND hEditor, HWND hEdit, POINT screen)
+    Builds the popup menu, calls TrackPopupMenu, then dispatches the result:
+    cell-align items call RtfEd_SetAlignment(); "Table properties…" runs
+    RtfEd_ShowTableDialog() and on OK calls RtfEd_ApplyTableProps().
 ================================================================================
 
   Font:      Segoe UI  12 pt  DEFAULT_CHARSET

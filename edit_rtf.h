@@ -52,7 +52,7 @@
 #define IDC_RTFE_TD_OK        4550
 #define IDC_RTFE_TD_CANCEL    4551
 #define IDC_RTFE_TD_COLWPX    4552    // column width px edit
-#define IDC_RTFE_TD_COLWPCT   4553    // column width % edit (linked to px)
+#define IDC_RTFE_TD_COLWUNIT  4553    // column width unit picker button (px ▼ / % ▼)
 #define IDC_RTFE_TD_CHALIGN   4554    // cell H alignment combo (L/C/R)
 // Context-menu command IDs
 #define IDM_RTFE_TABLE_PROPS      5001    // "Table properties…" menu item
