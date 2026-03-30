@@ -223,7 +223,8 @@
       RichEdit always anchored at editY, always fills contentH — no V-align in
         split layout (V-align applies to single layout only).
       H-align applied using contentNaturalW.
-      WS_VSCROLL ensured on RichEdit; UpdateWindow called after SetWindowPos.
+      UpdateWindow called after SetWindowPos to sync scroll range.
+      WS_VSCROLL is NOT forced here; it is managed by AutoFitComponentHeight.
     When contentHidden=true: RichEdit hidden; extras fill full avail height.
     InvalidateRect(hwnd, NULL, FALSE) at end to repaint vacated areas.
 
@@ -232,19 +233,27 @@
     and s_previewUserSized[IDLG_COMPONENTS] == false.
     contentHidden=true:  logH = 144 + max(nItems,1) * 28
     contentHidden=false:
-      Creates a hidden off-screen RichEdit (1px tall, off-screen position)
-      at the current preview content width, streams the RTF in, calls
-      UpdateWindow, then reads GetScrollInfo(SB_VERT) → nMax+1 = total height.
+      Creates a hidden measurement RichEdit (1px tall, NO WS_EX_CLIENTEDGE —
+      a border would give negative client height, breaking layout) as a
+      WS_CHILD | WS_VISIBLE of hPreview, positioned off-screen to the left.
+      Streams the RTF in, calls UpdateWindow, then reads GetScrollInfo.
       Because the viewport is 1px, content always overflows → accurate result
       including embedded images (EM_FORMATRANGE undercounts pictures).
       rtfLogH from that measurement; logH = 160 + rtfLogH + n*28.
+      When the 75% cap applies, contentFitH is updated to the capped viewport
+      height so LayoutPreviewControls always reserves room for extras + buttons.
 
   MeasureRichEditLogHeight(HWND hRE)
-    Primary: GetScrollInfo(SB_VERT) — if nMax+1 > nPage the content overflows
-      and nMax+1 is the total content height in physical px.
-    Fallback: EM_FORMATRANGE (wParam=FALSE = measure only) for text-only content
-      that fits in the visible area.  fr.rc.top after call = content extent in
-      twips; converts via MulDiv(twips, 96, 1440) → logical px.
+    Primary: GetScrollInfo(SB_VERT) — if nMax > 0 the scroll range is set and
+      nMax+1 is the total content height in physical px → logical px via DPI.
+    Fallback: EM_FORMATRANGE (wParam=FALSE = measure only) for text-only content.
+      fr.rc.top after call = content extent in twips;
+      converts via MulDiv(twips, 96, 1440) → logical px.
+
+  Scroll wheel — WM_MOUSEWHEEL in PreviewWndProc
+    Uses EM_SCROLL SB_LINEUP/SB_LINEDOWN (one per scroll-lines tick) instead
+    of forwarding WM_MOUSEWHEEL.  EM_SCROLL works regardless of RichEdit focus;
+    forwarded WM_MOUSEWHEEL is silently dropped when focus is on a button.
 
   Navigation — NavigateTo(HWND hwnd, PreviewData* pd, InstallerDialogType t)
     Updates pd->type; calls PopulateExtras, updates caption and heading,

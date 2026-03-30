@@ -2,6 +2,15 @@
 <h3 style="text-align: center;">&nbsp;</h3>
 <p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 30 March 2026 &mdash; v2026.03.30.08<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
 
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.30.09</span></h3>
+<p><strong>Preview &mdash; measurement fix; button visibility; scrollbar; scroll wheel (30.03.2026, 09:59):</strong></p>
+<ul>
+<li><strong>Measurement window border removed:</strong> The hidden 1&nbsp;px-tall RichEdit used for height measurement was created with <code>WS_EX_CLIENTEDGE</code>, whose 2&nbsp;px top+bottom border gave a negative client height. The RichEdit never laid out content so <code>GetScrollInfo</code> always returned 0. Removing the extended style gives a 1&nbsp;px client area, content always overflows, and the correct total height is returned.</li>
+<li><strong>Buttons and checkboxes always visible:</strong> When the 75&nbsp;% screen-height cap is applied, <code>contentFitH</code> is now adjusted to the capped viewport size so <code>LayoutPreviewControls</code> always reserves room for the extras panel and button row.</li>
+<li><strong>Spurious scrollbar removed:</strong> <code>LayoutPreviewControls</code> no longer unconditionally adds <code>WS_VSCROLL</code>; the scrollbar is only shown when content genuinely overflows the 75&nbsp;% cap.</li>
+<li><strong>Scroll wheel:</strong> Replaced the forwarded <code>WM_MOUSEWHEEL</code> (silently dropped when RichEdit lacked focus) with direct <code>EM_SCROLL SB_LINEUP</code>/<code>SB_LINEDOWN</code> calls that work unconditionally.</li>
+</ul>
+
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.30.08</span></h3>
 <p><strong>Preview &mdash; auto-fit image height; split-layout viewport; scroll wheel; scrollbar sync; control flicker (30.03.2026, 08:53):</strong></p>
 <ul>

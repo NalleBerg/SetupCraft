@@ -328,16 +328,6 @@ static void LayoutPreviewControls(HWND hwnd, PreviewData* pd)
                 ShowWindow(pd->hContent, SW_HIDE);
             } else {
                 ShowWindow(pd->hContent, SW_SHOW);
-                // Ensure vertical scrollbar exists so content that overflows the
-                // viewport is reachable, and so GetScrollInfo works for measurement.
-                {
-                    LONG curSt = GetWindowLongW(pd->hContent, GWL_STYLE);
-                    if (!(curSt & WS_VSCROLL)) {
-                        SetWindowLongW(pd->hContent, GWL_STYLE, curSt | WS_VSCROLL);
-                        SetWindowPos(pd->hContent, NULL, 0, 0, 0, 0,
-                            SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_FRAMECHANGED|SWP_NOACTIVATE);
-                    }
-                }
                 // H-Align: narrow the RichEdit to its natural content width and
                 // distribute the surplus space according to the chosen alignment.
                 // When userSized (developer widened the window), the natural width
@@ -569,30 +559,30 @@ static int MeasureRichEditLogHeight(HWND hRE)
 {
     if (!hRE || !IsWindow(hRE)) return 0;
 
-    // Primary: inspect the vertical scroll range.  After ShowWindow + UpdateWindow
-    // the RichEdit has fully painted, so the scrollbar reflects the true content
-    // extent — including \pict images that EM_FORMATRANGE measure-only mode
-    // routinely undercounts because it does not invoke the picture-rendering path.
+    // Read the vertical scroll range.  When the window is 1px tall (as the
+    // measurement RichEdit is created) ALL content overflows and the RichEdit
+    // sets nMax+1 = total content height in physical pixels — including
+    // embedded \pict images, because the scroll range reflects the full
+    // rendered layout, not just the text.
     //
-    // Windows scroll-bar convention:
-    //   total content height (px) = si.nMax + 1
-    //   visible area         (px) = si.nPage
-    //   content overflows         when nMax + 1 > nPage
+    // Requirements for this to work:
+    //   • The RichEdit must be a WS_CHILD of a VISIBLE top-level window
+    //   • WS_VISIBLE must be set (so Windows actually paints the child)
+    //   • UpdateWindow must be called after StreamRtfIn
     {
         SCROLLINFO si = {};
         si.cbSize = sizeof(si);
         si.fMask  = SIF_RANGE | SIF_PAGE;
         GetScrollInfo(hRE, SB_VERT, &si);
-        if (si.nPage > 0 && si.nMax + 1 > (int)si.nPage) {
-            // Content overflows.  nMax + 1 is the total height in physical pixels.
-            int contentPx = si.nMax + 1;
-            return (int)(contentPx / g_dpiScale + 0.5f);
+        if (si.nMax > 0) {
+            // nMax + 1 = total content height in physical pixels.
+            return (int)((si.nMax + 1) / g_dpiScale + 0.5f);
         }
     }
 
-    // Fallback: EM_FORMATRANGE measurement (content fits in the visible area, or
-    // the scrollbar wasn't set up yet — text-only content where EM_FORMATRANGE
-    // is accurate).
+    // Fallback: EM_FORMATRANGE measure-only.  Accurate for pure text; may
+    // undercount images, but better than nothing if the scroll range is
+    // unavailable (e.g. window not yet painted).
     RECT rc; GetClientRect(hRE, &rc);
     int clientWPx = rc.right - rc.left;
     if (clientWPx <= 0) clientWPx = S(s_previewLogW) - 2 * S(16);
@@ -601,26 +591,20 @@ static int MeasureRichEditLogHeight(HWND hRE)
     if (!hdc) return 0;
     int dpiX = GetDeviceCaps(hdc, LOGPIXELSX);
     if (!dpiX) dpiX = 96;
-
-    // 1440 twips per inch; convert physical px to twips.
     LONG widthTwips = MulDiv(clientWPx, 1440, dpiX);
 
     FORMATRANGE fr   = {};
     fr.hdc           = hdc;
     fr.hdcTarget     = hdc;
     fr.chrg.cpMin    = 0;
-    fr.chrg.cpMax    = -1;           // format all text
+    fr.chrg.cpMax    = -1;
     fr.rcPage        = { 0, 0, widthTwips, 0x0FFFFFFF };
-    fr.rc            = fr.rcPage;    // same — no margin offset needed
+    fr.rc            = fr.rcPage;
 
-    // wParam = FALSE → measure only, do not render.
-    // After the call fr.rc.top is advanced to the y position past the last line.
     SendMessageW(hRE, EM_FORMATRANGE, FALSE, (LPARAM)&fr);
-    SendMessageW(hRE, EM_FORMATRANGE, FALSE, 0); // release cached info
-
+    SendMessageW(hRE, EM_FORMATRANGE, FALSE, 0);
     ReleaseDC(hRE, hdc);
 
-    // Convert twips → logical pixels (1440 twips / 96 logical px = 15 twips/lpx).
     return MulDiv((int)fr.rc.top, 96, 1440);
 }
 
@@ -631,11 +615,13 @@ static int MeasureRichEditLogHeight(HWND hRE)
 //    editY(60) + extLblH(22) + extGap(6) + items + breathing(10) + btnH(30) + pad(16)
 //    → logH = 144 + n×28   (n = max(nItems,1))
 //
-//  contentHidden = false  (RTF present — split: measured RTF top, items bottom)
-//    The RichEdit height is measured with EM_FORMATRANGE so the full content
-//    (including images) is always visible without a scrollbar.
-//    → logH = 68 + measuredRtfH + 36 + n×28
-//             └ editY+gap ┘        └ lower half ┘
+//  contentHidden = false  (RTF present — split: RTF top, items bottom)
+//    RTF height is measured by streaming content into a 1px-tall WS_VISIBLE
+//    WS_CHILD of hPreview (off-screen to the left).  After UpdateWindow the
+//    scroll range nMax+1 gives the true total content height, including
+//    embedded \pict images (which are fully rendered in the scroll layout
+//    even though the window is out of view).
+//    → logH = 160 + rtfLogH + n×28
 //
 // The sizer height spinner is updated to match the new size.
 static void AutoFitComponentHeight(HWND hPreview, HWND hSizer, PreviewData* pd)
@@ -675,10 +661,19 @@ static void AutoFitComponentHeight(HWND hPreview, HWND hSizer, PreviewData* pd)
             RECT rcPrev; GetClientRect(hPreview, &rcPrev);
             int measW = std::max((int)(rcPrev.right) - 2 * S(16) - 2 * GetSystemMetrics(SM_CXEDGE), S(100));
 
-            HWND hM = CreateWindowExW(WS_EX_CLIENTEDGE, reClass2, L"",
+            // The measurement RichEdit must be a WS_VISIBLE child of the
+            // real, visible preview window so that UpdateWindow triggers a
+            // genuine paint pass and the RichEdit sets up its scroll range.
+            // Positioned at negative x (to the left of the client area) so
+            // it is never seen by the user.  1px tall → content always
+            // overflows → GetScrollInfo gives the true total height.
+            // No WS_EX_CLIENTEDGE — its 2px top+bottom border would produce a
+            // negative client area on a 1px-tall window, so the RichEdit would
+            // never lay out content and GetScrollInfo would always return 0.
+            HWND hM = CreateWindowExW(0, reClass2, L"",
                 WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL,
-                -(measW + 100), 0, measW, 1,   // off-screen, 1px tall → always overflows
-                GetDesktopWindow(), NULL, s_hInst, NULL);
+                -(measW + 100), 0, measW, 1,
+                hPreview, NULL, s_hInst, NULL);
             if (hM) {
                 SendMessageW(hM, EM_SETTYPOGRAPHYOPTIONS,
                              TO_ADVANCEDTYPOGRAPHY, TO_ADVANCEDTYPOGRAPHY);
@@ -686,7 +681,7 @@ static void AutoFitComponentHeight(HWND hPreview, HWND hSizer, PreviewData* pd)
                 SendMessageW(hM, EM_SETBKGNDCOLOR, 0, RGB(255, 255, 255));
                 const std::wstring& rtf = s_dialogs[(int)IDLG_COMPONENTS].content_rtf;
                 if (!rtf.empty()) StreamRtfIn(hM, rtf);
-                UpdateWindow(hM);
+                UpdateWindow(hM);  // force paint → scroll range is populated
                 int measured = MeasureRichEditLogHeight(hM);
                 if (measured > 60) rtfLogH = measured;
                 DestroyWindow(hM);
@@ -711,7 +706,16 @@ static void AutoFitComponentHeight(HWND hPreview, HWND hSizer, PreviewData* pd)
         else
             maxLogH = (int)(GetSystemMetrics(SM_CYSCREEN) * 0.75f / g_dpiScale);
         bool needsScroll = logH > maxLogH;
-        if (needsScroll) logH = maxLogH;
+        if (needsScroll) {
+            logH = maxLogH;
+            // Recalculate the viewport height that fits in the capped window so
+            // LayoutPreviewControls reserves the correct space for the extras
+            // panel and buttons (they must always be visible, never scrolled off).
+            // Inverting the formula: logH = 160 + contentFitH + n×28
+            int cappedRtfLogH = maxLogH - 160 - n * 28;
+            if (cappedRtfLogH < 60) cappedRtfLogH = 60;
+            pd->contentFitH = cappedRtfLogH;
+        }
         pd->contentNeedsScroll = needsScroll;
     }
     logH = std::max(150, logH);
@@ -965,14 +969,21 @@ static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
         return 0;
     }
 
-    case WM_MOUSEWHEEL:
-        // The RichEdit only receives mouse-wheel messages when it has keyboard
-        // focus, which it usually doesn't (buttons capture focus on click).
-        // Forward every wheel event from the preview window so the user can
-        // scroll content without needing to click inside the RichEdit first.
-        if (pd && pd->hContent && IsWindow(pd->hContent))
-            SendMessageW(pd->hContent, WM_MOUSEWHEEL, wParam, lParam);
+    case WM_MOUSEWHEEL: {
+        // WM_MOUSEWHEEL goes to the focused window (often a button), so we may
+        // receive it directly here or via DefWindowProc bubbling from a child.
+        // Use EM_SCROLL so focus and cursor position are irrelevant.
+        if (!pd || !pd->hContent || !IsWindow(pd->hContent)) return 0;
+        int delta = GET_WHEEL_DELTA_WPARAM(wParam);
+        UINT lines = 3;
+        SystemParametersInfoW(SPI_GETWHEELSCROLLLINES, 0, &lines, 0);
+        if (lines == WHEEL_PAGESCROLL) lines = 3;
+        int count = (abs(delta) * (int)lines + WHEEL_DELTA / 2) / WHEEL_DELTA;
+        WPARAM cmd = (delta > 0) ? SB_LINEUP : SB_LINEDOWN;
+        for (int i = 0; i < count; i++)
+            SendMessageW(pd->hContent, EM_SCROLL, cmd, 0);
         return 0;
+    }
 
     case WM_CLOSE:
         // No WS_SYSMENU means no × button, but WM_CLOSE can still arrive via

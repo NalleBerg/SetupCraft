@@ -2,6 +2,14 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.03.30.09] - 2026-03-30
+
+### Fixed
+- **Preview — auto-fit measurement window**: Removed `WS_EX_CLIENTEDGE` from the hidden measurement RichEdit. The 2 px top+bottom border caused a negative client area on the 1 px-tall window so the RichEdit never laid out content and `GetScrollInfo` always returned 0. Without the extended style the client height is exactly 1 px, content always overflows, and the scroll range is populated correctly.
+- **Preview — buttons/checkboxes never truncated**: When the 75 % screen-height cap is applied, `contentFitH` is now updated to the capped viewport height so `LayoutPreviewControls` always leaves enough room for the extras panel and button row below the RTF viewport.
+- **Preview — forced scrollbar removed from layout**: `LayoutPreviewControls` no longer unconditionally adds `WS_VSCROLL` to the split-layout RichEdit. The scrollbar is only added/removed by `AutoFitComponentHeight` when content genuinely overflows the 75 % cap. This eliminates the spurious always-visible scrollbar when content fits comfortably.
+- **Preview — scroll wheel**: Replaced `WM_MOUSEWHEEL` forward with direct `EM_SCROLL` calls (one `SB_LINEUP`/`SB_LINEDOWN` per scroll-lines tick). The forwarded message was silently dropped when the RichEdit did not have keyboard focus; `EM_SCROLL` works unconditionally.
+
 ## [2026.03.30.08] - 2026-03-30
 
 ### Fixed
