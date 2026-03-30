@@ -137,6 +137,16 @@
                                     CRUD API, control ID ranges, locale key table,
                                     and mainwindow.cpp wiring guide.
 
+  scrollbar_API.txt                 *** BELIEVED FIXED — awaiting test ***
+                                    Reusable RichEdit scrollbar manager — HRESC
+                                    handle, RESC_Attach / RESC_Detach lifecycle,
+                                    RESC_SyncThumb, RESC_OnMouseWheel, SB_THUMBTRACK
+                                    fix (32-bit proportional mapping), root cause
+                                    analysis (sync-after-scroll overwrote correct
+                                    native thumb pos; EM_SCROLL bypasses repaint
+                                    path — fix: native pass-through + forward
+                                    WM_MOUSEWHEEL directly to RichEdit).
+
   scrollbar_INTERNALS.txt           Shortcuts-page vertical scrollbar — SCROLLINFO
                                     setup, why SW_SCROLLCHILDREN fails for content
                                     that starts below the viewport, correct manual

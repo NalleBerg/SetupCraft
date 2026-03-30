@@ -1,0 +1,177 @@
+================================================================================
+  scrollbar_API.txt
+  Reusable RichEdit scrollbar manager — public API and status
+================================================================================
+
+  *** STATUS: BELIEVED FIXED — awaiting test confirmation ***
+
+  Behaviour summary:
+    Thumb drag  (SB_THUMBTRACK / SB_THUMBPOSITION)  ✓  Works correctly.
+    Arrow / page click (SB_LINEDOWN/UP, PAGEDOWN/UP) ✓  Should work (native pass-through).
+    Mouse wheel (WM_MOUSEWHEEL)                      ✓  Should work (forwarded as WM_MOUSEWHEEL).
+
+  Root cause identified (2026-03-30):
+    The subclass proc was calling GetScrollInfo(SIF_POS) → SetScrollPos after
+    CallWindowProcW for line/page scrolls.  This overwrote the thumb position
+    the RichEdit had JUST set correctly with a stale nPos read too early.
+    Separately, the parent's WM_MOUSEWHEEL handler was calling EM_SCROLL
+    externally; EM_SCROLL moves content but does not trigger the RichEdit's
+    internal scrollbar repaint path — only native WM_MOUSEWHEEL does.
+    Clue: the RTF editor's RichEdit works perfectly with NO scroll handling
+    in its subclass proc — it simply passes everything to the original proc.
+
+  Fix applied:
+    1. Subclass proc — for SB_LINE*/SB_PAGE*: just CallWindowProcW, return.
+       No extra GetScrollInfo/SetScrollPos.
+    2. Parent WM_MOUSEWHEEL — forward as SendMessageW(hRE, WM_MOUSEWHEEL, ...)
+       instead of calling EM_SCROLL in a loop.
+
+  This API and its companion scrollbar.h / scrollbar.cpp are extracted from the
+  preview-window RichEdit work in dialogs.cpp so the solution lives in one place
+  and can be reused in any project.
+
+  See § 5 for the full failure history and § 6 for what to try if it still fails.
+
+
+1. PURPOSE
+──────────
+  Wrap a RICHEDIT50W (or RichEdit20W) that carries its own WS_VSCROLL scrollbar
+  so that:
+    • the scrollbar thumb moves smoothly with every scrolling action.
+    • WM_MOUSEWHEEL is forwarded from the parent and the thumb tracks it.
+    • SB_THUMBTRACK and SB_THUMBPOSITION use the full 32-bit nTrackPos from
+      GetScrollInfo (HIWORD(wParam) is 16-bit and silently truncates large docs).
+
+
+2. PUBLIC API  (scrollbar.h / scrollbar.cpp)
+─────────────────────────────────────────────
+
+  typedef struct RichEditScrollbarCtx* HRESC;
+
+  HRESC  RESC_Attach(HWND hRichEdit)
+    Subclasses hRichEdit.  Returns an opaque handle on success, NULL on failure.
+    Must be called AFTER the RichEdit has been created and WS_VSCROLL is set.
+    The caller owns the handle and must call RESC_Detach before DestroyWindow.
+
+  void   RESC_Detach(HRESC h)
+    Removes the subclass and frees resources.  Safe to call with NULL.
+
+  void   RESC_SyncThumb(HRESC h)                           *** BROKEN ***
+    Reads the current RichEdit scroll position and repositions the scrollbar
+    thumb to match.  Currently unreliable — see § "Known failures".
+    Call after any programmatic scroll driven externally (EM_SETSCROLLPOS, etc.)
+
+  LRESULT RESC_OnMouseWheel(HRESC h, WPARAM wParam)        *** BROKEN ***
+    Call from the parent window's WM_MOUSEWHEEL handler, passing wParam
+    unchanged.  Scrolls the content the correct number of lines and then
+    calls RESC_SyncThumb — which is currently broken.
+
+
+3. TYPICAL WIRING
+──────────────────
+
+  // In WM_CREATE (after creating the RichEdit with WS_VSCROLL):
+  pd->hResc = RESC_Attach(pd->hContent);
+
+  // In WM_MOUSEWHEEL of the parent:
+  if (pd->hResc) { RESC_OnMouseWheel(pd->hResc, wParam); return 0; }
+
+  // In WM_DESTROY of the parent (before child windows are destroyed):
+  RESC_Detach(pd->hResc);
+  pd->hResc = NULL;
+
+
+4. HOW THE SUBCLASS PROC WORKS (internals)
+───────────────────────────────────────────
+
+  The subclass proc intercepts WM_VSCROLL sent to the RichEdit:
+
+  SB_THUMBTRACK / SB_THUMBPOSITION
+    HIWORD(wParam) is 16-bit, so for documents taller than 65535 physical
+    pixels the value wraps.  Instead, SCROLLINFO.nTrackPos (32-bit) is read
+    via GetScrollInfo(SIF_TRACKPOS | SIF_RANGE | SIF_PAGE).
+    The track position is mapped proportionally into the pixel range that
+    EM_SETSCROLLPOS accepts:
+        scrollY = nTrackPos / nMax  ×  (nMax − nPage + 1)
+    EM_SETSCROLLPOS drives the content.  On THUMBPOSITION the thumb visual is
+    also updated via SetScrollPos(nTrackPos).
+    STATUS: ✓  Works.
+
+  SB_LINEDOWN / SB_LINEUP / SB_PAGEDOWN / SB_PAGEUP / SB_TOP / SB_BOTTOM
+    CallWindowProcW forwards to the original RichEdit proc so the content
+    scrolls normally.  Afterwards RESC_SyncThumb is called to reposition the
+    thumb.
+    STATUS: ✗  Thumb does not follow (see § 5).
+
+
+5. KNOWN FAILURES AND ROOT CAUSE  (as of 2026-03-30)
+──────────────────────────────────────────────────────
+
+  5a. SB_PAGEDOWN / SB_LINEDOWN (scrollbar arrow and page area clicks)
+  ─────────────────────────────────────────────────────────────────────
+  After CallWindowProcW the content has scrolled, but reading
+  GetScrollInfo(SIF_POS) still returns the OLD nPos — the RichEdit does not
+  update nPos in the SCROLLINFO synchronously within WM_VSCROLL processing.
+
+  Prior attempt: use EM_GETSCROLLPOS (returns pixel offset) then SetScrollPos.
+    → thumb always snapped to the bottom.
+    → Suspicion: the RichEdit's scrollbar nMax is NOT in physical-pixel units.
+      EM_GETSCROLLPOS returns pixels; nMax may be in a different coordinate
+      space (e.g. character lines, twips, or "logical scroll units"), so a
+      pixel value passed to SetScrollPos far exceeds nMax and the system clamps
+      the thumb to the bottom.
+
+  Current attempt: read SIF_POS after CallWindowProcW, use that for SetScrollPos.
+    → nPos IS in the same space as nMax, so no overflow.
+    → BUT the RichEdit apparently has not yet updated nPos at the time of the
+      read; the old position is returned.
+    → Possible fix: call UpdateWindow(hRichEdit) between CallWindowProcW and
+      GetScrollInfo to force the RichEdit to complete layout and update nPos.
+      NOT YET TRIED.
+
+  5b. WM_MOUSEWHEEL (scroll wheel)
+  ──────────────────────────────────
+  The parent's WM_MOUSEWHEEL handler calls EM_SCROLL which drives the RichEdit
+  directly, bypassing WM_VSCROLL entirely.  The subclass proc is never invoked,
+  so the thumb is never updated.  Content moves; thumb stays wherever it was.
+
+  Fix path:
+    After the EM_SCROLL loop, call RESC_SyncThumb.  If 5a is fixed, 5b is
+    automatically fixed too.
+
+
+6. OPEN QUESTIONS / FIX CANDIDATES  (to be tried in order)
+────────────────────────────────────────────────────────────
+
+  Q1. Does UpdateWindow(hRE) before GetScrollInfo(SIF_POS) give the updated pos?
+      Try:
+        LRESULT r = CallWindowProcW(origProc, hwnd, msg, wParam, lParam);
+        UpdateWindow(hwnd);
+        GetScrollInfo(hwnd, SB_VERT, &si);  // re-read after forced paint
+        SetScrollPos(hwnd, SB_VERT, si.nPos, TRUE);
+
+  Q2. If nPos is still stale, what unit IS nMax?
+      Instrument: log nMax, nPage, nPos before/after scroll, and EM_GETSCROLLPOS
+      result.  Determine the conversion factor at runtime.
+
+  Q3. PostMessage approach: instead of syncing inline, post a custom message to
+      the subclass and let the RichEdit finish its WM_VSCROLL processing fully
+      before the sync runs.
+
+  Q4. Own the scrollbar entirely: remove WS_VSCROLL from the RichEdit, create
+      a standalone SBS_VERT scrollbar control alongside it, and always drive
+      the RichEdit with EM_SETSCROLLPOS (which takes pixels and is reliable).
+      This completely sidesteps the coordinate-space ambiguity.
+      Downside: requires repositioning both controls and keeping them visually
+      adjacent; the parent layout must be aware of the scrollbar's presence.
+
+
+7. USAGE — SetupCraft dialogs.cpp  (current integration)
+──────────────────────────────────────────────────────────
+  The preview window (PreviewWndProc) creates a RICHEDIT50W as pd->hContent.
+  The inline ContentRichEditSubclassProc in dialogs.cpp mirrors the logic here.
+  Once RESC_* is working, ContentRichEditSubclassProc should be deleted and
+  replaced with RESC_Attach / RESC_Detach / RESC_OnMouseWheel wiring.
+
+
+================================================================================

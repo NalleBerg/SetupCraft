@@ -1,0 +1,338 @@
+================================================================================
+  my_scrollbar — Custom Win32 Scrollbar: Build Plan
+  Started: 2026-03-30
+================================================================================
+
+GOAL
+----
+Replace Win32 native scrollbars with a custom control that:
+  - Works perfectly in BOTH read-only and writable RichEdit controls
+  - Works on any HWND that has scrollbar data (SCROLLINFO)
+  - Is trivially easy to attach:
+
+      #include "my_scrollbar.h"
+
+      // Vertical, fade-on-hover (default hidden mode):
+      HMSB hSB = msb_attach(hWnd, MSB_VERTICAL);
+
+      // Vertical, always visible:
+      HMSB hSB = msb_attach(hWnd, MSB_VERTICAL | MSB_NOHIDE);
+
+      // Horizontal, always visible:
+      HMSB hSB = msb_attach(hWnd, MSB_HORIZONTAL | MSB_NOHIDE);
+
+      // Detach (called on WM_DESTROY):
+      msb_detach(hSB);
+
+  - The attach call automatically:
+      * Hides the native scrollbar (ShowScrollBar) but keeps WS_VSCROLL/
+        WS_HSCROLL so the target window still maintains SCROLLINFO
+      * Creates the custom scrollbar child window
+      * Subclasses the target window to intercept resize + scroll messages
+  - No other calls needed in the normal case.
+  - For programmatic scrolls that bypass WM_VSCROLL (e.g. EM_SCROLL from a
+    mousewheel handler), call msb_sync(hSB) once afterward.
+
+FLAGS (MSB_* bitmask, combined with |)
+---------------------------------------
+  MSB_VERTICAL     Place bar on the right edge (default)
+  MSB_HORIZONTAL   Place bar on the bottom edge
+  MSB_NOHIDE       Always fully visible (no fade); full width/height always
+                   Without this flag: hidden mode (see below)
+
+VISUAL SPEC
+-----------
+  Bar background:
+    Hidden mode:   2–3 px wide strip, nearly transparent, so user has a
+                   thin target to aim for. Expands to full width on hover.
+    Always-visible: Full width, always shown.
+
+  Arrow buttons (top/bottom or left/right):
+    Rounded cap ends (top arrow has rounded top-left + top-right corners;
+    bottom arrow has rounded bottom-left + bottom-right corners).
+    Arrow glyph: clearly visible at all times (not hidden until hover).
+    Three color states:
+      normal  — base arrow color
+      hover   — slightly lighter/brighter
+      pressed — inverted or accent color, also triggers auto-repeat scroll
+
+  Thumb:
+    Proportional height: nPage / (nMax - nMin + 1) * track height.
+    Minimum height: 20 px (so it stays grabbable at very long content).
+    Rounded on both ends.
+    THREE color states:
+      normal  — base thumb color
+      hover   — lighter/highlighted (mouse over thumb)
+      drag    — accent/active color (while mouse button held and dragging)
+
+  Fade animation (hidden mode only):
+    On WM_MOUSEMOVE entering the bar area → timer-driven alpha 0→255 (expand)
+    On WM_MOUSELEAVE → timer-driven alpha 255→0 (contract back to 2–3 px)
+    Fade speed: ~150 ms. Use a WM_TIMER + InvalidateRect per tick.
+    Implementation: layered child window (WS_EX_LAYERED + SetLayeredWindowAttributes)
+    OR manual alpha blend in WM_PAINT. Layered window is simpler and cleaner.
+
+COLOR PALETTE (all configurable via msb_set_colors() — add later)
+  Will be defined as constants in my_scrollbar.h; easy to change in one place.
+
+FILES
+-----
+  my_scrollbar.h      — Public API and MSB_* flags (no SetupCraft dependencies)
+  my_scrollbar.cpp    — Implementation
+  test_scrollbar/
+    test_scrollbar.cpp  — Standalone test .exe with one window, one
+                          read-only RichEdit (long text), one writable RichEdit,
+                          and two custom scrollbars. No SetupCraft code.
+    CMakeLists.txt      — Builds test_scrollbar.exe independently
+
+  The test app is intentionally minimal: just enough to see the scrollbar
+  behave correctly in both RichEdit modes before touching SetupCraft code.
+
+================================================================================
+  PHASE PLAN  (mark [ ] → [DONE] as each phase is completed)
+================================================================================
+
+[ ] PHASE 1 — Custom window class + static drawing (3–4 days @ 3 hrs/day)
+    -----------------------------------------------------------------------
+    Goal: A visible, correctly sized, correctly painted scrollbar window.
+    No interaction yet. Just pixels.
+
+    Steps:
+    1.1  Register WNDCLASS "MyScrollbar" in msb_attach (once via static flag).
+         Style: CS_HREDRAW | CS_VREDRAW. No CS_DBLCLKS needed.
+    1.2  Create the child window. Size it to fill the right (or bottom) edge of
+         the target window's client area. Position updated on target WM_SIZE.
+    1.3  WM_PAINT: GDI drawing.
+         - Fill bar background (rounded rect for top/bottom caps of the entire bar).
+         - Draw top arrow button (rounded cap, glyph triangle pointing up).
+         - Draw bottom arrow button (rounded cap, glyph pointing down).
+         - Draw track area between buttons.
+         - Draw thumb: calculate position and height from SCROLLINFO (read via
+           GetScrollInfo on the TARGET window, SB_VERT or SB_HORZ).
+           thumb_h = max(MIN_THUMB, track_h * nPage / (nMax - nMin + 1))
+           thumb_y = arrow_h + (nPos - nMin) * (track_h - thumb_h)
+                               / max(1, nMax - nMin - nPage + 1)
+         - All coordinates tracked in member vars; recalculate on WM_SIZE.
+    1.4  DPI: read GetDpiForWindow (or GetDeviceCaps fallback). Scale arrow_h,
+         width, MIN_THUMB from 96-dpi baseline values.
+    1.5  Colors: define constants for all three thumb states + arrow states.
+         No interaction yet — just draw everything in "normal" state.
+
+    Test milestone: scrollbar appears, thumb is the right proportional size,
+    arrows visible. Resize window — thumb stays correct.
+
+[ ] PHASE 2 — Hit testing + mouse interaction (1–2 days)
+    ------------------------------------------------------
+    Goal: Clicking arrows and track moves the RichEdit content.
+
+    Steps:
+    2.1  WM_LBUTTONDOWN: hit test against rArrowUp, rArrowDown, rThumb, rTrackAbove,
+         rTrackBelow rectangles (stored as member vars updated in layout).
+         - Arrow click: send WM_VSCROLL(SB_LINEUP/SB_LINEDOWN, 0, hTarget) then
+           msb_sync_from_target() to update thumb.
+         - Track above thumb: send WM_VSCROLL(SB_PAGEUP).
+         - Track below thumb: send WM_VSCROLL(SB_PAGEDOWN).
+    2.2  Auto-repeat for held arrow/track clicks:
+         SetTimer on first WM_LBUTTONDOWN, initial delay 400 ms, then 50 ms.
+         On WM_TIMER: repeat the same scroll command. KillTimer on WM_LBUTTONUP.
+    2.3  Thumb drag:
+         WM_LBUTTONDOWN on thumb: SetCapture, record dragStartY and dragStartPos.
+         WM_MOUSEMOVE while captured: compute new nPos from delta px, clamped,
+           build wParam = MAKEWPARAM(SB_THUMBTRACK, newPos), send WM_VSCROLL.
+           Call msb_sync_from_target() to repaint thumb.
+         WM_LBUTTONUP: ReleaseCapture, send WM_VSCROLL(SB_THUMBPOSITION, newPos),
+           send WM_VSCROLL(SB_ENDSCROLL).
+    2.4  msb_sync_from_target(): reads GetScrollInfo from hTarget, recomputes
+         thumb rect, calls InvalidateRect(hSB, NULL, FALSE).
+
+    Test milestone: arrows scroll RichEdit, page click jumps, thumb drag works,
+    content and thumb stay in sync. Test in BOTH read-only and writable RichEdits.
+
+[ ] PHASE 3 — Thumb hover/drag color states (1 day)
+    ---------------------------------------------------
+    Goal: Thumb changes color on hover and drag.
+
+    Steps:
+    3.1  Track mouse state in a small enum: THUMB_NORMAL, THUMB_HOVER, THUMB_DRAG.
+         Store as member var.
+    3.2  WM_MOUSEMOVE: if not dragging, hit-test against rThumb.
+         If in thumb → THUMB_HOVER, else THUMB_NORMAL. InvalidateRect if changed.
+         Call TrackMouseEvent(TME_LEAVE) to get WM_MOUSELEAVE notification.
+    3.3  WM_MOUSELEAVE: set THUMB_NORMAL, invalidate.
+    3.4  Thumb drag start: set THUMB_DRAG, invalidate. Drag end: back to THUMB_HOVER
+         (mouse is still over thumb) or THUMB_NORMAL.
+    3.5  Same hover logic for arrow buttons: ARROW_NORMAL / ARROW_HOVER / ARROW_PRESSED.
+         TrackMouseEvent per button region.
+    3.6  WM_PAINT: use the current state enum to pick the right color per element.
+
+    Test milestone: thumb smoothly changes color on hover, locks to drag color
+    while dragging. Arrows highlight on hover and press.
+
+[ ] PHASE 4 — Fade animation + hidden mode (2–3 days)
+    ----------------------------------------------------
+    Goal: Bar expands on hover, contracts on mouse leave.
+
+    Steps:
+    4.1  Define two widths: FULL_WIDTH (e.g. 12 px) and HIDDEN_WIDTH (3 px).
+         MSB_NOHIDE flag skips this phase entirely — always FULL_WIDTH.
+    4.2  Fade state machine: FADE_HIDDEN, FADE_EXPANDING, FADE_VISIBLE, FADE_CONTRACTING.
+    4.3  Use a WS_EX_LAYERED child window. Call SetLayeredWindowAttributes with
+         LWA_ALPHA. Full alpha = 255, hidden alpha = 0. Width also transitions.
+         Easier approach: just animate width (SetWindowPos) rather than alpha,
+         since the bar is already a solid child window. Both look good.
+    4.4  WM_MOUSEMOVE on the bar: if FADE_HIDDEN or FADE_CONTRACTING → start
+         FADE_EXPANDING timer (16 ms interval = ~60fps). Each tick increase
+         width by step until FULL_WIDTH, then FADE_VISIBLE, KillTimer.
+    4.5  WM_MOUSELEAVE on the bar: start FADE_CONTRACTING timer. Each tick
+         decrease width until HIDDEN_WIDTH, then FADE_HIDDEN, KillTimer.
+    4.6  The 3-px strip in HIDDEN_WIDTH state is still a real window and receives
+         WM_MOUSEMOVE — so the user can aim for it and trigger expansion.
+    4.7  If the mouse enters hTarget (the RichEdit/window): start contraction
+         unless cursor is over the bar area. Track via WM_NCMOUSEMOVE / subclass.
+
+    Test milestone: bar smoothly expands on hover, contracts on leave. In nohide
+    mode, bar stays full width with no animation. Both modes look clean.
+
+[ ] PHASE 5 — Target window subclassing + auto sync (1–2 days)
+    -------------------------------------------------------------
+    Goal: Custom bar stays in sync with all content changes automatically.
+
+    Steps:
+    5.1  In msb_attach, subclass hTarget with SetWindowLongPtrW(GWLP_WNDPROC).
+         Save original proc. On WM_DESTROY of target: msb_detach automatically.
+    5.2  Intercept WM_SIZE on target: reposition and resize the custom bar child
+         window to always fill the right/bottom edge.
+    5.3  Intercept WM_VSCROLL / WM_HSCROLL on target: after CallWindowProcW,
+         call msb_sync_from_target() to update thumb. This handles the case where
+         the native scrollbar is driven by keyboard or code.
+    5.4  Intercept WM_MOUSEWHEEL on target: drive EM_SCROLL (for RichEdit) or
+         SendMessage(WM_VSCROLL, SB_LINEUP/LINEDOWN) for other windows, then sync.
+    5.5  On msb_attach: call ShowScrollBar(hTarget, SB_VERT/SB_HORZ, FALSE) to
+         hide native bar but preserve WS_VSCROLL. The WS_VSCROLL flag being present
+         means the RichEdit continues to maintain SCROLLINFO internally — we just
+         read it, never let it draw.
+    5.6  On msb_detach: restore native scrollbar (ShowScrollBar TRUE), restore
+         original GWLP_WNDPROC.
+
+    Test milestone: resize the test window — bar repositions. Load new content
+    into RichEdit — thumb resizes. Keyboard scroll (arrows/PgUp/PgDn) — thumb
+    tracks. All without any extra calls from the caller.
+
+[ ] PHASE 6 — Horizontal scrollbar support (1 day)
+    --------------------------------------------------
+    Goal: MSB_HORIZONTAL flag produces a bottom-edge bar that scrolls left/right.
+
+    Steps:
+    6.1  Most logic is already parameterized. Replace all VERT references with a
+         direction flag (SB_VERT vs SB_HORZ, WM_VSCROLL vs WM_HSCROLL).
+    6.2  Layout: position bar at bottom edge, height = FULL_WIDTH. Arrows point
+         left and right.
+    6.3  MSB_VERTICAL | MSB_HORIZONTAL is valid (two separate msb_attach calls,
+         one per axis — each returns its own HMSB handle).
+
+    Test milestone: add a horizontal scrollbar to a wide RichEdit in the test
+    app. Arrows, drag, sync all work.
+
+[ ] PHASE 7 — Test app (test_scrollbar.exe) (1 day)
+    ---------------------------------------------------
+    Goal: A clean, standalone test binary with no SetupCraft code.
+
+    Contents of test_scrollbar.cpp:
+      - WinMain, one top-level window "ScrollbarTest"
+      - One read-only RICHEDIT50W on the left half, filled with 50+ lines of text
+      - One writable RICHEDIT50W on the right half
+      - msb_attach called for vertical bar on each RichEdit
+      - One writable RichEdit with BOTH vertical + horizontal bars
+      - WM_DESTROY: msb_detach all handles, PostQuitMessage
+
+    test_scrollbar/CMakeLists.txt:
+      cmake_minimum_required(VERSION 3.16)
+      project(ScrollbarTest)
+      add_executable(ScrollbarTest WIN32 test_scrollbar.cpp ../my_scrollbar.cpp)
+      target_include_directories(ScrollbarTest PRIVATE ..)
+      target_link_libraries(ScrollbarTest comctl32 riched20)
+
+    Deliberately contains NO references to SetupCraft types, dialogs, or headers.
+
+    Test milestone: test_scrollbar.exe runs, both RichEdits scroll correctly,
+    all visual states work, no crashes on resize/close.
+
+[ ] PHASE 8 — Integration into SetupCraft (0.5 day)
+    ---------------------------------------------------
+    Goal: Replace scrollbar.cpp / ContentRichEditSubclassProc with my_scrollbar.
+
+    Steps:
+    8.1  In dialogs.cpp (PreviewDialog WM_INITDIALOG):
+           pd->hSBContent = msb_attach(pd->hContent, MSB_VERTICAL);
+         In WM_DESTROY:
+           msb_detach(pd->hSBContent);
+         Remove ContentRichEditSubclassProc entirely.
+         Remove WM_MOUSEWHEEL handler that manually calls EM_SCROLL (now handled
+         by the subclass inside my_scrollbar.cpp).
+    8.2  In notes_editor.cpp (writable RichEdit):
+           msb_attach(hEditor, MSB_VERTICAL);
+         Done. No other changes.
+    8.3  Add my_scrollbar.cpp to CMakeLists.txt. Remove scrollbar.cpp.
+    8.4  Build, test both dialogs.
+
+    Test milestone: SetupCraft preview and editor both use the custom bar,
+    everything looks and behaves correctly.
+
+[ ] PHASE 9 — Polish (1–2 days)
+    --------------------------------
+    - Tune colors to match SetupCraft's existing checkbox/tick visual style
+    - Keyboard accessibility: WM_KEYDOWN on bar window (arrow keys, PgUp/PgDn)
+    - Edge case: content shorter than one page (thumb fills full track, arrows
+      disabled/dimmed)
+    - Edge case: content exactly one page (same)
+    - Scrollbar on a non-RichEdit window (generic SCROLLINFO-based control)
+    - msb_set_colors(HMSB, MSB_Colors*) function for runtime theming (stub OK for now)
+    - Update scrollbar_API.txt and API_list.txt to point to my_scrollbar_API.txt
+
+================================================================================
+  API SUMMARY (to be kept in sync with my_scrollbar.h)
+================================================================================
+
+  typedef void* HMSB;    /* opaque handle returned by msb_attach */
+
+  /* Flags */
+  #define MSB_VERTICAL    0x00
+  #define MSB_HORIZONTAL  0x01
+  #define MSB_NOHIDE      0x02   /* always visible; disables fade animation */
+
+  /* Attach: hides native scrollbar, creates custom one, subclasses hTarget. */
+  HMSB msb_attach(HWND hTarget, DWORD flags);
+
+  /* Detach: restores native scrollbar and original window proc, frees memory. */
+  void msb_detach(HMSB h);
+
+  /* Manually sync thumb to current scroll position.                          */
+  /* Call this after programmatic scrolls that bypass WM_VSCROLL/WM_HSCROLL. */
+  void msb_sync(HMSB h);
+
+  /* (Future) Override colors at runtime. */
+  /* void msb_set_colors(HMSB h, const MSB_Colors* c); */
+
+================================================================================
+  NOTES FOR FUTURE SESSIONS
+================================================================================
+
+- When implementing WM_PAINT, use a compatible DC (CreateCompatibleDC + 
+  BitBlt) to avoid flicker — double-buffered painting.
+
+- RichEdit-specific: the custom bar drives the RichEdit via WM_VSCROLL 
+  messages sent to hTarget (not PostMessage, Send). The RichEdit moves its 
+  content and updates its internal SCROLLINFO. We then read GetScrollInfo 
+  to update the thumb. This works identically for read-only and writable 
+  because we never rely on the RichEdit drawing the scrollbar — we only use
+  it for content scrolling and SCROLLINFO bookkeeping.
+
+- For non-RichEdit windows: same pattern. Any window that handles WM_VSCROLL 
+  and maintains SCROLLINFO will work without changes.
+
+- Keep my_scrollbar.h / my_scrollbar.cpp free of SetupCraft includes. 
+  Only <windows.h> and standard Win32 headers. This keeps the test app clean 
+  and the module reusable in future projects.
+
+- The scrollbar.h / scrollbar.cpp files stay in the repo until Phase 8 is 
+  done and tested. Remove them only after SetupCraft integration is confirmed.

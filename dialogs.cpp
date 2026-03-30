@@ -186,6 +186,7 @@ static int  s_previewLogH = 360;
 // When true for a type, auto-fit is skipped so the chosen size is respected.
 // Reset to all-false by IDLG_Reset(); only [IDLG_COMPONENTS] is persisted to DB.
 static bool s_previewUserSized[IDLG_COUNT] = {};
+static WNDPROC s_origContentProc = NULL; // original RichEdit proc — restored on destroy
 
 // ── Auto-fit caps — easy to tune ─────────────────────────────────────────────
 // Content width  may use up to this fraction of the monitor work-area width.
@@ -551,6 +552,57 @@ static void PopulateExtras(HWND hwnd, PreviewData* pd, InstallerDialogType newTy
     }
 }
 
+// Subclass proc for the content RichEdit in the preview window.
+//
+// RICHEDIT50W does not update its own scrollbar thumb after scrolling when the
+// control is read-only or lacks focus.  This subclass ensures the thumb always
+// tracks the content for BOTH writable and read-only RichEdits.
+//
+// Approach — pre-scroll delta arithmetic:
+//   Read GetScrollInfo(SIF_ALL) BEFORE CallWindowProcW.  The pre-scroll nPos is
+//   always current and in the scrollbar's own line-unit coordinate space.
+//   Compute newPos from the scroll code, let the RichEdit scroll natively, then
+//   SetScrollPos(newPos) to force the visual thumb update.  This avoids any
+//   post-scroll read (which would return stale data from a read-only RichEdit).
+static LRESULT CALLBACK ContentRichEditSubclassProc(
+    HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    if (msg == WM_VSCROLL) {
+        if (LOWORD(wParam) == SB_ENDSCROLL)
+            return CallWindowProcW(s_origContentProc, hwnd, msg, wParam, lParam);
+
+        /* Read scrollbar state BEFORE the scroll — always fresh. */
+        SCROLLINFO si = {};
+        si.cbSize = sizeof(si);
+        si.fMask  = SIF_ALL;
+        GetScrollInfo(hwnd, SB_VERT, &si);
+        int maxPos = si.nMax - (int)si.nPage + 1;
+        if (maxPos < 0) maxPos = 0;
+
+        /* Compute desired new position in line-unit space. */
+        int newPos = si.nPos;
+        switch (LOWORD(wParam)) {
+            case SB_LINEUP:        newPos--;                      break;
+            case SB_LINEDOWN:      newPos++;                      break;
+            case SB_PAGEUP:        newPos -= (int)si.nPage;       break;
+            case SB_PAGEDOWN:      newPos += (int)si.nPage;       break;
+            case SB_TOP:           newPos  = si.nMin;             break;
+            case SB_BOTTOM:        newPos  = maxPos;              break;
+            case SB_THUMBTRACK:
+            case SB_THUMBPOSITION: newPos  = (int)si.nTrackPos;   break;
+            default:               break;
+        }
+        if (newPos < si.nMin) newPos = si.nMin;
+        if (newPos > maxPos)  newPos = maxPos;
+
+        /* Let the RichEdit scroll natively, then force the thumb. */
+        LRESULT r = CallWindowProcW(s_origContentProc, hwnd, msg, wParam, lParam);
+        SetScrollPos(hwnd, SB_VERT, newPos, TRUE);
+        return r;
+    }
+    return CallWindowProcW(s_origContentProc, hwnd, msg, wParam, lParam);
+}
+
 // Returns the natural content height of hRE in LOGICAL pixels (96 dpi baseline).
 // Uses EM_FORMATRANGE to measure without rendering; the control need not be visible.
 // After formatting the entire content into a very tall rect, fr.rc.top holds the
@@ -870,6 +922,10 @@ static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
             hwnd, (HMENU)(UINT_PTR)IDC_IDLG_PRV_CONTENT, cs->hInstance, NULL);
         if (pd->hGuiFont) SendMessageW(pd->hContent, WM_SETFONT, (WPARAM)pd->hGuiFont, TRUE);
         SendMessageW(pd->hContent, EM_SETBKGNDCOLOR, 0, RGB(255, 255, 255));
+        // Subclass the RichEdit to intercept SB_THUMBTRACK/SB_THUMBPOSITION and
+        // drive EM_SETSCROLLPOS with the 32-bit nTrackPos from GetScrollInfo.
+        s_origContentProc = (WNDPROC)(LONG_PTR)
+            SetWindowLongPtrW(pd->hContent, GWLP_WNDPROC, (LONG_PTR)ContentRichEditSubclassProc);
 
         const std::wstring& rtf = s_dialogs[(int)pd->type].content_rtf;
         if (!rtf.empty()) {
@@ -972,16 +1028,27 @@ static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
     case WM_MOUSEWHEEL: {
         // WM_MOUSEWHEEL goes to the focused window (often a button), so we may
         // receive it directly here or via DefWindowProc bubbling from a child.
-        // Use EM_SCROLL so focus and cursor position are irrelevant.
+        // Pre-scroll delta: read nPos BEFORE EM_SCROLL calls so we never rely
+        // on the RichEdit updating nPos synchronously afterwards.
         if (!pd || !pd->hContent || !IsWindow(pd->hContent)) return 0;
+        SCROLLINFO si = {};
+        si.cbSize = sizeof(si);
+        si.fMask  = SIF_ALL;
+        GetScrollInfo(pd->hContent, SB_VERT, &si);
+        int maxPos = si.nMax - (int)si.nPage + 1;
+        if (maxPos < 0) maxPos = 0;
         int delta = GET_WHEEL_DELTA_WPARAM(wParam);
         UINT lines = 3;
         SystemParametersInfoW(SPI_GETWHEELSCROLLLINES, 0, &lines, 0);
         if (lines == WHEEL_PAGESCROLL) lines = 3;
         int count = (abs(delta) * (int)lines + WHEEL_DELTA / 2) / WHEEL_DELTA;
+        int newPos = si.nPos + (delta > 0 ? -count : count);
+        if (newPos < si.nMin) newPos = si.nMin;
+        if (newPos > maxPos)  newPos = maxPos;
         WPARAM cmd = (delta > 0) ? SB_LINEUP : SB_LINEDOWN;
         for (int i = 0; i < count; i++)
             SendMessageW(pd->hContent, EM_SCROLL, cmd, 0);
+        SetScrollPos(pd->hContent, SB_VERT, newPos, TRUE);
         return 0;
     }
 
@@ -1020,6 +1087,9 @@ static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
         return (LRESULT)GetSysColorBrush(COLOR_WINDOW);
 
     case WM_DESTROY:
+        // Restore the original RichEdit window proc before the control is destroyed.
+        if (pd && pd->hContent && IsWindow(pd->hContent) && s_origContentProc)
+            SetWindowLongPtrW(pd->hContent, GWLP_WNDPROC, (LONG_PTR)s_origContentProc);
         // Child windows are auto-destroyed by Windows; clear the vector so we
         // don't hold dangling HWNDs.  EnableWindow for the owner is handled by
         // ShowPreviewDialog immediately after the message loop exits.
@@ -1593,6 +1663,24 @@ static void ShowPreviewDialog(HWND hwndParent, InstallerDialogType type)
 
     MSG m;
     while (pd.running && GetMessageW(&m, NULL, 0, 0) > 0) {
+        // WM_MOUSEWHEEL goes to the focused window (typically a button), not the
+        // window under the cursor.  Buttons drop it silently.  Intercept here and
+        // route directly to the content RichEdit before any other processing.
+        if (m.message == WM_MOUSEWHEEL && pd.hContent && IsWindow(pd.hContent)) {
+            int delta = GET_WHEEL_DELTA_WPARAM(m.wParam);
+            UINT lines = 3;
+            SystemParametersInfoW(SPI_GETWHEELSCROLLLINES, 0, &lines, 0);
+            if (lines == WHEEL_PAGESCROLL) lines = 3;
+            int count = (abs(delta) * (int)lines + WHEEL_DELTA / 2) / WHEEL_DELTA;
+            WPARAM cmd = (delta > 0) ? SB_LINEUP : SB_LINEDOWN;
+            for (int i = 0; i < count; i++)
+                SendMessageW(pd.hContent, EM_SCROLL, cmd, 0);
+            // EM_SCROLL scrolls content but doesn't repaint the thumb.
+            POINT scrollPt = {};
+            SendMessageW(pd.hContent, EM_GETSCROLLPOS, 0, (LPARAM)&scrollPt);
+            SetScrollPos(pd.hContent, SB_VERT, scrollPt.y, TRUE);
+            continue;
+        }
         bool handled = false;
         if (hSizer && IsWindow(hSizer) && IsDialogMessageW(hSizer,   &m)) handled = true;
         if (!handled && IsWindow(hPreview) && IsDialogMessageW(hPreview, &m)) handled = true;

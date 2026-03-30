@@ -1,11 +1,77 @@
 ================================================================================
   Session State — SetupCraft
-  Version: (see curver.txt — updated end of session 27.03.2026)
-  Commit: (see git log — pushed end of session 27.03.2026)
+  Version: 2026.03.30.09  (see curver.txt)
+  Commit: (see git log — pushed end of session 30.03.2026)
 ================================================================================
 
 ------------------------------------------------------------------------
-COMPLETED THIS SESSION (27.03.2026)
+COMPLETED THIS SESSION (30.03.2026)
+------------------------------------------------------------------------
+
+ [OK]  Scrollbar thumb sync fix — dialogs.cpp (ContentRichEditSubclassProc)
+         Root cause: RICHEDIT50W read-only never writes back SCROLLINFO.nPos
+         after scrolling, so any post-scroll read returns stale data.
+         Fix: pre-scroll delta arithmetic — read GetScrollInfo(SIF_ALL) BEFORE
+         CallWindowProcW, compute newPos from the scroll code (SB_LINEUP etc.)
+         in line-unit space, let RichEdit scroll natively, then SetScrollPos
+         to the pre-computed value. No post-scroll read needed. Works for both
+         writable and read-only RichEdits.
+         Same fix applied to WM_MOUSEWHEEL handler in PreviewWndProc.
+
+ [OK]  Reusable scrollbar module created: scrollbar.h / scrollbar.cpp
+         Pure Win32, no SetupCraft dependencies. API:
+           HRESC RESC_Attach(HWND)       — subclasses RichEdit, syncs thumb
+           void  RESC_Detach(HRESC)      — restores original proc
+           void  RESC_SyncThumb(HRESC)   — manual sync after programmatic scroll
+           LRESULT RESC_OnMouseWheel(HRESC, WPARAM) — mousewheel with pre-delta
+         CMakeLists.txt updated to include scrollbar.cpp.
+         API documented in scrollbar_API.txt; entry added to API_list.txt.
+
+ [OK]  Custom scrollbar build plan created: scrollbar_custom_make.txt
+         9-phase plan for a full custom Win32 scrollbar (my_scrollbar.h/.cpp)
+         with: fade-on-hover hidden mode, always-visible mode, rounded ends,
+         visible arrows, thumb color states (normal/hover/drag), vertical +
+         horizontal, works on RichEdit and any SCROLLINFO-based window.
+         Includes standalone test app (test_scrollbar.exe).
+         Estimated 11–15 days @ 3 hrs/day.
+         Work starts next session.
+
+------------------------------------------------------------------------
+KNOWN ISSUES / TODO NEXT
+------------------------------------------------------------------------
+
+ [!!]  Custom scrollbar (my_scrollbar.h/.cpp) — Phase 1 starts next session
+         Follow scrollbar_custom_make.txt phase plan.
+         scrollbar.h/scrollbar.cpp to be removed after Phase 8 integration.
+
+ [!!]  ContentRichEditSubclassProc in dialogs.cpp still inline duplicate
+         Once my_scrollbar Phase 8 is done, replace with msb_attach/msb_detach.
+
+------------------------------------------------------------------------
+CARRIED OVER FROM 27.03.2026
+------------------------------------------------------------------------
+
+ [!!]  Table right-click — still not working reliably (see above)
+
+ [!!]  AutoFitComponentHeight — formula still not correct for images:
+         The dialog resizes but the RTF content (e.g. an embedded logo
+         image) is still clipped; the RichEdit area is too short to show
+         the full image without scrolling.
+         - Window grows from its top-left corner (SWP_NOMOVE) rather than
+           re-centering after a size increase
+         - Suspect: EM_FORMATRANGE measurement is off when the RichEdit
+           has not been fully laid out at measurement time
+         - Possible fixes to try next session:
+             1. Force a layout pass (SetWindowPos + UpdateWindow on the
+                preview window) before calling EM_FORMATRANGE
+             2. After resize, re-center the preview on the parent window
+             3. Use EM_GETLINECOUNT x line-height as an alternative measure
+
+ [!!]  s_previewUserSized is global — should be per-dialog-type:
+         Auto-fit lock is per-open-preview-session (one bool for all).
+
+------------------------------------------------------------------------
+COMPLETED PREVIOUS SESSION (27.03.2026)
 ------------------------------------------------------------------------
 
  [OK]  RTF editor — table dialog: column width fields
