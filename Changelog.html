@@ -1,6 +1,16 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 28 March 2026 &mdash; v2026.03.28.10<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 30 March 2026 &mdash; v2026.03.30.08<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.30.08</span></h3>
+<p><strong>Preview &mdash; auto-fit image height; split-layout viewport; scroll wheel; scrollbar sync; control flicker (30.03.2026, 08:53):</strong></p>
+<ul>
+<li><strong>Auto-fit height fix (images):</strong> The Components page auto-fit now creates a dedicated hidden off-screen RichEdit (1&nbsp;px tall, positioned off-screen) specifically for measurement. Because the viewport is smaller than any content, <code>GetScrollInfo</code> always overflows and returns the true total content height &mdash; including embedded images that <code>EM_FORMATRANGE</code> measure-only mode routinely undercounts. The previous &ldquo;shrink the live RichEdit to 1&nbsp;px&rdquo; approach was unreliable because the live control may not repaint synchronously.</li>
+<li><strong>Split-layout viewport growth fixed:</strong> A V-align offset block had been incorrectly applied inside the split layout, capping <code>reContentH</code> to <code>contentFitH</code> and inserting blank space above the image. In split layout the RichEdit should always start at <code>editY</code> and fill the full allocated <code>contentH</code> &mdash; V-align now applies only in single-layout dialogs where there is genuine spare vertical space to distribute.</li>
+<li><strong>Scroll wheel:</strong> <code>WM_MOUSEWHEEL</code> is now forwarded from the preview window proc to the RichEdit, so the developer can scroll content with the scroll wheel without needing to click inside the RichEdit first.</li>
+<li><strong>Scrollbar range sync:</strong> <code>UpdateWindow(hContent)</code> is called after each <code>SetWindowPos</code> on the RichEdit so the scrollbar thumb position and range reflect the new content/viewport ratio immediately.</li>
+<li><strong>Control flicker on resize:</strong> <code>InvalidateRect(hwnd,&nbsp;NULL,&nbsp;FALSE)</code> added at the end of <code>LayoutPreviewControls</code> to repaint areas vacated when controls shift position on a 1&nbsp;px resize.</li>
+</ul>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.28.10</span></h3>
 <p><strong>RTF editor &mdash; table unit picker; DPI-correct widths; pct-mode resize; right-click fix (28.03.2026, 10:36):</strong></p>

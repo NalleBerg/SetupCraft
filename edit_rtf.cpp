@@ -1359,7 +1359,8 @@ static int RtfEd_LayoutToolbar(HWND hwnd, int cW)
         + sG                                    // separator before row-2 items
         + wAl+bG + wAl+bG + wAl+bG + wAl+sG    // align L C R J
         + wAl+bG + wAl+sG                       // bullet numbered
-        + wCol+bG + wCol+sG + wCol+sG + S(28)   // colour highlight image open
+        + wCol+bG + wCol+sG + wCol+sG           // colour highlight image
+        + S(28)+sG + wCol                       // open table
         + pad;
 
     bool oneRow = (cW >= oneRowW);
@@ -2035,8 +2036,36 @@ bool OpenRtfEditor(HWND hwndParent, RtfEditorData& data)
         RegisterClassExW(&wc);
     }
 
-    int dlgW = data.preferredW > 0 ? data.preferredW : S(660);
-    int dlgH = data.preferredH > 0 ? data.preferredH : S(520);
+    // Window width: just enough for a single-row toolbar (computed from the same
+    // constants as RtfEd_LayoutToolbar so it is always exact at any DPI).
+    // A caller may override via data.preferredW (e.g. notes_editor does this).
+    int dlgW, dlgH;
+    if (data.preferredW > 0) {
+        dlgW = data.preferredW;
+    } else {
+        const int _pad   = S(8);
+        const int _bSz   = S(26);
+        const int _bG    = S(3);
+        const int _sG    = S(8);
+        const int _wXs   = _bSz + S(4);
+        const int _wAl   = _bSz + S(4);
+        const int _wCol  = _bSz + S(10);
+        const int _wFace = S(170);
+        const int _wSize = S(56);
+        int clientW = _pad
+            + _bSz+_bG + _bSz+_bG + _bSz+_bG + _bSz+_sG
+            + _wXs+_bG + _wXs+_sG
+            + _wFace+_bG + _wSize + _sG
+            + _wAl+_bG + _wAl+_bG + _wAl+_bG + _wAl+_sG
+            + _wAl+_bG + _wAl+_sG
+            + _wCol+_bG + _wCol+_sG + _wCol+_sG
+            + S(28)+_sG + _wCol
+            + _pad;
+        RECT adjW = { 0, 0, clientW, 0 };
+        AdjustWindowRectEx(&adjW, WS_OVERLAPPEDWINDOW, FALSE, WS_EX_TOPMOST);
+        dlgW = adjW.right - adjW.left;
+    }
+    dlgH = data.preferredH > 0 ? data.preferredH : S(520);
 
     // Centre over parent, or screen if no parent.
     int x, y;

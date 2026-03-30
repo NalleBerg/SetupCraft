@@ -2,6 +2,16 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.03.30.08] - 2026-03-30
+
+### Fixed
+- **Preview — auto-fit height for Components page**: Replaced the unreliable live-RichEdit 1 px shrink approach with a dedicated hidden off-screen measurement window (1 px tall, off-screen position). Content always overflows the tiny viewport so `GetScrollInfo` reliably returns the true total height — including embedded images that `EM_FORMATRANGE` measure-only mode routinely undercounts.
+- **Preview — V-align removed from split layout**: The V-align offset code incorrectly capped the RichEdit height to `contentFitH` in split layout, preventing the viewport from growing when the developer increased the window height (dead space appeared above the image). V-align now applies only in single-layout dialogs; split layout always anchors the RichEdit flush to the top and fills the full allocated `contentH`.
+- **Preview — scroll wheel**: `WM_MOUSEWHEEL` forwarded from the preview window to the RichEdit so the developer can scroll content without clicking inside the RichEdit first.
+- **Preview — scrollbar range sync**: `UpdateWindow(hContent)` called after each `SetWindowPos` so the scrollbar reflects the current content/viewport ratio before the user interacts.
+- **Preview — control flicker on 1 px resize**: `InvalidateRect(hwnd, NULL, FALSE)` added at the end of `LayoutPreviewControls` to repaint vacated areas when controls shift position.
+- **WinProgramManager RC version**: `FILEVERSION`/`ProductVersion` in `winprogrammanager.rc` corrected from `1.0.0.0` to `2026.3.26.7` / `"2026.03.26.07"` to match the application `ABOUT_VERSION`.
+
 ## [2026.03.28.10] - 2026-03-28
 
 ### Added

@@ -210,31 +210,41 @@
   Layout — LayoutPreviewControls(HWND hwnd, PreviewData* pd)
     Called from WM_CREATE and WM_SIZE.
     Constants:  pad=16, btnH=30, gap=8, titleH=36
-    Single (showExtras=false):  RichEdit fills all space between title and buttons.
+    Single (showExtras=false):
+      userSized or no naturalW → RichEdit fills all space, no alignment offset.
+      !userSized and naturalW > 0 → H-align and V-align applied to position the
+        RichEdit block within extra space (s_previewHAlign / s_previewVAlign).
     Split  (showExtras=true):
       avail = btnY - gap - editY   (editY = pad + titleH + gap = 60)
-      contentH = avail / 2         (RTF top half)
-      Lower half: extLblH(22) + extGap(6) + items stacked at chkH(24) + rowGap(4)
+      extrasNaturalH  = calculated from actual checkbox/radio count
+      userSized  → contentH = avail - gap - extrasNaturalH  (extras stay pinned)
+      !userSized + contentFitH > 0 → contentH = min(S(contentFitH), avail)
+      !userSized + contentFitH == 0 → contentH = avail / 2
+      RichEdit always anchored at editY, always fills contentH — no V-align in
+        split layout (V-align applies to single layout only).
+      H-align applied using contentNaturalW.
+      WS_VSCROLL ensured on RichEdit; UpdateWindow called after SetWindowPos.
     When contentHidden=true: RichEdit hidden; extras fill full avail height.
+    InvalidateRect(hwnd, NULL, FALSE) at end to repaint vacated areas.
 
   Auto-fit — AutoFitComponentHeight(HWND hPreview, HWND hSizer, PreviewData* pd)
     Called from NavigateTo and ShowPreviewDialog when type == IDLG_COMPONENTS
-    and s_previewUserSized == false.
+    and s_previewUserSized[IDLG_COMPONENTS] == false.
     contentHidden=true:  logH = 144 + max(nItems,1) * 28
-    contentHidden=false: logH = max(2*rtfLogH + 124,  nItems*56 + 190)
-      rtfLogH = MeasureRichEditLogHeight(pd->hContent)
-
-    Auto-fit is per-dialog-type by design: resizing on the Components page
-    must not suppress auto-fit on any other page, and vice versa.
-    Current implementation uses a single s_previewUserSized bool (bug —
-    see section 3 state notes); the fix is s_previewUserSized[IDLG_COUNT].
+    contentHidden=false:
+      Creates a hidden off-screen RichEdit (1px tall, off-screen position)
+      at the current preview content width, streams the RTF in, calls
+      UpdateWindow, then reads GetScrollInfo(SB_VERT) → nMax+1 = total height.
+      Because the viewport is 1px, content always overflows → accurate result
+      including embedded images (EM_FORMATRANGE undercounts pictures).
+      rtfLogH from that measurement; logH = 160 + rtfLogH + n*28.
 
   MeasureRichEditLogHeight(HWND hRE)
-    Uses EM_FORMATRANGE (wParam=FALSE = measure only) on a rect of width
-    = client px of hRE (DPI-correct, falls back to S(s_previewLogW - 32)) and
-    height = 0x0FFFFFFF twips.  After the call fr.rc.top holds content extent
-    in twips; converts via MulDiv(twips, 96, 1440) → logical px.
-    Calls EM_FORMATRANGE again with lParam=0 to release cached state.
+    Primary: GetScrollInfo(SB_VERT) — if nMax+1 > nPage the content overflows
+      and nMax+1 is the total content height in physical px.
+    Fallback: EM_FORMATRANGE (wParam=FALSE = measure only) for text-only content
+      that fits in the visible area.  fr.rc.top after call = content extent in
+      twips; converts via MulDiv(twips, 96, 1440) → logical px.
 
   Navigation — NavigateTo(HWND hwnd, PreviewData* pd, InstallerDialogType t)
     Updates pd->type; calls PopulateExtras, updates caption and heading,

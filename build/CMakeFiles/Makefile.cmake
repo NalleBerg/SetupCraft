@@ -32,9 +32,9 @@ set(CMAKE_MAKEFILE_DEPENDS
   "C:/Program Files/CMake/share/cmake-4.3/Modules/Platform/Windows.cmake"
   "C:/Program Files/CMake/share/cmake-4.3/Modules/Platform/WindowsPaths.cmake"
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/CMakeLists.txt"
-  "CMakeFiles/4.3.0/CMakeCXXCompiler.cmake"
-  "CMakeFiles/4.3.0/CMakeRCCompiler.cmake"
-  "CMakeFiles/4.3.0/CMakeSystem.cmake"
+  "CMakeFiles/4.3.1/CMakeCXXCompiler.cmake"
+  "CMakeFiles/4.3.1/CMakeRCCompiler.cmake"
+  "CMakeFiles/4.3.1/CMakeSystem.cmake"
   )
 
 # The corresponding makefile is:
