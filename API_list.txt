@@ -146,6 +146,11 @@
                                     native thumb pos; EM_SCROLL bypasses repaint
                                     path — fix: native pass-through + forward
                                     WM_MOUSEWHEEL directly to RichEdit).
+                                    *** TO BE SUPERSEDED by my_scrollbar after Phase 8 ***
+
+  scrollbar_custom_make.txt         Build plan for my_scrollbar.h / my_scrollbar.cpp
+                                    — 9-phase custom Win32 scrollbar. Phases 1+2 DONE.
+                                    Phase 3 next: hover/drag color states.
 
   scrollbar_INTERNALS.txt           Shortcuts-page vertical scrollbar — SCROLLINFO
                                     setup, why SW_SCROLLCHILDREN fails for content

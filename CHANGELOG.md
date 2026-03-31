@@ -2,6 +2,20 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.03.31.08] - 2026-03-31
+
+### Added
+- **Custom scrollbar module** (`my_scrollbar.h` / `my_scrollbar.cpp`): Full Win32 custom scrollbar, no SetupCraft dependencies. `msb_attach(hWnd, flags)` / `msb_detach` / `msb_sync` public API. Supports `MSB_VERTICAL`, `MSB_HORIZONTAL`, `MSB_NOHIDE`. Double-buffered GDI painting, DPI-aware layout, rounded rectangles, triangle arrow glyphs, proportional thumb from `GetScrollInfo`.
+- **Phase 2 mouse interaction**: Arrow clicks (`SB_LINEUP`/`SB_LINEDOWN`), track page clicks (`SB_PAGEUP`/`SB_PAGEDOWN`), auto-repeat timer (350 ms initial / 50 ms repeat), full thumb drag with `SetCapture` + `SB_THUMBTRACK` + `SB_THUMBPOSITION` + `SB_ENDSCROLL`.
+- **Own mousewheel handler**: Intercepts `WM_MOUSEWHEEL`/`WM_MOUSEHWHEEL` in the target subclass; sends explicit `SB_LINEUP`/`SB_LINEDOWN` commands (honouring `SPI_GETWHEELSCROLLLINES`). Suppresses RichEdit's native wheel to ensure `SCROLLINFO.nPos` stays correct. Sub-tick delta accumulation for smooth high-precision scrolling.
+- **Standalone test app** (`test_scrollbar/`): Three-pane test — top-left read-only, top-right writable, bottom full-width with vertical + horizontal bars and wide text for horizontal scroll testing.
+
+### Fixed
+- **Dual-attach**: Two bars (V+H) can share a target. Separate `MSB_Target_V` / `MSB_Target_H` property keys prevent the second attach from capturing `Msb_TargetSubclassProc` as `origProc` (would cause infinite recursion on scroll).
+- **Native bar suppression on RichEdit**: `ShowScrollBar(FALSE)` does not stick on RichEdit. Fixed by using `EM_SHOWSCROLLBAR` (0x0460) and re-suppressing after every `WM_SIZE`, `WM_VSCROLL`, and `WM_HSCROLL`.
+- **Bar scrolls with content**: Bar was a child of the target, so it moved with scrolled content. Fixed by making the bar a child of the target's parent (sibling), positioned via `ClientToScreen` + `ScreenToClient`.
+- **Horizontal bar moves on vertical scroll**: `WM_VSCROLL` and `WM_HSCROLL` handlers now update only the relevant axis bar, not both.
+
 ## [2026.03.30.09] - 2026-03-30
 
 ### Fixed

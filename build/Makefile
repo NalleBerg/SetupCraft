@@ -496,6 +496,30 @@ mainwindow.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/mainwindow.cpp.s
 .PHONY : mainwindow.cpp.s
 
+my_scrollbar.obj: my_scrollbar.cpp.obj
+.PHONY : my_scrollbar.obj
+
+# target to build an object file
+my_scrollbar.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/my_scrollbar.cpp.obj
+.PHONY : my_scrollbar.cpp.obj
+
+my_scrollbar.i: my_scrollbar.cpp.i
+.PHONY : my_scrollbar.i
+
+# target to preprocess a source file
+my_scrollbar.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/my_scrollbar.cpp.i
+.PHONY : my_scrollbar.cpp.i
+
+my_scrollbar.s: my_scrollbar.cpp.s
+.PHONY : my_scrollbar.s
+
+# target to generate assembly for a file
+my_scrollbar.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/my_scrollbar.cpp.s
+.PHONY : my_scrollbar.cpp.s
+
 notes_editor.obj: notes_editor.cpp.obj
 .PHONY : notes_editor.obj
 
@@ -543,6 +567,30 @@ sc_shortcut_dialog.s: sc_shortcut_dialog.cpp.s
 sc_shortcut_dialog.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/sc_shortcut_dialog.cpp.s
 .PHONY : sc_shortcut_dialog.cpp.s
+
+scrollbar.obj: scrollbar.cpp.obj
+.PHONY : scrollbar.obj
+
+# target to build an object file
+scrollbar.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/scrollbar.cpp.obj
+.PHONY : scrollbar.cpp.obj
+
+scrollbar.i: scrollbar.cpp.i
+.PHONY : scrollbar.i
+
+# target to preprocess a source file
+scrollbar.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/scrollbar.cpp.i
+.PHONY : scrollbar.cpp.i
+
+scrollbar.s: scrollbar.cpp.s
+.PHONY : scrollbar.s
+
+# target to generate assembly for a file
+scrollbar.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/scrollbar.cpp.s
+.PHONY : scrollbar.cpp.s
 
 shortcuts.obj: shortcuts.cpp.obj
 .PHONY : shortcuts.obj
@@ -695,12 +743,18 @@ help:
 	@echo ... mainwindow.obj
 	@echo ... mainwindow.i
 	@echo ... mainwindow.s
+	@echo ... my_scrollbar.obj
+	@echo ... my_scrollbar.i
+	@echo ... my_scrollbar.s
 	@echo ... notes_editor.obj
 	@echo ... notes_editor.i
 	@echo ... notes_editor.s
 	@echo ... sc_shortcut_dialog.obj
 	@echo ... sc_shortcut_dialog.i
 	@echo ... sc_shortcut_dialog.s
+	@echo ... scrollbar.obj
+	@echo ... scrollbar.i
+	@echo ... scrollbar.s
 	@echo ... shortcuts.obj
 	@echo ... shortcuts.i
 	@echo ... shortcuts.s

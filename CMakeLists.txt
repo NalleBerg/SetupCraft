@@ -34,6 +34,7 @@ add_executable(SkeletonApp WIN32
     dep_edit_dialog.cpp
     dialogs.cpp
     scrollbar.cpp
+    my_scrollbar.cpp
     vfs_picker.cpp
     ${RESOURCE_FILES}
 )

@@ -92,7 +92,7 @@ FILES
   PHASE PLAN  (mark [ ] → [DONE] as each phase is completed)
 ================================================================================
 
-[ ] PHASE 1 — Custom window class + static drawing (3–4 days @ 3 hrs/day)
+[DONE] PHASE 1 — Custom window class + static drawing (3–4 days @ 3 hrs/day)
     -----------------------------------------------------------------------
     Goal: A visible, correctly sized, correctly painted scrollbar window.
     No interaction yet. Just pixels.
@@ -121,9 +121,16 @@ FILES
     Test milestone: scrollbar appears, thumb is the right proportional size,
     arrows visible. Resize window — thumb stays correct.
 
-[ ] PHASE 2 — Hit testing + mouse interaction (1–2 days)
+    Note (Phase 1 fix): ShowScrollBar() does not reliably suppress native
+    scrollbars on RichEdit controls — RichEdit re-shows them on resize.
+    Fixed by using EM_SHOWSCROLLBAR (0x0460) for RichEdit targets, and
+    re-suppressing in the WM_SIZE handler after calling origProc.
+
+[WIP]  PHASE 2 — Hit testing + mouse interaction (1–2 days)
     ------------------------------------------------------
     Goal: Clicking arrows and track moves the RichEdit content.
+    STATUS: [WIP] — basic click/page/drag/wheel implemented but still buggy:
+            bar can drift off screen, thumb sync issues. Continue next session.
 
     Steps:
     2.1  WM_LBUTTONDOWN: hit test against rArrowUp, rArrowDown, rThumb, rTrackAbove,
@@ -193,30 +200,60 @@ FILES
     Test milestone: bar smoothly expands on hover, contracts on leave. In nohide
     mode, bar stays full width with no animation. Both modes look clean.
 
-[ ] PHASE 5 — Target window subclassing + auto sync (1–2 days)
-    -------------------------------------------------------------
-    Goal: Custom bar stays in sync with all content changes automatically.
+[ ] PHASE 5 — Target window subclassing + auto sync + mousewheel (1–2 days)
+    --------------------------------------------------------------------------
+    Goal: Custom bar stays in sync with ALL content changes and scroll inputs
+    automatically, including mousewheel. Zero extra code from the caller.
 
     Steps:
     5.1  In msb_attach, subclass hTarget with SetWindowLongPtrW(GWLP_WNDPROC).
-         Save original proc. On WM_DESTROY of target: msb_detach automatically.
+         Save original proc. On WM_DESTROY of target: auto-call msb_detach.
     5.2  Intercept WM_SIZE on target: reposition and resize the custom bar child
          window to always fill the right/bottom edge.
     5.3  Intercept WM_VSCROLL / WM_HSCROLL on target: after CallWindowProcW,
-         call msb_sync_from_target() to update thumb. This handles the case where
-         the native scrollbar is driven by keyboard or code.
-    5.4  Intercept WM_MOUSEWHEEL on target: drive EM_SCROLL (for RichEdit) or
-         SendMessage(WM_VSCROLL, SB_LINEUP/LINEDOWN) for other windows, then sync.
-    5.5  On msb_attach: call ShowScrollBar(hTarget, SB_VERT/SB_HORZ, FALSE) to
-         hide native bar but preserve WS_VSCROLL. The WS_VSCROLL flag being present
-         means the RichEdit continues to maintain SCROLLINFO internally — we just
-         read it, never let it draw.
-    5.6  On msb_detach: restore native scrollbar (ShowScrollBar TRUE), restore
-         original GWLP_WNDPROC.
+         call msb_sync_from_target() to update thumb. Covers keyboard scroll,
+         programmatic scroll, and any code that sends WM_VSCROLL directly.
+    5.4  Intercept WM_MOUSEWHEEL (vertical bar) and WM_MOUSEHWHEEL (horizontal
+         bar) on the target window.
+
+         MOUSEWHEEL IMPLEMENTATION — pre-scroll delta (same approach as the
+         existing scrollbar.cpp fix that works on read-only RichEdit):
+
+         a) Read GetScrollInfo(SIF_ALL) on hTarget BEFORE any scroll.
+            This gives us the current nPos in the correct unit (lines), fresh.
+         b) Read SPI_GETWHEELSCROLLLINES via SystemParametersInfoW.
+            Default to 3 if the setting is 0 or WHEEL_PAGESCROLL.
+         c) Compute count = abs(delta) * lines / WHEEL_DELTA  (rounded).
+         d) Compute newPos = nPos + (delta>0 ? -count : +count).
+            Clamp to [nMin, nMax - nPage + 1].
+         e) For RichEdit targets: drive content via EM_SCROLL(SB_LINEUP/
+            SB_LINEDOWN) × count.  For non-RichEdit targets: send
+            WM_VSCROLL(SB_LINEUP/SB_LINEDOWN) × count to hTarget.
+         f) Call SetScrollPos(hTarget, newPos, TRUE) to force the thumb.
+            Do NOT read nPos again after scrolling — the pre-computed value
+            is what we want, and a read-only RichEdit won't have updated it.
+         g) Return 0 (message handled — do not pass to DefWindowProc).
+
+         Why not just forward WM_MOUSEWHEEL to hTarget?
+           The RichEdit would scroll its content but never update the thumb
+           on the native scrollbar (which we have hidden). We own the thumb
+           now, so we must set it ourselves.
+
+         Detection: is the target a RichEdit?
+           Check the window class name with GetClassNameW(hTarget, ...) and
+           compare to L"RICHEDIT50W" (or L"RichEdit20A"/L"RichEdit20W" for
+           older hosts). Store a bool isRichEdit in the context struct at
+           msb_attach time — one check, no overhead per wheel event.
+
+    5.5  On msb_attach: call ShowScrollBar(hTarget, SB_VERT/SB_HORZ, FALSE)
+         to hide native bar but keep WS_VSCROLL so SCROLLINFO stays maintained.
+    5.6  On msb_detach: ShowScrollBar TRUE, restore original GWLP_WNDPROC.
 
     Test milestone: resize the test window — bar repositions. Load new content
     into RichEdit — thumb resizes. Keyboard scroll (arrows/PgUp/PgDn) — thumb
-    tracks. All without any extra calls from the caller.
+    tracks. Mousewheel on read-only RichEdit — thumb tracks correctly at every
+    position, no snapping to top or bottom. All without any extra calls from
+    the caller.
 
 [ ] PHASE 6 — Horizontal scrollbar support (1 day)
     --------------------------------------------------
@@ -239,11 +276,27 @@ FILES
 
     Contents of test_scrollbar.cpp:
       - WinMain, one top-level window "ScrollbarTest"
-      - One read-only RICHEDIT50W on the left half, filled with 50+ lines of text
-      - One writable RICHEDIT50W on the right half
-      - msb_attach called for vertical bar on each RichEdit
-      - One writable RichEdit with BOTH vertical + horizontal bars
+      - One read-only RICHEDIT50W (left), filled with 50+ lines of text
+      - One writable RICHEDIT50W (right)
+      - One writable RichEdit (bottom) with BOTH vertical + horizontal bars
+      - msb_attach called for all bars at WM_CREATE
       - WM_DESTROY: msb_detach all handles, PostQuitMessage
+
+    Checklist to test manually in the test app:
+      [ ] Arrow buttons scroll content + thumb tracks
+      [ ] Click above/below thumb (page scroll) — thumb jumps correctly
+      [ ] Thumb drag — content follows, thumb color = drag state
+      [ ] Mousewheel over read-only RichEdit — thumb tracks every tick,
+          no snapping to top or bottom
+      [ ] Mousewheel over writable RichEdit — same
+      [ ] Mousewheel with cursor anywhere over the parent window (not just
+          the RichEdit) — should still scroll the focused/hovered RichEdit
+      [ ] Resize window — bar repositions and repaints correctly
+      [ ] Thumb hover color changes, arrow hover color changes
+      [ ] Fade expand on hover (hidden mode bar only)
+      [ ] Fade contract on mouse leave
+      [ ] MSB_NOHIDE bar stays full width at all times
+      [ ] Read-only + writable behave identically
 
     test_scrollbar/CMakeLists.txt:
       cmake_minimum_required(VERSION 3.16)
@@ -254,8 +307,8 @@ FILES
 
     Deliberately contains NO references to SetupCraft types, dialogs, or headers.
 
-    Test milestone: test_scrollbar.exe runs, both RichEdits scroll correctly,
-    all visual states work, no crashes on resize/close.
+    Test milestone: all checklist items above pass in both RichEdit modes.
+    No crashes on resize, rapid scrolling, or window close.
 
 [ ] PHASE 8 — Integration into SetupCraft (0.5 day)
     ---------------------------------------------------
