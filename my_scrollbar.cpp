@@ -88,6 +88,9 @@ typedef struct MsbCtx {
 
     /* Mousewheel sub-tick accumulator (Phase 2) */
     int     wheelAccum;     /* accumulated wheel delta × sysLines, mod WHEEL_DELTA */
+
+    /* Hover tracking (Phase 3) */
+    BOOL    trackingMouse;  /* TRUE while TrackMouseEvent(TME_LEAVE) is active  */
 } MsbCtx;
 
 /* Window property key to retrieve MsbCtx from the bar window proc. */
@@ -165,6 +168,15 @@ static BOOL Msb_EnsureClass(HINSTANCE hInst)
 /* EM_SHOWSCROLLBAR — defined in richedit.h but we avoid that header. */
 #ifndef EM_SHOWSCROLLBAR
 #define EM_SHOWSCROLLBAR 0x0460
+#endif
+
+/* EM_GETSCROLLPOS / EM_SETSCROLLPOS — pixel-based scroll for RichEdit.
+ * Always reflects / sets the actual position even when native bar is hidden. */
+#ifndef EM_GETSCROLLPOS
+#define EM_GETSCROLLPOS  (WM_USER + 221)
+#endif
+#ifndef EM_SETSCROLLPOS
+#define EM_SETSCROLLPOS  (WM_USER + 222)
 #endif
 
 /* ── Native scrollbar suppression / restoration ─────────────────────────────*/
@@ -259,9 +271,28 @@ static void Msb_Layout(MsbCtx* ctx)
     si.fMask  = SIF_ALL;
     GetScrollInfo(ctx->hTarget, sbType, &si);
 
+    /* RichEdit stops updating nPos in SCROLLINFO when its native bar is hidden.
+     * EM_GETSCROLLPOS always reflects the real internal scroll position. */
+    if (ctx->isRichEdit) {
+        POINT pt = {0, 0};
+        SendMessageW(ctx->hTarget, EM_GETSCROLLPOS, 0, (LPARAM)&pt);
+        si.nPos = vert ? pt.y : pt.x;
+    }
+
     int trackLen = vert ? (ctx->rTrack.bottom - ctx->rTrack.top)
                         : (ctx->rTrack.right  - ctx->rTrack.left);
     int thumbMin = S(ctx, MSB_THUMB_MIN);
+
+    /* RichEdit uses pixels for its entire scroll range (nMin/nMax/nPos/nPage).
+     * It stops updating nPage when the native bar is hidden, but the value is
+     * simply the visible client size in pixels — no estimation needed. */
+    if (ctx->isRichEdit) {
+        RECT rcT;
+        GetClientRect(ctx->hTarget, &rcT);
+        int clientLen = vert ? rcT.bottom : rcT.right;
+        if (clientLen > 0)
+            si.nPage = (UINT)clientLen;
+    }
 
     int range = si.nMax - si.nMin + 1;
     int thumbLen = (range > 0)
@@ -481,54 +512,155 @@ static LRESULT CALLBACK Msb_BarWndProc(HWND hwnd, UINT msg,
                 ctx->thumbState  = THUMB_DRAG;
                 BOOL vert        = !(ctx->flags & MSB_HORIZONTAL);
                 ctx->dragStartPx = vert ? y : x;
-                SCROLLINFO si    = {sizeof(si), SIF_POS};
-                GetScrollInfo(ctx->hTarget,
-                              vert ? SB_VERT : SB_HORZ, &si);
-                ctx->dragStartPos = si.nPos;
-                ctx->dragCurPos   = si.nPos;
+                /* Use EM_GETSCROLLPOS for RichEdit — GetScrollInfo nPos is stale
+                 * when the native bar is hidden. */
+                int startPos = 0;
+                if (ctx->isRichEdit) {
+                    POINT pt = {0, 0};
+                    SendMessageW(ctx->hTarget, EM_GETSCROLLPOS, 0, (LPARAM)&pt);
+                    startPos = vert ? pt.y : pt.x;
+                } else {
+                    SCROLLINFO si = {sizeof(si), SIF_POS};
+                    GetScrollInfo(ctx->hTarget,
+                                  vert ? SB_VERT : SB_HORZ, &si);
+                    startPos = si.nPos;
+                }
+                ctx->dragStartPos = startPos;
+                ctx->dragCurPos   = startPos;
                 InvalidateRect(hwnd, NULL, FALSE);
-            } else {
-                /* Arrow / page click */
-                UINT cmd = (hit == 1) ? (UINT)(!(ctx->flags & MSB_HORIZONTAL) ? SB_LINEUP  : SB_LINELEFT)
-                         : (hit == 2) ? (UINT)(!(ctx->flags & MSB_HORIZONTAL) ? SB_LINEDOWN : SB_LINERIGHT)
-                         : (hit == 3) ? (UINT)SB_PAGEUP
-                         :              (UINT)SB_PAGEDOWN;
+            } else if (hit == 1 || hit == 2) {
+                /* Arrow click — thumb turns pink, arrow highlights, auto-repeat */
+                BOOL vert = !(ctx->flags & MSB_HORIZONTAL);
+                UINT cmd  = (hit == 1) ? (UINT)(vert ? SB_LINEUP   : SB_LINELEFT)
+                                       : (UINT)(vert ? SB_LINEDOWN  : SB_LINERIGHT);
+                if (hit == 1) ctx->arrowUpState   = ARROW_PRESSED;
+                if (hit == 2) ctx->arrowDownState = ARROW_PRESSED;
+                ctx->thumbState = THUMB_DRAG;
                 ctx->repeatCmd  = cmd;
                 ctx->timerFirst = TRUE;
                 Msb_Scroll(ctx, cmd);
-                /* Initial delay before auto-repeat */
                 ctx->timerId = SetTimer(hwnd, 1, 350, NULL);
+            } else {
+                /* Track click (hit 3 or 4) — jump so thumb centre lands on click.
+                 * Maps the click pixel to a fraction of the thumb-travelable
+                 * track, then scrolls directly there.  No auto-repeat. */
+                BOOL vert = !(ctx->flags & MSB_HORIZONTAL);
+                int clickPx    = vert ? y : x;
+                int trackStart = vert ? ctx->rTrack.top    : ctx->rTrack.left;
+                int trackLen   = vert ? (ctx->rTrack.bottom - ctx->rTrack.top)
+                                      : (ctx->rTrack.right  - ctx->rTrack.left);
+                int thumbLen   = vert ? (ctx->rThumb.bottom - ctx->rThumb.top)
+                                      : (ctx->rThumb.right  - ctx->rThumb.left);
+                int travelPx   = max(1, trackLen - thumbLen);
+                int offset     = clickPx - trackStart - thumbLen / 2;
+                offset = max(0, min(travelPx, offset));
+
+                /* Get scroll range, fixing up nPage for RichEdit */
+                SCROLLINFO si = {sizeof(si), SIF_ALL};
+                GetScrollInfo(ctx->hTarget, vert ? SB_VERT : SB_HORZ, &si);
+                if (ctx->isRichEdit) {
+                    RECT rcT; GetClientRect(ctx->hTarget, &rcT);
+                    si.nPage = (UINT)(vert ? rcT.bottom : rcT.right);
+                }
+                int scrollRange = (si.nMax - si.nMin) - (int)si.nPage + 1;
+                if (scrollRange < 1) scrollRange = 1;
+
+                int newPos = si.nMin
+                           + (int)((float)offset / travelPx * scrollRange + 0.5f);
+                newPos = max(si.nMin,
+                             min(si.nMin + scrollRange - 1, newPos));
+
+                if (ctx->isRichEdit) {
+                    POINT pt = {0, 0};
+                    SendMessageW(ctx->hTarget, EM_GETSCROLLPOS, 0, (LPARAM)&pt);
+                    if (vert) pt.y = newPos; else pt.x = newPos;
+                    SendMessageW(ctx->hTarget, EM_SETSCROLLPOS, 0, (LPARAM)&pt);
+                } else {
+                    SetScrollPos(ctx->hTarget, vert ? SB_VERT : SB_HORZ, newPos, FALSE);
+                    UINT smsg = vert ? WM_VSCROLL : WM_HSCROLL;
+                    SendMessageW(ctx->hTarget, smsg,
+                                 MAKEWPARAM(SB_THUMBPOSITION, (WORD)newPos), 0);
+                    SendMessageW(ctx->hTarget, smsg,
+                                 MAKEWPARAM(SB_ENDSCROLL, 0), 0);
+                }
+                ctx->thumbState = THUMB_DRAG;
+                Msb_Layout(ctx);
+                InvalidateRect(hwnd, NULL, FALSE);
+                UpdateWindow(hwnd);
+                /* Brief pink flash, then reset colour after 400 ms */
+                SetTimer(hwnd, 2, 400, NULL);
+                ReleaseCapture();
             }
             return 0;
         }
 
         case WM_MOUSEMOVE: {
-            if (!ctx || !ctx->dragging) break;
-            BOOL vert = !(ctx->flags & MSB_HORIZONTAL);
-            int cur   = vert ? GET_Y_LPARAM(lParam) : GET_X_LPARAM(lParam);
-            int delta = cur - ctx->dragStartPx;
+            if (!ctx) break;
+            if (ctx->dragging) {
+                /* Thumb drag — map cursor delta to scroll position */
+                BOOL vert = !(ctx->flags & MSB_HORIZONTAL);
+                int cur   = vert ? GET_Y_LPARAM(lParam) : GET_X_LPARAM(lParam);
+                int delta = cur - ctx->dragStartPx;
 
-            /* Map pixel delta to scroll units */
-            SCROLLINFO si = {sizeof(si), SIF_ALL};
-            GetScrollInfo(ctx->hTarget, vert ? SB_VERT : SB_HORZ, &si);
-            int trackPx = vert ? (ctx->rTrack.bottom - ctx->rTrack.top)
-                               : (ctx->rTrack.right  - ctx->rTrack.left);
-            int thumbPx = vert ? (ctx->rThumb.bottom - ctx->rThumb.top)
-                               : (ctx->rThumb.right  - ctx->rThumb.left);
-            int range   = si.nMax - si.nMin - si.nPage + 1;
-            if (range <= 0) break;
+                SCROLLINFO si = {sizeof(si), SIF_ALL};
+                GetScrollInfo(ctx->hTarget, vert ? SB_VERT : SB_HORZ, &si);
+                int trackPx = vert ? (ctx->rTrack.bottom - ctx->rTrack.top)
+                                   : (ctx->rTrack.right  - ctx->rTrack.left);
+                int thumbPx = vert ? (ctx->rThumb.bottom - ctx->rThumb.top)
+                                   : (ctx->rThumb.right  - ctx->rThumb.left);
+                int range   = si.nMax - si.nMin - si.nPage + 1;
+                if (range <= 0) break;
 
-            int newPos = ctx->dragStartPos
-                       + (int)(delta * (float)range / max(1, trackPx - thumbPx) + 0.5f);
-            newPos = max(si.nMin, min(si.nMax - (int)si.nPage + 1, newPos));
-            ctx->dragCurPos = newPos;
+                int newPos = ctx->dragStartPos
+                           + (int)(delta * (float)range / max(1, trackPx - thumbPx) + 0.5f);
+                newPos = max(si.nMin, min(si.nMax - (int)si.nPage + 1, newPos));
+                ctx->dragCurPos = newPos;
 
-            UINT smsg = vert ? WM_VSCROLL : WM_HSCROLL;
-            SendMessageW(ctx->hTarget, smsg,
-                         MAKEWPARAM(SB_THUMBTRACK, (WORD)newPos), 0);
-            Msb_Layout(ctx);
+                UINT smsg = vert ? WM_VSCROLL : WM_HSCROLL;
+                SendMessageW(ctx->hTarget, smsg,
+                             MAKEWPARAM(SB_THUMBTRACK, (WORD)newPos), 0);
+                Msb_Layout(ctx);
+                InvalidateRect(hwnd, NULL, FALSE);
+                UpdateWindow(hwnd);
+                return 0;
+            }
+
+            /* ── Hover-state tracking (not dragging) ─────────────────── */
+            {
+                int x   = GET_X_LPARAM(lParam);
+                int y   = GET_Y_LPARAM(lParam);
+                int hit = Msb_HitTest(ctx, x, y);
+
+                ThumbState newThumb = (hit == 5) ? THUMB_HOVER : THUMB_NORMAL;
+                ArrowState newUp    = (hit == 1) ? ARROW_HOVER : ARROW_NORMAL;
+                ArrowState newDown  = (hit == 2) ? ARROW_HOVER : ARROW_NORMAL;
+
+                BOOL changed = (newThumb        != ctx->thumbState    ||
+                                newUp           != ctx->arrowUpState  ||
+                                newDown         != ctx->arrowDownState);
+                ctx->thumbState     = newThumb;
+                ctx->arrowUpState   = newUp;
+                ctx->arrowDownState = newDown;
+
+                /* Register for WM_MOUSELEAVE so we know when the cursor exits */
+                if (!ctx->trackingMouse) {
+                    TRACKMOUSEEVENT tme = {sizeof(tme), TME_LEAVE, hwnd, 0};
+                    TrackMouseEvent(&tme);
+                    ctx->trackingMouse = TRUE;
+                }
+
+                if (changed) InvalidateRect(hwnd, NULL, FALSE);
+            }
+            return 0;
+        }
+
+        case WM_MOUSELEAVE: {
+            if (!ctx) break;
+            ctx->trackingMouse  = FALSE;
+            ctx->thumbState     = THUMB_NORMAL;
+            ctx->arrowUpState   = ARROW_NORMAL;
+            ctx->arrowDownState = ARROW_NORMAL;
             InvalidateRect(hwnd, NULL, FALSE);
-            UpdateWindow(hwnd);
             return 0;
         }
 
@@ -539,24 +671,51 @@ static LRESULT CALLBACK Msb_BarWndProc(HWND hwnd, UINT msg,
                 ctx->timerId = 0;
             }
             if (ctx->dragging) {
-                ctx->dragging   = FALSE;
-                ctx->thumbState = THUMB_NORMAL;
-                BOOL vert       = !(ctx->flags & MSB_HORIZONTAL);
-                UINT smsg       = vert ? WM_VSCROLL : WM_HSCROLL;
+                ctx->dragging = FALSE;
+                BOOL vert     = !(ctx->flags & MSB_HORIZONTAL);
+                UINT smsg     = vert ? WM_VSCROLL : WM_HSCROLL;
                 SendMessageW(ctx->hTarget, smsg,
                              MAKEWPARAM(SB_THUMBPOSITION, (WORD)ctx->dragCurPos), 0);
                 SendMessageW(ctx->hTarget, smsg, MAKEWPARAM(SB_ENDSCROLL, 0), 0);
                 Msb_Layout(ctx);
-                InvalidateRect(hwnd, NULL, FALSE);
             }
+            /* Reset arrow/thumb states; restore hover if cursor is still in bar */
+            ctx->arrowUpState   = ARROW_NORMAL;
+            ctx->arrowDownState = ARROW_NORMAL;
+            {
+                POINT cur; GetCursorPos(&cur); ScreenToClient(hwnd, &cur);
+                RECT  rcC; GetClientRect(hwnd, &rcC);
+                if (PtInRect(&rcC, cur)) {
+                    ctx->thumbState = THUMB_HOVER;
+                    int h = Msb_HitTest(ctx, cur.x, cur.y);
+                    if (h == 1) ctx->arrowUpState   = ARROW_HOVER;
+                    if (h == 2) ctx->arrowDownState = ARROW_HOVER;
+                } else {
+                    ctx->thumbState = THUMB_NORMAL;
+                }
+            }
+            InvalidateRect(hwnd, NULL, FALSE);
             ReleaseCapture();
             return 0;
         }
 
         case WM_TIMER: {
-            if (!ctx || wParam != 1) break;
+            if (!ctx) break;
+            if (wParam == 2) {
+                /* Scroll-active reset: wheel has been idle for 400 ms */
+                KillTimer(hwnd, 2);
+                /* Only reset if no other interaction is in progress */
+                if (!ctx->dragging && ctx->timerId == 0) {
+                    POINT cur; GetCursorPos(&cur); ScreenToClient(hwnd, &cur);
+                    RECT  rcC; GetClientRect(hwnd, &rcC);
+                    ctx->thumbState = PtInRect(&rcC, cur) ? THUMB_HOVER : THUMB_NORMAL;
+                    InvalidateRect(hwnd, NULL, FALSE);
+                }
+                return 0;
+            }
+            if (wParam != 1) break;
             if (ctx->timerFirst) {
-                /* Switch to fast repeat rate */
+                /* Switch to fast auto-repeat rate */
                 ctx->timerFirst = FALSE;
                 KillTimer(hwnd, ctx->timerId);
                 ctx->timerId = SetTimer(hwnd, 1, 50, NULL);
@@ -570,9 +729,11 @@ static LRESULT CALLBACK Msb_BarWndProc(HWND hwnd, UINT msg,
                 KillTimer(hwnd, ctx->timerId);
                 ctx->timerId = 0;
             }
-            if (ctx && ctx->dragging) {
-                ctx->dragging   = FALSE;
-                ctx->thumbState = THUMB_NORMAL;
+            if (ctx) {
+                ctx->dragging       = FALSE;
+                ctx->thumbState     = THUMB_NORMAL;
+                ctx->arrowUpState   = ARROW_NORMAL;
+                ctx->arrowDownState = ARROW_NORMAL;
                 InvalidateRect(hwnd, NULL, FALSE);
             }
             return 0;
@@ -638,7 +799,10 @@ static LRESULT CALLBACK Msb_TargetSubclassProc(HWND hwnd, UINT msg,
                 CallWindowProcW(any->origProc, hwnd, WM_VSCROLL,
                                 MAKEWPARAM(cmd, 0), 0);
             Msb_HideNativeBar(hwnd, ctxV->isRichEdit, TRUE);
+            ctxV->thumbState = THUMB_DRAG;  /* pink while wheel is spinning */
             Msb_Layout(ctxV); InvalidateRect(ctxV->hBar, NULL, FALSE); UpdateWindow(ctxV->hBar);
+            /* Reset colour 150 ms after the last wheel tick (resets on each tick) */
+            SetTimer(ctxV->hBar, 2, 220, NULL);
             return 0;   /* suppress original */
         }
 
@@ -650,13 +814,15 @@ static LRESULT CALLBACK Msb_TargetSubclassProc(HWND hwnd, UINT msg,
             ctxH->wheelAccum += delta * (int)sysLines;
             int steps = ctxH->wheelAccum / WHEEL_DELTA;
             ctxH->wheelAccum -= steps * WHEEL_DELTA;
-            UINT cmd = (steps > 0) ? SB_LINELEFT : SB_LINERIGHT;
+            UINT cmd = (steps > 0) ? SB_LINERIGHT : SB_LINELEFT;
             steps = abs(steps);
             for (int i = 0; i < steps; i++)
                 CallWindowProcW(any->origProc, hwnd, WM_HSCROLL,
                                 MAKEWPARAM(cmd, 0), 0);
             Msb_HideNativeBar(hwnd, ctxH->isRichEdit, FALSE);
+            ctxH->thumbState = THUMB_DRAG;
             Msb_Layout(ctxH); InvalidateRect(ctxH->hBar, NULL, FALSE); UpdateWindow(ctxH->hBar);
+            SetTimer(ctxH->hBar, 2, 220, NULL);
             return 0;
         }
 
@@ -758,6 +924,13 @@ HMSB msb_attach(HWND hTarget, DWORD flags)
     }
     SetPropW(hTarget, myKey, (HANDLE)ctx);
 
+    /* Ensure the target does not paint over our bar window.
+     * WS_CLIPSIBLINGS makes the target exclude sibling rects above it in
+     * Z-order from its paint region, so the bar (HWND_TOP) is always visible. */
+    LONG_PTR tStyle = GetWindowLongPtrW(hTarget, GWL_STYLE);
+    if (!(tStyle & WS_CLIPSIBLINGS))
+        SetWindowLongPtrW(hTarget, GWL_STYLE, tStyle | WS_CLIPSIBLINGS);
+
     /* Hide the native scrollbar (keep the WS_VSCROLL style so SCROLLINFO
      * is maintained by the target window — we just suppress the drawing). */
     BOOL vert = !(flags & MSB_HORIZONTAL);
@@ -766,6 +939,9 @@ HMSB msb_attach(HWND hTarget, DWORD flags)
     /* Position and do initial layout */
     Msb_PositionBar(ctx);
     Msb_Layout(ctx);
+    /* Force an immediate paint so the bar is visible from the first frame. */
+    InvalidateRect(ctx->hBar, NULL, FALSE);
+    UpdateWindow(ctx->hBar);
 
     return (HMSB)ctx;
 }

@@ -47,18 +47,22 @@ typedef void* HMSB;
 /* ── Colors — change all visuals here ──────────────────────────────────────*/
 
 /* Bar background */
-#define MSB_CLR_TRACK       RGB(240, 240, 240)
+#define MSB_CLR_TRACK       RGB(235, 238, 242)
 
-/* Arrow buttons */
-#define MSB_CLR_ARROW_BG        RGB(205, 205, 205)
-#define MSB_CLR_ARROW_BG_HOVER  RGB(180, 180, 180)
-#define MSB_CLR_ARROW_BG_PRESS  RGB(130, 130, 130)
-#define MSB_CLR_ARROW_GLYPH     RGB( 80,  80,  80)
+/* Arrow buttons — tinted to match thumb state */
+#define MSB_CLR_ARROW_BG        RGB(190, 210, 228)  /* matches idle blue  */
+#define MSB_CLR_ARROW_BG_HOVER  RGB(104, 188, 108)  /* matches hover green */
+#define MSB_CLR_ARROW_BG_PRESS  RGB(218, 130, 148)  /* matches active pink */
+#define MSB_CLR_ARROW_GLYPH     RGB( 60,  60,  80)
 
-/* Thumb */
-#define MSB_CLR_THUMB           RGB(180, 180, 180)
-#define MSB_CLR_THUMB_HOVER     RGB(140, 140, 140)
-#define MSB_CLR_THUMB_DRAG      RGB( 90, 130, 190)  /* accent blue while dragging */
+/* Thumb
+ *   THUMB_NORMAL : bleach blue  — idle, no interaction
+ *   THUMB_HOVER  : bleach green — mouse is over the bar
+ *   THUMB_DRAG   : bleach pink  — actively scrolling (drag, arrow click,
+ *                                 page click, or mouse wheel) */
+#define MSB_CLR_THUMB           RGB(160, 196, 222)  /* bleach blue  */
+#define MSB_CLR_THUMB_HOVER     RGB(128, 208, 130)  /* bleach green */
+#define MSB_CLR_THUMB_DRAG      RGB(250, 215, 220)  /* bleach pink  */
 
 /* ── Layout constants (96-DPI baseline; scaled internally by DPI) ───────────*/
 

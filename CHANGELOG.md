@@ -2,6 +2,20 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.04.01.11] - 2026-04-01
+
+### Added
+- **Thumb color states**: Idle = bleach blue (`RGB(160,196,222)`), hover = bleach green (`RGB(128,208,130)`), active scrolling = bleach pink (`RGB(250,215,220)`). Arrow buttons tinted to match. All colors are macros in `my_scrollbar.h`.
+- **Hover tracking**: `WM_MOUSEMOVE` updates arrow/thumb hover states live. `TrackMouseEvent(TME_LEAVE)` + `WM_MOUSELEAVE` resets all states when cursor leaves the bar.
+- **Click-to-position**: Clicking the track jumps content so the thumb centres on the click point. Uses `EM_SETSCROLLPOS` for RichEdit targets. No more page-up/page-down on track click.
+
+### Fixed
+- **Thumb proportional size**: RichEdit stops updating `SCROLLINFO.nPage` when native bar is hidden. Fixed by using the visible client pixel height as `nPage` directly.
+- **Thumb position tracking**: RichEdit stops updating `SCROLLINFO.nPos` when native bar is hidden. Fixed by reading `EM_GETSCROLLPOS` for both layout and drag-start position.
+- **Horizontal wheel direction**: `WM_MOUSEHWHEEL` delta sign was inverted — scroll-right now moves right.
+- **Bars visible on attach**: Added `WS_CLIPSIBLINGS` to target so RichEdit does not overdraw the bar. Added `UpdateWindow` after attach for immediate paint.
+- **Wheel pink color reset**: Timer tuned to 220 ms — thumb stays pink just long enough to be visible without blinking.
+
 ## [2026.03.31.08] - 2026-03-31
 
 ### Added

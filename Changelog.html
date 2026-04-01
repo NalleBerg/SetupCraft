@@ -1,6 +1,19 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 31 March 2026 &mdash; v2026.03.31.08<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 1 April 2026 &mdash; v2026.04.01.11<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.04.01.11</span></h3>
+<p><strong>Custom scrollbar &mdash; Phase 2 polish: colors, correct thumb size, click-to-position, hover tracking (01.04.2026, 11:04):</strong></p>
+<ul>
+<li><strong>Thumb color states:</strong> Idle = bleach blue, mouse-over bar = bleach green, actively scrolling (drag, arrow click, track click, mousewheel) = bleach pink. Arrow buttons tinted to match the active thumb state. Colors defined as macros in <code>my_scrollbar.h</code> for easy customisation.</li>
+<li><strong>Hover tracking:</strong> <code>WM_MOUSEMOVE</code> updates arrow and thumb hover states live; <code>TrackMouseEvent(TME_LEAVE)</code> + <code>WM_MOUSELEAVE</code> resets all states to normal when the cursor exits the bar.</li>
+<li><strong>Thumb correctly proportional:</strong> RichEdit stops updating <code>SCROLLINFO.nPage</code> when its native bar is hidden. Fixed by reading the client rect and using the visible pixel height as <code>nPage</code> directly (RichEdit scroll range is always in pixels).</li>
+<li><strong>Thumb position tracks scroll:</strong> RichEdit also stops updating <code>SCROLLINFO.nPos</code> when hidden. Fixed by reading <code>EM_GETSCROLLPOS</code> (always accurate) for both thumb layout and drag-start position.</li>
+<li><strong>Click-to-position:</strong> Clicking the track (above or below the thumb) now jumps the content so the thumb centres on the click point, rather than scrolling one page. Uses <code>EM_SETSCROLLPOS</code> for RichEdit targets.</li>
+<li><strong>Horizontal wheel direction fixed:</strong> <code>WM_MOUSEHWHEEL</code> delta sign was inverted &mdash; scroll-right now moves content right.</li>
+<li><strong>Wheel reset timer tuned:</strong> Thumb stays pink for 220&nbsp;ms after the last wheel tick, then snaps back to hover/normal. No blinking at normal scroll speeds.</li>
+<li><strong>Bars always visible on attach:</strong> <code>WS_CLIPSIBLINGS</code> added to the target window so RichEdit does not overdraw the bar sibling. <code>UpdateWindow</code> forces an immediate paint after attach.</li>
+</ul>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.03.31.08</span></h3>
 <p><strong>Custom scrollbar (my_scrollbar) &mdash; Phase 1 + Phase 2 complete (31.03.2026, 08:35):</strong></p>
