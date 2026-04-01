@@ -5,6 +5,13 @@ All notable changes to SetupCraft will be documented in this file.
 ## [2026.04.01.11] - 2026-04-01
 
 ### Added
+- **Hidden-mode scrollbar (Phase 4)**: By default the custom bar collapses to a 5 px strip when the cursor is away. Moving the cursor to the bar's edge smoothly expands it to its full 12 px width; leaving contracts it back. The strip always shows the thumb so document position is visible at all times.
+- **Fade animation**: ~60 fps (16 ms timer, 9 steps ≈ 150 ms). `FadeState` enum (`FADE_HIDDEN → FADE_EXPANDING → FADE_VISIBLE → FADE_CONTRACTING`) + `fadeWidth` float in `MsbCtx` drives both bar width and paint.
+- **Proximity trigger**: `WM_MOUSEMOVE` on the target window starts expansion when the cursor enters the outermost `MSB_WIDTH_FULL` px of the client edge — bar starts expanding before cursor physically reaches it.
+- **Arrow buttons fade with bar**: Hidden while bar is < 5/8 full width during animation — appear and disappear cleanly, no clipping artifact.
+- **Mousewheel stays hidden**: Wheel scroll does not pop the bar out — thumb position already visible on the 5 px strip.
+- **`MSB_NOHIDE` unchanged**: Starts at full width, no animation.
+- **`MSB_WIDTH_HIDDEN` = 5 px** (raised from 3 px during testing).
 - **Thumb color states**: Idle = bleach blue (`RGB(160,196,222)`), hover = bleach green (`RGB(128,208,130)`), active scrolling = bleach pink (`RGB(250,215,220)`). Arrow buttons tinted to match. All colors are macros in `my_scrollbar.h`.
 - **Hover tracking**: `WM_MOUSEMOVE` updates arrow/thumb hover states live. `TrackMouseEvent(TME_LEAVE)` + `WM_MOUSELEAVE` resets all states when cursor leaves the bar.
 - **Click-to-position**: Clicking the track jumps content so the thumb centres on the click point. Uses `EM_SETSCROLLPOS` for RichEdit targets. No more page-up/page-down on track click.

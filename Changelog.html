@@ -1,8 +1,17 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 1 April 2026 &mdash; v2026.04.01.11<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 1 April 2026 &mdash; v2026.04.01.11 (11:31)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.04.01.11</span></h3>
+<p><strong>Custom scrollbar &mdash; Phase 4: fade / hidden mode (01.04.2026, 11:31):</strong></p>
+<ul>
+<li><strong>Hidden-mode scrollbar:</strong> By default the custom bar collapses to a thin <strong>5&nbsp;px</strong> strip when the cursor is away. Moving the cursor to the bar&rsquo;s edge smoothly expands it to its full <strong>12&nbsp;px</strong> width; leaving or releasing the mouse contracts it back. The strip always shows the thumb, so document position is visible at <em>all times</em> without the bar taking space.</li>
+<li><strong>Smooth fade animation:</strong> Expansion and contraction animate at ~60&nbsp;fps (16&nbsp;ms timer, 9 steps &asymp; 150&nbsp;ms). Implemented as a <code>FadeState</code> enum (<code>FADE_HIDDEN &rarr; FADE_EXPANDING &rarr; FADE_VISIBLE &rarr; FADE_CONTRACTING</code>) and a <code>fadeWidth</code> float in <code>MsbCtx</code> that drives both the bar window width (<code>Msb_PositionBar</code>) and the paint pass.</li>
+<li><strong>Proximity trigger:</strong> <code>WM_MOUSEMOVE</code> on the <em>target</em> window starts the expand when the cursor enters the outermost <code>MSB_WIDTH_FULL</code>&nbsp;px of the client edge &mdash; the bar starts moving before the cursor physically reaches it.</li>
+<li><strong>Arrow buttons fade with the bar:</strong> Arrow buttons are hidden while the bar is narrower than 5/8 of its full width, so they appear and disappear cleanly during animation rather than being clipped.</li>
+<li><strong>Mousewheel stays hidden:</strong> Scrolling with the wheel does <em>not</em> pop the bar out &mdash; the thumb position is already visible on the 5&nbsp;px strip, so there is no need to intrude.</li>
+<li><strong><code>MSB_NOHIDE</code> unchanged:</strong> Bars created with the <code>MSB_NOHIDE</code> flag start at full width and never animate.</li>
+</ul>
 <p><strong>Custom scrollbar &mdash; Phase 2 polish: colors, correct thumb size, click-to-position, hover tracking (01.04.2026, 11:04):</strong></p>
 <ul>
 <li><strong>Thumb color states:</strong> Idle = bleach blue, mouse-over bar = bleach green, actively scrolling (drag, arrow click, track click, mousewheel) = bleach pink. Arrow buttons tinted to match the active thumb state. Colors defined as macros in <code>my_scrollbar.h</code> for easy customisation.</li>

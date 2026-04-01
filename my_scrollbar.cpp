@@ -53,6 +53,13 @@ typedef enum {
     ARROW_PRESSED
 } ArrowState;
 
+typedef enum {
+    FADE_HIDDEN = 0,     /* thin strip (MSB_WIDTH_HIDDEN); not interactable  */
+    FADE_EXPANDING,      /* animating toward MSB_WIDTH_FULL                  */
+    FADE_VISIBLE,        /* at MSB_WIDTH_FULL; fully interactive             */
+    FADE_CONTRACTING     /* animating back toward MSB_WIDTH_HIDDEN           */
+} FadeState;
+
 /* ── Internal context ───────────────────────────────────────────────────────*/
 
 typedef struct MsbCtx {
@@ -91,6 +98,10 @@ typedef struct MsbCtx {
 
     /* Hover tracking (Phase 3) */
     BOOL    trackingMouse;  /* TRUE while TrackMouseEvent(TME_LEAVE) is active  */
+
+    /* Fade / hidden-mode animation (Phase 4) */
+    FadeState fadeState;    /* current animation state                         */
+    float     fadeWidth;    /* current bar thickness in scaled px (fractional) */
 } MsbCtx;
 
 /* Window property key to retrieve MsbCtx from the bar window proc. */
@@ -408,7 +419,11 @@ static void Msb_Paint(HWND hwnd, MsbCtx* ctx)
     FillRect(hdc, &rc, hBgBr);
     DeleteObject(hBgBr);
 
-    /* ── Arrow up / left ─────────────────────────────────────────────────── */
+    /* Arrows only when bar is sufficiently expanded (>= 5/8 of full width) */
+    int  barThick   = vert ? w : h;
+    BOOL showArrows = (barThick >= S(ctx, MSB_WIDTH_FULL) * 5 / 8);
+
+    if (showArrows) {
     COLORREF arrUpClr = (ctx->arrowUpState == ARROW_PRESSED) ? MSB_CLR_ARROW_BG_PRESS
                       : (ctx->arrowUpState == ARROW_HOVER)   ? MSB_CLR_ARROW_BG_HOVER
                                                               : MSB_CLR_ARROW_BG;
@@ -422,8 +437,8 @@ static void Msb_Paint(HWND hwnd, MsbCtx* ctx)
                                                                 : MSB_CLR_ARROW_BG;
     DrawRoundRect(hdc, &ctx->rArrowDown, cr * 2, arrDnClr, arrDnClr);
     DrawArrowGlyph(hdc, &ctx->rArrowDown, vert ? 1 : 3, MSB_CLR_ARROW_GLYPH);
+    } /* showArrows */
 
-    /* ── Thumb ───────────────────────────────────────────────────────────── */
     COLORREF thumbClr = (ctx->thumbState == THUMB_DRAG)  ? MSB_CLR_THUMB_DRAG
                       : (ctx->thumbState == THUMB_HOVER) ? MSB_CLR_THUMB_HOVER
                                                          : MSB_CLR_THUMB;
@@ -596,6 +611,13 @@ static LRESULT CALLBACK Msb_BarWndProc(HWND hwnd, UINT msg,
 
         case WM_MOUSEMOVE: {
             if (!ctx) break;
+            /* Expand on first cursor entry when in hidden mode */
+            if (!(ctx->flags & MSB_NOHIDE) &&
+                (ctx->fadeState == FADE_HIDDEN || ctx->fadeState == FADE_CONTRACTING)) {
+                KillTimer(hwnd, 3);
+                ctx->fadeState = FADE_EXPANDING;
+                SetTimer(hwnd, 3, 16, NULL);
+            }
             if (ctx->dragging) {
                 /* Thumb drag — map cursor delta to scroll position */
                 BOOL vert = !(ctx->flags & MSB_HORIZONTAL);
@@ -661,6 +683,13 @@ static LRESULT CALLBACK Msb_BarWndProc(HWND hwnd, UINT msg,
             ctx->arrowUpState   = ARROW_NORMAL;
             ctx->arrowDownState = ARROW_NORMAL;
             InvalidateRect(hwnd, NULL, FALSE);
+            /* Fade contract on mouse leave (hidden mode) */
+            if (!(ctx->flags & MSB_NOHIDE) &&
+                (ctx->fadeState == FADE_VISIBLE || ctx->fadeState == FADE_EXPANDING)) {
+                KillTimer(hwnd, 3);
+                ctx->fadeState = FADE_CONTRACTING;
+                SetTimer(hwnd, 3, 16, NULL);
+            }
             return 0;
         }
 
@@ -696,21 +725,65 @@ static LRESULT CALLBACK Msb_BarWndProc(HWND hwnd, UINT msg,
             }
             InvalidateRect(hwnd, NULL, FALSE);
             ReleaseCapture();
+            /* If cursor left the bar during the interaction, start fade-out */
+            if (!(ctx->flags & MSB_NOHIDE) &&
+                (ctx->fadeState == FADE_VISIBLE || ctx->fadeState == FADE_EXPANDING)) {
+                POINT cur; GetCursorPos(&cur); ScreenToClient(hwnd, &cur);
+                RECT  rcC; GetClientRect(hwnd, &rcC);
+                if (!PtInRect(&rcC, cur)) {
+                    KillTimer(hwnd, 3);
+                    ctx->fadeState = FADE_CONTRACTING;
+                    SetTimer(hwnd, 3, 16, NULL);
+                }
+            }
             return 0;
         }
 
         case WM_TIMER: {
             if (!ctx) break;
             if (wParam == 2) {
-                /* Scroll-active reset: wheel has been idle for 400 ms */
+                /* Wheel-idle reset: wheel has been quiet for 220 ms */
                 KillTimer(hwnd, 2);
-                /* Only reset if no other interaction is in progress */
+                POINT cur; GetCursorPos(&cur); ScreenToClient(hwnd, &cur);
+                RECT  rcC; GetClientRect(hwnd, &rcC);
+                BOOL overBar = PtInRect(&rcC, cur);
+                /* Reset thumb colour if no other interaction is active */
                 if (!ctx->dragging && ctx->timerId == 0) {
-                    POINT cur; GetCursorPos(&cur); ScreenToClient(hwnd, &cur);
-                    RECT  rcC; GetClientRect(hwnd, &rcC);
-                    ctx->thumbState = PtInRect(&rcC, cur) ? THUMB_HOVER : THUMB_NORMAL;
+                    ctx->thumbState = overBar ? THUMB_HOVER : THUMB_NORMAL;
                     InvalidateRect(hwnd, NULL, FALSE);
                 }
+                /* Contract if bar was expanded by wheel and cursor has since left */
+                if (!(ctx->flags & MSB_NOHIDE) && !overBar &&
+                    (ctx->fadeState == FADE_VISIBLE || ctx->fadeState == FADE_EXPANDING)) {
+                    KillTimer(hwnd, 3);
+                    ctx->fadeState = FADE_CONTRACTING;
+                    SetTimer(hwnd, 3, 16, NULL);
+                }
+                return 0;
+            }
+            if (wParam == 3) {
+                /* Fade animation tick — expand or contract the bar width */
+                float fullW   = (float)S(ctx, MSB_WIDTH_FULL);
+                float hiddenW = (float)S(ctx, MSB_WIDTH_HIDDEN);
+                float step    = (fullW - hiddenW) / 9.0f;  /* ~150 ms at 16 ms/tick */
+                if (ctx->fadeState == FADE_EXPANDING) {
+                    ctx->fadeWidth += step;
+                    if (ctx->fadeWidth >= fullW) {
+                        ctx->fadeWidth = fullW;
+                        ctx->fadeState = FADE_VISIBLE;
+                        KillTimer(hwnd, 3);
+                    }
+                } else if (ctx->fadeState == FADE_CONTRACTING) {
+                    ctx->fadeWidth -= step;
+                    if (ctx->fadeWidth <= hiddenW) {
+                        ctx->fadeWidth = hiddenW;
+                        ctx->fadeState = FADE_HIDDEN;
+                        KillTimer(hwnd, 3);
+                    }
+                }
+                Msb_PositionBar(ctx);
+                Msb_Layout(ctx);
+                InvalidateRect(hwnd, NULL, FALSE);
                 return 0;
             }
             if (wParam != 1) break;
@@ -801,7 +874,7 @@ static LRESULT CALLBACK Msb_TargetSubclassProc(HWND hwnd, UINT msg,
             Msb_HideNativeBar(hwnd, ctxV->isRichEdit, TRUE);
             ctxV->thumbState = THUMB_DRAG;  /* pink while wheel is spinning */
             Msb_Layout(ctxV); InvalidateRect(ctxV->hBar, NULL, FALSE); UpdateWindow(ctxV->hBar);
-            /* Reset colour 150 ms after the last wheel tick (resets on each tick) */
+            /* Timer 2: reset colour + trigger fade-out 220 ms after last wheel tick */
             SetTimer(ctxV->hBar, 2, 220, NULL);
             return 0;   /* suppress original */
         }
@@ -824,6 +897,27 @@ static LRESULT CALLBACK Msb_TargetSubclassProc(HWND hwnd, UINT msg,
             Msb_Layout(ctxH); InvalidateRect(ctxH->hBar, NULL, FALSE); UpdateWindow(ctxH->hBar);
             SetTimer(ctxH->hBar, 2, 220, NULL);
             return 0;
+        }
+
+        case WM_MOUSEMOVE: {
+            /* Proximity expand: trigger fade-in when cursor reaches the bar's edge
+             * zone before it hits the thin hidden strip (MSB_WIDTH_FULL px zone). */
+            RECT rcT; GetClientRect(hwnd, &rcT);
+            int mx = GET_X_LPARAM(lParam);
+            int my = GET_Y_LPARAM(lParam);
+            if (ctxV && !(ctxV->flags & MSB_NOHIDE) && ctxV->fadeState == FADE_HIDDEN &&
+                mx >= rcT.right - S(ctxV, MSB_WIDTH_FULL)) {
+                KillTimer(ctxV->hBar, 3);
+                ctxV->fadeState = FADE_EXPANDING;
+                SetTimer(ctxV->hBar, 3, 16, NULL);
+            }
+            if (ctxH && !(ctxH->flags & MSB_NOHIDE) && ctxH->fadeState == FADE_HIDDEN &&
+                my >= rcT.bottom - S(ctxH, MSB_WIDTH_FULL)) {
+                KillTimer(ctxH->hBar, 3);
+                ctxH->fadeState = FADE_EXPANDING;
+                SetTimer(ctxH->hBar, 3, 16, NULL);
+            }
+            break;
         }
 
         case WM_DESTROY:
@@ -859,7 +953,7 @@ static void Msb_PositionBar(MsbCtx* ctx)
     int ch = rc.bottom;
 
     BOOL vert = !(ctx->flags & MSB_HORIZONTAL);
-    int barW  = S(ctx, MSB_WIDTH_FULL);
+    int barW  = max(1, (int)(ctx->fadeWidth + 0.5f));
 
     if (vert) {
         /* Right edge, full height */
@@ -935,6 +1029,15 @@ HMSB msb_attach(HWND hTarget, DWORD flags)
      * is maintained by the target window — we just suppress the drawing). */
     BOOL vert = !(flags & MSB_HORIZONTAL);
     Msb_HideNativeBar(hTarget, ctx->isRichEdit, vert);
+
+    /* Initialise animation width: NOHIDE starts fully visible; default starts hidden */
+    if (flags & MSB_NOHIDE) {
+        ctx->fadeState = FADE_VISIBLE;
+        ctx->fadeWidth = (float)S(ctx, MSB_WIDTH_FULL);
+    } else {
+        ctx->fadeState = FADE_HIDDEN;
+        ctx->fadeWidth = (float)S(ctx, MSB_WIDTH_HIDDEN);
+    }
 
     /* Position and do initial layout */
     Msb_PositionBar(ctx);

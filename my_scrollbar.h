@@ -67,7 +67,7 @@ typedef void* HMSB;
 /* ── Layout constants (96-DPI baseline; scaled internally by DPI) ───────────*/
 
 #define MSB_WIDTH_FULL      12  /* px at 96 DPI — full visible width          */
-#define MSB_WIDTH_HIDDEN     3  /* px at 96 DPI — thin strip in hidden mode   */
+#define MSB_WIDTH_HIDDEN     5  /* px at 96 DPI — thin strip in hidden mode   */
 #define MSB_ARROW_HEIGHT    16  /* px at 96 DPI — height of each arrow button */
 #define MSB_THUMB_MIN       20  /* px at 96 DPI — minimum thumb height        */
 #define MSB_CORNER_RADIUS    4  /* px at 96 DPI — rounded corner radius       */

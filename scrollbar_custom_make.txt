@@ -129,8 +129,9 @@ FILES
 [WIP]  PHASE 2 — Hit testing + mouse interaction (1–2 days)
     ------------------------------------------------------
     Goal: Clicking arrows and track moves the RichEdit content.
-    STATUS: [WIP] — basic click/page/drag/wheel implemented but still buggy:
-            bar can drift off screen, thumb sync issues. Continue next session.
+    STATUS: [DONE] — all interaction working: arrow auto-repeat, thumb drag,
+            click-to-position (EM_SETSCROLLPOS), proper thumb size+position
+            via EM_GETSCROLLPOS, WS_CLIPSIBLINGS visibility fix.
 
     Steps:
     2.1  WM_LBUTTONDOWN: hit test against rArrowUp, rArrowDown, rThumb, rTrackAbove,
@@ -155,7 +156,7 @@ FILES
     Test milestone: arrows scroll RichEdit, page click jumps, thumb drag works,
     content and thumb stay in sync. Test in BOTH read-only and writable RichEdits.
 
-[ ] PHASE 3 — Thumb hover/drag color states (1 day)
+[DONE] PHASE 3 — Thumb hover/drag color states (1 day)
     ---------------------------------------------------
     Goal: Thumb changes color on hover and drag.
 
@@ -175,7 +176,7 @@ FILES
     Test milestone: thumb smoothly changes color on hover, locks to drag color
     while dragging. Arrows highlight on hover and press.
 
-[ ] PHASE 4 — Fade animation + hidden mode (2–3 days)
+[DONE] PHASE 4 — Fade animation + hidden mode (2–3 days)
     ----------------------------------------------------
     Goal: Bar expands on hover, contracts on mouse leave.
 
@@ -200,7 +201,7 @@ FILES
     Test milestone: bar smoothly expands on hover, contracts on leave. In nohide
     mode, bar stays full width with no animation. Both modes look clean.
 
-[ ] PHASE 5 — Target window subclassing + auto sync + mousewheel (1–2 days)
+[DONE] PHASE 5 — Target window subclassing + auto sync + mousewheel (1–2 days)
     --------------------------------------------------------------------------
     Goal: Custom bar stays in sync with ALL content changes and scroll inputs
     automatically, including mousewheel. Zero extra code from the caller.
@@ -255,7 +256,7 @@ FILES
     position, no snapping to top or bottom. All without any extra calls from
     the caller.
 
-[ ] PHASE 6 — Horizontal scrollbar support (1 day)
+[DONE] PHASE 6 — Horizontal scrollbar support (1 day)
     --------------------------------------------------
     Goal: MSB_HORIZONTAL flag produces a bottom-edge bar that scrolls left/right.
 
@@ -270,7 +271,7 @@ FILES
     Test milestone: add a horizontal scrollbar to a wide RichEdit in the test
     app. Arrows, drag, sync all work.
 
-[ ] PHASE 7 — Test app (test_scrollbar.exe) (1 day)
+[DONE] PHASE 7 — Test app (test_scrollbar.exe) (1 day)
     ---------------------------------------------------
     Goal: A clean, standalone test binary with no SetupCraft code.
 

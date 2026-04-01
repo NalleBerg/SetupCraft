@@ -128,10 +128,10 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg,
             /* Override bottom pane with wide text for horizontal scroll testing */
             SendMessageW(g_reBottom, WM_SETTEXT, 0, (LPARAM)SampleTextWide());
 
-            g_sbLeft  = msb_attach(g_reLeft,   MSB_VERTICAL | MSB_NOHIDE);
-            g_sbRight = msb_attach(g_reRight,  MSB_VERTICAL | MSB_NOHIDE);
-            g_sbBotV  = msb_attach(g_reBottom, MSB_VERTICAL | MSB_NOHIDE);
-            g_sbBotH  = msb_attach(g_reBottom, MSB_HORIZONTAL | MSB_NOHIDE);
+            g_sbLeft  = msb_attach(g_reLeft,   MSB_VERTICAL);
+            g_sbRight = msb_attach(g_reRight,  MSB_VERTICAL);
+            g_sbBotV  = msb_attach(g_reBottom, MSB_VERTICAL);
+            g_sbBotH  = msb_attach(g_reBottom, MSB_HORIZONTAL);
             return 0;
         }
 
