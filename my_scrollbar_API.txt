@@ -206,11 +206,30 @@
 
   4d. TreeView / ListView (V + H bars, hidden/fade mode)
   ───────────────────────────────────────────────────────
-  // After creating the TreeView / ListView and adding columns:
-  s_hMsbTreeV = msb_attach(s_hTreeView, MSB_VERTICAL);
-  s_hMsbTreeH = msb_attach(s_hTreeView, MSB_HORIZONTAL);
+  IMPORTANT — TreeView attach timing:
+  msb_attach must be called AFTER all TreeView_InsertItem calls.
+  TreeView internally re-enables its native scrollbar during item insertion,
+  undoing the ShowScrollBar(FALSE) that msb_attach calls.  Calling attach
+  after population means ShowScrollBar(FALSE) runs last and suppresses the
+  native bars correctly.
+
+  For the ListView attach there is no such restriction — attach can be called
+  after creating the window and adding columns, before populating.  However,
+  every PopulateListView / ListView_InsertItem fill path must re-suppress the
+  native bars afterward (see re-suppression pattern below).
+
+  // After creating the windows and adding ListView columns:
   s_hMsbListV = msb_attach(s_hListView, MSB_VERTICAL);
   s_hMsbListH = msb_attach(s_hListView, MSB_HORIZONTAL);
+
+  // After ALL TreeView_InsertItem / expansion calls (tree fully populated):
+  s_hMsbTreeV = msb_attach(s_hTreeView, MSB_VERTICAL);
+  s_hMsbTreeH = msb_attach(s_hTreeView, MSB_HORIZONTAL);
+
+  // After every PopulateListView / batch ListView_InsertItem call:
+  // (ListView re-enables its native bars when items are inserted)
+  if (s_hMsbListV) { ShowScrollBar(s_hListView, SB_VERT, FALSE); msb_sync(s_hMsbListV); }
+  if (s_hMsbListH) { ShowScrollBar(s_hListView, SB_HORZ, FALSE); msb_sync(s_hMsbListH); }
 
   // In SwitchPage teardown (before DestroyWindow):
   if (s_hMsbTreeV) { msb_detach(s_hMsbTreeV); s_hMsbTreeV = NULL; }

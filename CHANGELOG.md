@@ -2,6 +2,12 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.04.02.19] - 2026-04-02
+
+### Fixed
+- **Files page TreeView — native scrollbars still showing**: `msb_attach` was called before tree population. `TreeView_InsertItem` internally re-enables the native scrollbar, so the native bars were always visible after population finished. Fixed by moving the TreeView `msb_attach` calls to after all item insertion (RestoreTreeSnapshot / DB rebuild / PopulateTreeView + expansion) — `ShowScrollBar(FALSE)` inside `msb_attach` now runs with content already present and correctly suppresses the native bars.
+- **Files page ListView — native bars shown after folder selection**: Selecting a tree node fills the ListView (either inline via TVN_SELCHANGED or via `PopulateListView`), which re-enables native scroll bars. Fixed by calling `ShowScrollBar + msb_sync` after every list-fill path: TVN_SELCHANGED inline item loop, `PopulateTreeView` exit, and IDC_FILES_ADD_DIR handler.
+
 ## [2026.04.02.16] - 2026-04-02
 
 ### Added

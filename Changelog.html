@@ -1,6 +1,13 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 2 April 2026 &mdash; v2026.04.02.16 (16:54)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 2 April 2026 &mdash; v2026.04.02.19 (19:13)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.04.02.19</span></h3>
+<p><strong>Files page custom scrollbars &mdash; native bars suppressed (02.04.2026, 19:13):</strong></p>
+<ul>
+<li><strong>Fix &mdash; Files page TreeView still showed native scrollbars:</strong> <code>msb_attach</code> was called before tree population. <code>TreeView_InsertItem</code> internally re-enables the native scrollbar, so by the time population finished the native bars were back. Fixed by moving the TreeView <code>msb_attach</code> calls to after all item insertion (RestoreTreeSnapshot / DB rebuild / PopulateTreeView finish) &mdash; <code>ShowScrollBar(FALSE)</code> inside <code>msb_attach</code> now runs with content already present and suppresses the native bars correctly.</li>
+<li><strong>Fix &mdash; Files page ListView showed native bars after folder selection:</strong> Selecting a tree node calls <code>PopulateListView</code> (or inserts items inline in TVN_SELCHANGED), which re-enables the native ListView bars. Fixed by calling <code>ShowScrollBar + msb_sync</code> after every list-fill path: the TVN_SELCHANGED inline item loop, the <code>PopulateTreeView</code> exit, and the IDC_FILES_ADD_DIR handler.</li>
+</ul>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.04.02.16</span></h3>
 <p><strong>Files page custom scrollbars; TreeView + ListView scroll fixes (02.04.2026, 16:54):</strong></p>

@@ -1907,9 +1907,6 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         }
         // Replace the native TVS_CHECKBOXES images with our custom themed ones.
         UpdateTreeViewCheckboxImages(s_hTreeView, S(16));
-        // Attach custom hidden scrollbars to the TreeView.
-        s_hMsbFilesTreeV = msb_attach(s_hTreeView, MSB_VERTICAL);
-        s_hMsbFilesTreeH = msb_attach(s_hTreeView, MSB_HORIZONTAL);
         
         // ListView on the right (current folder contents - files only) - child of main window
         s_hListView = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEW, NULL,
@@ -2062,6 +2059,11 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
                 ExpandAllSubnodes(s_hTreeView, s_hProgramFilesRoot);
             }
         }
+        // Attach hidden scrollbars to TreeView after all item insertion, so
+        // ShowScrollBar(FALSE) inside msb_attach runs after the tree is populated
+        // (TreeView re-enables native bars during TreeView_InsertItem calls).
+        s_hMsbFilesTreeV = msb_attach(s_hTreeView, MSB_VERTICAL);
+        s_hMsbFilesTreeH = msb_attach(s_hTreeView, MSB_HORIZONTAL);
         // Subclass TreeView so we can show tooltip on hover
         if (s_hTreeView) {
             s_prevTreeProc = (WNDPROC)SetWindowLongPtrW(s_hTreeView, GWLP_WNDPROC, (LONG_PTR)TreeView_SubclassProc);
@@ -3197,6 +3199,9 @@ void MainWindow::PopulateTreeView(HWND hTree, const std::wstring &rootPath, cons
     // Select app root and populate list with root contents
     TreeView_SelectItem(hTree, hRoot);
     PopulateListView(s_hListView, rootPath);
+    // Re-suppress native list bars that ListView re-enables on item insertion.
+    if (s_hMsbFilesListV) { ShowScrollBar(s_hListView, SB_VERT, FALSE); msb_sync(s_hMsbFilesListV); }
+    if (s_hMsbFilesListH) { ShowScrollBar(s_hListView, SB_HORZ, FALSE); msb_sync(s_hMsbFilesListH); }
     
     // Force complete redraw
     InvalidateRect(hTree, NULL, TRUE);
@@ -7052,6 +7057,9 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 // Force ListView to redraw
                 InvalidateRect(s_hListView, NULL, TRUE);
                 UpdateWindow(s_hListView);
+                // Re-suppress native list bars that ListView re-enables on item insertion.
+                if (s_hMsbFilesListV) { ShowScrollBar(s_hListView, SB_VERT, FALSE); msb_sync(s_hMsbFilesListV); }
+                if (s_hMsbFilesListH) { ShowScrollBar(s_hListView, SB_HORZ, FALSE); msb_sync(s_hMsbFilesListH); }
                 // Show tooltip if AskAtInstall root is selected
                 if (pnmtv->itemNew.hItem == s_hAskAtInstallRoot) {
                     // Get item rect
@@ -7364,6 +7372,9 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                         
                         // Populate ListView with folder contents
                         PopulateListView(s_hListView, path);
+                        // Re-suppress native list bars that ListView re-enables on item insertion.
+                        if (s_hMsbFilesListV) { ShowScrollBar(s_hListView, SB_VERT, FALSE); msb_sync(s_hMsbFilesListV); }
+                        if (s_hMsbFilesListH) { ShowScrollBar(s_hListView, SB_HORZ, FALSE); msb_sync(s_hMsbFilesListH); }
                         
                         // If this is the first folder under Program Files, update install path and possibly project name
                         if (isFirstFolderUnderProgramFiles) {
