@@ -4676,6 +4676,7 @@ CMakeFiles/SkeletonApp.dir/edit_rtf.cpp.obj: C:/Users/NalleBerg/Documents/C++/Wo
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/button.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/dpi.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/edit_rtf.h \
+  C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/my_scrollbar.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/tooltip.h
 
 CMakeFiles/SkeletonApp.dir/languages.cpp.obj: C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/languages.cpp \
@@ -10098,6 +10099,8 @@ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/unordered_map:
 
 C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/dragdrop.h:
 
+C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/my_scrollbar.h:
+
 C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/languages.cpp:
 
 C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/main.cpp:
@@ -10141,8 +10144,6 @@ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/unordered_set:
 C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/spinner_dialog.h:
 
 C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/my_scrollbar.cpp:
-
-C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/my_scrollbar.h:
 
 C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/vfs_picker.h:
 

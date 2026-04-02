@@ -2,6 +2,15 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.04.02.11] - 2026-04-02
+
+### Fixed
+- **RTF editor — no longer always on top**: `OpenRtfEditor` was created with `WS_EX_TOPMOST` and never disabled the parent, making the editor float above all other applications. Fixed: removed `WS_EX_TOPMOST`; added `EnableWindow(hwndParent, FALSE)` before creation; added `EnableWindow(owner, TRUE)` in the OK, Cancel, and WM_CLOSE handlers; restored foreground via TOPMOST flash after the modal loop (same proven pattern as `CompNotesEditor`).
+- **Horizontal scrollbar — track-click wrong position**: Clicking the track (above/below thumb) used `GetScrollInfo.nMax` = 32767 (the `EM_SETTARGETDEVICE` dummy line width) to compute the target position, so every click jumped to the wrong place. Fixed: track-click handler now overrides `si.nMax` / `si.nMin` with the real measured content width (`richHorzMax + S(24)`), matching what `Msb_Layout` already did.
+- **Horizontal scrollbar — thumb drag wrong position**: The thumb drag handler had the same `nMax=32767` bug — `range` was computed from the raw SCROLLINFO, making large drag deltas produce tiny position changes and small ones jump wildly. Fixed with the same `richHorzMax` override applied in `WM_MOUSEMOVE` while dragging.
+- **Horizontal scrollbar — last character clipped**: `Msb_MeasureRichHorzMax` used `EM_POSFROMCHAR(lastChar)` = the *left* edge of the last character, so the last character's width was never counted and text was clipped by roughly one character width. Fixed: now uses `EM_POSFROMCHAR(firstChar + lineLen)` = the position *after* the last character = its right edge.
+- **Horizontal scrollbar — right-edge margin too tight**: Right-edge margin increased from `S(8)` to `S(24)` in all five locations (layout `nMax`, overflow check, `Msb_ClampRichHorzPos`, track-click, drag) so the last character shows fully with room for one more.
+
 ## [2026.04.01.11] - 2026-04-01
 
 ### Added

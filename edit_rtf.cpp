@@ -2,6 +2,7 @@
 #include "dpi.h"
 #include "button.h"
 #include "tooltip.h"
+#include "my_scrollbar.h"
 #define _RICHEDIT_VER 0x0800   // enable TABLEROWPARMS / TABLECELLPARMS
 #include <richedit.h>
 #include <commdlg.h>
@@ -1190,6 +1191,8 @@ struct RtfEdState {
     int  bottomBarH;   // height of OK/Cancel row incl. padding
     int  pad;          // outer padding
     bool updatingToolbar; // re-entrancy guard for toolbar sync
+    HMSB hSbV;         // custom vertical scrollbar (my_scrollbar)
+    HMSB hSbH;         // custom horizontal scrollbar (my_scrollbar)
 };
 
 // ─── Toolbar sync (called on EN_SELCHANGE) ────────────────────────────────────
@@ -1591,9 +1594,14 @@ static LRESULT CALLBACK RtfEditorWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
         int editH = rcC.bottom - editY - S(6) - st->bottomBarH;
 
         HWND hEdit = CreateWindowExW(WS_EX_CLIENTEDGE, reClass, L"",
-            WS_CHILD|WS_VISIBLE|WS_VSCROLL|ES_MULTILINE|ES_WANTRETURN|ES_AUTOVSCROLL,
+            WS_CHILD|WS_VISIBLE|WS_VSCROLL|WS_HSCROLL|ES_MULTILINE|ES_WANTRETURN|ES_AUTOVSCROLL,
             pad, editY, cW - 2*pad, editH,
             hwnd, (HMENU)IDC_RTFE_EDIT, hInst, NULL);
+
+        // Disable word wrap — set a target line width of 32767 px (in twips:
+        // 32767 × 15 = 491 505).  This makes every line infinitely wide from
+        // the user's viewpoint while keeping SCROLLINFO nMax in a sane range.
+        SendMessageW(hEdit, EM_SETTARGETDEVICE, (WPARAM)NULL, 32767 * 15);
 
         // Char limit — only applied when maxChars > 0.
         if (pData->maxChars > 0)
@@ -1612,14 +1620,25 @@ static LRESULT CALLBACK RtfEditorWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
         // Subscribe to both change and selection-change notifications.
         SendMessageW(hEdit, EM_SETEVENTMASK, 0, ENM_CHANGE | ENM_SELCHANGE);
 
-        // ── Enable word-wrap in table cells (EM_SETTYPOGRAPHYOPTIONS) ─────────
-        // Also ensure the edit control allows native table word-wrap.
+        // ── Enable advanced typography (needed for table word-wrap in cells) ──
         SendMessageW(hEdit, EM_SETTYPOGRAPHYOPTIONS, TO_ADVANCEDTYPOGRAPHY, TO_ADVANCEDTYPOGRAPHY);
 
-        // ── Subclass the RichEdit to intercept right-click for table menu ─────
+        // ── Subclass the RichEdit first (innermost proc — only handles right-click).
         RtfEd_SubclassEdit(hEdit);
 
-        if (!pData->initRtf.empty()) RtfEd_StreamIn(hEdit, pData->initRtf);
+        // ── Attach custom scrollbars on top of the subclass so that
+        //    my_scrollbar's subclass proc sees WM_VSCROLL/WM_HSCROLL/WM_MOUSEWHEEL
+        //    before the right-click subclass passes them on to the RichEdit.
+        //    Auto-hide mode (no MSB_NOHIDE): bars stay invisible until content
+        //    overflows the viewport, then fade in on hover.
+        st->hSbV = msb_attach(hEdit, MSB_VERTICAL   | MSB_NOHIDE);
+        st->hSbH = msb_attach(hEdit, MSB_HORIZONTAL | MSB_NOHIDE);
+
+        if (!pData->initRtf.empty()) {
+            RtfEd_StreamIn(hEdit, pData->initRtf);
+            // Measure actual content width now that RTF is loaded.
+            msb_notify_content_changed(st->hSbH);
+        }
 
         // ── Optional status bar ───────────────────────────────────────────────
         if (statusH > 0) {
@@ -1792,11 +1811,13 @@ static LRESULT CALLBACK RtfEditorWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
                 pData->outRtf    = hEdit ? RtfEd_StreamOut(hEdit) : L"";
                 pData->okClicked = true;
             }
+            { HWND hOw = GetWindow(hwnd, GW_OWNER); if (hOw) EnableWindow(hOw, TRUE); }
             DestroyWindow(hwnd); return 0;
         }
 
         // ── Cancel ────────────────────────────────────────────────────────────
         if (wmId == IDC_RTFE_CANCEL || wmId == IDCANCEL) {
+            { HWND hOw = GetWindow(hwnd, GW_OWNER); if (hOw) EnableWindow(hOw, TRUE); }
             DestroyWindow(hwnd); return 0;
         }
 
@@ -1948,7 +1969,14 @@ static LRESULT CALLBACK RtfEditorWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
 
         // ── RichEdit notifications ─────────────────────────────────────────────
         if (wmId == IDC_RTFE_EDIT) {
-            if (wmEv == EN_CHANGE)    RtfEd_UpdateStatus(hwnd, hEdit, pData);
+            if (wmEv == EN_CHANGE) {
+                RtfEd_UpdateStatus(hwnd, hEdit, pData);
+                // Sync scrollbars — content may have changed size.
+                // Vertical: plain sync (SCROLLINFO nMax is correct for vert).
+                // Horizontal: notify content changed so the width is re-measured.
+                if (st->hSbV) msb_sync(st->hSbV);
+                if (st->hSbH) msb_notify_content_changed(st->hSbH);
+            }
             if (wmEv == EN_SELCHANGE) RtfEd_SyncToolbar(hwnd, hEdit);
         }
         break;
@@ -2007,11 +2035,17 @@ static LRESULT CALLBACK RtfEditorWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
         KillTimer(hwnd, 9901);
         // Internal state.
         RtfEdState* st = (RtfEdState*)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
-        if (st) { delete st; SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0); }
+        if (st) {
+            msb_detach(st->hSbV);
+            msb_detach(st->hSbH);
+            delete st;
+            SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+        }
         break;
     }
 
     case WM_CLOSE:
+        { HWND hOw = GetWindow(hwnd, GW_OWNER); if (hOw) EnableWindow(hOw, TRUE); }
         DestroyWindow(hwnd); return 0;
     }
     return DefWindowProcW(hwnd, msg, wParam, lParam);
@@ -2062,7 +2096,7 @@ bool OpenRtfEditor(HWND hwndParent, RtfEditorData& data)
             + S(28)+_sG + _wCol
             + _pad;
         RECT adjW = { 0, 0, clientW, 0 };
-        AdjustWindowRectEx(&adjW, WS_OVERLAPPEDWINDOW, FALSE, WS_EX_TOPMOST);
+        AdjustWindowRectEx(&adjW, WS_OVERLAPPEDWINDOW, FALSE, 0);
         dlgW = adjW.right - adjW.left;
     }
     dlgH = data.preferredH > 0 ? data.preferredH : S(520);
@@ -2087,8 +2121,9 @@ bool OpenRtfEditor(HWND hwndParent, RtfEditorData& data)
 
     const wchar_t* title = data.titleText.empty() ? L"Edit Text" : data.titleText.c_str();
 
+    if (hwndParent) EnableWindow(hwndParent, FALSE);
     HWND hDlg = CreateWindowExW(
-        WS_EX_TOPMOST,
+        0,
         L"RtfEditorWindow", title,
         WS_OVERLAPPEDWINDOW | WS_VISIBLE,
         x, y, dlgW, dlgH,
@@ -2120,10 +2155,13 @@ bool OpenRtfEditor(HWND hwndParent, RtfEditorData& data)
         TranslateMessage(&m);
         DispatchMessageW(&m);
     }
-    // Restore parent to foreground after editor closes.
+    // Re-enable parent (safe no-op if OK/Cancel already did it) and bring
+    // it to the foreground via a TOPMOST flash — the only reliable way on
+    // modern Windows to raise a window after a modal child closes.
     if (hwndParent && IsWindow(hwndParent)) {
-        SetForegroundWindow(hwndParent);
-        BringWindowToTop(hwndParent);
+        EnableWindow(hwndParent, TRUE);
+        SetWindowPos(hwndParent, HWND_TOPMOST,   0,0,0,0, SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
+        SetWindowPos(hwndParent, HWND_NOTOPMOST, 0,0,0,0, SWP_NOMOVE|SWP_NOSIZE);
     }
     return data.okClicked;
 }

@@ -54,6 +54,7 @@ typedef enum {
 } ArrowState;
 
 typedef enum {
+    FADE_INVISIBLE = -1, /* window hidden entirely — content fits viewport   */
     FADE_HIDDEN = 0,     /* thin strip (MSB_WIDTH_HIDDEN); not interactable  */
     FADE_EXPANDING,      /* animating toward MSB_WIDTH_FULL                  */
     FADE_VISIBLE,        /* at MSB_WIDTH_FULL; fully interactive             */
@@ -102,6 +103,11 @@ typedef struct MsbCtx {
     /* Fade / hidden-mode animation (Phase 4) */
     FadeState fadeState;    /* current animation state                         */
     float     fadeWidth;    /* current bar thickness in scaled px (fractional) */
+
+    /* Horizontal RichEdit content width (pixels).
+     * Measured by Msb_MeasureRichEditContentW() and cached here.
+     * 0 = not yet measured / use SCROLLINFO fallback. */
+    int     richHorzMax;
 } MsbCtx;
 
 /* Window property key to retrieve MsbCtx from the bar window proc. */
@@ -221,6 +227,128 @@ static BOOL Msb_IsRichEdit(HWND hWnd)
             lstrcmpiW(cls, L"RichEdit20A")  == 0);
 }
 
+/* ── Horizontal RichEdit content-width measurement ─────────────────────────*/
+
+/*
+ * Measures the actual rendered pixel width of the widest line in a no-wrap
+ * RichEdit by iterating lines and asking EM_POSFROMCHAR for the last char
+ * position on each line.  Returns the widest x-coordinate found, or 0.
+ *
+ * This is needed because EM_SETTARGETDEVICE fixes nMax to the target device
+ * width (e.g. 32767 px) regardless of actual content width, making the
+ * SCROLLINFO-based thumb hopelessly tiny for short documents.
+ */
+static int Msb_MeasureRichHorzMax(HWND hRE)
+{
+    /* EM_POSFROMCHAR returns CLIENT coordinates — add the current horizontal
+     * scroll offset to convert to document (content) coordinates. */
+    POINT scrollPt = {0, 0};
+    SendMessageW(hRE, EM_GETSCROLLPOS, 0, (LPARAM)&scrollPt);
+    int horzOff = scrollPt.x;
+
+    int lineCount = (int)SendMessageW(hRE, EM_GETLINECOUNT, 0, 0);
+    if (lineCount <= 0) return 0;
+    int maxX = 0;
+    for (int ln = 0; ln < lineCount; ln++) {
+        int firstChar = (int)SendMessageW(hRE, EM_LINEINDEX, (WPARAM)ln, 0);
+        int lineLen   = (int)SendMessageW(hRE, EM_LINELENGTH, (WPARAM)firstChar, 0);
+        /* Use the position AFTER the last char on this line — that is the right
+         * edge of the last rendered character.  EM_LINELENGTH excludes CR/LF,
+         * so firstChar + lineLen is either the newline char or one past the
+         * document end; both give the right edge we need.  Empty lines (lineLen
+         * == 0) fall back to firstChar, which is fine. */
+        int afterLastChar = firstChar + lineLen;
+        POINTL pt = {};
+        SendMessageW(hRE, EM_POSFROMCHAR, (WPARAM)&pt, (LPARAM)afterLastChar);
+        /* Convert client-x to document-x by adding horizontal scroll offset. */
+        int docX = (int)pt.x + horzOff;
+        if (docX > maxX) maxX = docX;
+    }
+    return maxX;
+}
+
+/* ── Overflow helper ────────────────────────────────────────────────────────*/
+
+/* ── Overflow helper ────────────────────────────────────────────────────────*/
+
+/*
+ * Clamp the horizontal scroll position of a RichEdit to the measured content
+ * width.  Called after every WM_HSCROLL / WM_MOUSEHWHEEL so the user cannot
+ * scroll into the dead space that EM_SETTARGETDEVICE adds beyond real content.
+ */
+static void Msb_ClampRichHorzPos(MsbCtx* ctx)
+{
+    if (!ctx || !ctx->isRichEdit || !(ctx->flags & MSB_HORIZONTAL)) return;
+    if (ctx->richHorzMax <= 0) return;   /* not yet measured */
+    RECT rcT; GetClientRect(ctx->hTarget, &rcT);
+    int margin = S(ctx, 24);
+    int maxPos = ctx->richHorzMax + margin - rcT.right;
+    if (maxPos < 0) maxPos = 0;
+    POINT pt = {0, 0};
+    SendMessageW(ctx->hTarget, EM_GETSCROLLPOS, 0, (LPARAM)&pt);
+    if (pt.x > maxPos) {
+        pt.x = maxPos;
+        SendMessageW(ctx->hTarget, EM_SETSCROLLPOS, 0, (LPARAM)&pt);
+    }
+}
+
+/*
+ * Returns TRUE when there is content beyond the visible viewport on this
+ * axis — i.e. when a scrollbar is actually needed.  For auto-hide bars the
+ * bar window is fully hidden (not even the thin strip) when this is FALSE.
+ */
+static BOOL Msb_ContentOverflows(MsbCtx* ctx)
+{
+    BOOL vert = !(ctx->flags & MSB_HORIZONTAL);
+    /* Horizontal RichEdit: use the measured content width, not SCROLLINFO
+     * nMax (which reflects the fixed EM_SETTARGETDEVICE line width). */
+    if (!vert && ctx->isRichEdit) {
+        if (ctx->richHorzMax <= 0)
+            ctx->richHorzMax = Msb_MeasureRichHorzMax(ctx->hTarget);
+        RECT rcT; GetClientRect(ctx->hTarget, &rcT);
+        return (ctx->richHorzMax + S(ctx, 24) > rcT.right);
+    }
+    SCROLLINFO si = {};
+    si.cbSize = sizeof(si);
+    si.fMask  = SIF_ALL;
+    GetScrollInfo(ctx->hTarget, vert ? SB_VERT : SB_HORZ, &si);
+    if (ctx->isRichEdit) {
+        RECT rcT; GetClientRect(ctx->hTarget, &rcT);
+        int clientLen = vert ? rcT.bottom : rcT.right;
+        if (clientLen > 0) si.nPage = (UINT)clientLen;
+        POINT pt = {0, 0};
+        SendMessageW(ctx->hTarget, EM_GETSCROLLPOS, 0, (LPARAM)&pt);
+        si.nPos = vert ? pt.y : pt.x;
+    }
+    int scrollRange = (si.nMax - si.nMin) - (int)si.nPage;
+    return (scrollRange > 0);
+}
+
+/* Show or hide the bar window depending on whether content overflows.
+ * In NOHIDE mode the bar is always shown.  Returns TRUE if visible. */
+static BOOL Msb_UpdateVisibility(MsbCtx* ctx)
+{
+    if (ctx->flags & MSB_NOHIDE) return TRUE;
+    BOOL overflows = Msb_ContentOverflows(ctx);
+    if (!overflows) {
+        if (ctx->fadeState != FADE_INVISIBLE) {
+            KillTimer(ctx->hBar, 3);
+            ctx->fadeState = FADE_INVISIBLE;
+            ctx->fadeWidth = 0.0f;
+            ShowWindow(ctx->hBar, SW_HIDE);
+        }
+        return FALSE;
+    }
+    /* Content overflows — make sure the bar is visible at least as thin strip */
+    if (ctx->fadeState == FADE_INVISIBLE) {
+        ctx->fadeState = FADE_HIDDEN;
+        ctx->fadeWidth = (float)S(ctx, MSB_WIDTH_HIDDEN);
+        Msb_PositionBar(ctx);
+        ShowWindow(ctx->hBar, SW_SHOWNOACTIVATE);
+    }
+    return TRUE;
+}
+
 /* ── Layout calculation ─────────────────────────────────────────────────────*/
 
 /*
@@ -294,15 +422,31 @@ static void Msb_Layout(MsbCtx* ctx)
                         : (ctx->rTrack.right  - ctx->rTrack.left);
     int thumbMin = S(ctx, MSB_THUMB_MIN);
 
-    /* RichEdit uses pixels for its entire scroll range (nMin/nMax/nPos/nPage).
-     * It stops updating nPage when the native bar is hidden, but the value is
-     * simply the visible client size in pixels — no estimation needed. */
+    /* RichEdit: override nPage and (for horizontal) nMax with real values.
+     *   Vertical  : nPage = visible client height (nMax from SCROLLINFO is correct).
+     *   Horizontal: nMax  = actual content width measured from line positions;
+     *               nPage = visible client width.
+     * Without this the horizontal thumb reflects the fixed EM_SETTARGETDEVICE
+     * line width (32767 px) rather than the real text extent. */
     if (ctx->isRichEdit) {
         RECT rcT;
         GetClientRect(ctx->hTarget, &rcT);
         int clientLen = vert ? rcT.bottom : rcT.right;
         if (clientLen > 0)
             si.nPage = (UINT)clientLen;
+        if (!vert) {
+            /* Use cached content width; re-measure if not yet set. */
+            if (ctx->richHorzMax <= 0)
+                ctx->richHorzMax = Msb_MeasureRichHorzMax(ctx->hTarget);
+            int contentW = ctx->richHorzMax;
+            /* Add a small margin so the last character isn't clipped. */
+            contentW += S(ctx, 24);
+            /* nMax must be at least nPage (otherwise no scrolling needed). */
+            if (contentW < clientLen)
+                contentW = clientLen;
+            si.nMax = contentW;
+            si.nMin = 0;
+        }
     }
 
     int range = si.nMax - si.nMin + 1;
@@ -570,12 +714,23 @@ static LRESULT CALLBACK Msb_BarWndProc(HWND hwnd, UINT msg,
                 int offset     = clickPx - trackStart - thumbLen / 2;
                 offset = max(0, min(travelPx, offset));
 
-                /* Get scroll range, fixing up nPage for RichEdit */
+                /* Get scroll range, fixing up nPage and (for horiz RichEdit) nMax.
+                 * RichEdit reports nMax = 32767 (EM_SETTARGETDEVICE line width);
+                 * override with the real measured content width, same as Msb_Layout. */
                 SCROLLINFO si = {sizeof(si), SIF_ALL};
                 GetScrollInfo(ctx->hTarget, vert ? SB_VERT : SB_HORZ, &si);
                 if (ctx->isRichEdit) {
                     RECT rcT; GetClientRect(ctx->hTarget, &rcT);
-                    si.nPage = (UINT)(vert ? rcT.bottom : rcT.right);
+                    int clientLen = vert ? rcT.bottom : rcT.right;
+                    si.nPage = (UINT)clientLen;
+                    if (!vert) {
+                        if (ctx->richHorzMax <= 0)
+                            ctx->richHorzMax = Msb_MeasureRichHorzMax(ctx->hTarget);
+                        int contentW = ctx->richHorzMax + S(ctx, 24);
+                        if (contentW < clientLen) contentW = clientLen;
+                        si.nMax = contentW;
+                        si.nMin = 0;
+                    }
                 }
                 int scrollRange = (si.nMax - si.nMin) - (int)si.nPage + 1;
                 if (scrollRange < 1) scrollRange = 1;
@@ -611,7 +766,8 @@ static LRESULT CALLBACK Msb_BarWndProc(HWND hwnd, UINT msg,
 
         case WM_MOUSEMOVE: {
             if (!ctx) break;
-            /* Expand on first cursor entry when in hidden mode */
+            /* Expand on first cursor entry when bar is in hidden-strip state.
+             * FADE_INVISIBLE means content fits — bar shouldn't appear at all. */
             if (!(ctx->flags & MSB_NOHIDE) &&
                 (ctx->fadeState == FADE_HIDDEN || ctx->fadeState == FADE_CONTRACTING)) {
                 KillTimer(hwnd, 3);
@@ -626,6 +782,20 @@ static LRESULT CALLBACK Msb_BarWndProc(HWND hwnd, UINT msg,
 
                 SCROLLINFO si = {sizeof(si), SIF_ALL};
                 GetScrollInfo(ctx->hTarget, vert ? SB_VERT : SB_HORZ, &si);
+                /* Fix nPage and nMax for horizontal RichEdit (nMax is 32767 otherwise). */
+                if (ctx->isRichEdit) {
+                    RECT rcT; GetClientRect(ctx->hTarget, &rcT);
+                    int clientLen = vert ? rcT.bottom : rcT.right;
+                    si.nPage = (UINT)clientLen;
+                    if (!vert) {
+                        if (ctx->richHorzMax <= 0)
+                            ctx->richHorzMax = Msb_MeasureRichHorzMax(ctx->hTarget);
+                        int contentW = ctx->richHorzMax + S(ctx, 24);
+                        if (contentW < clientLen) contentW = clientLen;
+                        si.nMax = contentW;
+                        si.nMin = 0;
+                    }
+                }
                 int trackPx = vert ? (ctx->rTrack.bottom - ctx->rTrack.top)
                                    : (ctx->rTrack.right  - ctx->rTrack.left);
                 int thumbPx = vert ? (ctx->rThumb.bottom - ctx->rThumb.top)
@@ -775,10 +945,11 @@ static LRESULT CALLBACK Msb_BarWndProc(HWND hwnd, UINT msg,
                     }
                 } else if (ctx->fadeState == FADE_CONTRACTING) {
                     ctx->fadeWidth -= step;
-                    if (ctx->fadeWidth <= hiddenW) {
-                        ctx->fadeWidth = hiddenW;
-                        ctx->fadeState = FADE_HIDDEN;
+                    if (ctx->fadeWidth <= 0.0f) {
+                        ctx->fadeWidth = 0.0f;
+                        ctx->fadeState = FADE_INVISIBLE;
                         KillTimer(hwnd, 3);
+                        ShowWindow(ctx->hBar, SW_HIDE);
                     }
                 }
                 Msb_PositionBar(ctx);
@@ -828,8 +999,8 @@ static LRESULT CALLBACK Msb_TargetSubclassProc(HWND hwnd, UINT msg,
     switch (msg) {
         case WM_SIZE: {
             LRESULT r = CallWindowProcW(any->origProc, hwnd, msg, wParam, lParam);
-            if (ctxV) { Msb_PositionBar(ctxV); Msb_Layout(ctxV); InvalidateRect(ctxV->hBar, NULL, FALSE); }
-            if (ctxH) { Msb_PositionBar(ctxH); Msb_Layout(ctxH); InvalidateRect(ctxH->hBar, NULL, FALSE); }
+            if (ctxV) { Msb_UpdateVisibility(ctxV); Msb_PositionBar(ctxV); Msb_Layout(ctxV); InvalidateRect(ctxV->hBar, NULL, FALSE); }
+            if (ctxH) { Msb_UpdateVisibility(ctxH); Msb_PositionBar(ctxH); Msb_Layout(ctxH); InvalidateRect(ctxH->hBar, NULL, FALSE); }
             /* RichEdit may re-show native bars after resize — suppress again. */
             if (ctxV) Msb_HideNativeBar(hwnd, ctxV->isRichEdit, TRUE);
             if (ctxH) Msb_HideNativeBar(hwnd, ctxH->isRichEdit, FALSE);
@@ -839,14 +1010,23 @@ static LRESULT CALLBACK Msb_TargetSubclassProc(HWND hwnd, UINT msg,
         case WM_VSCROLL: {
             LRESULT r = CallWindowProcW(any->origProc, hwnd, msg, wParam, lParam);
             if (ctxV) Msb_HideNativeBar(hwnd, ctxV->isRichEdit, TRUE);
-            if (ctxV) { Msb_Layout(ctxV); InvalidateRect(ctxV->hBar, NULL, FALSE); UpdateWindow(ctxV->hBar); }
+            if (ctxV) { Msb_UpdateVisibility(ctxV); Msb_Layout(ctxV); InvalidateRect(ctxV->hBar, NULL, FALSE); UpdateWindow(ctxV->hBar); }
             return r;
         }
 
         case WM_HSCROLL: {
             LRESULT r = CallWindowProcW(any->origProc, hwnd, msg, wParam, lParam);
-            if (ctxH) Msb_HideNativeBar(hwnd, ctxH->isRichEdit, FALSE);
-            if (ctxH) { Msb_Layout(ctxH); InvalidateRect(ctxH->hBar, NULL, FALSE); UpdateWindow(ctxH->hBar); }
+            if (ctxH) {
+                Msb_HideNativeBar(hwnd, ctxH->isRichEdit, FALSE);
+                /* Clamp position: EM_SETTARGETDEVICE gives a 32767-px scroll range;
+                 * enforce our measured content width so the user can't scroll into
+                 * empty space beyond the actual text. */
+                Msb_ClampRichHorzPos(ctxH);
+                Msb_UpdateVisibility(ctxH);
+                Msb_Layout(ctxH);
+                InvalidateRect(ctxH->hBar, NULL, FALSE);
+                UpdateWindow(ctxH->hBar);
+            }
             return r;
         }
 
@@ -872,10 +1052,27 @@ static LRESULT CALLBACK Msb_TargetSubclassProc(HWND hwnd, UINT msg,
                 CallWindowProcW(any->origProc, hwnd, WM_VSCROLL,
                                 MAKEWPARAM(cmd, 0), 0);
             Msb_HideNativeBar(hwnd, ctxV->isRichEdit, TRUE);
-            ctxV->thumbState = THUMB_DRAG;  /* pink while wheel is spinning */
-            Msb_Layout(ctxV); InvalidateRect(ctxV->hBar, NULL, FALSE); UpdateWindow(ctxV->hBar);
-            /* Timer 2: reset colour + trigger fade-out 220 ms after last wheel tick */
-            SetTimer(ctxV->hBar, 2, 220, NULL);
+            /* Trigger expand if content now overflows (e.g. text just added) */
+            if (Msb_UpdateVisibility(ctxV)) {
+                /* Bar is showing — expand immediately if not already visible */
+                if (!(ctxV->flags & MSB_NOHIDE) &&
+                    (ctxV->fadeState == FADE_HIDDEN || ctxV->fadeState == FADE_INVISIBLE ||
+                     ctxV->fadeState == FADE_CONTRACTING)) {
+                    if (ctxV->fadeState == FADE_INVISIBLE) {
+                        ctxV->fadeWidth = 0.0f;
+                        Msb_PositionBar(ctxV);
+                        ShowWindow(ctxV->hBar, SW_SHOWNOACTIVATE);
+                        ctxV->fadeState = FADE_HIDDEN;
+                    }
+                    KillTimer(ctxV->hBar, 3);
+                    ctxV->fadeState = FADE_EXPANDING;
+                    SetTimer(ctxV->hBar, 3, 16, NULL);
+                }
+                ctxV->thumbState = THUMB_DRAG;  /* pink while wheel is spinning */
+                Msb_Layout(ctxV); InvalidateRect(ctxV->hBar, NULL, FALSE); UpdateWindow(ctxV->hBar);
+                /* Timer 2: reset colour + trigger fade-out 220 ms after last wheel tick */
+                SetTimer(ctxV->hBar, 2, 220, NULL);
+            }
             return 0;   /* suppress original */
         }
 
@@ -893,26 +1090,58 @@ static LRESULT CALLBACK Msb_TargetSubclassProc(HWND hwnd, UINT msg,
                 CallWindowProcW(any->origProc, hwnd, WM_HSCROLL,
                                 MAKEWPARAM(cmd, 0), 0);
             Msb_HideNativeBar(hwnd, ctxH->isRichEdit, FALSE);
-            ctxH->thumbState = THUMB_DRAG;
-            Msb_Layout(ctxH); InvalidateRect(ctxH->hBar, NULL, FALSE); UpdateWindow(ctxH->hBar);
-            SetTimer(ctxH->hBar, 2, 220, NULL);
+            /* Clamp scroll position — same reason as in WM_HSCROLL. */
+            Msb_ClampRichHorzPos(ctxH);
+            if (Msb_UpdateVisibility(ctxH)) {
+                if (!(ctxH->flags & MSB_NOHIDE) &&
+                    (ctxH->fadeState == FADE_HIDDEN || ctxH->fadeState == FADE_INVISIBLE ||
+                     ctxH->fadeState == FADE_CONTRACTING)) {
+                    if (ctxH->fadeState == FADE_INVISIBLE) {
+                        ctxH->fadeWidth = 0.0f;
+                        Msb_PositionBar(ctxH);
+                        ShowWindow(ctxH->hBar, SW_SHOWNOACTIVATE);
+                        ctxH->fadeState = FADE_HIDDEN;
+                    }
+                    KillTimer(ctxH->hBar, 3);
+                    ctxH->fadeState = FADE_EXPANDING;
+                    SetTimer(ctxH->hBar, 3, 16, NULL);
+                }
+                ctxH->thumbState = THUMB_DRAG;
+                Msb_Layout(ctxH); InvalidateRect(ctxH->hBar, NULL, FALSE); UpdateWindow(ctxH->hBar);
+                SetTimer(ctxH->hBar, 2, 220, NULL);
+            }
             return 0;
         }
 
         case WM_MOUSEMOVE: {
             /* Proximity expand: trigger fade-in when cursor reaches the bar's edge
-             * zone before it hits the thin hidden strip (MSB_WIDTH_FULL px zone). */
+             * zone — only when content overflows (state FADE_HIDDEN or FADE_INVISIBLE
+             * after a previous fade-out).  FADE_INVISIBLE+overflow → show window first. */
             RECT rcT; GetClientRect(hwnd, &rcT);
             int mx = GET_X_LPARAM(lParam);
             int my = GET_Y_LPARAM(lParam);
-            if (ctxV && !(ctxV->flags & MSB_NOHIDE) && ctxV->fadeState == FADE_HIDDEN &&
+            if (ctxV && !(ctxV->flags & MSB_NOHIDE) &&
+                (ctxV->fadeState == FADE_HIDDEN || ctxV->fadeState == FADE_INVISIBLE) &&
+                Msb_ContentOverflows(ctxV) &&
                 mx >= rcT.right - S(ctxV, MSB_WIDTH_FULL)) {
+                if (ctxV->fadeState == FADE_INVISIBLE) {
+                    ctxV->fadeWidth = 0.0f;
+                    Msb_PositionBar(ctxV);
+                    ShowWindow(ctxV->hBar, SW_SHOWNOACTIVATE);
+                }
                 KillTimer(ctxV->hBar, 3);
                 ctxV->fadeState = FADE_EXPANDING;
                 SetTimer(ctxV->hBar, 3, 16, NULL);
             }
-            if (ctxH && !(ctxH->flags & MSB_NOHIDE) && ctxH->fadeState == FADE_HIDDEN &&
+            if (ctxH && !(ctxH->flags & MSB_NOHIDE) &&
+                (ctxH->fadeState == FADE_HIDDEN || ctxH->fadeState == FADE_INVISIBLE) &&
+                Msb_ContentOverflows(ctxH) &&
                 my >= rcT.bottom - S(ctxH, MSB_WIDTH_FULL)) {
+                if (ctxH->fadeState == FADE_INVISIBLE) {
+                    ctxH->fadeWidth = 0.0f;
+                    Msb_PositionBar(ctxH);
+                    ShowWindow(ctxH->hBar, SW_SHOWNOACTIVATE);
+                }
                 KillTimer(ctxH->hBar, 3);
                 ctxH->fadeState = FADE_EXPANDING;
                 SetTimer(ctxH->hBar, 3, 16, NULL);
@@ -1030,21 +1259,27 @@ HMSB msb_attach(HWND hTarget, DWORD flags)
     BOOL vert = !(flags & MSB_HORIZONTAL);
     Msb_HideNativeBar(hTarget, ctx->isRichEdit, vert);
 
-    /* Initialise animation width: NOHIDE starts fully visible; default starts hidden */
+    /* Initialise animation width: NOHIDE starts fully visible; auto-hide
+     * starts invisible (bar window hidden) until content overflows. */
     if (flags & MSB_NOHIDE) {
         ctx->fadeState = FADE_VISIBLE;
         ctx->fadeWidth = (float)S(ctx, MSB_WIDTH_FULL);
     } else {
-        ctx->fadeState = FADE_HIDDEN;
-        ctx->fadeWidth = (float)S(ctx, MSB_WIDTH_HIDDEN);
+        ctx->fadeState = FADE_INVISIBLE;
+        ctx->fadeWidth = 0.0f;
+        ShowWindow(ctx->hBar, SW_HIDE);
     }
 
-    /* Position and do initial layout */
+    /* Position and do initial layout; then let Msb_UpdateVisibility decide
+     * whether to make the bar visible (content may not yet overflow). */
     Msb_PositionBar(ctx);
     Msb_Layout(ctx);
-    /* Force an immediate paint so the bar is visible from the first frame. */
-    InvalidateRect(ctx->hBar, NULL, FALSE);
-    UpdateWindow(ctx->hBar);
+    if (!(flags & MSB_NOHIDE))
+        Msb_UpdateVisibility(ctx);   /* may switch to FADE_HIDDEN + SW_SHOWNOACTIVATE */
+    else {
+        InvalidateRect(ctx->hBar, NULL, FALSE);
+        UpdateWindow(ctx->hBar);
+    }
 
     return (HMSB)ctx;
 }
@@ -1080,7 +1315,22 @@ void msb_sync(HMSB h)
     if (!h) return;
     MsbCtx* ctx = (MsbCtx*)h;
     if (!ctx->hBar || !IsWindow(ctx->hBar)) return;
+    /* Re-evaluate overflow: may show or hide the bar window. */
+    if (!(ctx->flags & MSB_NOHIDE)) {
+        if (!Msb_UpdateVisibility(ctx)) return;  /* bar hidden — nothing to paint */
+    }
     Msb_Layout(ctx);
     InvalidateRect(ctx->hBar, NULL, FALSE);
     UpdateWindow(ctx->hBar);
 }
+
+void msb_notify_content_changed(HMSB h)
+{
+    if (!h) return;
+    MsbCtx* ctx = (MsbCtx*)h;
+    /* Invalidate the cached content-width measurement so Msb_Layout
+     * re-measures on the next paint cycle. */
+    ctx->richHorzMax = 0;
+    msb_sync(h);
+}
+

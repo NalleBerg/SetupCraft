@@ -387,6 +387,7 @@ CMakeFiles/SkeletonApp.dir/edit_rtf.cpp.obj: \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/vector.tcc \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/utility \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_relops.h \
+ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\my_scrollbar.h \
  C:/mingw64/x86_64-w64-mingw32/include/richedit.h \
  C:/mingw64/x86_64-w64-mingw32/include/commctrl.h \
  C:/mingw64/x86_64-w64-mingw32/include/windowsx.h \

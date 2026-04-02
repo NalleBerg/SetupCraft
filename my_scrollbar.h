@@ -104,6 +104,13 @@ void msb_detach(HMSB h);
  */
 void msb_sync(HMSB h);
 
+/*
+ * msb_notify_content_changed — invalidate the cached content-width measurement
+ * and re-sync.  Call from EN_CHANGE (or equivalent) whenever text is edited so
+ * the horizontal bar thumb correctly reflects the new document width.
+ */
+void msb_notify_content_changed(HMSB h);
+
 #ifdef __cplusplus
 }
 #endif

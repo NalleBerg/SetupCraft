@@ -11,11 +11,15 @@
 
   bool OpenRtfEditor(HWND hwndParent, RtfEditorData& data)
 
-      Opens the editor as a topmost modal popup centred over hwndParent.
-      hwndParent may be NULL (window is centred on the screen).
+      Opens the editor as a modal popup centred over hwndParent.
+      Disables hwndParent for the duration (EnableWindow FALSE/TRUE) so it
+      behaves as a true modal dialog.  hwndParent may be NULL (window is
+      centred on the screen, no disabling).
       Runs its own GetMessage / DispatchMessage loop (same pattern as
       notes_editor and sc_shortcut_dialog — IsWindow guard, WM_QUIT re-post).
       Blocks until the window is destroyed (Save or Cancel).
+      After the loop the parent is re-enabled and brought to the foreground
+      via a TOPMOST flash (SetWindowPos TOPMOST → NOTOPMOST).
 
       Returns true  → user clicked Save; data.outRtf contains the RTF.
       Returns false → user cancelled or closed the window; data.outRtf
@@ -338,7 +342,8 @@
   Class name:  "RtfEditorWindow"
   Registered once per process; re-use is safe (GetClassInfoExW guard).
   Window style: WS_OVERLAPPEDWINDOW | WS_VISIBLE — users can resize.
-  Extended:     WS_EX_TOPMOST so the editor stays above the SetupCraft window.
+  Extended:     (none) — modal ownership via EnableWindow(hwndParent,FALSE)
+                keeps the editor above its parent through normal Z-order rules.
   Background:   COLOR_WINDOW+1 brush — child controls fill the rest with white
                 via WM_CTLCOLORBTN / WM_CTLCOLORSTATIC.
 
