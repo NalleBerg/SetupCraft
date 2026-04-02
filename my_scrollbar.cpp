@@ -35,6 +35,7 @@
 #include "my_scrollbar.h"
 #include <stdlib.h>     /* malloc / free */
 #include <windowsx.h>   /* GET_X_LPARAM / GET_Y_LPARAM */
+#include <commctrl.h>   /* LVM_SCROLL, ListView_GetItemRect, etc. */
 #include <algorithm>    /* std::min / std::max */
 using std::min;
 using std::max;
@@ -70,6 +71,8 @@ typedef struct MsbCtx {
     WNDPROC origProc;       /* saved target window proc (restored on detach)  */
     DWORD   flags;          /* MSB_* flags passed to msb_attach               */
     BOOL    isRichEdit;     /* TRUE if hTarget is a RichEdit                  */
+    BOOL    isListView;     /* TRUE if hTarget is a SysListView32             */
+    BOOL    isTreeView;     /* TRUE if hTarget is a SysTreeView32             */
 
     /* DPI */
     float   dpiScale;       /* actual DPI / 96.0f                             */
@@ -243,6 +246,20 @@ static BOOL Msb_IsRichEdit(HWND hWnd)
     return (lstrcmpiW(cls, L"RICHEDIT50W")  == 0 ||
             lstrcmpiW(cls, L"RichEdit20W")  == 0 ||
             lstrcmpiW(cls, L"RichEdit20A")  == 0);
+}
+
+static BOOL Msb_IsListView(HWND hWnd)
+{
+    wchar_t cls[64] = {};
+    GetClassNameW(hWnd, cls, 64);
+    return (lstrcmpiW(cls, L"SysListView32") == 0);
+}
+
+static BOOL Msb_IsTreeView(HWND hWnd)
+{
+    wchar_t cls[64] = {};
+    GetClassNameW(hWnd, cls, 64);
+    return (lstrcmpiW(cls, L"SysTreeView32") == 0);
 }
 
 /* ── Horizontal RichEdit content-width measurement ─────────────────────────*/
@@ -494,6 +511,13 @@ static void Msb_Layout(MsbCtx* ctx)
         SendMessageW(ctx->hTarget, EM_GETSCROLLPOS, 0, (LPARAM)&pt);
         si.nPos = vert ? pt.y : pt.x;
     }
+    /* For non-RichEdit controls (ListView, TreeView, …) the control may not
+     * update GetScrollInfo.nPos until SB_THUMBPOSITION is committed.  During
+     * drag we override nPos with the value we computed so the thumb tracks the
+     * cursor in real time rather than lagging one frame behind. */
+    else if (ctx->dragging) {
+        si.nPos = ctx->dragCurPos;
+    }
 
     int trackLen = vert ? (ctx->rTrack.bottom - ctx->rTrack.top)
                         : (ctx->rTrack.right  - ctx->rTrack.left);
@@ -706,11 +730,71 @@ static void Msb_Scroll(MsbCtx* ctx, UINT cmd)
 {
     BOOL vert = !(ctx->flags & MSB_HORIZONTAL);
     UINT msg  = vert ? WM_VSCROLL : WM_HSCROLL;
-    SendMessageW(ctx->hTarget, msg, MAKEWPARAM(cmd, 0), 0);
+
+    if (ctx->isListView) {
+        /* ListView ignores external WM_VSCROLL/WM_HSCROLL for position changes.
+         * Use LVM_SCROLL with a pixel delta instead. */
+        int lineH = SendMessageW(ctx->hTarget, LVM_GETITEMSPACING, TRUE, 0);
+        lineH = HIWORD(lineH);   /* icon-view item height; for report use row height */
+        /* For report-mode ListView, item height = row height */
+        RECT rcItem = {}; ListView_GetItemRect(ctx->hTarget, 0, &rcItem, LVIR_BOUNDS);
+        int rowH = (rcItem.bottom > rcItem.top) ? (rcItem.bottom - rcItem.top) : S(ctx, 16);
+        int dx = 0, dy = 0;
+        switch (cmd) {
+            case SB_LINEUP:   vert ? (dy = -rowH) : (dx = -S(ctx, 20)); break;
+            case SB_LINEDOWN: vert ? (dy =  rowH) : (dx =  S(ctx, 20)); break;
+            case SB_PAGEUP: {
+                RECT rc; GetClientRect(ctx->hTarget, &rc);
+                vert ? (dy = -(rc.bottom)) : (dx = -(rc.right)); break;
+            }
+            case SB_PAGEDOWN: {
+                RECT rc; GetClientRect(ctx->hTarget, &rc);
+                vert ? (dy =  rc.bottom) : (dx =  rc.right); break;
+            }
+        }
+        SendMessageW(ctx->hTarget, LVM_SCROLL, (WPARAM)dx, (LPARAM)dy);
+    } else {
+        SendMessageW(ctx->hTarget, msg, MAKEWPARAM(cmd, 0), 0);
+    }
     /* re-read SCROLLINFO and repaint */
     Msb_Layout(ctx);
     InvalidateRect(ctx->hBar, NULL, FALSE);
     UpdateWindow(ctx->hBar);
+}
+
+/* Scroll a ListView or TreeView to an absolute pixel position.
+ * Reads current position from SCROLLINFO, computes the delta, and scrolls. */
+static void Msb_ScrollToPos(MsbCtx* ctx, int newPos)
+{
+    BOOL vert = !(ctx->flags & MSB_HORIZONTAL);
+
+    if (ctx->isListView) {
+        SCROLLINFO si = {sizeof(si), SIF_POS};
+        GetScrollInfo(ctx->hTarget, vert ? SB_VERT : SB_HORZ, &si);
+        int delta = newPos - si.nPos;
+        int dx, dy;
+        if (vert) {
+            /* Vertical SCROLLINFO.nPos is in rows; LVM_SCROLL expects pixels. */
+            RECT rcItem = {};
+            ListView_GetItemRect(ctx->hTarget, 0, &rcItem, LVIR_BOUNDS);
+            int rowH = (rcItem.bottom > rcItem.top) ? (rcItem.bottom - rcItem.top) : S(ctx, 16);
+            dx = 0;
+            dy = delta * rowH;
+        } else {
+            /* Horizontal SCROLLINFO.nPos is already in pixels. */
+            dx = delta;
+            dy = 0;
+        }
+        if (dx || dy) SendMessageW(ctx->hTarget, LVM_SCROLL, (WPARAM)dx, (LPARAM)dy);
+    } else {
+        /* TreeView and other controls: SetScrollInfo + WM_VSCROLL/HSCROLL. */
+        SCROLLINFO setSi = {sizeof(SCROLLINFO), SIF_POS};
+        setSi.nPos = newPos;
+        SetScrollInfo(ctx->hTarget, vert ? SB_VERT : SB_HORZ, &setSi, FALSE);
+        UINT smsg = vert ? WM_VSCROLL : WM_HSCROLL;
+        SendMessageW(ctx->hTarget, smsg, MAKEWPARAM(SB_THUMBPOSITION, (WORD)newPos), 0);
+        SendMessageW(ctx->hTarget, smsg, MAKEWPARAM(SB_ENDSCROLL, 0), 0);
+    }
 }
 
 /* Hit-test a point against the bar zones.
@@ -855,7 +939,7 @@ static LRESULT CALLBACK Msb_BarWndProc(HWND hwnd, UINT msg,
                 int newPos = si.nMin
                            + (int)((float)offset / travelPx * scrollRange + 0.5f);
                 newPos = max(si.nMin,
-                             min(si.nMin + scrollRange - 1, newPos));
+                             min(si.nMax - (int)si.nPage + 1, newPos));
 
                 if (ctx->isRichEdit) {
                     POINT pt = {0, 0};
@@ -863,12 +947,7 @@ static LRESULT CALLBACK Msb_BarWndProc(HWND hwnd, UINT msg,
                     if (vert) pt.y = newPos; else pt.x = newPos;
                     SendMessageW(ctx->hTarget, EM_SETSCROLLPOS, 0, (LPARAM)&pt);
                 } else {
-                    SetScrollPos(ctx->hTarget, vert ? SB_VERT : SB_HORZ, newPos, FALSE);
-                    UINT smsg = vert ? WM_VSCROLL : WM_HSCROLL;
-                    SendMessageW(ctx->hTarget, smsg,
-                                 MAKEWPARAM(SB_THUMBPOSITION, (WORD)newPos), 0);
-                    SendMessageW(ctx->hTarget, smsg,
-                                 MAKEWPARAM(SB_ENDSCROLL, 0), 0);
+                    Msb_ScrollToPos(ctx, newPos);
                 }
                 ctx->thumbState = THUMB_DRAG;
                 Msb_Layout(ctx);
@@ -929,9 +1008,13 @@ static LRESULT CALLBACK Msb_BarWndProc(HWND hwnd, UINT msg,
                 newPos = max(si.nMin, min(si.nMax - (int)si.nPage + 1, newPos));
                 ctx->dragCurPos = newPos;
 
-                UINT smsg = vert ? WM_VSCROLL : WM_HSCROLL;
-                SendMessageW(ctx->hTarget, smsg,
-                             MAKEWPARAM(SB_THUMBTRACK, (WORD)newPos), 0);
+                if (ctx->isRichEdit) {
+                    UINT smsg = vert ? WM_VSCROLL : WM_HSCROLL;
+                    SendMessageW(ctx->hTarget, smsg,
+                                 MAKEWPARAM(SB_THUMBTRACK, (WORD)newPos), 0);
+                } else {
+                    Msb_ScrollToPos(ctx, newPos);
+                }
                 Msb_Layout(ctx);
                 InvalidateRect(hwnd, NULL, FALSE);
                 UpdateWindow(hwnd);
@@ -1363,6 +1446,8 @@ HMSB msb_attach(HWND hTarget, DWORD flags)
     ctx->hTarget    = hTarget;
     ctx->flags      = flags;
     ctx->isRichEdit = Msb_IsRichEdit(hTarget);
+    ctx->isListView = Msb_IsListView(hTarget);
+    ctx->isTreeView = Msb_IsTreeView(hTarget);
     ctx->dpiScale   = Msb_GetDpiScale(hTarget);
 
     /* Create the bar as a child of hTarget's parent (a sibling of hTarget),

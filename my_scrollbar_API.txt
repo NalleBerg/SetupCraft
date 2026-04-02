@@ -41,6 +41,11 @@
     Instant paste sync ✓  msb_notify_content_changed syncs both bars.
     Top-level targets  ✓  Correct coordinate mapping via GetParent(hBar).
     Page scrollbar     ✓  Dialogs page; msb_set_insets / msb_set_edge_gap.
+    ListView V+H       ✓  Uses LVM_SCROLL (pixel delta); vertical delta
+                          multiplied by row height from ListView_GetItemRect.
+    TreeView V+H       ✓  Uses SetScrollInfo + WM_VSCROLL/WM_HSCROLL
+                          (SB_THUMBPOSITION); track-click cap fixed to
+                          nMax - nPage + 1.
 
 
 2. INCLUDE AND LINK
@@ -198,6 +203,33 @@
 
   Nothing else is needed.  WM_SIZE, scroll events, and mouse wheel are all
   handled transparently inside the subclass.
+
+  4d. TreeView / ListView (V + H bars, hidden/fade mode)
+  ───────────────────────────────────────────────────────
+  // After creating the TreeView / ListView and adding columns:
+  s_hMsbTreeV = msb_attach(s_hTreeView, MSB_VERTICAL);
+  s_hMsbTreeH = msb_attach(s_hTreeView, MSB_HORIZONTAL);
+  s_hMsbListV = msb_attach(s_hListView, MSB_VERTICAL);
+  s_hMsbListH = msb_attach(s_hListView, MSB_HORIZONTAL);
+
+  // In SwitchPage teardown (before DestroyWindow):
+  if (s_hMsbTreeV) { msb_detach(s_hMsbTreeV); s_hMsbTreeV = NULL; }
+  if (s_hMsbTreeH) { msb_detach(s_hMsbTreeH); s_hMsbTreeH = NULL; }
+  if (s_hMsbListV) { msb_detach(s_hMsbListV); s_hMsbListV = NULL; }
+  if (s_hMsbListH) { msb_detach(s_hMsbListH); s_hMsbListH = NULL; }
+
+  Implementation notes for ListView and TreeView targets:
+  • ListView ignores external WM_VSCROLL/WM_HSCROLL for absolute positioning.
+    The module uses LVM_SCROLL (pixel delta) internally via Msb_ScrollToPos.
+  • ListView vertical SCROLLINFO.nPos is in rows, not pixels.  Msb_ScrollToPos
+    multiplies the row delta by the item row height (ListView_GetItemRect)
+    before calling LVM_SCROLL.
+  • ListView horizontal SCROLLINFO.nPos is in pixels — no conversion needed.
+  • TreeView responds correctly to SetScrollInfo + WM_VSCROLL SB_THUMBPOSITION.
+  • Arrow clicks use LVM_SCROLL (pixel step) for ListView; WM_VSCROLL/HSCROLL
+    SB_LINEUP/SB_LINEDOWN for TreeView — handled automatically by Msb_Scroll.
+  • msb_notify_content_changed is not needed for TreeView/ListView (their
+    SCROLLINFO is always current).
 
 
 5. CUSTOMISATION  (my_scrollbar.h macros)

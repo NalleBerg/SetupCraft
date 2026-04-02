@@ -2,6 +2,16 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.04.02.16] - 2026-04-02
+
+### Added
+- **Files page — custom hidden scrollbars on both panes**: The TreeView (left pane) now has vertical and horizontal custom bars; the ListView (right pane) has vertical and horizontal custom bars. All four bars use hidden/fade mode (3 px hint strip when idle, expand on hover). Bars are attached on page build and detached on page teardown in `SwitchPage`.
+
+### Fixed
+- **ListView thumb drag snapped back; text did not scroll**: `Msb_ScrollToPos` computed `delta = newPos - si.nPos` and passed it directly to `LVM_SCROLL` as pixels. ListView vertical `SCROLLINFO.nPos` is in rows, not pixels, so the pixel delta was always near zero — the thumb moved visually but content barely shifted, then snapped back on mouse release. Fixed by multiplying the vertical row delta by the item row height (measured via `ListView_GetItemRect`). Horizontal is already in pixels and was correct.
+- **ListView track click was dead**: Same root cause — pixel delta too small to advance even one row. Resolved by the same row-height multiplication in `Msb_ScrollToPos`.
+- **TreeView track click could not reach the bottom**: Track-click position cap was `nMin + scrollRange - 1` = `nMax - nPage` — one row short of the true maximum (`nMax - nPage + 1`). Fixed to match the drag path.
+
 ## [2026.04.02.15] - 2026-04-02
 
 ### Added

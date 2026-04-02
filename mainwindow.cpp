@@ -52,6 +52,10 @@ int MainWindow::s_currentPageIndex = 0;
 static int  s_scPageContentH   = 0;  // absolute Y of first pixel below Shortcuts page content
 static int  s_idlgPageContentH = 0;  // absolute Y of first pixel below Dialogs page content
 static HMSB s_hMsbIdlg         = NULL; // custom scrollbar for the Dialogs page
+static HMSB s_hMsbFilesTreeV   = NULL; // Files page - TreeView vertical bar
+static HMSB s_hMsbFilesTreeH   = NULL; // Files page - TreeView horizontal bar
+static HMSB s_hMsbFilesListV   = NULL; // Files page - ListView vertical bar
+static HMSB s_hMsbFilesListH   = NULL; // Files page - ListView horizontal bar
 static bool s_hasUnsavedChanges = false;
 static bool s_isNewUnsavedProject = false;
 static HTREEITEM s_rightClickedItem = NULL; // Track which TreeView item was right-clicked
@@ -1618,6 +1622,10 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
     }
     
     // Destroy TreeView and ListView if they exist (they're children of main window now)
+    if (s_hMsbFilesTreeV) { msb_detach(s_hMsbFilesTreeV); s_hMsbFilesTreeV = NULL; }
+    if (s_hMsbFilesTreeH) { msb_detach(s_hMsbFilesTreeH); s_hMsbFilesTreeH = NULL; }
+    if (s_hMsbFilesListV) { msb_detach(s_hMsbFilesListV); s_hMsbFilesListV = NULL; }
+    if (s_hMsbFilesListH) { msb_detach(s_hMsbFilesListH); s_hMsbFilesListH = NULL; }
     if (s_hTreeView && IsWindow(s_hTreeView)) {
         DestroyWindow(s_hTreeView);
     }
@@ -1899,6 +1907,9 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         }
         // Replace the native TVS_CHECKBOXES images with our custom themed ones.
         UpdateTreeViewCheckboxImages(s_hTreeView, S(16));
+        // Attach custom hidden scrollbars to the TreeView.
+        s_hMsbFilesTreeV = msb_attach(s_hTreeView, MSB_VERTICAL);
+        s_hMsbFilesTreeH = msb_attach(s_hTreeView, MSB_HORIZONTAL);
         
         // ListView on the right (current folder contents - files only) - child of main window
         s_hListView = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEW, NULL,
@@ -1926,6 +1937,9 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         col.cx = (int)(listWidth * 0.45);
         col.pszText = (LPWSTR)L"Destination";
         ListView_InsertColumn(s_hListView, 1, &col);
+        // Attach custom hidden scrollbars to the ListView.
+        s_hMsbFilesListV = msb_attach(s_hListView, MSB_VERTICAL);
+        s_hMsbFilesListH = msb_attach(s_hListView, MSB_HORIZONTAL);
         
         // Always create "Program Files" root node (use Windows-localized name)
         std::wstring defaultInstallPath = GetProgramFilesPath() + L"\\" + s_currentProject.name;

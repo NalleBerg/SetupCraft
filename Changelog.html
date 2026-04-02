@@ -1,6 +1,15 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 2 April 2026 &mdash; v2026.04.02.15 (15:58)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 2 April 2026 &mdash; v2026.04.02.16 (16:54)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.04.02.16</span></h3>
+<p><strong>Files page custom scrollbars; TreeView + ListView scroll fixes (02.04.2026, 16:54):</strong></p>
+<ul>
+<li><strong>Files page &mdash; custom hidden scrollbars on both panes:</strong> The TreeView (left pane) now has vertical and horizontal custom bars; the ListView (right pane) has vertical and horizontal custom bars. All four bars use hidden/fade mode (3&nbsp;px hint strip when idle, expand on hover). Bars are attached on page build and detached on page teardown in <code>SwitchPage</code>.</li>
+<li><strong>Fix &mdash; ListView thumb drag snapped back and text did not scroll:</strong> <code>Msb_ScrollToPos</code> computed <code>delta = newPos &minus; si.nPos</code> and passed it directly to <code>LVM_SCROLL</code> as pixels. ListView vertical <code>SCROLLINFO.nPos</code> is in <em>rows</em>, not pixels, so the pixel delta was always near zero &mdash; the thumb moved visually but content barely shifted, then the thumb snapped back on release. Fixed by multiplying the vertical row delta by the item row height (measured via <code>ListView_GetItemRect</code>). Horizontal is already in pixels and was unaffected.</li>
+<li><strong>Fix &mdash; ListView track click was dead:</strong> Same root cause as above &mdash; the computed pixel delta was too small to advance even one row. Resolved by the same row-height multiplication in <code>Msb_ScrollToPos</code>.</li>
+<li><strong>Fix &mdash; TreeView track click could not reach the bottom:</strong> The track-click position cap was <code>nMin + scrollRange &minus; 1</code>, which equals <code>nMax &minus; nPage</code> &mdash; one row short of the true maximum scroll position (<code>nMax &minus; nPage + 1</code>). The last row was always out of reach. Fixed to match the drag path (<code>nMax &minus; nPage + 1</code>).</li>
+</ul>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.04.02.15</span></h3>
 <p><strong>Dialogs page scrollbar; hint-strip polish; new scrollbar APIs (02.04.2026, 15:58):</strong></p>
