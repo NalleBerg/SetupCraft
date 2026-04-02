@@ -50,19 +50,19 @@ typedef void* HMSB;
 #define MSB_CLR_TRACK       RGB(235, 238, 242)
 
 /* Arrow buttons — tinted to match thumb state */
-#define MSB_CLR_ARROW_BG        RGB(190, 210, 228)  /* matches idle blue  */
+#define MSB_CLR_ARROW_BG        RGB(190, 210, 228)  /* matches idle blue   */
 #define MSB_CLR_ARROW_BG_HOVER  RGB(104, 188, 108)  /* matches hover green */
-#define MSB_CLR_ARROW_BG_PRESS  RGB(218, 130, 148)  /* matches active pink */
+#define MSB_CLR_ARROW_BG_PRESS  RGB(140, 140, 148)  /* matches drag gray   */
 #define MSB_CLR_ARROW_GLYPH     RGB( 60,  60,  80)
 
 /* Thumb
  *   THUMB_NORMAL : bleach blue  — idle, no interaction
  *   THUMB_HOVER  : bleach green — mouse is over the bar
- *   THUMB_DRAG   : bleach pink  — actively scrolling (drag, arrow click,
+ *   THUMB_DRAG   : mid gray     — actively scrolling (drag, arrow click,
  *                                 page click, or mouse wheel) */
 #define MSB_CLR_THUMB           RGB(160, 196, 222)  /* bleach blue  */
 #define MSB_CLR_THUMB_HOVER     RGB(128, 208, 130)  /* bleach green */
-#define MSB_CLR_THUMB_DRAG      RGB(250, 215, 220)  /* bleach pink  */
+#define MSB_CLR_THUMB_DRAG      RGB(140, 140, 148)  /* mid gray     */
 
 /* ── Layout constants (96-DPI baseline; scaled internally by DPI) ───────────*/
 
@@ -71,6 +71,8 @@ typedef void* HMSB;
 #define MSB_ARROW_HEIGHT    16  /* px at 96 DPI — height of each arrow button */
 #define MSB_THUMB_MIN       20  /* px at 96 DPI — minimum thumb height        */
 #define MSB_CORNER_RADIUS    4  /* px at 96 DPI — rounded corner radius       */
+#define MSB_VERT_MARGIN      6  /* px at 96 DPI — breathing room below last
+                                   line of a RichEdit (format rect shrinkage) */
 
 /* ── Public API ─────────────────────────────────────────────────────────────*/
 

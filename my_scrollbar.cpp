@@ -108,6 +108,12 @@ typedef struct MsbCtx {
      * Measured by Msb_MeasureRichEditContentW() and cached here.
      * 0 = not yet measured / use SCROLLINFO fallback. */
     int     richHorzMax;
+
+    /* Vertical RichEdit document height (pixels).
+     * EM_SHOWSCROLLBAR(FALSE) stops RichEdit from maintaining GetScrollInfo, so
+     * we measure document height directly from character positions and cache it.
+     * 0 = not yet measured. */
+    int     richVertMax;
 } MsbCtx;
 
 /* Window property key to retrieve MsbCtx from the bar window proc. */
@@ -238,6 +244,9 @@ static BOOL Msb_IsRichEdit(HWND hWnd)
  * width (e.g. 32767 px) regardless of actual content width, making the
  * SCROLLINFO-based thumb hopelessly tiny for short documents.
  */
+/* Measures the horizontal content extent of a RichEdit window by scanning
+ * every line's character positions.  Returns the rightmost x-coordinate
+ * (document space), or 0 on failure. */
 static int Msb_MeasureRichHorzMax(HWND hRE)
 {
     /* EM_POSFROMCHAR returns CLIENT coordinates — add the current horizontal
@@ -267,7 +276,53 @@ static int Msb_MeasureRichHorzMax(HWND hRE)
     return maxX;
 }
 
-/* ── Overflow helper ────────────────────────────────────────────────────────*/
+/* Measures the total document height of a RichEdit in pixels.
+ * EM_SHOWSCROLLBAR(SB_VERT, FALSE) stops RichEdit updating GetScrollInfo, so
+ * we compute height from EM_POSFROMCHAR + EM_GETSCROLLPOS instead.
+ * The result is the pixel coordinate of the bottom of the last line. */
+static int Msb_MeasureRichVertMax(HWND hRE)
+{
+    POINT scrollPt = {0, 0};
+    SendMessageW(hRE, EM_GETSCROLLPOS, 0, (LPARAM)&scrollPt);
+    int vertOff = scrollPt.y;
+
+    int lineCount = (int)SendMessageW(hRE, EM_GETLINECOUNT, 0, 0);
+    if (lineCount <= 0) return 1;
+
+    /* Measure line height as the Y difference between line 0 and line 1. */
+    int lineH = 0;
+    if (lineCount >= 2) {
+        int c0 = (int)SendMessageW(hRE, EM_LINEINDEX, 0, 0);
+        int c1 = (int)SendMessageW(hRE, EM_LINEINDEX, 1, 0);
+        if (c0 >= 0 && c1 > c0) {
+            POINTL pt0 = {}, pt1 = {};
+            SendMessageW(hRE, EM_POSFROMCHAR, (WPARAM)&pt0, (LPARAM)c0);
+            SendMessageW(hRE, EM_POSFROMCHAR, (WPARAM)&pt1, (LPARAM)c1);
+            lineH = (int)(pt1.y - pt0.y);
+        }
+    }
+    if (lineH <= 0) {
+        /* Single line or measurement failed — fall back to text metrics. */
+        HDC hdc = GetDC(hRE);
+        if (hdc) {
+            TEXTMETRICW tm = {};
+            GetTextMetricsW(hdc, &tm);
+            ReleaseDC(hRE, hdc);
+            lineH = tm.tmHeight + tm.tmExternalLeading;
+        }
+    }
+    if (lineH <= 0) lineH = 16; /* ultimate fallback */
+
+    /* Top of last line in client coords + vertical scroll offset = document Y.
+     * Add half a line of breathing room so the last line isn't flush against
+     * the bottom of the scrollable area. */
+    int lastLine = lineCount - 1;
+    int lastChar = (int)SendMessageW(hRE, EM_LINEINDEX, lastLine, 0);
+    POINTL ptLast = {};
+    SendMessageW(hRE, EM_POSFROMCHAR, (WPARAM)&ptLast, (LPARAM)lastChar);
+    int docBottom = (int)ptLast.y + vertOff + lineH;
+    return max(1, docBottom);
+}
 
 /* ── Overflow helper ────────────────────────────────────────────────────────*/
 
@@ -432,6 +487,28 @@ static void Msb_Layout(MsbCtx* ctx)
         RECT rcT;
         GetClientRect(ctx->hTarget, &rcT);
         int clientLen = vert ? rcT.bottom : rcT.right;
+        /* Vertical bar: subtract the horizontal peer bar's height from the
+         * viewport size so the thumb correctly reflects content vs visible area.
+         * (The H bar overlaps the bottom of the target, so that many px of
+         * content are hidden behind it.) */
+        if (vert) {
+            MsbCtx* ctxH = (MsbCtx*)GetPropW(ctx->hTarget, kMsbTargetPropH);
+            if (ctxH && IsWindow(ctxH->hBar) && ctxH->fadeWidth > 0.5f) {
+                int hBarH = max(1, (int)(ctxH->fadeWidth + 0.5f));
+                /* Match the format rect shrinkage in Msb_ApplyRichFormatRect:
+                 * nPage = visible content height = ch - hBarH - MSB_VERT_MARGIN. */
+                clientLen -= hBarH + S(ctx, MSB_VERT_MARGIN);
+                if (clientLen < 1) clientLen = 1;
+            }
+            /* EM_SHOWSCROLLBAR(FALSE) stops RichEdit maintaining GetScrollInfo,
+             * so si.nMax is stale.  Override with directly measured doc height. */
+            if (ctx->richVertMax <= 0)
+                ctx->richVertMax = Msb_MeasureRichVertMax(ctx->hTarget);
+            if (ctx->richVertMax > 0) {
+                si.nMax = ctx->richVertMax;
+                si.nMin = 0;
+            }
+        }
         if (clientLen > 0)
             si.nPage = (UINT)clientLen;
         if (!vert) {
@@ -986,6 +1063,41 @@ static LRESULT CALLBACK Msb_BarWndProc(HWND hwnd, UINT msg,
     return DefWindowProcW(hwnd, msg, wParam, lParam);
 }
 
+/* ── Format-rect helper ─────────────────────────────────────────────────────*/
+
+/*
+ * Msb_ApplyRichFormatRect — shrink the RichEdit formatting rectangle so the
+ * last line of text is not hidden behind the horizontal scrollbar.
+ *
+ * RichEdit clamps WM_VSCROLL to (nMax - clientHeight), so even if we report a
+ * larger nPage in Msb_Layout the control itself won't scroll past that point.
+ * EM_SETRECT tells RichEdit its usable height is (clientHeight - hBarH), which
+ * shifts its internal max-scroll to (nMax - (clientHeight - hBarH)), allowing
+ * the last line to scroll fully above the H bar.
+ */
+static void Msb_ApplyRichFormatRect(HWND hTarget)
+{
+    MsbCtx* ctxV = (MsbCtx*)GetPropW(hTarget, kMsbTargetPropV);
+    MsbCtx* ctxH = (MsbCtx*)GetPropW(hTarget, kMsbTargetPropH);
+    MsbCtx* any  = ctxV ? ctxV : ctxH;
+    if (!any || !any->isRichEdit) return;
+
+    RECT rc;
+    GetClientRect(hTarget, &rc);
+    /* Only shrink the bottom (H bar).  Do NOT shrink the right (V bar):
+     * for non-wrapping RichEdit the right edge clips text unnecessarily;
+     * horizontal scrolling handles right-side visibility instead. */
+    if (ctxH && ctxH->fadeWidth > 0.5f) {
+        int hBarH = max(1, (int)(ctxH->fadeWidth + 0.5f));
+        /* Subtract an additional MSB_VERT_MARGIN pixels so RichEdit leaves
+         * visible empty space between the last line and the H bar.
+         * The region (rc.bottom .. ch - hBarH) is outside the format rect so
+         * RichEdit fills it with its background colour, giving breathing room. */
+        rc.bottom = max(1, (int)(rc.bottom) - hBarH - S(any, MSB_VERT_MARGIN));
+    }
+    SendMessageW(hTarget, EM_SETRECT, 0, (LPARAM)&rc);
+}
+
 /* ── Target window subclass proc ────────────────────────────────────────────*/
 
 static LRESULT CALLBACK Msb_TargetSubclassProc(HWND hwnd, UINT msg,
@@ -1001,6 +1113,9 @@ static LRESULT CALLBACK Msb_TargetSubclassProc(HWND hwnd, UINT msg,
             LRESULT r = CallWindowProcW(any->origProc, hwnd, msg, wParam, lParam);
             if (ctxV) { Msb_UpdateVisibility(ctxV); Msb_PositionBar(ctxV); Msb_Layout(ctxV); InvalidateRect(ctxV->hBar, NULL, FALSE); }
             if (ctxH) { Msb_UpdateVisibility(ctxH); Msb_PositionBar(ctxH); Msb_Layout(ctxH); InvalidateRect(ctxH->hBar, NULL, FALSE); }
+            /* Keep the RichEdit format rect inside the bar edges so the last
+             * line is scrollable fully above the H bar. */
+            if (any->isRichEdit) Msb_ApplyRichFormatRect(hwnd);
             /* RichEdit may re-show native bars after resize — suppress again. */
             if (ctxV) Msb_HideNativeBar(hwnd, ctxV->isRichEdit, TRUE);
             if (ctxH) Msb_HideNativeBar(hwnd, ctxH->isRichEdit, FALSE);
@@ -1010,6 +1125,7 @@ static LRESULT CALLBACK Msb_TargetSubclassProc(HWND hwnd, UINT msg,
         case WM_VSCROLL: {
             LRESULT r = CallWindowProcW(any->origProc, hwnd, msg, wParam, lParam);
             if (ctxV) Msb_HideNativeBar(hwnd, ctxV->isRichEdit, TRUE);
+            if (any->isRichEdit) Msb_ApplyRichFormatRect(hwnd);
             if (ctxV) { Msb_UpdateVisibility(ctxV); Msb_Layout(ctxV); InvalidateRect(ctxV->hBar, NULL, FALSE); UpdateWindow(ctxV->hBar); }
             return r;
         }
@@ -1018,6 +1134,7 @@ static LRESULT CALLBACK Msb_TargetSubclassProc(HWND hwnd, UINT msg,
             LRESULT r = CallWindowProcW(any->origProc, hwnd, msg, wParam, lParam);
             if (ctxH) {
                 Msb_HideNativeBar(hwnd, ctxH->isRichEdit, FALSE);
+                if (any->isRichEdit) Msb_ApplyRichFormatRect(hwnd);
                 /* Clamp position: EM_SETTARGETDEVICE gives a 32767-px scroll range;
                  * enforce our measured content width so the user can't scroll into
                  * empty space beyond the actual text. */
@@ -1185,9 +1302,17 @@ static void Msb_PositionBar(MsbCtx* ctx)
     int barW  = max(1, (int)(ctx->fadeWidth + 0.5f));
 
     if (vert) {
-        /* Right edge, full height */
+        /* Right edge.  If a horizontal peer bar exists, stop above it so the
+         * down-arrow of the V bar doesn't overlap the right-arrow of the H bar.
+         * Use fadeWidth > 0 instead of IsWindowVisible: during WM_INITDIALOG
+         * the parent dialog isn't shown yet so IsWindowVisible returns FALSE
+         * even though the bar window itself has WS_VISIBLE set. */
+        int hBarH = 0;
+        MsbCtx* ctxH = (MsbCtx*)GetPropW(ctx->hTarget, kMsbTargetPropH);
+        if (ctxH && IsWindow(ctxH->hBar) && ctxH->fadeWidth > 0.5f)
+            hBarH = max(1, (int)(ctxH->fadeWidth + 0.5f));
         SetWindowPos(ctx->hBar, HWND_TOP,
-                     ptOrig.x + cw - barW, ptOrig.y, barW, ch,
+                     ptOrig.x + cw - barW, ptOrig.y, barW, ch - hBarH,
                      SWP_NOACTIVATE);
     } else {
         /* Bottom edge, full width */
@@ -1270,6 +1395,22 @@ HMSB msb_attach(HWND hTarget, DWORD flags)
         ShowWindow(ctx->hBar, SW_HIDE);
     }
 
+    /* If the peer bar already exists (e.g. H bar attaching after V bar was
+     * already registered), tell it to re-position now that our fadeWidth is
+     * set and our property is registered.  Without this, the V bar is stuck
+     * at full height because it positioned itself before H was registered and
+     * no WM_SIZE fires between the two msb_attach calls. */
+    {
+        const wchar_t* otherKey = Msb_OtherTargetPropKey(flags);
+        MsbCtx* peerCtx = (MsbCtx*)GetPropW(hTarget, otherKey);
+        if (peerCtx && IsWindow(peerCtx->hBar)) {
+            Msb_PositionBar(peerCtx);
+            Msb_Layout(peerCtx);
+            InvalidateRect(peerCtx->hBar, NULL, FALSE);
+            UpdateWindow(peerCtx->hBar);
+        }
+    }
+
     /* Position and do initial layout; then let Msb_UpdateVisibility decide
      * whether to make the bar visible (content may not yet overflow). */
     Msb_PositionBar(ctx);
@@ -1280,6 +1421,12 @@ HMSB msb_attach(HWND hTarget, DWORD flags)
         InvalidateRect(ctx->hBar, NULL, FALSE);
         UpdateWindow(ctx->hBar);
     }
+
+    /* For RichEdit targets, shrink the formatting rectangle so the last line
+     * is scrollable fully above the H bar (called on every attach so the
+     * second call — when H bar attaches after V — has both contexts set). */
+    if (ctx->isRichEdit)
+        Msb_ApplyRichFormatRect(hTarget);
 
     return (HMSB)ctx;
 }
@@ -1328,9 +1475,17 @@ void msb_notify_content_changed(HMSB h)
 {
     if (!h) return;
     MsbCtx* ctx = (MsbCtx*)h;
-    /* Invalidate the cached content-width measurement so Msb_Layout
-     * re-measures on the next paint cycle. */
+    /* Invalidate cached content measurements so Msb_Layout re-measures. */
     ctx->richHorzMax = 0;
+    ctx->richVertMax = 0;
+    /* Also clear the peer bar's caches — content changes affect both axes. */
+    const wchar_t* otherKey = Msb_OtherTargetPropKey(ctx->flags);
+    MsbCtx* peer = (MsbCtx*)GetPropW(ctx->hTarget, otherKey);
+    if (peer) {
+        peer->richHorzMax = 0;
+        peer->richVertMax = 0;
+        msb_sync((HMSB)peer);
+    }
     msb_sync(h);
 }
 

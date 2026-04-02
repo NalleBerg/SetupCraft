@@ -2,6 +2,17 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.04.02.14] - 2026-04-02
+
+### Fixed
+- **Vertical scrollbar — no longer overlaps H bar**: The V bar window is now shortened by the H bar height so the down-arrow button and the H bar's right-arrow button no longer collide. A peer-notification mechanism in `msb_attach` re-positions the V bar the instant the H bar registers itself, fixing the ordering problem that made the initial layout always full-height.
+- **Vertical scrollbar — thumb correctly proportional**: `EM_SHOWSCROLLBAR(FALSE)` stops RichEdit from maintaining `GetScrollInfo.nMax`, so the thumb was always filling the full track. Fixed by measuring document height directly via `Msb_MeasureRichVertMax` (`EM_POSFROMCHAR` + `EM_GETSCROLLPOS`, the same pattern as `Msb_MeasureRichHorzMax`). Result is cached in `richVertMax` and cleared by `msb_notify_content_changed`.
+- **Vertical scrollbar — instant update on paste**: `msb_notify_content_changed` previously only synced the bar it was called on (H bar). It now clears both caches and calls `msb_sync` on the peer bar as well, so both bars reflect new content immediately after paste.
+- **Last line always scrollable above H bar**: Added `Msb_ApplyRichFormatRect` — sends `EM_SETRECT` to shrink the RichEdit formatting rectangle by the H bar height plus `MSB_VERT_MARGIN` (6 logical px). RichEdit's own scroll clamp is tied to the format rect height, so the last line now scrolls fully above the bar. The format rect is re-applied after every scroll event because `EM_SHOWSCROLLBAR` causes RichEdit to reset it.
+- **Breathing room below last line**: `MSB_VERT_MARGIN` (6 logical px, DPI-scaled) of white space is always visible below the last line of text in the RTF editor, giving a clean bottom margin regardless of scroll position.
+- **Active/drag scrollbar color — pink → mid-gray**: Thumb drag and arrow-press highlight color changed from bleach pink (`RGB(250,215,220)`) to mid-gray (`RGB(140,140,148)`) for a more professional appearance.
+- **RTF editor — app no longer goes to background on close**: `SetForegroundWindow(owner)` is now called before `DestroyWindow` in all three exit paths (Save, Cancel, ×). Previously only `EnableWindow(owner, TRUE)` was called, which re-enabled the owner but did not activate it; when the editor window was then destroyed Windows picked its own Z-order candidate, often sending the app to the background.
+
 ## [2026.04.02.11] - 2026-04-02
 
 ### Fixed

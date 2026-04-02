@@ -1,0 +1,186 @@
+================================================================================
+  my_scrollbar_API.txt
+  Custom Win32 scrollbar — public API reference
+  my_scrollbar.h / my_scrollbar.cpp
+================================================================================
+
+
+1. PURPOSE
+──────────
+  Drop-in custom scrollbar for any SCROLLINFO-based Win32 window, with full
+  support for RichEdit controls.  Replace the native bar by calling
+  msb_attach(); everything else — sizing, painting, interaction, DPI scaling —
+  is handled internally.
+
+  Features
+  ─────────
+  • Vertical and/or horizontal bar, independently attached.
+  • Proportional thumb derived from SCROLLINFO (or measured content for
+    RichEdit, because EM_SHOWSCROLLBAR stops the control maintaining nMax/nPos).
+  • Fade / hidden mode: bar collapses to a 5 px strip when idle, expands on
+    cursor proximity.  MSB_NOHIDE keeps the bar fully visible at all times.
+  • Click-to-position on the track; auto-repeat on arrow and track hold.
+  • Full thumb drag (SB_THUMBTRACK / SB_THUMBPOSITION / SB_ENDSCROLL).
+  • Own WM_MOUSEWHEEL handler (respects SPI_GETWHEELSCROLLLINES; sub-tick
+    accumulation for precision devices).
+  • EM_SETRECT format-rect management for RichEdit: shrinks the usable height
+    so the last line is always scrollable fully above the H bar, with a
+    breathing-room margin (MSB_VERT_MARGIN, 6 logical px) below it.
+  • DPI-aware: all pixel values go through S() internally; works at any DPI.
+  • No SetupCraft dependencies — only <windows.h>.
+
+  Status (2026-04-02)
+  ────────────────────
+    Thumb drag         ✓  Works correctly.
+    Arrow click        ✓  Works correctly (auto-repeat, 350 ms / 50 ms).
+    Track click        ✓  Works correctly (jump to position, not page scroll).
+    Mouse wheel        ✓  Works correctly (sub-tick accumulation).
+    Fade / hide        ✓  Works correctly (proximity expand, 150 ms animation).
+    V+H dual attach    ✓  Works correctly (V bar shortened for H bar).
+    Last-line margin   ✓  Survives all scroll events via EM_SETRECT re-apply.
+    Instant paste sync ✓  msb_notify_content_changed syncs both bars.
+
+
+2. INCLUDE AND LINK
+───────────────────
+  #include "my_scrollbar.h"
+
+  Add my_scrollbar.cpp to the build.  No extra libraries required.
+
+
+3. PUBLIC API
+─────────────
+
+  typedef void* HMSB;
+
+  ── msb_attach ──────────────────────────────────────────────────────────────
+  HMSB msb_attach(HWND hTarget, DWORD flags);
+
+    Attach a custom scrollbar to hTarget.
+
+    flags   One or more of:
+              MSB_VERTICAL    (0x00)  Bar on the right edge  [default]
+              MSB_HORIZONTAL  (0x01)  Bar on the bottom edge
+              MSB_NOHIDE      (0x02)  Always fully visible; no fade animation
+
+    Returns an opaque HMSB handle, or NULL on failure.
+
+    Call once per axis.  Attaching both axes to the same target is safe:
+      HMSB hV = msb_attach(hWnd, MSB_VERTICAL   | MSB_NOHIDE);
+      HMSB hH = msb_attach(hWnd, MSB_HORIZONTAL | MSB_NOHIDE);
+
+    The call automatically:
+      • Hides the native scrollbar (EM_SHOWSCROLLBAR / ShowScrollBar) while
+        keeping WS_VSCROLL / WS_HSCROLL so SCROLLINFO is maintained.
+      • Creates the custom bar as a sibling of hTarget (child of target's
+        parent) so it is never scrolled with the target's content.
+      • Subclasses hTarget to intercept WM_SIZE, WM_VSCROLL, WM_HSCROLL,
+        WM_MOUSEWHEEL, WM_MOUSEHWHEEL, WM_MOUSEMOVE, and WM_DESTROY.
+      • For RichEdit targets: applies EM_SETRECT to reserve space below the
+        last line (MSB_VERT_MARGIN) and above the H bar.
+
+  ── msb_detach ──────────────────────────────────────────────────────────────
+  void msb_detach(HMSB h);
+
+    Detach and destroy the custom scrollbar.
+    Restores the native scrollbar and the original window procedure.
+    Safe to call with NULL.
+    Call from the parent's WM_DESTROY (before child windows are destroyed):
+
+      msb_detach(st->hSbV);  st->hSbV = NULL;
+      msb_detach(st->hSbH);  st->hSbH = NULL;
+
+  ── msb_sync ────────────────────────────────────────────────────────────────
+  void msb_sync(HMSB h);
+
+    Manually sync the thumb to the current scroll position and repaint.
+    Call after any programmatic scroll that bypasses WM_VSCROLL / WM_HSCROLL,
+    e.g. after loading new content into a RichEdit that resets the position:
+
+      SendMessageW(hEdit, EM_SETSCROLLPOS, 0, (LPARAM)&pt);
+      msb_sync(st->hSbV);
+
+  ── msb_notify_content_changed ──────────────────────────────────────────────
+  void msb_notify_content_changed(HMSB h);
+
+    Invalidate the cached content-dimension measurements (richHorzMax,
+    richVertMax) and re-sync both the called bar and its peer.
+    Call from EN_CHANGE (or equivalent) whenever text is edited so both bars
+    reflect the new document dimensions immediately:
+
+      case EN_CHANGE:
+          if (st->hSbH) msb_notify_content_changed(st->hSbH);
+          break;
+
+    Calling on either bar (V or H) is equivalent — both caches are cleared
+    and both bars are synced.
+
+
+4. TYPICAL WIRING  (RichEdit with V + H bars, MSB_NOHIDE)
+───────────────────────────────────────────────────────────
+
+  // In WM_CREATE / WM_INITDIALOG, after creating the RichEdit:
+  st->hSbV = msb_attach(hEdit, MSB_VERTICAL   | MSB_NOHIDE);
+  st->hSbH = msb_attach(hEdit, MSB_HORIZONTAL | MSB_NOHIDE);
+
+  // In EN_CHANGE (text edited — content dimensions may have changed):
+  if (st->hSbH) msb_notify_content_changed(st->hSbH);
+
+  // In WM_DESTROY (before child windows are destroyed):
+  msb_detach(st->hSbV);  st->hSbV = NULL;
+  msb_detach(st->hSbH);  st->hSbH = NULL;
+
+  Nothing else is needed.  WM_SIZE, scroll events, and mouse wheel are all
+  handled transparently inside the subclass.
+
+
+5. CUSTOMISATION  (my_scrollbar.h macros)
+──────────────────────────────────────────
+
+  Colors
+  ──────
+  MSB_CLR_TRACK           Track background       RGB(235, 238, 242)
+  MSB_CLR_ARROW_BG        Arrow button idle      RGB(190, 210, 228)  blue
+  MSB_CLR_ARROW_BG_HOVER  Arrow button hover     RGB(104, 188, 108)  green
+  MSB_CLR_ARROW_BG_PRESS  Arrow button pressed   RGB(140, 140, 148)  gray
+  MSB_CLR_ARROW_GLYPH     Arrow triangle         RGB( 60,  60,  80)
+  MSB_CLR_THUMB           Thumb idle             RGB(160, 196, 222)  blue
+  MSB_CLR_THUMB_HOVER     Thumb hover            RGB(128, 208, 130)  green
+  MSB_CLR_THUMB_DRAG      Thumb drag / active    RGB(140, 140, 148)  gray
+
+  Layout (96-DPI baseline values; all scaled automatically by DPI)
+  ────────────────────────────────────────────────────────────────
+  MSB_WIDTH_FULL      12   Full visible bar width
+  MSB_WIDTH_HIDDEN     5   Thin idle strip (hidden mode)
+  MSB_ARROW_HEIGHT    16   Height of each arrow button
+  MSB_THUMB_MIN       20   Minimum thumb length
+  MSB_CORNER_RADIUS    4   Rounded-corner radius
+  MSB_VERT_MARGIN      6   Extra white space below last RichEdit line
+
+
+6. RICHEDIT SPECIFICS
+──────────────────────
+  RichEdit stops maintaining SCROLLINFO (nPos, nMax) when its native bar is
+  hidden via EM_SHOWSCROLLBAR.  my_scrollbar works around this:
+
+  Vertical nMax   Measured via Msb_MeasureRichVertMax: EM_GETLINECOUNT +
+                  EM_LINEINDEX + EM_POSFROMCHAR + EM_GETSCROLLPOS.  Cached
+                  in MsbCtx.richVertMax; cleared on msb_notify_content_changed.
+
+  Horizontal nMax Measured via Msb_MeasureRichHorzMax: scans every line's
+                  right edge via EM_POSFROMCHAR(firstChar + lineLen) +
+                  EM_GETSCROLLPOS.  Cached in MsbCtx.richHorzMax.
+
+  nPos            Read via EM_GETSCROLLPOS (always accurate even when the
+                  native bar is hidden).
+
+  Format rect     EM_SETRECT sets the RichEdit formatting rectangle to
+                  (0, 0, w, ch - hBarH - MSB_VERT_MARGIN) so that:
+                    • The last line is scrollable fully above the H bar.
+                    • MSB_VERT_MARGIN px of white space appear below it.
+                  Re-applied after every WM_VSCROLL and WM_HSCROLL because
+                  EM_SHOWSCROLLBAR causes RichEdit to reset the format rect.
+
+  Native bar      Suppressed with EM_SHOWSCROLLBAR (not ShowScrollBar —
+  suppression     the latter does not stick on RichEdit).  Re-suppressed
+                  after every WM_SIZE, WM_VSCROLL, and WM_HSCROLL.

@@ -1,6 +1,18 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 2 April 2026 &mdash; v2026.04.02.11 (11:34)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 2 April 2026 &mdash; v2026.04.02.14 (14:07)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.04.02.14</span></h3>
+<p><strong>Vertical scrollbar complete; drag color; editor focus fixes (02.04.2026, 14:07):</strong></p>
+<ul>
+<li><strong>Vertical scrollbar &mdash; no longer overlaps H bar:</strong> The V bar window is now shortened by the H bar height so the down-arrow and the H bar&rsquo;s right-arrow no longer collide. A peer-notification step in <code>msb_attach</code> re-positions the V bar the instant the H bar registers itself, fixing the ordering problem that made the initial layout always full-height.</li>
+<li><strong>Vertical scrollbar &mdash; thumb correctly proportional:</strong> <code>EM_SHOWSCROLLBAR(FALSE)</code> stops RichEdit maintaining <code>GetScrollInfo.nMax</code>, so the thumb filled the full track. Fixed by measuring document height directly via <code>Msb_MeasureRichVertMax</code> (<code>EM_POSFROMCHAR</code> + <code>EM_GETSCROLLPOS</code> &mdash; same pattern as <code>Msb_MeasureRichHorzMax</code>). Cached in <code>richVertMax</code>, cleared by <code>msb_notify_content_changed</code>.</li>
+<li><strong>Vertical scrollbar &mdash; instant update on paste:</strong> <code>msb_notify_content_changed</code> previously only synced the bar it was called on. It now clears both caches and calls <code>msb_sync</code> on the peer bar too, so both bars reflect new content immediately after paste.</li>
+<li><strong>Last line always scrollable above H bar:</strong> <code>Msb_ApplyRichFormatRect</code> sends <code>EM_SETRECT</code> to shrink the RichEdit format rect by the H bar height + <code>MSB_VERT_MARGIN</code> (6&nbsp;logical&nbsp;px). RichEdit&rsquo;s own scroll clamp is tied to the format rect, so the last line scrolls fully above the bar. Re-applied after every scroll event because <code>EM_SHOWSCROLLBAR</code> resets it.</li>
+<li><strong>Breathing room below last line:</strong> <code>MSB_VERT_MARGIN</code> (6&nbsp;logical&nbsp;px, DPI-scaled) of white space is always visible below the last line, giving a clean bottom margin at any scroll position.</li>
+<li><strong>Active/drag color &mdash; pink &rarr; mid-gray:</strong> Thumb drag and arrow-press highlight changed from bleach pink (<code>RGB(250,215,220)</code>) to mid-gray (<code>RGB(140,140,148)</code>) for a more professional appearance.</li>
+<li><strong>RTF editor &mdash; app no longer goes to background on close:</strong> <code>SetForegroundWindow(owner)</code> is now called before <code>DestroyWindow</code> in all three exit paths (Save, Cancel, &times;). Previously <code>EnableWindow(owner,&nbsp;TRUE)</code> re-enabled the owner but did not activate it; Windows then picked its own Z-order candidate on <code>DestroyWindow</code>, often sending the app to the background.</li>
+</ul>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.04.02.11</span></h3>
 <p><strong>RTF editor always-on-top fix; horizontal scrollbar track-click, drag, and measurement fixes (02.04.2026, 11:34):</strong></p>

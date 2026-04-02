@@ -137,20 +137,18 @@
                                     CRUD API, control ID ranges, locale key table,
                                     and mainwindow.cpp wiring guide.
 
-  scrollbar_API.txt                 *** BELIEVED FIXED — awaiting test ***
-                                    Reusable RichEdit scrollbar manager — HRESC
-                                    handle, RESC_Attach / RESC_Detach lifecycle,
-                                    RESC_SyncThumb, RESC_OnMouseWheel, SB_THUMBTRACK
-                                    fix (32-bit proportional mapping), root cause
-                                    analysis (sync-after-scroll overwrote correct
-                                    native thumb pos; EM_SCROLL bypasses repaint
-                                    path — fix: native pass-through + forward
-                                    WM_MOUSEWHEEL directly to RichEdit).
-                                    *** TO BE SUPERSEDED by my_scrollbar after Phase 8 ***
+  my_scrollbar_API.txt              Custom Win32 scrollbar — full public API.
+                                    msb_attach / msb_detach / msb_sync /
+                                    msb_notify_content_changed; MSB_VERTICAL /
+                                    MSB_HORIZONTAL / MSB_NOHIDE flags; color and
+                                    layout macros; RichEdit specifics (nMax/nPos
+                                    measurement, EM_SETRECT format-rect management,
+                                    EM_SHOWSCROLLBAR suppression); typical wiring
+                                    pattern for V+H dual-attach.  Status: complete
+                                    and fully working as of 2026-04-02.
 
   scrollbar_custom_make.txt         Build plan for my_scrollbar.h / my_scrollbar.cpp
-                                    — 9-phase custom Win32 scrollbar. Phases 1+2 DONE.
-                                    Phase 3 next: hover/drag color states.
+                                    — 9-phase custom Win32 scrollbar. All phases DONE.
 
   scrollbar_INTERNALS.txt           Shortcuts-page vertical scrollbar — SCROLLINFO
                                     setup, why SW_SCROLLCHILDREN fails for content

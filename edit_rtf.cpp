@@ -1811,13 +1811,13 @@ static LRESULT CALLBACK RtfEditorWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
                 pData->outRtf    = hEdit ? RtfEd_StreamOut(hEdit) : L"";
                 pData->okClicked = true;
             }
-            { HWND hOw = GetWindow(hwnd, GW_OWNER); if (hOw) EnableWindow(hOw, TRUE); }
+            { HWND hOw = GetWindow(hwnd, GW_OWNER); if (hOw) { EnableWindow(hOw, TRUE); SetForegroundWindow(hOw); } }
             DestroyWindow(hwnd); return 0;
         }
 
         // ── Cancel ────────────────────────────────────────────────────────────
         if (wmId == IDC_RTFE_CANCEL || wmId == IDCANCEL) {
-            { HWND hOw = GetWindow(hwnd, GW_OWNER); if (hOw) EnableWindow(hOw, TRUE); }
+            { HWND hOw = GetWindow(hwnd, GW_OWNER); if (hOw) { EnableWindow(hOw, TRUE); SetForegroundWindow(hOw); } }
             DestroyWindow(hwnd); return 0;
         }
 
@@ -2045,7 +2045,7 @@ static LRESULT CALLBACK RtfEditorWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
     }
 
     case WM_CLOSE:
-        { HWND hOw = GetWindow(hwnd, GW_OWNER); if (hOw) EnableWindow(hOw, TRUE); }
+        { HWND hOw = GetWindow(hwnd, GW_OWNER); if (hOw) { EnableWindow(hOw, TRUE); SetForegroundWindow(hOw); } }
         DestroyWindow(hwnd); return 0;
     }
     return DefWindowProcW(hwnd, msg, wParam, lParam);
