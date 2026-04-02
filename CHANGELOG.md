@@ -2,6 +2,26 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.04.02.15] - 2026-04-02
+
+### Added
+- **Dialogs page — custom hidden scrollbar**: The Dialogs page now has a custom `my_scrollbar` vertical bar attached to the main window (not a native `WS_VSCROLL`). Bar is clamped to the page area via `msb_set_insets` (skips toolbar at top and status bar at bottom) and sits 4 px inward from the right edge via `msb_set_edge_gap` so the 3 px hint strip is clearly visible against the page background. Wheel scrolling, thumb drag, track click, and arrow buttons all work correctly.
+- **`msb_set_insets(h, insetNear, insetFar)`**: New API — restricts the bar window to a sub-range of the target's edge. For a vertical bar, `insetNear` is the top exclusion zone and `insetFar` the bottom (e.g. toolbar height and status bar height). `Msb_PositionBar` uses these values to size and place the bar correctly.
+- **`msb_get_bar_hwnd(h)`**: New API — returns the bar's HWND so the caller can exclude it from child-moving loops (the Dialogs page scroll handler moves all children by `-dy`; skipping the bar prevents it from drifting on every scroll event).
+- **`msb_set_edge_gap(h, gap)`**: New API — shifts the bar inward from the window edge by `gap` unscaled px. Moves a vertical bar left so the hint strip is separated from the frame and easier to see.
+
+### Changed
+- **`MSB_WIDTH_HIDDEN` reduced 5 → 3 px**: The idle hint strip is now 3 px instead of 5 px — narrower and less intrusive, while still showing the thumb position.
+- **RTF editor scrollbars — removed `MSB_NOHIDE`**: Both V and H bars on the RTF editor now use hidden/fade mode. They collapse to a 3 px hint strip when the cursor is away and expand on hover, matching the rest of the app.
+
+### Fixed
+- **Bar invisible on top-level target windows**: `Msb_PositionBar` was calling `GetParent(ctx->hTarget)` for coordinate mapping; for a top-level target (main window) the parent is `NULL` and all coordinates mapped to screen space, placing the bar off-screen. Fixed by using `GetParent(ctx->hBar)` which always returns the correct parent.
+- **Bar drifts on every scroll event**: The Dialogs page `WM_MOUSEWHEEL` and `WM_VSCROLL` handlers iterate all child windows and move them by the scroll delta. The bar HWND was not excluded, so it shifted with every scroll. Fixed by retrieving the bar HWND via `msb_get_bar_hwnd` and skipping it in both child loops.
+- **Thumb drag broken on Dialogs page (`SB_THUMBTRACK`)**: The thumb drag handler read the new position via `GetScrollInfo(SIF_TRACKPOS)`, which only works with the native bar — the custom bar never sets `SIF_TRACKPOS`. Fixed: position is now read directly from `(int)(short)HIWORD(wParam)`, which is always correct.
+- **Contraction stops at hint strip, not fully invisible**: The fade-out timer previously animated to 0 px (`FADE_INVISIBLE`). Changed to stop at `MSB_WIDTH_HIDDEN` (`FADE_HIDDEN`) so the 3 px position indicator is always visible while content overflows.
+- **Hint-strip background is white**: In hint mode the track background is painted with `COLOR_WINDOW` so only the thumb is visible — no gray track box behind the 3 px strip.
+- **Click on hint strip expands before hit-test**: `WM_LBUTTONDOWN` when the bar is in `FADE_HIDDEN` now snaps to full width and `FADE_VISIBLE` before performing the hit-test, so the first click always lands correctly on an arrow, track, or thumb rather than being swallowed.
+
 ## [2026.04.02.14] - 2026-04-02
 
 ### Fixed

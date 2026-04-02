@@ -17,7 +17,7 @@
   • Vertical and/or horizontal bar, independently attached.
   • Proportional thumb derived from SCROLLINFO (or measured content for
     RichEdit, because EM_SHOWSCROLLBAR stops the control maintaining nMax/nPos).
-  • Fade / hidden mode: bar collapses to a 5 px strip when idle, expands on
+  Fade / hidden mode: bar collapses to a 3 px strip when idle, expands on
     cursor proximity.  MSB_NOHIDE keeps the bar fully visible at all times.
   • Click-to-position on the track; auto-repeat on arrow and track hold.
   • Full thumb drag (SB_THUMBTRACK / SB_THUMBPOSITION / SB_ENDSCROLL).
@@ -39,6 +39,8 @@
     V+H dual attach    ✓  Works correctly (V bar shortened for H bar).
     Last-line margin   ✓  Survives all scroll events via EM_SETRECT re-apply.
     Instant paste sync ✓  msb_notify_content_changed syncs both bars.
+    Top-level targets  ✓  Correct coordinate mapping via GetParent(hBar).
+    Page scrollbar     ✓  Dialogs page; msb_set_insets / msb_set_edge_gap.
 
 
 2. INCLUDE AND LINK
@@ -115,13 +117,50 @@
     Calling on either bar (V or H) is equivalent — both caches are cleared
     and both bars are synced.
 
+  ── msb_set_insets ──────────────────────────────────────────────────────────
+  void msb_set_insets(HMSB h, int insetNear, int insetFar);
 
-4. TYPICAL WIRING  (RichEdit with V + H bars, MSB_NOHIDE)
-───────────────────────────────────────────────────────────
+    Restrict the bar window to a sub-range of the target's edge.
+    insetNear : px to skip from the near edge (top for vert, left for horiz).
+    insetFar  : px to skip from the far  edge (bottom for vert, right for horiz).
+    Use when the target is a top-level window and the bar must not overlap
+    fixed chrome (toolbar, status bar):
 
-  // In WM_CREATE / WM_INITDIALOG, after creating the RichEdit:
-  st->hSbV = msb_attach(hEdit, MSB_VERTICAL   | MSB_NOHIDE);
-  st->hSbH = msb_attach(hEdit, MSB_HORIZONTAL | MSB_NOHIDE);
+      msb_set_insets(s_hMsbIdlg, pageY, statusH);
+
+    Triggers an immediate reposition and repaint.
+
+  ── msb_get_bar_hwnd ────────────────────────────────────────────────────────
+  HWND msb_get_bar_hwnd(HMSB h);
+
+    Return the bar's HWND.  Use this to exclude the bar from child-moving
+    loops — when the target is a top-level window whose scroll handler moves
+    all children by -dy, the bar must be skipped or it will drift:
+
+      HWND hMsbBar = msb_get_bar_hwnd(s_hMsbIdlg);
+      // ... inside EnumChildWindows or manual loop:
+      if (hChild != hMsbBar) { SetWindowPos(hChild, ...); }
+
+  ── msb_set_edge_gap ────────────────────────────────────────────────────────
+  void msb_set_edge_gap(HMSB h, int gap);
+
+    Shift the bar inward from the window edge by gap unscaled px.
+    Moves a vertical bar left / horizontal bar upward so the hint strip is
+    separated from the frame and more visible against the page background:
+
+      msb_set_edge_gap(s_hMsbIdlg, 4);  // 4 px inward on Dialogs page
+
+    Triggers an immediate reposition and repaint.
+
+
+4. TYPICAL WIRING
+─────────────────
+
+  4a. RichEdit with V + H bars (hidden/fade mode)
+  ────────────────────────────────────────────────
+  // After creating the RichEdit:
+  st->hSbV = msb_attach(hEdit, MSB_VERTICAL);
+  st->hSbH = msb_attach(hEdit, MSB_HORIZONTAL);
 
   // In EN_CHANGE (text edited — content dimensions may have changed):
   if (st->hSbH) msb_notify_content_changed(st->hSbH);
@@ -129,6 +168,33 @@
   // In WM_DESTROY (before child windows are destroyed):
   msb_detach(st->hSbV);  st->hSbV = NULL;
   msb_detach(st->hSbH);  st->hSbH = NULL;
+
+  4b. RichEdit with V + H bars (always visible — MSB_NOHIDE)
+  ────────────────────────────────────────────────────────────
+  st->hSbV = msb_attach(hEdit, MSB_VERTICAL   | MSB_NOHIDE);
+  st->hSbH = msb_attach(hEdit, MSB_HORIZONTAL | MSB_NOHIDE);
+
+  4c. Top-level page window (vertical bar, restricted to page area)
+  ─────────────────────────────────────────────────────────────────
+  // On first build of the page:
+  if (!s_hMsb)
+      s_hMsb = msb_attach(hwnd, MSB_VERTICAL);
+  else
+      msb_sync(s_hMsb);
+  msb_set_insets(s_hMsb, pageY, statusH);  // skip toolbar + status bar
+  msb_set_edge_gap(s_hMsb, 4);             // inset 4 px for visibility
+
+  // In SwitchPage / WM_DESTROY — before tearing down children:
+  if (s_hMsb) { msb_detach(s_hMsb); s_hMsb = NULL; }
+
+  // In WM_MOUSEWHEEL / WM_VSCROLL child-moving loop — skip the bar:
+  HWND hMsbBar = msb_get_bar_hwnd(s_hMsb);
+  // EnumChildWindows / manual loop:
+  if (hChild != hMsbBar) { SetWindowPos(hChild, ...); }
+
+  // SB_THUMBTRACK — read position from wParam, not GetScrollInfo:
+  case SB_THUMBTRACK:
+  case SB_THUMBPOSITION: newPos = (int)(short)HIWORD(wParam); break;
 
   Nothing else is needed.  WM_SIZE, scroll events, and mouse wheel are all
   handled transparently inside the subclass.
@@ -151,7 +217,7 @@
   Layout (96-DPI baseline values; all scaled automatically by DPI)
   ────────────────────────────────────────────────────────────────
   MSB_WIDTH_FULL      12   Full visible bar width
-  MSB_WIDTH_HIDDEN     5   Thin idle strip (hidden mode)
+  MSB_WIDTH_HIDDEN     3   Thin idle strip (hidden mode)
   MSB_ARROW_HEIGHT    16   Height of each arrow button
   MSB_THUMB_MIN       20   Minimum thumb length
   MSB_CORNER_RADIUS    4   Rounded-corner radius

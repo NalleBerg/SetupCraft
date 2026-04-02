@@ -6020,6 +6020,7 @@ CMakeFiles/SkeletonApp.dir/mainwindow.cpp.obj: C:/Users/NalleBerg/Documents/C++/
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/dpi.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/dragdrop.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/mainwindow.h \
+  C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/my_scrollbar.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/notes_editor.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/shortcuts.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/spinner_dialog.h \

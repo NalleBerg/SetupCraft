@@ -1,6 +1,23 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 2 April 2026 &mdash; v2026.04.02.14 (14:07)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 2 April 2026 &mdash; v2026.04.02.15 (15:58)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.04.02.15</span></h3>
+<p><strong>Dialogs page scrollbar; hint-strip polish; new scrollbar APIs (02.04.2026, 15:58):</strong></p>
+<ul>
+<li><strong>Dialogs page &mdash; custom hidden scrollbar:</strong> The Dialogs page now has a <code>my_scrollbar</code> vertical bar attached to the main window. It is clamped to the page area via <code>msb_set_insets</code> (skips the toolbar and status bar) and sits 4&nbsp;px inward from the right edge via <code>msb_set_edge_gap</code> so the 3&nbsp;px hint strip is visible against the page background. Wheel scrolling, thumb drag, track click, and arrow buttons all work correctly.</li>
+<li><strong><code>msb_set_insets(h, insetNear, insetFar)</code> &mdash; new API:</strong> Restricts the bar window to a sub-range of the target&rsquo;s edge. For a vertical bar, <code>insetNear</code> is the top exclusion zone and <code>insetFar</code> the bottom (e.g. toolbar height and status-bar height). <code>Msb_PositionBar</code> uses these values to size and place the bar correctly inside the page area.</li>
+<li><strong><code>msb_get_bar_hwnd(h)</code> &mdash; new API:</strong> Returns the bar&rsquo;s HWND so the caller can exclude it from child-moving loops. The Dialogs page scroll handler moves all children by <code>-dy</code>; skipping the bar prevents it from drifting on every scroll event.</li>
+<li><strong><code>msb_set_edge_gap(h, gap)</code> &mdash; new API:</strong> Shifts the bar inward from the window edge by <code>gap</code> unscaled px. Moves a vertical bar left so the hint strip is separated from the frame and easier to see against the page background.</li>
+<li><strong><code>MSB_WIDTH_HIDDEN</code> reduced 5 &rarr; 3&nbsp;px:</strong> The idle hint strip is narrower and less intrusive while still showing the thumb position.</li>
+<li><strong>RTF editor scrollbars &mdash; removed <code>MSB_NOHIDE</code>:</strong> V and H bars on the RTF editor now use hidden/fade mode, collapsing to a 3&nbsp;px hint strip when idle and expanding on hover.</li>
+<li><strong>Fix &mdash; bar invisible on top-level target:</strong> <code>Msb_PositionBar</code> used <code>GetParent(ctx-&gt;hTarget)</code> for coordinate mapping; for a top-level window the parent is <code>NULL</code>, so all coordinates mapped to screen space and the bar appeared off-screen. Fixed by using <code>GetParent(ctx-&gt;hBar)</code>, which is always valid.</li>
+<li><strong>Fix &mdash; bar drifts on scroll:</strong> The Dialogs-page child-moving loops now skip the bar HWND (obtained via <code>msb_get_bar_hwnd</code>), preventing the bar from shifting with every scroll event.</li>
+<li><strong>Fix &mdash; thumb drag broken on Dialogs page:</strong> <code>SB_THUMBTRACK</code> position was read via <code>GetScrollInfo(SIF_TRACKPOS)</code>, which only works with the native bar. Fixed: position is now read from <code>(int)(short)HIWORD(wParam)</code>.</li>
+<li><strong>Fix &mdash; contraction stops at hint strip:</strong> Fade-out animation now stops at <code>MSB_WIDTH_HIDDEN</code> / <code>FADE_HIDDEN</code> so the 3&nbsp;px position indicator is always visible while content overflows &mdash; bar never becomes completely invisible.</li>
+<li><strong>Fix &mdash; hint-strip background is white:</strong> Track background in hint mode uses <code>COLOR_WINDOW</code> so only the thumb is visible against the page &mdash; no gray track box behind the narrow strip.</li>
+<li><strong>Fix &mdash; click on hint strip expands before hit-test:</strong> <code>WM_LBUTTONDOWN</code> when the bar is at <code>FADE_HIDDEN</code> now snaps to full width before the hit-test, so the first click always registers on an arrow, track, or thumb correctly.</li>
+</ul>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.04.02.14</span></h3>
 <p><strong>Vertical scrollbar complete; drag color; editor focus fixes (02.04.2026, 14:07):</strong></p>

@@ -67,7 +67,7 @@ typedef void* HMSB;
 /* ── Layout constants (96-DPI baseline; scaled internally by DPI) ───────────*/
 
 #define MSB_WIDTH_FULL      12  /* px at 96 DPI — full visible width          */
-#define MSB_WIDTH_HIDDEN     5  /* px at 96 DPI — thin strip in hidden mode   */
+#define MSB_WIDTH_HIDDEN     3  /* px at 96 DPI — hint strip in hidden mode  */
 #define MSB_ARROW_HEIGHT    16  /* px at 96 DPI — height of each arrow button */
 #define MSB_THUMB_MIN       20  /* px at 96 DPI — minimum thumb height        */
 #define MSB_CORNER_RADIUS    4  /* px at 96 DPI — rounded corner radius       */
@@ -112,6 +112,29 @@ void msb_sync(HMSB h);
  * the horizontal bar thumb correctly reflects the new document width.
  */
 void msb_notify_content_changed(HMSB h);
+
+/*
+ * msb_set_insets — restrict the bar window to a sub-range of the target's edge.
+ * insetNear: pixels to skip from the near edge (top for vertical, left for horizontal).
+ * insetFar : pixels to skip from the far  edge (bottom for vertical, right for horizontal).
+ * Use this when the target is a top-level window and the bar should not overlap
+ * fixed chrome (e.g. toolbar at top, status bar at bottom).
+ */
+void msb_set_insets(HMSB h, int insetNear, int insetFar);
+
+/*
+ * msb_get_bar_hwnd — return the bar HWND so the caller can exclude it from
+ * child-moving loops (e.g. when the target is a top-level window whose page
+ * scroll handler moves all children by -dy).
+ */
+HWND msb_get_bar_hwnd(HMSB h);
+
+/*
+ * msb_set_edge_gap — shift the bar inward from the window edge by `gap` px.
+ * For a vertical bar this moves it left; for horizontal, upward.
+ * Use to make the hint strip slightly more visible against the page background.
+ */
+void msb_set_edge_gap(HMSB h, int gap);
 
 #ifdef __cplusplus
 }

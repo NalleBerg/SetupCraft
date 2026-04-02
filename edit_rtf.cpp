@@ -1631,8 +1631,8 @@ static LRESULT CALLBACK RtfEditorWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
         //    before the right-click subclass passes them on to the RichEdit.
         //    Auto-hide mode (no MSB_NOHIDE): bars stay invisible until content
         //    overflows the viewport, then fade in on hover.
-        st->hSbV = msb_attach(hEdit, MSB_VERTICAL   | MSB_NOHIDE);
-        st->hSbH = msb_attach(hEdit, MSB_HORIZONTAL | MSB_NOHIDE);
+        st->hSbV = msb_attach(hEdit, MSB_VERTICAL);
+        st->hSbH = msb_attach(hEdit, MSB_HORIZONTAL);
 
         if (!pData->initRtf.empty()) {
             RtfEd_StreamIn(hEdit, pData->initRtf);
