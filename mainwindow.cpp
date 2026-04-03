@@ -56,6 +56,10 @@ static HMSB s_hMsbFilesTreeV   = NULL; // Files page - TreeView vertical bar
 static HMSB s_hMsbFilesTreeH   = NULL; // Files page - TreeView horizontal bar
 static HMSB s_hMsbFilesListV   = NULL; // Files page - ListView vertical bar
 static HMSB s_hMsbFilesListH   = NULL; // Files page - ListView horizontal bar
+static HMSB s_hMsbCompTreeV    = NULL; // Components page - TreeView vertical bar
+static HMSB s_hMsbCompTreeH    = NULL; // Components page - TreeView horizontal bar
+static HMSB s_hMsbCompListV    = NULL; // Components page - ListView vertical bar
+static HMSB s_hMsbCompListH    = NULL; // Components page - ListView horizontal bar
 static bool s_hasUnsavedChanges = false;
 static bool s_isNewUnsavedProject = false;
 static HTREEITEM s_rightClickedItem = NULL; // Track which TreeView item was right-clicked
@@ -1572,6 +1576,15 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         s_hPageButton2 = NULL;
     }
     
+    // Detach Components page scrollbars FIRST — before the controlIds[] loop
+    // destroys IDC_COMP_TREEVIEW / IDC_COMP_LISTVIEW.  Destroying those windows
+    // fires WM_DESTROY → Msb_TargetSubclassProc → msb_detach, which frees ctx.
+    // If we called msb_detach again later the freed pointer would be re-used.
+    if (s_hMsbCompTreeV) { msb_detach(s_hMsbCompTreeV); s_hMsbCompTreeV = NULL; }
+    if (s_hMsbCompTreeH) { msb_detach(s_hMsbCompTreeH); s_hMsbCompTreeH = NULL; }
+    if (s_hMsbCompListV) { msb_detach(s_hMsbCompListV); s_hMsbCompListV = NULL; }
+    if (s_hMsbCompListH) { msb_detach(s_hMsbCompListH); s_hMsbCompListH = NULL; }
+
     // Destroy all known control IDs from previous pages
     int controlIds[] = {
         IDC_BROWSE_INSTALL_DIR, IDC_FILES_REMOVE, IDC_PROJECT_NAME, IDC_INSTALL_FOLDER,
@@ -1617,7 +1630,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
             if (!isToolbarBtn) {
                 if (hChild != s_hTreeView && hChild != s_hListView && 
                     hChild != s_hRegTreeView && hChild != s_hRegListView &&
-                    hChild != s_hCompListView &&
+                    hChild != s_hCompListView && hChild != s_hCompTreeView &&
                     hChild != s_hPageButton1 && hChild != s_hPageButton2) {
                     DestroyWindow(hChild);
                 }
@@ -2914,6 +2927,12 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
             col.pszText = (LPWSTR)cType.c_str(); col.cx = S(65);  ListView_InsertColumn(s_hCompListView, colIdx++, &col);
             col.pszText = (LPWSTR)cPath.c_str(); col.cx = listW - S(510 + 20); ListView_InsertColumn(s_hCompListView, colIdx++, &col);
         }
+        // Attach custom scrollbars to the ListView now (before population).
+        if (s_hMsbCompListV) { msb_detach(s_hMsbCompListV); s_hMsbCompListV = NULL; }
+        if (s_hMsbCompListH) { msb_detach(s_hMsbCompListH); s_hMsbCompListH = NULL; }
+        s_hMsbCompListV = msb_attach(s_hCompListView, MSB_VERTICAL);
+        s_hMsbCompListH = msb_attach(s_hCompListView, MSB_HORIZONTAL);
+        if (s_hMsbCompListH) msb_set_edge_gap(s_hMsbCompListH, GetSystemMetrics(SM_CYEDGE) + 2);
 
         // s_components is loaded once when the project opens (MainWindow::Create).
         // On subsequent visits to this page it is used as-is from memory.
@@ -3040,6 +3059,14 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
                     TreeView_SelectItem(s_hCompTreeView, hFirst);
             }
         }
+        // Attach custom scrollbars to the TreeView AFTER full population so
+        // ShowScrollBar(FALSE) inside msb_attach runs last and suppresses the
+        // native bars correctly (TreeView re-enables them during item insertion).
+        if (s_hMsbCompTreeV) { msb_detach(s_hMsbCompTreeV); s_hMsbCompTreeV = NULL; }
+        if (s_hMsbCompTreeH) { msb_detach(s_hMsbCompTreeH); s_hMsbCompTreeH = NULL; }
+        s_hMsbCompTreeV = msb_attach(s_hCompTreeView, MSB_VERTICAL);
+        s_hMsbCompTreeH = msb_attach(s_hCompTreeView, MSB_HORIZONTAL);
+        if (s_hMsbCompTreeH) msb_set_edge_gap(s_hMsbCompTreeH, GetSystemMetrics(SM_CYEDGE) + 2);
 
         break;
     }
@@ -6992,6 +7019,11 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             // Update last (Source Path) column to fill remaining width
             if (s_hCompListView && IsWindow(s_hCompListView))
                 ListView_SetColumnWidth(s_hCompListView, 4, listW - S(510 + 20));
+            // Reposition all four comp bars so they track the new control corners.
+            msb_reposition(s_hMsbCompTreeV);
+            msb_reposition(s_hMsbCompTreeH);
+            msb_reposition(s_hMsbCompListV);
+            msb_reposition(s_hMsbCompListH);
         }
 
         // ── Registry page (index 1) — direct children of hwnd ────────────
@@ -7419,6 +7451,9 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                     ListView_SetItemText(s_hCompListView, lrow, 4, (LPWSTR)vf.sourcePath.c_str());
                 }
             }
+            // Re-suppress native ListView bars that get re-enabled on item insertion.
+            if (s_hMsbCompListV) { ShowScrollBar(s_hCompListView, SB_VERT, FALSE); msb_sync(s_hMsbCompListV); }
+            if (s_hMsbCompListH) { ShowScrollBar(s_hCompListView, SB_HORZ, FALSE); msb_sync(s_hMsbCompListH); }
             return 0;
         }
 

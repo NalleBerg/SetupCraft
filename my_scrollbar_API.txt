@@ -268,7 +268,13 @@
   if (s_hMsbListV) { ShowScrollBar(s_hListView, SB_VERT, FALSE); msb_sync(s_hMsbListV); }
   if (s_hMsbListH) { ShowScrollBar(s_hListView, SB_HORZ, FALSE); msb_sync(s_hMsbListH); }
 
-  // In SwitchPage teardown (before DestroyWindow):
+  // In SwitchPage teardown — BEFORE any DestroyWindow call that targets the
+  // TreeView or ListView.  CRITICAL: if the TV/LV control IDs appear in your
+  // controlIds[] array (or any loop that calls DestroyWindow on children),
+  // msb_detach MUST be called before that loop runs.  DestroyWindow fires
+  // WM_DESTROY → Msb_TargetSubclassProc → internal msb_detach, freeing the
+  // ctx.  An explicit msb_detach afterward then reuses the freed memory →
+  // heap corruption → crash seconds later.  (Components page crash, 2026-04-03.)
   if (s_hMsbTreeV) { msb_detach(s_hMsbTreeV); s_hMsbTreeV = NULL; }
   if (s_hMsbTreeH) { msb_detach(s_hMsbTreeH); s_hMsbTreeH = NULL; }
   if (s_hMsbListV) { msb_detach(s_hMsbListV); s_hMsbListV = NULL; }
