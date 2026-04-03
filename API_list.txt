@@ -145,7 +145,8 @@
                                     measurement, EM_SETRECT format-rect management,
                                     EM_SHOWSCROLLBAR suppression); typical wiring
                                     pattern for V+H dual-attach.  Status: complete
-                                    and fully working as of 2026-04-03.
+                                    and fully working as of 2026-04-03. ListView
+                                    live drag fixed (LVM_SCROLL delta path).
 
   scrollbar_custom_make.txt         Build plan for my_scrollbar.h / my_scrollbar.cpp
                                     — 9-phase custom Win32 scrollbar. All phases DONE.

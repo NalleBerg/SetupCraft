@@ -1035,6 +1035,11 @@ static LRESULT CALLBACK Msb_BarWndProc(HWND hwnd, UINT msg,
                     UINT smsg = vert ? WM_VSCROLL : WM_HSCROLL;
                     SendMessageW(ctx->hTarget, smsg,
                                  MAKEWPARAM(SB_THUMBTRACK, (WORD)newPos), 0);
+                } else if (ctx->isListView) {
+                    /* ListView scrolls via LVM_SCROLL (pixel delta) —
+                     * SetScrollInfo+SB_THUMBTRACK zeroes the delta because
+                     * ListView reads nPos AFTER we already updated it. */
+                    Msb_ScrollToPos(ctx, newPos);
                 } else {
                     /* For ListView/TreeView: set the SCROLLINFO position first so
                      * the control knows the target row/pixel, then send
@@ -1109,10 +1114,17 @@ static LRESULT CALLBACK Msb_BarWndProc(HWND hwnd, UINT msg,
             if (ctx->dragging) {
                 ctx->dragging = FALSE;
                 BOOL vert     = !(ctx->flags & MSB_HORIZONTAL);
-                UINT smsg     = vert ? WM_VSCROLL : WM_HSCROLL;
-                SendMessageW(ctx->hTarget, smsg,
-                             MAKEWPARAM(SB_THUMBPOSITION, (WORD)ctx->dragCurPos), 0);
-                SendMessageW(ctx->hTarget, smsg, MAKEWPARAM(SB_ENDSCROLL, 0), 0);
+                if (ctx->isListView) {
+                    /* Commit final drag position via LVM_SCROLL delta — same
+                     * path as live drag, avoids SB_THUMBPOSITION row/pixel
+                     * confusion on ListView. */
+                    Msb_ScrollToPos(ctx, ctx->dragCurPos);
+                } else {
+                    UINT smsg = vert ? WM_VSCROLL : WM_HSCROLL;
+                    SendMessageW(ctx->hTarget, smsg,
+                                 MAKEWPARAM(SB_THUMBPOSITION, (WORD)ctx->dragCurPos), 0);
+                    SendMessageW(ctx->hTarget, smsg, MAKEWPARAM(SB_ENDSCROLL, 0), 0);
+                }
                 Msb_Layout(ctx);
             }
             /* Reset arrow/thumb states; restore hover if cursor is still in bar */

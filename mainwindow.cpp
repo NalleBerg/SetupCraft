@@ -285,6 +285,8 @@ static bool s_filesPageHasContent = false; // tracks whether Files page has any 
 #define IDC_INSTALL_FOLDER  5026
 // Ask-at-install checkbox
 #define IDC_ASK_AT_INSTALL  5027
+// Remove-hint label (below Remove button, above split pane)
+#define IDC_FILES_HINT      5028
 
 // Context menu IDs
 #define IDM_TREEVIEW_ADD_FOLDER 5030
@@ -1573,6 +1575,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
     // Destroy all known control IDs from previous pages
     int controlIds[] = {
         IDC_BROWSE_INSTALL_DIR, IDC_FILES_REMOVE, IDC_PROJECT_NAME, IDC_INSTALL_FOLDER,
+        IDC_FILES_HINT,
         IDC_REG_CHECKBOX, IDC_REG_ICON_PREVIEW, IDC_REG_ADD_ICON, IDC_REG_DISPLAY_NAME,
         IDC_REG_VERSION, IDC_REG_PUBLISHER, IDC_REG_ADD_KEY, IDC_REG_ADD_VALUE, IDC_REG_EDIT, IDC_REG_REMOVE, IDC_REG_BACKUP,
         IDC_REG_SHOW_REGKEY, IDC_REG_WARNING_ICON, IDC_REG_TREEVIEW, IDC_REG_LISTVIEW,
@@ -1810,7 +1813,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
             HWND hHint = CreateWindowExW(0, L"STATIC", hintText.c_str(),
                 WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
                 S(20), s_toolbarHeight + S(138), rc.right - S(40), S(18),
-                hwnd, NULL, hInst, NULL);
+                hwnd, (HMENU)IDC_FILES_HINT, hInst, NULL);
             if (s_scaledFont) SendMessageW(hHint, WM_SETFONT, (WPARAM)s_scaledFont, TRUE);
         }
 
@@ -6905,6 +6908,79 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             const int iconY = (s_toolbarHeight - iconSize) / 2;
             SetWindowPos(s_hAboutButton, NULL, iconX, iconY, 0, 0, SWP_NOZORDER | SWP_NOSIZE);
         }
+
+        // ── Files page (index 0) — direct children of hwnd ──────────────
+        if (s_currentPageIndex == 0 && s_hTreeView && IsWindow(s_hTreeView)) {
+            int pageHeight = rc.bottom - s_toolbarHeight - 25;
+            int viewTop    = S(165);
+            int viewHeight = pageHeight - S(175);
+            int treeWidth  = (int)((rc.right - S(50)) * 0.3);
+            int listWidth  = (rc.right - S(50)) - treeWidth - S(5);
+
+            HDWP hdwp = BeginDeferWindowPos(7);
+            auto DeferCtrl = [&](HWND h, int x, int y, int w, int hh) {
+                if (h && IsWindow(h))
+                    hdwp = DeferWindowPos(hdwp, h, NULL, x, y, w, hh,
+                                        SWP_NOZORDER | SWP_NOACTIVATE);
+            };
+            // Stretch title and right-edge controls
+            DeferCtrl(GetDlgItem(hwnd, 5100),
+                      S(20), s_toolbarHeight + S(15), rc.right - S(40), S(38));
+            DeferCtrl(GetDlgItem(hwnd, IDC_PROJECT_NAME),
+                      S(395), s_toolbarHeight + S(55), rc.right - S(460), S(22));
+            DeferCtrl(GetDlgItem(hwnd, IDC_INSTALL_FOLDER),
+                      S(395), s_toolbarHeight + S(82), rc.right - S(460), S(22));
+            DeferCtrl(GetDlgItem(hwnd, IDC_BROWSE_INSTALL_DIR),
+                      rc.right - S(55), s_toolbarHeight + S(82), S(35), S(22));
+            DeferCtrl(GetDlgItem(hwnd, IDC_FILES_HINT),
+                      S(20), s_toolbarHeight + S(138), rc.right - S(40), S(18));
+            // Split panes
+            DeferCtrl(s_hTreeView,
+                      S(20), s_toolbarHeight + viewTop, treeWidth, viewHeight);
+            DeferCtrl(s_hListView,
+                      S(20) + treeWidth + S(5), s_toolbarHeight + viewTop, listWidth, viewHeight);
+            EndDeferWindowPos(hdwp);
+
+            // ListView column widths (proportional)
+            if (s_hListView && IsWindow(s_hListView)) {
+                ListView_SetColumnWidth(s_hListView, 0, (int)(listWidth * 0.55));
+                ListView_SetColumnWidth(s_hListView, 1, (int)(listWidth * 0.45));
+            }
+        }
+
+        // ── Components page (index 9) — direct children of hwnd ─────────
+        if (s_currentPageIndex == 9 && s_hCompTreeView && IsWindow(s_hCompTreeView)) {
+            int pageHeight = rc.bottom - s_toolbarHeight - 25;
+            int splitY     = s_toolbarHeight + S(178);
+            int splitH     = pageHeight - S(185);
+            int totalW     = rc.right - S(40);
+            int treeW      = S(270); // fixed-width left pane
+            int listX      = S(20) + treeW + S(8);
+            int listW      = totalW - treeW - S(8);
+
+            HDWP hdwp = BeginDeferWindowPos(5);
+            auto DeferCtrl = [&](HWND h, int x, int y, int w, int hh) {
+                if (h && IsWindow(h))
+                    hdwp = DeferWindowPos(hdwp, h, NULL, x, y, w, hh,
+                                        SWP_NOZORDER | SWP_NOACTIVATE);
+            };
+            DeferCtrl(GetDlgItem(hwnd, 5100),
+                      S(20), s_toolbarHeight + S(15), rc.right - S(40), S(38));
+            DeferCtrl(GetDlgItem(hwnd, IDC_COMP_ENABLE),
+                      S(20), s_toolbarHeight + S(60), rc.right - S(40), S(28));
+            DeferCtrl(GetDlgItem(hwnd, IDC_COMP_INFO_ICON),
+                      rc.right - S(20) - S(26), s_toolbarHeight + S(93), S(26), S(26));
+            DeferCtrl(s_hCompTreeView,
+                      S(20), splitY, treeW, splitH);
+            DeferCtrl(s_hCompListView,
+                      listX, splitY, listW, splitH);
+            EndDeferWindowPos(hdwp);
+
+            // Update last (Source Path) column to fill remaining width
+            if (s_hCompListView && IsWindow(s_hCompListView))
+                ListView_SetColumnWidth(s_hCompListView, 4, listW - S(510 + 20));
+        }
+
         return 0;
     }
     
