@@ -40,14 +40,22 @@
     Last-line margin   ✓  Survives all scroll events via EM_SETRECT re-apply.
     Instant paste sync ✓  msb_notify_content_changed syncs both bars.
     Top-level targets  ✓  Correct coordinate mapping via GetParent(hBar).
-    Page scrollbar     ✓  Dialogs page; msb_set_insets / msb_set_edge_gap.
+    Page scrollbar     ✓  Dialogs page; msb_set_insets / msb_set_edge_gap;
+                          WM_SIZE updates SCROLLINFO + calls msb_sync so bar
+                          hides when content fits and returns when window shrinks.
     ListView V+H       ✓  Uses LVM_SCROLL (pixel delta); vertical delta
                           multiplied by row height from ListView_GetItemRect.
+                          Column widths based on GetClientRect width (not window
+                          width) to avoid false H-bar overflow from border gap.
     TreeView V+H       ✓  Live drag sends SetScrollInfo + SB_THUMBTRACK;
                           SB_THUMBPOSITION sent only on mouse-up. Visibility
                           guard (Msb_UpdateVisibilityGuarded) prevents transient
                           zero scroll-range from hiding the bar. H-bar sits
                           SM_CYEDGE+2 px above the nc border via msb_set_edge_gap.
+    Resize reposition  ✓  msb_reposition() re-derives bar position + visibility
+                          from target's current client rect; called from WM_SIZE.
+                          Msb_HideNativeBar called before Msb_PositionBar so
+                          native gutter cannot distort the client height.
 
 
 2. INCLUDE AND LINK
@@ -123,6 +131,29 @@
 
     Calling on either bar (V or H) is equivalent — both caches are cleared
     and both bars are synced.
+
+  ── msb_reposition ──────────────────────────────────────────────────────────
+  void msb_reposition(HMSB h);
+
+    Re-derive the bar position from the target's current client-rect corners
+    and update visibility.  Designed for explicit window-resize events where
+    the target's size has changed and the bar must track the new edges.
+
+    Differs from msb_sync in two ways:
+      1. Calls Msb_PositionBar (moves the bar window to the new edge location).
+      2. Uses the unguarded visibility check (Msb_UpdateVisibility) so the bar
+         is hidden if content genuinely fits after the resize — unlike
+         msb_sync which also uses Msb_UpdateVisibility — but msb_reposition
+         is the correct entry point from WM_SIZE because it also repositions.
+
+    Call from WM_SIZE after EndDeferWindowPos for all four bars:
+
+      msb_reposition(s_hMsbFilesTreeV);
+      msb_reposition(s_hMsbFilesTreeH);
+      msb_reposition(s_hMsbFilesListV);
+      msb_reposition(s_hMsbFilesListH);
+
+    Safe to call with NULL.
 
   ── msb_set_insets ──────────────────────────────────────────────────────────
   void msb_set_insets(HMSB h, int insetNear, int insetFar);

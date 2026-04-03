@@ -16,6 +16,7 @@ mainwindow.cpp knows nothing about the page internals.  It only:
   4. Routes WM_NOTIFY          → SC_OnNotify()
   5. Routes WM_COMMAND         → SC_OnCommand()
   6. Routes WM_CONTEXTMENU     → SC_OnContextMenu()
+  7. Calls SC_OnResize()       from WM_SIZE when the Shortcuts page is active
 
 ── File-scope statics ───────────────────────────────────────────────────────────
 

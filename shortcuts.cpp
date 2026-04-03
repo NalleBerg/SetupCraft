@@ -84,6 +84,9 @@ static HFONT s_hScPinCbFont = NULL;  // font reused by pin strip checkboxes (cre
 // and SC_RefreshPinStrips to place newly created controls at the correct Y.
 static int s_scScrollOffset = 0;
 
+// HINSTANCE stored at SC_BuildPage time so SC_OnResize can call SC_Refresh*.
+static HINSTANCE s_scHInst = NULL;
+
 // ── SC_Reset ──────────────────────────────────────────────────────────────────
 
 void SC_Reset()
@@ -689,6 +692,8 @@ int SC_BuildPage(HWND hwnd, HINSTANCE hInst, int pageY, int clientWidth,
                  HFONT hPageTitleFont, HFONT hGuiFont,
                  const std::map<std::wstring, std::wstring>& locale)
 {
+    s_scHInst = hInst;  // saved for SC_OnResize
+
     // Handy locale lookup with English fallback.
     auto loc = [&](const wchar_t* key, const wchar_t* fallback) -> std::wstring {
         auto it = locale.find(key);
@@ -1144,6 +1149,118 @@ void SC_TearDown(HWND hwnd)
 // dynamically created controls at the correct physical Y position.
 void SC_SetScrollOffset(int off) { s_scScrollOffset = off; }
 int  SC_GetScrollOffset()        { return s_scScrollOffset; }
+
+// ── SC_OnResize ───────────────────────────────────────────────────────────────
+
+void SC_OnResize(HWND hwnd, int newWidth)
+{
+    if (!s_hScStartMenuTree || !IsWindow(s_hScStartMenuTree)) return;
+
+    // Same column formulas as SC_BuildPage.
+    int colW  = newWidth / 3;
+    int col2W = newWidth - 2 * colW;
+    int col0X = 0;
+    int col1X = colW;
+    int col2X = colW * 2;
+    const int iconSz = S(64);
+    const int btnGap = S(6);
+
+    // Tree width is fixed (driven by button text widths); just re-center it.
+    RECT rcTr; GetWindowRect(s_hScStartMenuTree, &rcTr);
+    int treeW = rcTr.right - rcTr.left;
+    int treeX = (newWidth - treeW) / 2;
+
+    // Helper: reposition a control to a new x/width keeping its current y/h.
+    HDWP hdwp = BeginDeferWindowPos(20);
+
+    auto DeferX = [&](HWND h, int x, int w) {
+        if (!h || !IsWindow(h)) return;
+        RECT r; GetWindowRect(h, &r);
+        MapWindowPoints(HWND_DESKTOP, hwnd, (POINT*)&r, 2);
+        hdwp = DeferWindowPos(hdwp, h, NULL, x, r.top, w, r.bottom - r.top,
+                               SWP_NOZORDER | SWP_NOACTIVATE);
+    };
+
+    // Page title (5300)
+    DeferX(GetDlgItem(hwnd, 5300), S(20), newWidth - S(40));
+
+    // 3-column headings
+    DeferX(GetDlgItem(hwnd, 5302), col0X, colW);
+    DeferX(GetDlgItem(hwnd, 5303), col1X, colW);
+    DeferX(GetDlgItem(hwnd, 5304), col2X, col2W);
+
+    // 64×64 icon buttons — re-centre within each column
+    DeferX(GetDlgItem(hwnd, IDC_SC_DESKTOP_BTN),    col0X + (colW  - iconSz) / 2, iconSz);
+    DeferX(GetDlgItem(hwnd, IDC_SC_PINSTART_BTN),   col1X + (colW  - iconSz) / 2, iconSz);
+    DeferX(GetDlgItem(hwnd, IDC_SC_PINTASKBAR_BTN), col2X + (col2W - iconSz) / 2, iconSz);
+
+    // Opt-out checkboxes — keep current width, re-centre in column
+    auto DeferCbCenter = [&](HWND h, int cx, int cw) {
+        if (!h || !IsWindow(h)) return;
+        RECT r; GetWindowRect(h, &r);
+        MapWindowPoints(HWND_DESKTOP, hwnd, (POINT*)&r, 2);
+        int cbW = r.right - r.left;
+        hdwp = DeferWindowPos(hdwp, h, NULL, cx + (cw - cbW) / 2, r.top,
+                               cbW, r.bottom - r.top, SWP_NOZORDER | SWP_NOACTIVATE);
+    };
+    DeferCbCenter(GetDlgItem(hwnd, IDC_SC_DESKTOP_OPT), col0X, colW);
+    DeferCbCenter(GetDlgItem(hwnd, IDC_SC_SM_PIN_OPT),  col1X, colW);
+    DeferCbCenter(GetDlgItem(hwnd, IDC_SC_TB_PIN_OPT),  col2X, col2W);
+
+    // "Start Menu" section label (5301) — centred over tree
+    DeferX(GetDlgItem(hwnd, 5301), treeX, treeW);
+
+    // Start Menu TreeView
+    {
+        RECT r; GetWindowRect(s_hScStartMenuTree, &r);
+        MapWindowPoints(HWND_DESKTOP, hwnd, (POINT*)&r, 2);
+        hdwp = DeferWindowPos(hdwp, s_hScStartMenuTree, NULL, treeX, r.top,
+                               treeW, r.bottom - r.top, SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+
+    // Action buttons under the tree — keep their heights, re-anchor to treeX
+    {
+        HWND hAdd  = GetDlgItem(hwnd, IDC_SC_SM_ADD);
+        HWND hAddSc = GetDlgItem(hwnd, IDC_SC_SM_ADDSC);
+        HWND hRem  = GetDlgItem(hwnd, IDC_SC_SM_REMOVE);
+        if (hAdd && IsWindow(hAdd) && hAddSc && hRem) {
+            RECT rA; GetWindowRect(hAdd,   &rA);
+            RECT rS; GetWindowRect(hAddSc, &rS);
+            RECT rR; GetWindowRect(hRem,   &rR);
+            int addW2  = rA.right - rA.left;
+            int scBtnW = rS.right - rS.left;
+            int remW2  = rR.right - rR.left;
+            MapWindowPoints(HWND_DESKTOP, hwnd, (POINT*)&rA, 2);
+            int btnY = rA.top;
+            int btnH = rA.bottom - rA.top;
+            hdwp = DeferWindowPos(hdwp, hAdd,   NULL,
+                treeX, btnY, addW2, btnH, SWP_NOZORDER | SWP_NOACTIVATE);
+            hdwp = DeferWindowPos(hdwp, hAddSc, NULL,
+                treeX + addW2 + btnGap, btnY, scBtnW, btnH, SWP_NOZORDER | SWP_NOACTIVATE);
+            hdwp = DeferWindowPos(hdwp, hRem,   NULL,
+                treeX + addW2 + btnGap + scBtnW + btnGap, btnY,
+                remW2, btnH, SWP_NOZORDER | SWP_NOACTIVATE);
+        }
+    }
+
+    EndDeferWindowPos(hdwp);
+
+    // Update stored column layout coords so SC_Refresh* creates controls in the
+    // right columns the next time they're called.
+    s_scDskCol0X  = col0X;
+    s_scDskColW   = colW;
+    s_scSmPinColX = col1X;
+    s_scSmPinColW = colW;
+    s_scTbPinColX = col2X;
+    s_scTbPinColW = col2W;
+
+    // Re-create the dynamic strip controls (desktop mini-icons, pin checkboxes)
+    // at the new column positions.
+    if (s_scHInst) {
+        SC_RefreshDesktopStrip(hwnd, s_scHInst);
+        SC_RefreshPinStrips(hwnd, s_scHInst);
+    }
+}
 
 // ── SC_OnNotify ───────────────────────────────────────────────────────────────
 

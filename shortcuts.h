@@ -145,6 +145,10 @@ int  SC_GetScrollOffset();
 // Call from SwitchPage's generic teardown block.
 void SC_TearDown(HWND hwnd);
 
+// Reposition all Shortcuts page controls to match a new client width.
+// Call from WM_SIZE when s_currentPageIndex == 2.
+void SC_OnResize(HWND hwnd, int newClientWidth);
+
 // Route WM_NOTIFY messages from WndProc.
 //   handled (out) — set to true when the notification was consumed.
 //   returns       — the LRESULT the WndProc should return when *handled is true.

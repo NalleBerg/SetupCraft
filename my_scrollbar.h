@@ -136,6 +136,16 @@ HWND msb_get_bar_hwnd(HMSB h);
  */
 void msb_set_edge_gap(HMSB h, int gap);
 
+/*
+ * msb_reposition — re-derive the bar's position and size from the target
+ * window's current client rect (via ClientToScreen / GetClientRect) and
+ * recompute the thumb from the current SCROLLINFO.  Call this explicitly
+ * after any programmatic resize of the target (e.g. after DeferWindowPos /
+ * SetWindowPos on the target) to guarantee the bar tracks the target's new
+ * corners immediately, without relying on the target's own WM_SIZE delivery.
+ */
+void msb_reposition(HMSB h);
+
 #ifdef __cplusplus
 }
 #endif

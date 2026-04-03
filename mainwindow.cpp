@@ -1606,8 +1606,11 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         GetWindowRect(hChild, &rcChild);
         MapWindowPoints(HWND_DESKTOP, hwnd, (POINT*)&rcChild, 2);
         
-        // If child is in page area (not toolbar or status bar), destroy it
-        if (rcChild.top > s_toolbarHeight && rcChild.bottom < rcClient.bottom - 25) {
+        // Destroy any child that is at least partially below the toolbar.
+        // The old check required rcChild.top > s_toolbarHeight, which missed
+        // controls scrolled upward by the Dialogs/Shortcuts scroll handler
+        // (their top goes to or above the toolbar but bottom is still visible).
+        if (rcChild.bottom > s_toolbarHeight) {
             // Skip toolbar buttons and known handles
             int childId = GetDlgCtrlID(hChild);
             bool isToolbarBtn = (childId >= IDC_TB_FILES && childId <= IDC_TB_ABOUT) || childId == IDC_TB_DIALOGS || childId == IDC_TB_COMPONENTS || childId == IDC_TB_EXIT || childId == IDC_TB_CLOSE_PROJECT;
@@ -1931,12 +1934,14 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         
         LVCOLUMNW col = {};
         col.mask = LVCF_TEXT | LVCF_WIDTH;
-        col.cx = (int)(listWidth * 0.55);
-        col.pszText = (LPWSTR)L"Source Path";
-        ListView_InsertColumn(s_hListView, 0, &col);
-        col.cx = (int)(listWidth * 0.45);
-        col.pszText = (LPWSTR)L"Destination";
-        ListView_InsertColumn(s_hListView, 1, &col);
+        { RECT rcLv = {}; GetClientRect(s_hListView, &rcLv);
+          int lvCW = rcLv.right > 0 ? rcLv.right : listWidth;
+          col.cx = (int)(lvCW * 0.55);
+          col.pszText = (LPWSTR)L"Source Path";
+          ListView_InsertColumn(s_hListView, 0, &col);
+          col.cx = lvCW - col.cx;
+          col.pszText = (LPWSTR)L"Destination";
+          ListView_InsertColumn(s_hListView, 1, &col); }
         // Attach custom hidden scrollbars to the ListView.
         s_hMsbFilesListV = msb_attach(s_hListView, MSB_VERTICAL);
         s_hMsbFilesListH = msb_attach(s_hListView, MSB_HORIZONTAL);
@@ -6941,11 +6946,19 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                       S(20) + treeWidth + S(5), s_toolbarHeight + viewTop, listWidth, viewHeight);
             EndDeferWindowPos(hdwp);
 
-            // ListView column widths (proportional)
+            // ListView column widths (proportional to client area, not window width)
             if (s_hListView && IsWindow(s_hListView)) {
-                ListView_SetColumnWidth(s_hListView, 0, (int)(listWidth * 0.55));
-                ListView_SetColumnWidth(s_hListView, 1, (int)(listWidth * 0.45));
+                RECT rcLv = {}; GetClientRect(s_hListView, &rcLv);
+                int lvCW = rcLv.right > 0 ? rcLv.right : listWidth;
+                int col0W = (int)(lvCW * 0.55);
+                ListView_SetColumnWidth(s_hListView, 0, col0W);
+                ListView_SetColumnWidth(s_hListView, 1, lvCW - col0W);
             }
+            // Reposition all four bars so they track the new control corners.
+            msb_reposition(s_hMsbFilesTreeV);
+            msb_reposition(s_hMsbFilesTreeH);
+            msb_reposition(s_hMsbFilesListV);
+            msb_reposition(s_hMsbFilesListH);
         }
 
         // ── Components page (index 9) — direct children of hwnd ─────────
@@ -7035,6 +7048,95 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             MoveY(GetDlgItem(hwnd, IDC_REG_ADD_VALUE),  btnY);
             MoveY(GetDlgItem(hwnd, IDC_REG_EDIT),       btnY);
             MoveY(GetDlgItem(hwnd, IDC_REG_REMOVE),     btnY);
+        }
+
+        // ── Dependencies page (index 3) ── direct children of hwnd ──────
+        if (s_currentPageIndex == 3) {
+            HWND hDepList  = GetDlgItem(hwnd, IDC_DEP_LIST);
+            HWND hDepTitle = GetDlgItem(hwnd, IDC_DEP_PAGE_TITLE);
+            if (hDepList && IsWindow(hDepList)) {
+                RECT rl; GetWindowRect(hDepList, &rl);
+                MapWindowPoints(HWND_DESKTOP, hwnd, (POINT*)&rl, 2);
+                int listH = rc.bottom - rl.top - S(25) - S(5);
+                if (listH < S(60)) listH = S(60);
+                int w = rc.right - S(40);
+
+                HDWP hdwp = BeginDeferWindowPos(2);
+                if (hDepTitle && IsWindow(hDepTitle)) {
+                    RECT rt; GetWindowRect(hDepTitle, &rt);
+                    MapWindowPoints(HWND_DESKTOP, hwnd, (POINT*)&rt, 2);
+                    hdwp = DeferWindowPos(hdwp, hDepTitle, NULL, rt.left, rt.top,
+                                          w, rt.bottom - rt.top, SWP_NOZORDER | SWP_NOACTIVATE);
+                }
+                hdwp = DeferWindowPos(hdwp, hDepList, NULL, rl.left, rl.top,
+                                      w, listH, SWP_NOZORDER | SWP_NOACTIVATE);
+                EndDeferWindowPos(hdwp);
+
+                // ListView column widths (proportional, matching DEP_BuildPage)
+                ListView_SetColumnWidth(hDepList, 0, (int)(w * 0.35));
+                ListView_SetColumnWidth(hDepList, 1, (int)(w * 0.22));
+                ListView_SetColumnWidth(hDepList, 2, (int)(w * 0.18));
+                ListView_SetColumnWidth(hDepList, 3,
+                    w - (int)(w*0.35) - (int)(w*0.22) - (int)(w*0.18));
+            }
+        }
+
+        // ── Shortcuts page (index 2) ── delegated to shortcuts module ────
+        if (s_currentPageIndex == 2)
+            SC_OnResize(hwnd, rc.right);
+
+        // ── Dialogs page (index 4) ── update scroll range then sync bar ──
+        if (s_currentPageIndex == 4 && s_hMsbIdlg) {
+            int statusH = 25;
+            if (s_hStatus && IsWindow(s_hStatus)) {
+                RECT rcSB; GetWindowRect(s_hStatus, &rcSB);
+                statusH = rcSB.bottom - rcSB.top;
+            }
+            int pageY    = s_toolbarHeight;
+            int viewH    = rc.bottom - pageY - statusH;
+            int contentH = s_idlgPageContentH - pageY + S(15);
+
+            SCROLLINFO si = {};
+            si.cbSize = sizeof(si);
+            si.fMask  = SIF_RANGE | SIF_PAGE | SIF_POS | SIF_DISABLENOSCROLL;
+            si.nMin   = 0;
+            si.nMax   = std::max(contentH - 1, viewH);
+            si.nPage  = (UINT)viewH;
+            /* Retrieve old position so we can clamp if window grew. */
+            SCROLLINFO siOld = {}; siOld.cbSize = sizeof(siOld); siOld.fMask = SIF_POS;
+            GetScrollInfo(hwnd, SB_VERT, &siOld);
+            int maxPos = std::max(0, contentH - viewH);
+            int newPos = std::min(siOld.nPos, maxPos);
+            si.nPos = newPos;
+            SetScrollInfo(hwnd, SB_VERT, &si, FALSE);
+
+            /* If the scroll position had to change (window grew past content),
+             * shift all page controls back up to compensate. */
+            if (newPos != siOld.nPos) {
+                int dy = newPos - siOld.nPos; // negative → controls move up (back toward 0)
+                HWND hMsbBar = msb_get_bar_hwnd(s_hMsbIdlg);
+                HWND hC = GetWindow(hwnd, GW_CHILD);
+                while (hC) {
+                    HWND hN = GetWindow(hC, GW_HWNDNEXT);
+                    if (hC != s_hStatus && hC != s_hAboutButton && hC != hMsbBar) {
+                        int cid = GetDlgCtrlID(hC);
+                        bool isTB = (cid >= IDC_TB_FILES && cid <= IDC_TB_ABOUT) ||
+                                     cid == IDC_TB_DIALOGS || cid == IDC_TB_COMPONENTS ||
+                                     cid == IDC_TB_EXIT    || cid == IDC_TB_CLOSE_PROJECT;
+                        if (!isTB) {
+                            RECT rcC; GetWindowRect(hC, &rcC);
+                            MapWindowPoints(HWND_DESKTOP, hwnd, (POINT*)&rcC, 2);
+                            SetWindowPos(hC, NULL, rcC.left, rcC.top - dy, 0, 0,
+                                         SWP_NOZORDER | SWP_NOSIZE | SWP_NOACTIVATE);
+                        }
+                    }
+                    hC = hN;
+                }
+                IDLG_SetScrollOffset(newPos);
+            }
+
+            /* Sync bar: hides when content fits, shows when it overflows. */
+            msb_sync(s_hMsbIdlg);
         }
 
         return 0;

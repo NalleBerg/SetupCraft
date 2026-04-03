@@ -1284,14 +1284,18 @@ static LRESULT CALLBACK Msb_TargetSubclassProc(HWND hwnd, UINT msg,
     switch (msg) {
         case WM_SIZE: {
             LRESULT r = CallWindowProcW(any->origProc, hwnd, msg, wParam, lParam);
+            /* Suppress native bars FIRST: the target may re-show them during its
+             * own WM_SIZE (TreeView/ListView re-enable native bars when content
+             * overflows).  Hiding them now guarantees GetClientRect returns the
+             * full client rect — not reduced by a native scrollbar gutter —
+             * before Msb_PositionBar reads it. */
+            if (ctxV) Msb_HideNativeBar(hwnd, ctxV->isRichEdit, TRUE);
+            if (ctxH) Msb_HideNativeBar(hwnd, ctxH->isRichEdit, FALSE);
             if (ctxV) { Msb_UpdateVisibilityGuarded(ctxV); Msb_PositionBar(ctxV); Msb_Layout(ctxV); InvalidateRect(ctxV->hBar, NULL, FALSE); }
             if (ctxH) { Msb_UpdateVisibilityGuarded(ctxH); Msb_PositionBar(ctxH); Msb_Layout(ctxH); InvalidateRect(ctxH->hBar, NULL, FALSE); }
             /* Keep the RichEdit format rect inside the bar edges so the last
              * line is scrollable fully above the H bar. */
             if (any->isRichEdit) Msb_ApplyRichFormatRect(hwnd);
-            /* RichEdit may re-show native bars after resize — suppress again. */
-            if (ctxV) Msb_HideNativeBar(hwnd, ctxV->isRichEdit, TRUE);
-            if (ctxH) Msb_HideNativeBar(hwnd, ctxH->isRichEdit, FALSE);
             return r;
         }
 
@@ -1649,6 +1653,24 @@ void msb_sync(HMSB h)
     if (!(ctx->flags & MSB_NOHIDE)) {
         if (!Msb_UpdateVisibility(ctx)) return;  /* bar hidden — nothing to paint */
     }
+    Msb_Layout(ctx);
+    InvalidateRect(ctx->hBar, NULL, FALSE);
+    UpdateWindow(ctx->hBar);
+}
+
+void msb_reposition(HMSB h)
+{
+    if (!h) return;
+    MsbCtx* ctx = (MsbCtx*)h;
+    if (!ctx->hBar || !IsWindow(ctx->hBar)) return;
+    if (!ctx->hTarget || !IsWindow(ctx->hTarget)) return;
+    /* This is called from an explicit resize (WM_SIZE), not from a transient
+     * scroll event, so use the unguarded visibility check.  If content
+     * genuinely fits after the resize, hide the bar. */
+    if (!Msb_UpdateVisibility(ctx)) return;  /* bar hidden — nothing to do */
+    /* Re-position from the target's current client rect corners. */
+    Msb_PositionBar(ctx);
+    /* Recompute thumb from fresh SCROLLINFO. */
     Msb_Layout(ctx);
     InvalidateRect(ctx->hBar, NULL, FALSE);
     UpdateWindow(ctx->hBar);

@@ -2,10 +2,20 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
-## [2026.04.03.08] - 2026-04-03
+## [2026.04.03.09] - 2026-04-03
+
+### Added
+- **`msb_reposition(HMSB)`** — new public `my_scrollbar` API. Re-derives the bar position from the target's current client-rect corners at call time, runs the unguarded visibility check (hides the bar if content fits, shows it if not), then calls `Msb_PositionBar` + `Msb_Layout` + redraw. Designed for explicit resize events where content may genuinely fit after the resize.
 
 ### Fixed
-- **Registry page did not resize with the window**: The Registry page builds its TreeView and ListView as direct children of the main window. `WM_SIZE` would only apply the new geometry when leaving and re-entering the page. Extended `WM_SIZE` to immediately recompute and reposition all variable-width controls (title, edit fields, divider line, right-anchored backup button and warning icon) and resize the TreeView/ListView split pane via `DeferWindowPos`. Bottom action buttons follow the pane bottom. ListView column widths updated proportionally.
+- **Registry page did not resize with the window**: Extended `WM_SIZE` to immediately reposition all variable-width controls (title, edit fields, divider, right-anchored backup button and warning icon) and resize the TreeView/ListView split pane via `DeferWindowPos`. Bottom action buttons follow the pane bottom. ListView column widths updated proportionally.
+- **Dependencies page did not resize with the window**: Extended `WM_SIZE` to reposition the page title and stretch the ListView to fill the available height and width. All four ListView column widths updated proportionally on every resize.
+- **Shortcuts page did not resize with the window**: Added `SC_OnResize(hwnd, newClientWidth)`, called from `WM_SIZE`. Re-centres the three column headings and icon buttons, repositions opt-out checkboxes, start-menu label, TreeView, and action buttons to the new column boundaries. Updates the column-width state variables used by the desktop and pin-strip refresh paths.
+- **Files page H-bar visible with an empty or fully-visible ListView**: Column widths were based on the window-space pane width, slightly exceeding the ListView client area (narrower by the border thickness), producing a permanent false overflow. Fixed by using `GetClientRect(s_hListView).right` for column sizing in both the initial build and every `WM_SIZE` resize.
+- **Files page H-bar and V-bar at different heights after resize**: In the target's subclassed `WM_SIZE`, `Msb_HideNativeBar` was called *after* `Msb_PositionBar`. If the control had re-enabled its native scrollbar during `CallWindowProcW`, the native gutter reduced the client height seen by `Msb_PositionBar`, placing the H-bar lower. Fixed by calling `Msb_HideNativeBar` first so `GetClientRect` returns the full client dimensions.
+- **Files page scrollbars did not reposition after window resize**: `msb_reposition` is now called from `WM_SIZE` for all four Files page bars after the `DeferWindowPos` block.
+- **Dialogs page scrollbar stayed visible after maximising; did not return when downsizing**: `WM_SIZE` never updated the `SCROLLINFO` for the Dialogs bar, so `Msb_ContentOverflows` read stale values from page build time. Added a Dialogs `WM_SIZE` block that recalculates viewport/content height, updates `SetScrollInfo`, clamps the scroll position (slides controls back if the window grew past the content bottom), and calls `msb_sync` to hide or show the bar immediately.
+- **SwitchPage leaked scrolled-away controls into the next page**: Child-window teardown filtered with `rcChild.top > s_toolbarHeight`. Controls scrolled above the toolbar had `rcChild.top < s_toolbarHeight` and were never destroyed, surviving into the next page. Fixed by changing the condition to `rcChild.bottom > s_toolbarHeight`.
 
 ## [2026.04.03.07] - 2026-04-03
 
