@@ -29,7 +29,7 @@
   • DPI-aware: all pixel values go through S() internally; works at any DPI.
   • No SetupCraft dependencies — only <windows.h>.
 
-  Status (2026-04-02)
+  Status (2026-04-03)
   ────────────────────
     Thumb drag         ✓  Works correctly.
     Arrow click        ✓  Works correctly (auto-repeat, 350 ms / 50 ms).
@@ -43,9 +43,11 @@
     Page scrollbar     ✓  Dialogs page; msb_set_insets / msb_set_edge_gap.
     ListView V+H       ✓  Uses LVM_SCROLL (pixel delta); vertical delta
                           multiplied by row height from ListView_GetItemRect.
-    TreeView V+H       ✓  Uses SetScrollInfo + WM_VSCROLL/WM_HSCROLL
-                          (SB_THUMBPOSITION); track-click cap fixed to
-                          nMax - nPage + 1.
+    TreeView V+H       ✓  Live drag sends SetScrollInfo + SB_THUMBTRACK;
+                          SB_THUMBPOSITION sent only on mouse-up. Visibility
+                          guard (Msb_UpdateVisibilityGuarded) prevents transient
+                          zero scroll-range from hiding the bar. H-bar sits
+                          SM_CYEDGE+2 px above the nc border via msb_set_edge_gap.
 
 
 2. INCLUDE AND LINK
@@ -221,10 +223,14 @@
   // After creating the windows and adding ListView columns:
   s_hMsbListV = msb_attach(s_hListView, MSB_VERTICAL);
   s_hMsbListH = msb_attach(s_hListView, MSB_HORIZONTAL);
+  // Same edge gap for the ListView H-bar:
+  if (s_hMsbListH) msb_set_edge_gap(s_hMsbListH, GetSystemMetrics(SM_CYEDGE) + 2);
 
   // After ALL TreeView_InsertItem / expansion calls (tree fully populated):
   s_hMsbTreeV = msb_attach(s_hTreeView, MSB_VERTICAL);
   s_hMsbTreeH = msb_attach(s_hTreeView, MSB_HORIZONTAL);
+  // Shift H-bar above the WS_EX_CLIENTEDGE nc border so the hint strip is visible:
+  if (s_hMsbTreeH) msb_set_edge_gap(s_hMsbTreeH, GetSystemMetrics(SM_CYEDGE) + 2);
 
   // After every PopulateListView / batch ListView_InsertItem call:
   // (ListView re-enables its native bars when items are inserted)
@@ -244,7 +250,16 @@
     multiplies the row delta by the item row height (ListView_GetItemRect)
     before calling LVM_SCROLL.
   • ListView horizontal SCROLLINFO.nPos is in pixels — no conversion needed.
-  • TreeView responds correctly to SetScrollInfo + WM_VSCROLL SB_THUMBPOSITION.
+  • TreeView responds correctly to SetScrollInfo + WM_VSCROLL SB_THUMBTRACK
+    during live drag; SB_THUMBPOSITION is sent only on WM_LBUTTONUP.
+  • Visibility guard: Msb_UpdateVisibilityGuarded is used for all scroll
+    events on TreeView/ListView targets.  It allows FADE_INVISIBLE → FADE_HIDDEN
+    (bar becomes visible when content first overflows) but blocks
+    FADE_HIDDEN → FADE_INVISIBLE (transient zero scroll-range from internal
+    auto-scroll-to-selection cannot hide a bar already showing).
+  • H-bar edge gap: call msb_set_edge_gap(hH, GetSystemMetrics(SM_CYEDGE)+2)
+    after attaching the H-bar so the 3 px hint strip sits inside the client
+    area rather than flush against the WS_EX_CLIENTEDGE nc border.
   • Arrow clicks use LVM_SCROLL (pixel step) for ListView; WM_VSCROLL/HSCROLL
     SB_LINEUP/SB_LINEDOWN for TreeView — handled automatically by Msb_Scroll.
   • msb_notify_content_changed is not needed for TreeView/ListView (their

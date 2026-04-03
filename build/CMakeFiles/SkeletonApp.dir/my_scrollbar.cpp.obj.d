@@ -298,6 +298,7 @@ CMakeFiles/SkeletonApp.dir/my_scrollbar.cpp.obj: \
  C:/mingw64/x86_64-w64-mingw32/include/mcx.h \
  C:/mingw64/x86_64-w64-mingw32/include/imm.h \
  C:/mingw64/x86_64-w64-mingw32/include/windowsx.h \
+ C:/mingw64/x86_64-w64-mingw32/include/commctrl.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/algorithm \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_algobase.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/functexcept.h \

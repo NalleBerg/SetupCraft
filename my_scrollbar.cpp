@@ -443,6 +443,29 @@ static BOOL Msb_UpdateVisibility(MsbCtx* ctx)
     return TRUE;
 }
 
+/*
+ * Msb_UpdateVisibilityGuarded — like Msb_UpdateVisibility, but for
+ * TreeView/ListView targets it suppresses spurious HIDDEN→INVISIBLE
+ * transitions that arise from transient zero-range scroll events (e.g.
+ * auto-scroll-to-selection), while still permitting INVISIBLE→HIDDEN when
+ * content genuinely starts overflowing for the first time.
+ */
+static BOOL Msb_UpdateVisibilityGuarded(MsbCtx* ctx)
+{
+    BOOL wasNonInvisible = (ctx->fadeState != FADE_INVISIBLE);
+    BOOL result = Msb_UpdateVisibility(ctx);
+    if ((ctx->isListView || ctx->isTreeView) && wasNonInvisible && !result) {
+        /* Content appeared to fit — likely a transient artefact of an
+         * internal scroll-to-selection event (GetScrollInfo range == 0 briefly).
+         * Restore hint-strip visibility instead of hiding the bar. */
+        ctx->fadeState = FADE_HIDDEN;
+        ctx->fadeWidth = (float)S(ctx, MSB_WIDTH_HIDDEN);
+        ShowWindow(ctx->hBar, SW_SHOWNOACTIVATE);
+        result = TRUE;
+    }
+    return result;
+}
+
 /* ── Layout calculation ─────────────────────────────────────────────────────*/
 
 /*
@@ -1013,7 +1036,17 @@ static LRESULT CALLBACK Msb_BarWndProc(HWND hwnd, UINT msg,
                     SendMessageW(ctx->hTarget, smsg,
                                  MAKEWPARAM(SB_THUMBTRACK, (WORD)newPos), 0);
                 } else {
-                    Msb_ScrollToPos(ctx, newPos);
+                    /* For ListView/TreeView: set the SCROLLINFO position first so
+                     * the control knows the target row/pixel, then send
+                     * SB_THUMBTRACK (the live-drag notification) so the control
+                     * scrolls continuously while the thumb is being dragged.
+                     * SB_THUMBPOSITION is sent on WM_LBUTTONUP (final commit). */
+                    SCROLLINFO setSi = {sizeof(SCROLLINFO), SIF_POS};
+                    setSi.nPos = newPos;
+                    SetScrollInfo(ctx->hTarget, vert ? SB_VERT : SB_HORZ, &setSi, FALSE);
+                    UINT smsg = vert ? WM_VSCROLL : WM_HSCROLL;
+                    SendMessageW(ctx->hTarget, smsg,
+                                 MAKEWPARAM(SB_THUMBTRACK, (WORD)newPos), 0);
                 }
                 Msb_Layout(ctx);
                 InvalidateRect(hwnd, NULL, FALSE);
@@ -1239,8 +1272,8 @@ static LRESULT CALLBACK Msb_TargetSubclassProc(HWND hwnd, UINT msg,
     switch (msg) {
         case WM_SIZE: {
             LRESULT r = CallWindowProcW(any->origProc, hwnd, msg, wParam, lParam);
-            if (ctxV) { Msb_UpdateVisibility(ctxV); Msb_PositionBar(ctxV); Msb_Layout(ctxV); InvalidateRect(ctxV->hBar, NULL, FALSE); }
-            if (ctxH) { Msb_UpdateVisibility(ctxH); Msb_PositionBar(ctxH); Msb_Layout(ctxH); InvalidateRect(ctxH->hBar, NULL, FALSE); }
+            if (ctxV) { Msb_UpdateVisibilityGuarded(ctxV); Msb_PositionBar(ctxV); Msb_Layout(ctxV); InvalidateRect(ctxV->hBar, NULL, FALSE); }
+            if (ctxH) { Msb_UpdateVisibilityGuarded(ctxH); Msb_PositionBar(ctxH); Msb_Layout(ctxH); InvalidateRect(ctxH->hBar, NULL, FALSE); }
             /* Keep the RichEdit format rect inside the bar edges so the last
              * line is scrollable fully above the H bar. */
             if (any->isRichEdit) Msb_ApplyRichFormatRect(hwnd);
@@ -1254,7 +1287,15 @@ static LRESULT CALLBACK Msb_TargetSubclassProc(HWND hwnd, UINT msg,
             LRESULT r = CallWindowProcW(any->origProc, hwnd, msg, wParam, lParam);
             if (ctxV) Msb_HideNativeBar(hwnd, ctxV->isRichEdit, TRUE);
             if (any->isRichEdit) Msb_ApplyRichFormatRect(hwnd);
-            if (ctxV) { Msb_UpdateVisibility(ctxV); Msb_Layout(ctxV); InvalidateRect(ctxV->hBar, NULL, FALSE); UpdateWindow(ctxV->hBar); }
+            if (ctxV) {
+                /* For TreeView/ListView, use the guarded variant that allows
+                 * INVISIBLE→HIDDEN (bar appears when content first overflows)
+                 * but blocks HIDDEN→INVISIBLE from a transient zero scroll-range. */
+                Msb_UpdateVisibilityGuarded(ctxV);
+                Msb_Layout(ctxV);
+                InvalidateRect(ctxV->hBar, NULL, FALSE);
+                UpdateWindow(ctxV->hBar);
+            }
             return r;
         }
 
@@ -1267,7 +1308,9 @@ static LRESULT CALLBACK Msb_TargetSubclassProc(HWND hwnd, UINT msg,
                  * enforce our measured content width so the user can't scroll into
                  * empty space beyond the actual text. */
                 Msb_ClampRichHorzPos(ctxH);
-                Msb_UpdateVisibility(ctxH);
+                /* Same guarded approach: allows INVISIBLE→HIDDEN for LV/TV,
+                 * blocks HIDDEN→INVISIBLE from transient zero-range events. */
+                Msb_UpdateVisibilityGuarded(ctxH);
                 Msb_Layout(ctxH);
                 InvalidateRect(ctxH->hBar, NULL, FALSE);
                 UpdateWindow(ctxH->hBar);
@@ -1299,7 +1342,7 @@ static LRESULT CALLBACK Msb_TargetSubclassProc(HWND hwnd, UINT msg,
             Msb_HideNativeBar(hwnd, ctxV->isRichEdit, TRUE);
             /* Keep bar in hint-strip mode — only update position indicator.
              * Never expand toward full width on wheel scroll. */
-            if (Msb_UpdateVisibility(ctxV)) {
+            if (Msb_UpdateVisibilityGuarded(ctxV)) {
                 ctxV->thumbState = THUMB_DRAG;  /* drag colour while wheel spins */
                 Msb_Layout(ctxV); InvalidateRect(ctxV->hBar, NULL, FALSE); UpdateWindow(ctxV->hBar);
                 /* Timer 2: reset thumb colour 220 ms after last wheel tick */
@@ -1325,7 +1368,7 @@ static LRESULT CALLBACK Msb_TargetSubclassProc(HWND hwnd, UINT msg,
             /* Clamp scroll position — same reason as in WM_HSCROLL. */
             Msb_ClampRichHorzPos(ctxH);
             /* Keep bar in hint-strip mode — only update position indicator. */
-            if (Msb_UpdateVisibility(ctxH)) {
+            if (Msb_UpdateVisibilityGuarded(ctxH)) {
                 ctxH->thumbState = THUMB_DRAG;
                 Msb_Layout(ctxH); InvalidateRect(ctxH->hBar, NULL, FALSE); UpdateWindow(ctxH->hBar);
                 SetTimer(ctxH->hBar, 2, 220, NULL);
@@ -1531,6 +1574,23 @@ HMSB msb_attach(HWND hTarget, DWORD flags)
     else {
         InvalidateRect(ctx->hBar, NULL, FALSE);
         UpdateWindow(ctx->hBar);
+    }
+
+    /* After Msb_UpdateVisibility the fade state may have changed from INVISIBLE
+     * to HIDDEN (hidden-mode bars start invisible and transition immediately if
+     * content overflows).  Re-notify the peer bar so it can recompute its size
+     * now that our fadeState is accurate — e.g. the V bar must reserve space for
+     * the H bar at the bottom, but during the initial attach the H bar was still
+     * INVISIBLE when the peer notification ran, causing the V bar to use full height. */
+    {
+        const wchar_t* peerKey2 = Msb_OtherTargetPropKey(flags);
+        MsbCtx* peer2 = (MsbCtx*)GetPropW(hTarget, peerKey2);
+        if (peer2 && IsWindow(peer2->hBar)) {
+            Msb_PositionBar(peer2);
+            Msb_Layout(peer2);
+            InvalidateRect(peer2->hBar, NULL, FALSE);
+            UpdateWindow(peer2->hBar);
+        }
     }
 
     /* For RichEdit targets, shrink the formatting rectangle so the last line

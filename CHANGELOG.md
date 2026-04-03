@@ -2,6 +2,13 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.04.03.07] - 2026-04-03
+
+### Fixed
+- **Files page H-bar disappeared after first hover cycle**: `Msb_UpdateVisibility` was called unconditionally in `WM_VSCROLL`/`WM_HSCROLL`. When the TreeView auto-scrolls to a selection it transiently reports a zero scroll range; `Msb_UpdateVisibility` saw no overflow and hid the bar (`SW_HIDE`). Introduced `Msb_UpdateVisibilityGuarded`: for TreeView/ListView targets it allows `FADE_INVISIBLE → FADE_HIDDEN` (bar appears when content first overflows) but blocks `FADE_HIDDEN → FADE_INVISIBLE` (transient zero-range cannot hide a bar already showing). Guard applied in `WM_SIZE`, `WM_VSCROLL`, `WM_HSCROLL`, `WM_MOUSEWHEEL`, and `WM_MOUSEHWHEEL`.
+- **Files page H-bar sat 2–3 px too low (flush against nc border)**: `Msb_PositionBar` placed the H-bar flush against the `WS_EX_CLIENTEDGE` non-client border, partially hiding the bar. Fixed by adding `msb_set_edge_gap(h, GetSystemMetrics(SM_CYEDGE) + 2)` (4 px at 96 DPI) for both the TreeView and ListView H-bars, so the full 3 px hint strip sits visibly within the client area.
+- **Files page V-bar thumb drag not working on TreeView**: During live drag, `SB_THUMBPOSITION + SB_ENDSCROLL` was sent on every mousemove frame; TreeView treated `SB_ENDSCROLL` as finalization and discarded intermediate positions, causing the thumb to snap back. Fixed so live drag sends `SetScrollInfo + SB_THUMBTRACK` for non-RichEdit targets; `SB_THUMBPOSITION` is only sent once on `WM_LBUTTONUP`.
+
 ## [2026.04.02.19] - 2026-04-02
 
 ### Fixed

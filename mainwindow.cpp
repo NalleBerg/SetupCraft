@@ -1937,6 +1937,8 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         // Attach custom hidden scrollbars to the ListView.
         s_hMsbFilesListV = msb_attach(s_hListView, MSB_VERTICAL);
         s_hMsbFilesListH = msb_attach(s_hListView, MSB_HORIZONTAL);
+        // Same border gap as the TreeView bars.
+        if (s_hMsbFilesListH) msb_set_edge_gap(s_hMsbFilesListH, GetSystemMetrics(SM_CYEDGE) + 2);
         
         // Always create "Program Files" root node (use Windows-localized name)
         std::wstring defaultInstallPath = GetProgramFilesPath() + L"\\" + s_currentProject.name;
@@ -2064,6 +2066,9 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         // (TreeView re-enables native bars during TreeView_InsertItem calls).
         s_hMsbFilesTreeV = msb_attach(s_hTreeView, MSB_VERTICAL);
         s_hMsbFilesTreeH = msb_attach(s_hTreeView, MSB_HORIZONTAL);
+        // Shift the H bar up by the WS_EX_CLIENTEDGE border height so it sits
+        // visually inside the pane rather than flush against the nc border.
+        if (s_hMsbFilesTreeH) msb_set_edge_gap(s_hMsbFilesTreeH, GetSystemMetrics(SM_CYEDGE) + 2);
         // Subclass TreeView so we can show tooltip on hover
         if (s_hTreeView) {
             s_prevTreeProc = (WNDPROC)SetWindowLongPtrW(s_hTreeView, GWLP_WNDPROC, (LONG_PTR)TreeView_SubclassProc);
