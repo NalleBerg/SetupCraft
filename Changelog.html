@@ -1,6 +1,12 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 3 April 2026 &mdash; v2026.04.03.07 (07:49)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 3 April 2026 &mdash; v2026.04.03.08 (08:01)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.04.03.08</span></h3>
+<p><strong>Registry page resize on window resize (03.04.2026, 08:01):</strong></p>
+<ul>
+<li><strong>Fix &mdash; Registry page did not resize with the window:</strong> The Registry page builds its TreeView and ListView as direct children of the main window. <code>WM_SIZE</code> would only apply the new geometry when leaving and re-entering the page. Extended <code>WM_SIZE</code> to immediately reposition all variable-width controls (title, edit fields, divider, right-anchored backup button and warning icon) and resize the TreeView/ListView split pane via <code>DeferWindowPos</code>. Bottom action buttons follow the pane bottom. ListView column widths updated proportionally.</li>
+</ul>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.04.03.07</span></h3>
 <p><strong>Files page scrollbar fixes; H-bar visibility/positioning; LiveView drag; window resize (03.04.2026, 07:49):</strong></p>

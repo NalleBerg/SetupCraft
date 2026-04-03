@@ -6981,6 +6981,62 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 ListView_SetColumnWidth(s_hCompListView, 4, listW - S(510 + 20));
         }
 
+        // ── Registry page (index 1) — direct children of hwnd ────────────
+        if (s_currentPageIndex == 1 && s_hRegTreeView && IsWindow(s_hRegTreeView)) {
+            int treeWidth = (int)((rc.right - S(40)) * 0.4);
+            int listWidth = (rc.right - S(40)) - treeWidth - S(10);
+            int splitY    = s_toolbarHeight + S(252);
+            int paneH     = rc.bottom - splitY - S(90);
+            if (paneH < S(30)) paneH = S(30);
+            int btnY      = splitY + paneH + S(10);
+
+            HDWP hdwp = BeginDeferWindowPos(9);
+            auto DeferCtrl = [&](HWND h, int x, int y, int w, int hh) {
+                if (h && IsWindow(h))
+                    hdwp = DeferWindowPos(hdwp, h, NULL, x, y, w, hh,
+                                         SWP_NOZORDER | SWP_NOACTIVATE);
+            };
+            // Stretch title, edit fields and divider
+            DeferCtrl(GetDlgItem(hwnd, 5100),
+                      S(20), s_toolbarHeight + S(15), rc.right - S(40), S(38));
+            DeferCtrl(GetDlgItem(hwnd, IDC_REG_DISPLAY_NAME),
+                      S(325), s_toolbarHeight + S(90),  rc.right - S(395), S(22));
+            DeferCtrl(GetDlgItem(hwnd, IDC_REG_VERSION),
+                      S(325), s_toolbarHeight + S(117), rc.right - S(395), S(22));
+            DeferCtrl(GetDlgItem(hwnd, IDC_REG_PUBLISHER),
+                      S(325), s_toolbarHeight + S(144), rc.right - S(395), S(22));
+            DeferCtrl(GetDlgItem(hwnd, 5104),   // divider line
+                      S(20), s_toolbarHeight + S(184), rc.right - S(40), 2);
+            // Move right-anchored controls (backup button and warning icon)
+            DeferCtrl(GetDlgItem(hwnd, IDC_REG_BACKUP),
+                      rc.right - S(190), s_toolbarHeight + S(204), S(170), S(40));
+            DeferCtrl(GetDlgItem(hwnd, IDC_REG_WARNING_ICON),
+                      rc.right - S(230), s_toolbarHeight + S(208), S(32), S(32));
+            // Resize split panes
+            DeferCtrl(s_hRegTreeView, S(20), splitY, treeWidth, paneH);
+            DeferCtrl(s_hRegListView, S(30) + treeWidth, splitY, listWidth, paneH);
+            EndDeferWindowPos(hdwp);
+
+            // ListView column widths (proportional)
+            if (s_hRegListView && IsWindow(s_hRegListView)) {
+                ListView_SetColumnWidth(s_hRegListView, 0, (int)(listWidth * 0.35));
+                ListView_SetColumnWidth(s_hRegListView, 1, (int)(listWidth * 0.25));
+                ListView_SetColumnWidth(s_hRegListView, 2, (int)(listWidth * 0.40));
+            }
+
+            // Move bottom buttons down (keep their X and size, only update Y)
+            auto MoveY = [&](HWND h, int y) {
+                if (!h || !IsWindow(h)) return;
+                RECT r; GetWindowRect(h, &r);
+                POINT pt = { r.left, 0 }; ScreenToClient(hwnd, &pt);
+                SetWindowPos(h, NULL, pt.x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+            };
+            MoveY(GetDlgItem(hwnd, IDC_REG_ADD_KEY),   btnY);
+            MoveY(GetDlgItem(hwnd, IDC_REG_ADD_VALUE),  btnY);
+            MoveY(GetDlgItem(hwnd, IDC_REG_EDIT),       btnY);
+            MoveY(GetDlgItem(hwnd, IDC_REG_REMOVE),     btnY);
+        }
+
         return 0;
     }
     

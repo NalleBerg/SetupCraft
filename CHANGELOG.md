@@ -2,6 +2,11 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.04.03.08] - 2026-04-03
+
+### Fixed
+- **Registry page did not resize with the window**: The Registry page builds its TreeView and ListView as direct children of the main window. `WM_SIZE` would only apply the new geometry when leaving and re-entering the page. Extended `WM_SIZE` to immediately recompute and reposition all variable-width controls (title, edit fields, divider line, right-anchored backup button and warning icon) and resize the TreeView/ListView split pane via `DeferWindowPos`. Bottom action buttons follow the pane bottom. ListView column widths updated proportionally.
+
 ## [2026.04.03.07] - 2026-04-03
 
 ### Fixed
