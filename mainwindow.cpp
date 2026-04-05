@@ -161,6 +161,13 @@ static std::wstring s_appIconPath;
 static std::wstring s_appPublisher;
 static HWND s_hRegTreeView = NULL;
 static HWND s_hRegListView = NULL;
+static HMSB s_hMsbRegTreeV = NULL;
+static HMSB s_hMsbRegTreeH = NULL;
+static HMSB s_hMsbRegListV = NULL;
+static HMSB s_hMsbRegListH = NULL;
+struct RegistryCustomKey { std::wstring hive; std::wstring path; };
+static std::vector<RegistryEntry> s_customRegistryEntries;
+static std::vector<RegistryCustomKey> s_customRegistryKeys;
 static HWND s_hRegKeyDialog = NULL;
 static bool s_navigateToRegKey = false;
 static bool s_warningTooltipTracking = false;
@@ -563,6 +570,26 @@ HWND MainWindow::Create(HINSTANCE hInstance, const ProjectRow &project, const st
         SC_LoadFromDb(project.id);   // load shortcuts + menu nodes + opt-out flags
         DEP_LoadFromDb(project.id);   // load external dependencies
         IDLG_LoadFromDb(project.id);  // load installer dialog RTF content
+    }
+
+    // Restore registry statics from project row
+    s_appPublisher      = project.app_publisher;
+    s_appIconPath       = project.app_icon_path;
+    s_registerInWindows = (project.register_in_windows != 0);
+    s_customRegistryEntries.clear();
+    s_customRegistryKeys.clear();
+    if (project.id > 0) {
+        auto rows = DB::GetRegistryEntriesForProject(project.id);
+        for (const auto& r : rows) {
+            if (r.name == L"__KEY__") {
+                s_customRegistryKeys.push_back({r.hive, r.path});
+            } else {
+                RegistryEntry e;
+                e.hive = r.hive; e.path = r.path;
+                e.name = r.name; e.type = r.type; e.data = r.data;
+                s_customRegistryEntries.push_back(e);
+            }
+        }
     }
 
     // Restore ask-at-install preference for this project
@@ -1654,6 +1681,13 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
     if (s_hMsbCompTreeH) { msb_detach(s_hMsbCompTreeH); s_hMsbCompTreeH = NULL; }
     if (s_hMsbCompListV) { msb_detach(s_hMsbCompListV); s_hMsbCompListV = NULL; }
     if (s_hMsbCompListH) { msb_detach(s_hMsbCompListH); s_hMsbCompListH = NULL; }
+    // Same for Registry page — IDC_REG_TREEVIEW / IDC_REG_LISTVIEW are also in
+    // controlIds[] below, so their WM_DESTROY would free the MSB context via
+    // Msb_TargetSubclassProc before our explicit detach could run → double-free.
+    if (s_hMsbRegTreeV) { msb_detach(s_hMsbRegTreeV); s_hMsbRegTreeV = NULL; }
+    if (s_hMsbRegTreeH) { msb_detach(s_hMsbRegTreeH); s_hMsbRegTreeH = NULL; }
+    if (s_hMsbRegListV) { msb_detach(s_hMsbRegListV); s_hMsbRegListV = NULL; }
+    if (s_hMsbRegListH) { msb_detach(s_hMsbRegListH); s_hMsbRegListH = NULL; }
 
     // Destroy all known control IDs from previous pages
     int controlIds[] = {
@@ -2610,7 +2644,68 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         lvc.pszText = (LPWSTR)colData.c_str();
         lvc.cx = (int)(listWidth * 0.40);
         ListView_InsertColumn(s_hRegListView, 2, &lvc);
-        
+
+        // Build fullPath→HTREEITEM map by walking the entire tree.
+        // fullPath format: "HIVE_ROOT\\sub\\..." (hive + "\\" + path, same as RegistryEntry).
+        {
+            std::map<std::wstring, HTREEITEM> regItemMap;
+            std::function<void(HTREEITEM, const std::wstring&)> buildMap;
+            buildMap = [&](HTREEITEM h, const std::wstring& parentPath) {
+                while (h) {
+                    wchar_t rbuf[512] = {};
+                    TVITEMW rtvi = {}; rtvi.mask = TVIF_TEXT; rtvi.hItem = h;
+                    rtvi.pszText = rbuf; rtvi.cchTextMax = 512;
+                    TreeView_GetItem(s_hRegTreeView, &rtvi);
+                    std::wstring fp = parentPath.empty() ? rbuf : (parentPath + L"\\" + rbuf);
+                    regItemMap[fp] = h;
+                    HTREEITEM hCh = TreeView_GetChild(s_hRegTreeView, h);
+                    if (hCh) buildMap(hCh, fp);
+                    h = TreeView_GetNextSibling(s_hRegTreeView, h);
+                }
+            };
+            buildMap(TreeView_GetRoot(s_hRegTreeView), L"");
+
+            // Restore custom keys: add tree items for paths not in the template.
+            for (const auto& ck : s_customRegistryKeys) {
+                std::wstring fp = ck.path.empty() ? ck.hive : (ck.hive + L"\\" + ck.path);
+                if (regItemMap.count(fp)) continue;
+                size_t sl = ck.path.rfind(L'\\');
+                std::wstring parentFP = (sl == std::wstring::npos)
+                    ? ck.hive
+                    : (ck.hive + L"\\" + ck.path.substr(0, sl));
+                std::wstring keyName = (sl == std::wstring::npos)
+                    ? ck.path
+                    : ck.path.substr(sl + 1);
+                auto pIt = regItemMap.find(parentFP);
+                if (pIt == regItemMap.end()) continue;
+                TVINSERTSTRUCTW tvisCk = {};
+                tvisCk.hParent = pIt->second;
+                tvisCk.hInsertAfter = TVI_LAST;
+                tvisCk.item.mask = TVIF_TEXT | TVIF_STATE;
+                tvisCk.item.stateMask = TVIS_EXPANDED;
+                tvisCk.item.state = 0;
+                tvisCk.item.pszText = (LPWSTR)keyName.c_str();
+                HTREEITEM hNew = TreeView_InsertItem(s_hRegTreeView, &tvisCk);
+                if (hNew) regItemMap[fp] = hNew;
+            }
+
+            // Restore custom values into s_registryValues.
+            for (const auto& ce : s_customRegistryEntries) {
+                std::wstring fp = ce.path.empty() ? ce.hive : (ce.hive + L"\\" + ce.path);
+                auto iIt = regItemMap.find(fp);
+                if (iIt != regItemMap.end())
+                    s_registryValues[iIt->second].push_back(ce);
+            }
+        }
+
+        // Attach custom hidden scrollbars (after all tree/list population).
+        s_hMsbRegTreeV = msb_attach(s_hRegTreeView, MSB_VERTICAL);
+        s_hMsbRegTreeH = msb_attach(s_hRegTreeView, MSB_HORIZONTAL);
+        if (s_hMsbRegTreeH) msb_set_edge_gap(s_hMsbRegTreeH, GetSystemMetrics(SM_CYEDGE) + GetSystemMetrics(SM_CYBORDER) + 6);
+        s_hMsbRegListV = msb_attach(s_hRegListView, MSB_VERTICAL);
+        s_hMsbRegListH = msb_attach(s_hRegListView, MSB_HORIZONTAL);
+        if (s_hMsbRegListH) msb_set_edge_gap(s_hMsbRegListH, GetSystemMetrics(SM_CYEDGE) + GetSystemMetrics(SM_CYBORDER) + 6);
+
         currentY += paneHeight + S(10);
         
         // Buttons: Add Key, Add Value, Edit, Delete
@@ -7135,12 +7230,12 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             DeferCtrl(s_hRegListView, S(30) + treeWidth, splitY, listWidth, paneH);
             EndDeferWindowPos(hdwp);
 
-            // ListView column widths (proportional)
-            if (s_hRegListView && IsWindow(s_hRegListView)) {
-                ListView_SetColumnWidth(s_hRegListView, 0, (int)(listWidth * 0.35));
-                ListView_SetColumnWidth(s_hRegListView, 1, (int)(listWidth * 0.25));
-                ListView_SetColumnWidth(s_hRegListView, 2, (int)(listWidth * 0.40));
-            }
+            // Column widths stay content-sized; H-bar appears on narrow windows.
+            // Reposition all four bars so they track the new control corners.
+            if (s_hMsbRegTreeV) msb_reposition(s_hMsbRegTreeV);
+            if (s_hMsbRegTreeH) msb_reposition(s_hMsbRegTreeH);
+            if (s_hMsbRegListV) msb_reposition(s_hMsbRegListV);
+            if (s_hMsbRegListH) msb_reposition(s_hMsbRegListH);
 
             // Move bottom buttons down (keep their X and size, only update Y)
             auto MoveY = [&](HWND h, int y) {
@@ -8235,7 +8330,12 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             ofn.nMaxFile = MAX_PATH;
             ofn.lpstrFilter = L"Icon Files (*.ico)\0*.ico\0All Files (*.*)\0*.*\0";
             ofn.nFilterIndex = 1;
-            ofn.lpstrTitle = L"Select Application Icon";
+            {
+                auto itIT = s_locale.find(L"reg_select_icon_title");
+                static std::wstring s_iconTitleBuf;
+                s_iconTitleBuf = (itIT != s_locale.end()) ? itIT->second : L"Select Application Icon";
+                ofn.lpstrTitle = s_iconTitleBuf.c_str();
+            }
             ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
             
             if (GetOpenFileNameW(&ofn)) {
@@ -8335,13 +8435,17 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         case IDC_REG_ADD_KEY: {
             // Get currently selected tree item
             if (!s_hRegTreeView || !IsWindow(s_hRegTreeView)) {
-                MessageBoxW(hwnd, L"No registry key selected", L"Error", MB_OK | MB_ICONERROR);
+                auto itNK = s_locale.find(L"reg_no_key_selected");
+                std::wstring nkMsg = (itNK != s_locale.end()) ? itNK->second : L"No registry key selected";
+                MessageBoxW(hwnd, nkMsg.c_str(), L"Error", MB_OK | MB_ICONERROR);
                 return 0;
             }
             
             HTREEITEM hSelected = TreeView_GetSelection(s_hRegTreeView);
             if (!hSelected) {
-                MessageBoxW(hwnd, L"Please select a registry key first", L"Error", MB_OK | MB_ICONERROR);
+                auto itSK = s_locale.find(L"reg_select_key_first");
+                std::wstring skMsg = (itSK != s_locale.end()) ? itSK->second : L"Please select a registry key first";
+                MessageBoxW(hwnd, skMsg.c_str(), L"Error", MB_OK | MB_ICONERROR);
                 return 0;
             }
             
@@ -8432,10 +8536,29 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 if (hNewItem) {
                     // Expand parent to show new key
                     TreeView_Expand(s_hRegTreeView, hSelected, TVE_EXPAND);
-                    
                     // Select the new key
                     TreeView_SelectItem(s_hRegTreeView, hNewItem);
-                    
+                    // Track custom key for persistence
+                    {
+                        std::vector<std::wstring> kParts;
+                        HTREEITEM hW = hNewItem;
+                        while (hW) {
+                            wchar_t kBuf[512] = {};
+                            TVITEMW kTvi = {}; kTvi.mask = TVIF_TEXT; kTvi.hItem = hW;
+                            kTvi.pszText = kBuf; kTvi.cchTextMax = 512;
+                            if (TreeView_GetItem(s_hRegTreeView, &kTvi)) kParts.insert(kParts.begin(), kBuf);
+                            hW = TreeView_GetParent(s_hRegTreeView, hW);
+                        }
+                        if (kParts.size() >= 2) {
+                            std::wstring kHive = kParts[0];
+                            std::wstring kPath;
+                            for (size_t ki = 1; ki < kParts.size(); ki++) {
+                                if (ki > 1) kPath += L"\\";
+                                kPath += kParts[ki];
+                            }
+                            s_customRegistryKeys.push_back({kHive, kPath});
+                        }
+                    }
                     MarkAsModified();
                 }
             }
@@ -8446,13 +8569,17 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         case IDC_REG_ADD_VALUE: {
             // Get currently selected tree item
             if (!s_hRegTreeView || !IsWindow(s_hRegTreeView)) {
-                MessageBoxW(hwnd, L"No registry key selected", L"Error", MB_OK | MB_ICONERROR);
+                auto itNK = s_locale.find(L"reg_no_key_selected");
+                std::wstring nkMsg = (itNK != s_locale.end()) ? itNK->second : L"No registry key selected";
+                MessageBoxW(hwnd, nkMsg.c_str(), L"Error", MB_OK | MB_ICONERROR);
                 return 0;
             }
             
             HTREEITEM hSelected = TreeView_GetSelection(s_hRegTreeView);
             if (!hSelected) {
-                MessageBoxW(hwnd, L"Please select a registry key first", L"Error", MB_OK | MB_ICONERROR);
+                auto itSK = s_locale.find(L"reg_select_key_first");
+                std::wstring skMsg = (itSK != s_locale.end()) ? itSK->second : L"Please select a registry key first";
+                MessageBoxW(hwnd, skMsg.c_str(), L"Error", MB_OK | MB_ICONERROR);
                 return 0;
             }
             
@@ -8577,6 +8704,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 
                 // Add to map
                 s_registryValues[hSelected].push_back(entry);
+                // Track for persistence
+                s_customRegistryEntries.push_back(entry);
                 
                 // Refresh ListView
                 if (s_hRegListView && IsWindow(s_hRegListView)) {
@@ -8937,6 +9066,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             }
             
             RegistryEntry& entry = it->second[iSelected];
+            std::wstring oldEntryName = entry.name; // capture before dialog may change it
             
             // Get locale strings (use edit-specific title)
             auto itTitle = s_locale.find(L"reg_edit_value_title");
@@ -9014,6 +9144,13 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                     entry.name = dialogData.valueName;
                     entry.type = dialogData.valueType;
                     entry.data = dialogData.valueData;
+                    // Sync to custom entries list if this entry was user-added
+                    for (auto& ce : s_customRegistryEntries) {
+                        if (ce.hive == entry.hive && ce.path == entry.path && ce.name == oldEntryName) {
+                            ce.name = entry.name; ce.type = entry.type; ce.data = entry.data;
+                            break;
+                        }
+                    }
                     
                     // Refresh ListView to show updated value
                     ListView_SetItemText(s_hRegListView, iSelected, 0, (LPWSTR)entry.name.c_str());
@@ -9055,7 +9192,15 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             // Remove from vector
             auto it = s_registryValues.find(hSelected);
             if (it != s_registryValues.end() && iSelected < (int)it->second.size()) {
+                RegistryEntry erased = it->second[iSelected];
                 it->second.erase(it->second.begin() + iSelected);
+                // Remove from custom entries list
+                s_customRegistryEntries.erase(
+                    std::remove_if(s_customRegistryEntries.begin(), s_customRegistryEntries.end(),
+                        [&](const RegistryEntry& ce) {
+                            return ce.hive == erased.hive && ce.path == erased.path && ce.name == erased.name;
+                        }),
+                    s_customRegistryEntries.end());
                 
                 // Refresh ListView
                 ListView_DeleteAllItems(s_hRegListView);
@@ -9087,7 +9232,9 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             // Don't allow deleting root hive items
             HTREEITEM hParent = TreeView_GetParent(s_hRegTreeView, hSelected);
             if (!hParent) {
-                MessageBoxW(hwnd, L"Cannot delete root registry hives", L"Delete", MB_OK | MB_ICONWARNING);
+                auto itCR = s_locale.find(L"reg_cannot_delete_root");
+                std::wstring crMsg = (itCR != s_locale.end()) ? itCR->second : L"Cannot delete root registry hives";
+                MessageBoxW(hwnd, crMsg.c_str(), L"Delete", MB_OK | MB_ICONWARNING);
                 return 0;
             }
             
@@ -9120,7 +9267,38 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             for (HTREEITEM hItem : itemsToRemove) {
                 s_registryValues.erase(hItem);
             }
-            
+
+            // Collect full paths of items being removed (while tree items still exist).
+            std::vector<std::pair<std::wstring, std::wstring>> removedPaths; // {hive, path}
+            for (HTREEITEM hItem : itemsToRemove) {
+                std::vector<std::wstring> pParts;
+                HTREEITEM hW = hItem;
+                while (hW) {
+                    wchar_t pBuf[512] = {};
+                    TVITEMW pTvi = {}; pTvi.mask = TVIF_TEXT; pTvi.hItem = hW;
+                    pTvi.pszText = pBuf; pTvi.cchTextMax = 512;
+                    if (TreeView_GetItem(s_hRegTreeView, &pTvi)) pParts.insert(pParts.begin(), pBuf);
+                    hW = TreeView_GetParent(s_hRegTreeView, hW);
+                }
+                if (!pParts.empty()) {
+                    std::wstring rHive = pParts[0];
+                    std::wstring rPath;
+                    for (size_t pi = 1; pi < pParts.size(); pi++) { if (pi > 1) rPath += L"\\"; rPath += pParts[pi]; }
+                    removedPaths.push_back({rHive, rPath});
+                }
+            }
+            // Remove matching entries from custom lists.
+            for (const auto& rp : removedPaths) {
+                s_customRegistryKeys.erase(
+                    std::remove_if(s_customRegistryKeys.begin(), s_customRegistryKeys.end(),
+                        [&](const RegistryCustomKey& ck) { return ck.hive == rp.first && ck.path == rp.second; }),
+                    s_customRegistryKeys.end());
+                s_customRegistryEntries.erase(
+                    std::remove_if(s_customRegistryEntries.begin(), s_customRegistryEntries.end(),
+                        [&](const RegistryEntry& ce) { return ce.hive == rp.first && ce.path == rp.second; }),
+                    s_customRegistryEntries.end());
+            }
+
             // Delete from TreeView
             TreeView_DeleteItem(s_hRegTreeView, hSelected);
             
@@ -9646,6 +9824,10 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             }
             if (!s_currentInstallPath.empty())
                 s_currentProject.directory = s_currentInstallPath;
+            // Sync registry statics to project row before saving
+            s_currentProject.register_in_windows = s_registerInWindows ? 1 : 0;
+            s_currentProject.app_publisher = s_appPublisher;
+            s_currentProject.app_icon_path = s_appIconPath;
             DB::UpdateProject(s_currentProject);
 
             // Ensure snapshots are current (take a fresh one if Files page is live).
@@ -9717,6 +9899,12 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             DEP_LoadFromDb(s_currentProject.id);  // refresh IDs from DB
             IDLG_SaveToDb(s_currentProject.id);   // persist installer dialog content
             IDLG_LoadFromDb(s_currentProject.id); // refresh from DB
+            // Persist custom registry entries and keys
+            DB::DeleteRegistryEntriesForProject(s_currentProject.id);
+            for (const auto& ck : s_customRegistryKeys)
+                DB::InsertRegistryEntry(s_currentProject.id, ck.hive, ck.path, L"__KEY__", L"", L"");
+            for (const auto& ce : s_customRegistryEntries)
+                DB::InsertRegistryEntry(s_currentProject.id, ce.hive, ce.path, ce.name, ce.type, ce.data);
             return 0;
         }
             

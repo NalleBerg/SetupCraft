@@ -55,7 +55,17 @@ Fix: detach the Components-page MSBs *before* the controlIds[] loop:
   if (s_hMsbCompListV) { msb_detach(s_hMsbCompListV); s_hMsbCompListV = NULL; }
   if (s_hMsbCompListH) { msb_detach(s_hMsbCompListH); s_hMsbCompListH = NULL; }
   // ← controlIds[] loop runs here; IDC_COMP_* windows destroyed next
+THE SAME BUG REOCCURRED: Registry page MSBs (fixed same session)
+─────────────────────────────────────────────────────────────────────────────
+When Registry page MSBs (s_hMsbRegTreeV/H, s_hMsbRegListV/H) were added,
+their detach calls were placed AFTER the controlIds[] loop — the same mistake.
+IDC_REG_TREEVIEW and IDC_REG_LISTVIEW are in the controlIds[] array, so their
+WM_DESTROY freed the MSB contexts via Msb_TargetSubclassProc before the
+explicit detach → double-free → white screen crash when switching
+Registry→Components.
 
+Fix: move ALL four reg MSB detach calls to sit directly above the
+controlIds[] loop (next to the Components detaches).
 THE HIDDEN BUG: SwitchPage generic loop and the status bar / About button
 ─────────────────────────────────────────────────────────────────────────────
 SwitchPage contains a generic child-window enumeration loop:
@@ -94,7 +104,11 @@ When you attach custom scrollbars to a new page's TreeView / ListView:
   (b) Add them to the Create() stale-state reset block (plain NULL, no detach).
   (c) Add them to MainWindow::WndProc WM_DESTROY (plain NULL, no detach).
   (d) In SwitchPage — TEARDOWN section — detach them BEFORE the controlIds[]
-      loop destroys the target windows:
+      loop destroys the target windows.  The detach block must sit directly
+      above the "Destroy all known control IDs" comment, NOT after it.
+      EVERY page whose TreeView/ListView IDs appear in controlIds[] must have
+      its MSBs detached here.  Getting this wrong causes a double-free / crash
+      ("white screen then terminate") when switching away from that page.
         if (s_hMsbFooV) { msb_detach(s_hMsbFooV); s_hMsbFooV = NULL; }
         …
   (e) In SwitchPage — SETUP section (case N) — call msb_attach after the

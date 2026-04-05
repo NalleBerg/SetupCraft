@@ -2,6 +2,17 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.04.05.14] - 2026-04-05
+
+### Added
+- **Registry page — DB persistence**: Custom registry entries and user-added keys are now saved to `registry_entries` on Save and restored on project open. `DB::InsertRegistryEntry` / `DB::GetRegistryEntriesForProject` / `DB::DeleteRegistryEntriesForProject` fully wired. Custom keys stored as `name="__KEY__"` sentinel rows so tree nodes are recreated on reload. The three project-level fields (`register_in_windows`, `app_publisher`, `app_icon_path`) now synced to `s_currentProject` before `DB::UpdateProject`.
+- **Registry page — data consistency on page switch**: `s_customRegistryEntries` and `s_customRegistryKeys` persist across page switches. On page build a full `path → HTREEITEM` map is built from the template tree; custom keys are re-inserted and custom values re-populated into `s_registryValues`.
+- **Registry page — custom hidden scrollbars**: Four `my_scrollbar` handles (`s_hMsbRegTreeV/H`, `s_hMsbRegListV/H`) attached after build with `SM_CYEDGE + SM_CYBORDER + 6` edge gap. Repositioned via `msb_reposition` in `WM_SIZE`. Proportional ListView column resize removed — H-bar appears instead of truncating.
+- **Registry page — i18n**: Four hardcoded strings replaced with locale lookups: `reg_select_icon_title`, `reg_no_key_selected`, `reg_select_key_first`, `reg_cannot_delete_root`. Keys added to `locale/en_GB.txt`.
+
+### Fixed
+- **Crash (white screen then terminate) when switching Registry → Components**: `IDC_REG_TREEVIEW` and `IDC_REG_LISTVIEW` are in the `controlIds[]` loop; their `WM_DESTROY` fired `Msb_TargetSubclassProc → msb_detach`, freeing MSB contexts before the explicit detach calls ran → double-free → heap corruption → crash. Fixed by moving all four reg MSB detach calls to before the `controlIds[]` loop, mirroring the existing Components fix. Documented in `scrollbar_reopen_INTERNALS.txt`.
+
 ## [2026.04.05.13] - 2026-04-05
 
 ### Fixed

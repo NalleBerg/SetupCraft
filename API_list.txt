@@ -151,6 +151,15 @@
   scrollbar_custom_make.txt         Build plan for my_scrollbar.h / my_scrollbar.cpp
                                     — 9-phase custom Win32 scrollbar. All phases DONE.
 
+  scrollbar_reopen_INTERNALS.txt    MSB lifecycle across project-close/reopen and
+                                    page switches — the double-free crash pattern
+                                    (WM_DESTROY → Msb_TargetSubclassProc → msb_detach
+                                    frees ctx before explicit detach runs), three root
+                                    fixes (chain WM_DESTROY, null statics in WM_DESTROY,
+                                    null statics at top of Create()), the sister bug
+                                    (detach BEFORE controlIds[] loop, not after), rule
+                                    for adding MSBs to any new page, and key ID ranges.
+
   scrollbar_INTERNALS.txt           Shortcuts-page vertical scrollbar — SCROLLINFO
                                     setup, why SW_SCROLLCHILDREN fails for content
                                     that starts below the viewport, correct manual

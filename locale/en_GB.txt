@@ -164,6 +164,10 @@ confirm_delete_title=Confirm Delete
 confirm_delete_value=Delete this registry value?
 confirm_delete_key=Delete this registry key and all its subkeys?
 reg_select_to_delete=Please select a registry key or value to delete.
+reg_select_icon_title=Select Application Icon
+reg_no_key_selected=No registry key selected
+reg_select_key_first=Please select a registry key first
+reg_cannot_delete_root=Cannot delete root registry hives
 
 # Components page
 comp_page_title=Components
