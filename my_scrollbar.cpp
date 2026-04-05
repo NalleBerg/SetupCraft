@@ -1429,10 +1429,16 @@ static LRESULT CALLBACK Msb_TargetSubclassProc(HWND hwnd, UINT msg,
         }
 
         case WM_DESTROY:
-            /* Target is being destroyed — clean up both bars. */
-            if (ctxV) msb_detach((HMSB)ctxV);
-            if (ctxH) msb_detach((HMSB)ctxH);
-            return 0;
+            /* Target is being destroyed — clean up both bars, then chain through
+             * to the original WndProc so its WM_DESTROY handler also runs.
+             * origProc must be saved NOW: msb_detach frees the MsbCtx structs,
+             * so ctxV/ctxH/any must not be touched after the first detach call. */
+            {
+                WNDPROC origProc = any->origProc;
+                if (ctxV) msb_detach((HMSB)ctxV);
+                if (ctxH) msb_detach((HMSB)ctxH);
+                return CallWindowProcW(origProc, hwnd, msg, wParam, lParam);
+            }
     }
 
     return CallWindowProcW(any->origProc, hwnd, msg, wParam, lParam);

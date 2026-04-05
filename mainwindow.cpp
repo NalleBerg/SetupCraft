@@ -27,8 +27,34 @@
 #include <richedit.h>
 #include <commdlg.h>
 #include <fstream>
+#include <cstdio>
 
 // (no extra declarations needed — ExtractIconExW is in shellapi.h)
+
+// ── Session-crash diagnostics ─────────────────────────────────────────────────
+// Appends a timestamped line to %TEMP%\sc_debug.log so we can trace exactly
+// where execution gets to before the process dies.
+static void SCLog(const wchar_t* msg) {
+    FILE* f = fopen("C:\\Users\\NalleBerg\\Documents\\C++\\Workspace\\SetupCraft\\sc_debug.log", "a");
+    if (!f) return;
+    SYSTEMTIME st; GetLocalTime(&st);
+    fprintf(f, "[%02d:%02d:%02d.%03d] %ls\n",
+             st.wHour, st.wMinute, st.wSecond, st.wMilliseconds, msg);
+    fclose(f);
+}
+// ── End diagnostics ───────────────────────────────────────────────────────────
+
+// Launch a fresh copy of this exe with the given arguments.
+static void SpawnSelf(const wchar_t* args) {
+    wchar_t exe[MAX_PATH];
+    GetModuleFileNameW(NULL, exe, MAX_PATH);
+    std::wstring cmd = std::wstring(L"\"") + exe + L"\" " + args;
+    STARTUPINFOW si = {}; si.cb = sizeof(si);
+    PROCESS_INFORMATION pi = {};
+    CreateProcessW(NULL, &cmd[0], NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi);
+    if (pi.hProcess) CloseHandle(pi.hProcess);
+    if (pi.hThread)  CloseHandle(pi.hThread);
+}
 
 // Static member initialization
 ProjectRow MainWindow::s_currentProject = {};
@@ -471,6 +497,39 @@ static LRESULT CALLBACK WarningIcon_SubclassProc(HWND hwnd, UINT msg, WPARAM wPa
 }
 
 HWND MainWindow::Create(HINSTANCE hInstance, const ProjectRow &project, const std::map<std::wstring, std::wstring> &locale) {
+    SCLog(L"Create() ENTRY");
+    // ── Stale-state reset ────────────────────────────────────────────────────
+    // Close-project (IDM_FILE_CLOSE) calls DestroyWindow(hwnd) directly without
+    // going through SwitchPage, so HWND and HMSB statics from the previous
+    // session may still be non-NULL and point to destroyed objects.
+    // The child WM_DESTROY chain (Msb_TargetSubclassProc) already freed the
+    // MsbContext allocations; we just need to null the stale handles so the
+    // SwitchPage teardown inside the upcoming WM_CREATE doesn't try to
+    // msb_detach freed memory → heap corruption.
+    s_hMsbFilesTreeV = NULL;
+    s_hMsbFilesTreeH = NULL;
+    s_hMsbFilesListV = NULL;
+    s_hMsbFilesListH = NULL;
+    s_hMsbCompTreeV  = NULL;
+    s_hMsbCompTreeH  = NULL;
+    s_hMsbCompListV  = NULL;
+    s_hMsbCompListH  = NULL;
+    s_hMsbIdlg       = NULL;
+    // Null stale HWND handles so IsWindow guards work correctly on second open.
+    s_hTreeView     = NULL;
+    s_hListView     = NULL;
+    s_hRegTreeView  = NULL;
+    s_hRegListView  = NULL;
+    s_hCompTreeView = NULL;
+    s_hCompListView = NULL;
+    s_hCurrentPage  = NULL;
+    s_hPageButton1  = NULL;
+    s_hPageButton2  = NULL;
+    s_hStatus       = NULL;
+    s_hAboutButton  = NULL;
+    s_hTooltip      = NULL;  // defensive null; WM_DESTROY should have destroyed it already
+    s_currentPageIndex = 0;
+    // ── end stale-state reset ────────────────────────────────────────────────
     // Reset state so opening any project (new or existing) starts clean
     s_hasUnsavedChanges = false;
     s_isNewUnsavedProject = false;
@@ -551,6 +610,7 @@ HWND MainWindow::Create(HINSTANCE hInstance, const ProjectRow &project, const st
     if (x + width > rcWork.right) x = rcWork.right - width;
     if (y + height > rcWork.bottom) y = rcWork.bottom - height;
     
+    SCLog(L"Create() before CreateWindowExW");
     HWND hwnd = CreateWindowExW(
         0,
         L"SetupCraftMainWindow",
@@ -559,16 +619,23 @@ HWND MainWindow::Create(HINSTANCE hInstance, const ProjectRow &project, const st
         x, y, width, height,
         NULL, NULL, hInstance, NULL
     );
+    SCLog(hwnd ? L"Create() CreateWindowExW OK" : L"Create() CreateWindowExW FAILED");
     
     if (hwnd) {
         // Set window icon explicitly for title bar and taskbar
         if (hIcon) SendMessageW(hwnd, WM_SETICON, ICON_BIG, (LPARAM)hIcon);
         if (hIconSm) SendMessageW(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)hIconSm);
         
+        SCLog(L"Create() before ShowWindow");
         ShowWindow(hwnd, SW_SHOW);
+        SCLog(L"Create() after ShowWindow");
         UpdateWindow(hwnd);
+        // Bring the window to the foreground by briefly making it topmost, then restoring.
+        SetWindowPos(hwnd, HWND_TOPMOST,   0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+        SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+        SetForegroundWindow(hwnd);
     }
-    
+    SCLog(L"Create() RETURN");
     return hwnd;
 }
 
@@ -1539,6 +1606,7 @@ static void UpdateCompTreeRequiredIcons(HWND hTree, HTREEITEM hItem,
 // ─────────────────────────────────────────────────────────────────────────────
 
 void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
+    { wchar_t buf[80]; swprintf_s(buf, L"SwitchPage(%d) START", pageIndex); SCLog(buf); }
     // Snapshot Files page tree before tearing it down so we can restore it
     // (including virtual folders and full hierarchy) when we return.
     if (s_currentPageIndex == 0 && s_hTreeView && IsWindow(s_hTreeView)) {
@@ -1628,10 +1696,17 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
             int childId = GetDlgCtrlID(hChild);
             bool isToolbarBtn = (childId >= IDC_TB_FILES && childId <= IDC_TB_ABOUT) || childId == IDC_TB_DIALOGS || childId == IDC_TB_COMPONENTS || childId == IDC_TB_EXIT || childId == IDC_TB_CLOSE_PROJECT;
             if (!isToolbarBtn) {
+                // Also exclude the status bar and the About icon: their IDs fall
+                // outside the toolbar-button range (IDC_STATUS_BAR = 5002 is below
+                // IDC_TB_FILES = 5010), so the isToolbarBtn check doesn't protect
+                // them.  Without this exclusion the status bar is destroyed on every
+                // non-initial SwitchPage call (after WM_SIZE has sized it to the
+                // bottom), leaving s_hStatus as a dangling handle.
                 if (hChild != s_hTreeView && hChild != s_hListView && 
                     hChild != s_hRegTreeView && hChild != s_hRegListView &&
                     hChild != s_hCompListView && hChild != s_hCompTreeView &&
-                    hChild != s_hPageButton1 && hChild != s_hPageButton2) {
+                    hChild != s_hPageButton1 && hChild != s_hPageButton2 &&
+                    hChild != s_hStatus && hChild != s_hAboutButton) {
                     DestroyWindow(hChild);
                 }
             }
@@ -3071,6 +3146,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         break;
     }
     }
+    { wchar_t buf[80]; swprintf_s(buf, L"SwitchPage(%d) DONE", pageIndex); SCLog(buf); }
 }
 
 HTREEITEM MainWindow::AddTreeNode(HWND hTree, HTREEITEM hParent, const std::wstring &text, const std::wstring &fullPath) {
@@ -6844,6 +6920,7 @@ LRESULT CALLBACK CompEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
 LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
     case WM_CREATE: {
+        SCLog(L"WM_CREATE START");
         HINSTANCE hInst = ((LPCREATESTRUCT)lParam)->hInstance;
         // Initialize tooltip system for main window
         InitTooltipSystem(hInst);
@@ -6901,13 +6978,19 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             s_hPageTitleFont = CreateFontIndirectW(&lf);
         }
         s_hGuiFont = s_scaledFont; // alias so WM_CTLCOLORSTATIC drawing also uses it
+        SCLog(L"WM_CREATE before CreateMenuBar");
         CreateMenuBar(hwnd);
+        SCLog(L"WM_CREATE before CreateToolbar");
         CreateToolbar(hwnd, hInst);
+        SCLog(L"WM_CREATE before CreateStatusBar");
         CreateStatusBar(hwnd, hInst);
+        SCLog(L"WM_CREATE before SwitchPage(0)");
         // Initialize with Files page
         SwitchPage(hwnd, 0);
+        SCLog(L"WM_CREATE after SwitchPage(0)");
         // Clear any spurious modified flags triggered during control initialization
         s_hasUnsavedChanges = false;
+        SCLog(L"WM_CREATE DONE");
         return 0;
     }
     
@@ -9654,6 +9737,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             return 0;
             
         case IDM_FILE_CLOSE: {
+            SCLog(L"IDM_FILE_CLOSE ENTRY");
             if (s_hasUnsavedChanges) {
                 int result = ShowUnsavedChangesDialog(hwnd, s_locale);
                 if (result == 0) {
@@ -9671,18 +9755,12 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                     return 0;
                 }
             }
-            // Return to entry screen
-            HWND entryWindow = FindWindowW(L"SetupCraft_EntryScreen", NULL);
-            if (entryWindow) {
-                EnableWindow(entryWindow, TRUE);  // was disabled when project opened
-                ShowWindow(entryWindow, SW_SHOW);
-                SetForegroundWindow(entryWindow);
-            }
+            // Spawn a fresh launcher process, then exit this one cleanly
+            SpawnSelf(L"--launcher");
+            SCLog(L"IDM_FILE_CLOSE -> DestroyWindow");
             DestroyWindow(hwnd);
             return 0;
         }
-        
-        case IDM_FILE_EXIT:
             SendMessageW(hwnd, WM_CLOSE, 0, 0);
             return 0;
             
@@ -10817,12 +10895,36 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         return 0;
     
     case WM_DESTROY:
+        SCLog(L"WM_DESTROY START");
         // Clean up drag-and-drop module
         DragDrop_Unregister();
         // Clean up tooltip system
         CleanupTooltipSystem();
-        // Don't call PostQuitMessage here - just close the window
-        // The entry screen will be shown again
+        // Null all HMSB handles.  When DestroyWindow destroys the main window, child
+        // controls (Files/Components TreeView & ListView) receive WM_DESTROY via their
+        // Msb_TargetSubclassProc which internally calls msb_detach and frees each
+        // MsbContext.  Likewise the Dialogs-page bar is freed via the main window's own
+        // subclass chain.  Without the assignments below, the static HMSB pointers would
+        // remain non-NULL on the next MainWindow::Create, and the first WM_SIZE would
+        // call msb_reposition() on dangling freed memory → heap corruption / crash.
+        s_hMsbIdlg       = NULL;
+        s_hMsbFilesTreeV = NULL;
+        s_hMsbFilesTreeH = NULL;
+        s_hMsbFilesListV = NULL;
+        s_hMsbFilesListH = NULL;
+        s_hMsbCompTreeV  = NULL;
+        s_hMsbCompTreeH  = NULL;
+        s_hMsbCompListV  = NULL;
+        s_hMsbCompListH  = NULL;
+        // Destroy the simple-tooltip popup.  WS_POPUP windows are NOT automatically
+        // destroyed when their owner is destroyed, so we must do it explicitly.
+        // Without this, s_hTooltip stays alive between sessions and IsWindow() returns
+        // TRUE on the next open, causing the stale popup to be reused with bogus state.
+        if (s_hTooltip && IsWindow(s_hTooltip))
+            DestroyWindow(s_hTooltip);
+        s_hTooltip = NULL;
+        SCLog(L"WM_DESTROY DONE");
+        PostQuitMessage(0);
         return 0;
     }
     

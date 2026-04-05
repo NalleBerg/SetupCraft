@@ -1,0 +1,119 @@
+scrollbar_reopen_INTERNALS.txt
+═══════════════════════════════════════════════════════════════════════════════
+MSB (custom scrollbar) lifecycle across project-close / reopen
+───────────────────────────────────────────────────────────────────────────────
+
+SUMMARY OF THE BUG PATTERN
+─────────────────────────────────────────────────────────────────────────────
+When the user closes a project (IDM_FILE_CLOSE) the main window is destroyed
+with DestroyWindow(hwnd) *without* going through SwitchPage first.  The child
+windows (Files TreeView, ListView, Components TreeView/ListView …) receive
+WM_DESTROY, which fires Msb_TargetSubclassProc → msb_detach, which frees the
+MsbContext heap allocation.  However, the static HMSB handles that SwitchPage
+normally clears (s_hMsbFilesTreeV etc.) remain non-NULL and point to the freed
+memory.
+
+On the *next* MainWindow::Create call a new window is created and its very
+first WM_SIZE fires msb_reposition() on those dangling pointers → heap
+corruption → crash (usually within ~1 second of the window appearing).
+
+THE THREE FIXES APPLIED (see commits after 199a9e1)
+─────────────────────────────────────────────────────────────────────────────
+1. Msb_TargetSubclassProc WM_DESTROY (my_scrollbar.cpp ≈1431)
+   - Old code: return 0   ← swallowed WM_DESTROY, MainWindow::WndProc never ran
+   - New code: save origProc; msb_detach V+H; CallWindowProcW(origProc, …)
+   - Effect: chains through so MainWindow::WndProc WM_DESTROY can null statics.
+     For bar CHILDREN (TreeView/ListView) the chain reaches the native control
+     proc.  For the MAIN WINDOW sub-classed for the Dialogs scrollbar it
+     reaches MainWindow::WndProc.
+
+2. MainWindow::WndProc WM_DESTROY (mainwindow.cpp ≈10850)
+   Nulls all nine HMSB statics after calling DragDrop_Unregister() and
+   CleanupTooltipSystem().  This runs whether or not Msb_TSP was installed on
+   the main window.
+
+3. MainWindow::Create() stale-state reset (mainwindow.cpp ≈475)
+   Belt-and-suspenders: at the very top of Create(), before CreateWindowExW,
+   all nine HMSB statics AND all HWND statics are nulled.  This makes the
+   function safe even when WM_DESTROY execution is incomplete for any reason.
+   Do NOT call msb_detach here—the MsbContext allocations were already freed
+   by the child-window WM_DESTROY chain; detaching again would be a
+   double-free.
+
+THE SISTER BUG: SwitchPage detach-before-destroy ordering
+─────────────────────────────────────────────────────────────────────────────
+Introduced in commit 199a9e1: SwitchPage's controlIds[] loop contained both
+IDC_COMP_TREEVIEW and IDC_COMP_LISTVIEW.  DestroyWindow on those windows
+triggered Msb_TargetSubclassProc → msb_detach, freeing the Components MSB
+contexts.  The explicit msb_detach calls that followed then freed the same
+pointer again → double-free / crash ("white screen" when switching
+Files→Components).
+
+Fix: detach the Components-page MSBs *before* the controlIds[] loop:
+  if (s_hMsbCompTreeV) { msb_detach(s_hMsbCompTreeV); s_hMsbCompTreeV = NULL; }
+  if (s_hMsbCompTreeH) { msb_detach(s_hMsbCompTreeH); s_hMsbCompTreeH = NULL; }
+  if (s_hMsbCompListV) { msb_detach(s_hMsbCompListV); s_hMsbCompListV = NULL; }
+  if (s_hMsbCompListH) { msb_detach(s_hMsbCompListH); s_hMsbCompListH = NULL; }
+  // ← controlIds[] loop runs here; IDC_COMP_* windows destroyed next
+
+THE HIDDEN BUG: SwitchPage generic loop and the status bar / About button
+─────────────────────────────────────────────────────────────────────────────
+SwitchPage contains a generic child-window enumeration loop:
+
+  "Destroy any child that is at least partially below the toolbar"
+
+The loop was written to spare toolbar buttons by checking:
+  bool isToolbarBtn = (childId >= IDC_TB_FILES && childId <= IDC_TB_ABOUT)
+                    || childId == IDC_TB_DIALOGS || …;
+
+IDC_STATUS_BAR = 5002 falls *below* IDC_TB_FILES = 5010, so the status bar
+is NOT protected by isToolbarBtn.  s_hAboutButton is the custom About icon
+button—its position (far-right toolbar corner) places it below s_toolbarHeight
+after WM_SIZE, so it too could be destroyed.
+
+On the INITIAL WM_CREATE call to SwitchPage(0) the status bar was just created
+at position (0,0,0,0) so rcChild.bottom = 0 ≤ s_toolbarHeight → spared.
+But on any SUBSEQUENT SwitchPage call (after WM_SIZE has repositioned the bar
+to the bottom) rcChild.bottom ≈ clientHeight >> toolbarHeight → destroyed.
+
+Consequence: s_hStatus becomes a dangling non-NULL HWND.  The WM_SIZE handler
+sends WM_SIZE to s_hStatus without an IsWindow guard, potentially hitting an
+unrelated recycled HWND.
+
+Fix (mainwindow.cpp ≈1662):
+  if (hChild != s_hTreeView && … &&
+      hChild != s_hStatus && hChild != s_hAboutButton) {   ← added
+      DestroyWindow(hChild);
+  }
+
+RULE FOR ADDING MSBs TO A NEW PAGE
+─────────────────────────────────────────────────────────────────────────────
+When you attach custom scrollbars to a new page's TreeView / ListView:
+
+  (a) Declare the four HMSB statics (V+H for each control).
+  (b) Add them to the Create() stale-state reset block (plain NULL, no detach).
+  (c) Add them to MainWindow::WndProc WM_DESTROY (plain NULL, no detach).
+  (d) In SwitchPage — TEARDOWN section — detach them BEFORE the controlIds[]
+      loop destroys the target windows:
+        if (s_hMsbFooV) { msb_detach(s_hMsbFooV); s_hMsbFooV = NULL; }
+        …
+  (e) In SwitchPage — SETUP section (case N) — call msb_attach after the
+      target window is fully populated (so ShowScrollBar(FALSE) inside
+      msb_attach runs last and wins against TreeView's native re-enable).
+  (f) Add any persistent HWND statics for the new page's controls to the
+      Create() stale-state reset block and to the explicit exclusion list in
+      the generic child-window destroy loop (if they have IDs outside the
+      toolbar range 5010–5019 / 5080–5083).
+
+KEY ID RANGES (as of this writing)
+─────────────────────────────────────────────────────────────────────────────
+  IDC_STATUS_BAR     = 5002  ← BELOW toolbar range, needs explicit exclusion
+  IDC_TB_FILES       = 5010  \
+  IDC_TB_ABOUT       = 5019  / toolbar range: isToolbarBtn covers 5010–5019
+  IDC_TB_DIALOGS     = 5080  \
+  IDC_TB_COMPONENTS  = 5081  |  added individually to isToolbarBtn
+  IDC_TB_EXIT        = 5082  |
+  IDC_TB_CLOSE_PROJECT=5083  /
+
+Control IDs in ranges 5100–5110, 5300–5304 are per-page labels destroyed
+by the controlIds[] array—they never reach the generic loop.

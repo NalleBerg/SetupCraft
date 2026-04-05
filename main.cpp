@@ -10,6 +10,7 @@
 #include <fstream>
 #include <sstream>
 #include <ctime>
+#include <cstdio>
 #include "languages.h"
 #include "db.h"
 #include "button.h"
@@ -18,6 +19,28 @@
 #include "about.h"
 #include "tooltip.h"
 #include "dpi.h"
+
+// ── Session-crash diagnostics (shared log) ────────────────────────────────────
+static void SCLog(const wchar_t* msg) {
+    FILE* f = fopen("C:\\Users\\NalleBerg\\Documents\\C++\\Workspace\\SetupCraft\\sc_debug.log", "a");
+    if (!f) return;
+    SYSTEMTIME st; GetLocalTime(&st);
+    fprintf(f, "[%02d:%02d:%02d.%03d] MAIN: %ls\n",
+             st.wHour, st.wMinute, st.wSecond, st.wMilliseconds, msg);
+    fclose(f);
+}
+
+// Launch a fresh copy of this exe with the given arguments.
+static void SpawnSelf(const wchar_t* args) {
+    wchar_t exe[MAX_PATH];
+    GetModuleFileNameW(NULL, exe, MAX_PATH);
+    std::wstring cmd = std::wstring(L"\"") + exe + L"\" " + args;
+    STARTUPINFOW si = {}; si.cb = sizeof(si);
+    PROCESS_INFORMATION pi = {};
+    CreateProcessW(NULL, &cmd[0], NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi);
+    if (pi.hProcess) CloseHandle(pi.hProcess);
+    if (pi.hThread)  CloseHandle(pi.hThread);
+}
 
 // IDs
 #ifndef IDC_LANG_COMBO
@@ -814,9 +837,9 @@ LRESULT CALLBACK OpenProjectDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM l
                 // Load project from database
                 ProjectRow project;
                 if (DB::GetProject(projId, project)) {
-                    // Create main window
-                    HINSTANCE hInst = (HINSTANCE)GetWindowLongPtr(hDlg, GWLP_HINSTANCE);
-                    MainWindow::Create(hInst, project, g_locale);
+                    wchar_t arg[64];
+                    swprintf_s(arg, L"--open=%d", projId);
+                    SpawnSelf(arg);
                     g_projectOpened = true;
                 }
                 
@@ -1169,10 +1192,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     
     case WM_COMMAND:
         if (LOWORD(wParam) == IDC_NEW_PROJECT_BTN) {
-            // Open main window directly without dialog
-            HINSTANCE hInst = (HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE);
-            MainWindow::CreateNew(hInst, g_locale);
-            ShowWindow(hwnd, SW_HIDE);
+            SpawnSelf(L"--new");
+            PostQuitMessage(0);
             return 0;
         }
         if (LOWORD(wParam) == IDC_EXIT_BTN) {
@@ -1266,9 +1287,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     DispatchMessageW(&msg);
                 }
                 
-                // If a project was opened, hide the entry screen
+                // Project spawned in fresh process — exit the launcher
                 if (g_projectOpened) {
-                    ShowWindow(hwnd, SW_HIDE);
+                    PostQuitMessage(0);
                 } else {
                     EnableWindow(hwnd, TRUE);
                     SetForegroundWindow(hwnd);
@@ -1472,17 +1493,20 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     case WM_KEYDOWN:
         if (IsCtrlWPressed(msg, wParam)) {
             if (ShowQuitDialog(hwnd, g_locale)) {
+                SCLog(L"ENTRY WM_KEYDOWN CtrlW -> PostQuitMessage");
                 PostQuitMessage(0);
             }
             return 0;
         }
         break;
     case WM_CLOSE:
+        SCLog(L"ENTRY WM_CLOSE -> ShowQuitDialog");
         if (ShowQuitDialog(hwnd, g_locale)) {
             DestroyWindow(hwnd);
         }
         return 0;
     case WM_DESTROY:
+        SCLog(L"ENTRY WM_DESTROY -> PostQuitMessage");
         CleanupTooltipSystem();
         if (g_guiFont)   { DeleteObject(g_guiFont);   g_guiFont   = NULL; }
         if (g_globeFont) { DeleteObject(g_globeFont); g_globeFont = NULL; }
@@ -1493,23 +1517,65 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 }
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR pCmdLine, int nCmdShow) {
-    // Declare DPI awareness before any window creation so Windows uses logical pixels
-    // and does not bitmap-scale the app (prevents blurry rendering on HiDPI displays)
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_SYSTEM_AWARE);
     { UINT sysDpi = GetDpiForSystem(); g_dpiScale = (sysDpi > 0) ? sysDpi / 96.0f : 1.0f; }
 
-    // Initialize COM (required for IFileOpenDialog used on the Components page)
     CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
 
-    // Register comctl32 v6 control classes (TreeView, ListView, Tab, etc.).
-    // The app.manifest activates v6; this call ensures all classes are registered.
     { INITCOMMONCONTROLSEX icc = {}; icc.dwSize = sizeof(icc);
       icc.dwICC = ICC_WIN95_CLASSES | ICC_TREEVIEW_CLASSES | ICC_LISTVIEW_CLASSES | ICC_TAB_CLASSES;
       InitCommonControlsEx(&icc); }
 
-    // Initialize database
     DB::InitDb();
 
+    // Add mingw_dlls folder to DLL search path
+    wchar_t exePath[MAX_PATH];
+    if (GetModuleFileNameW(NULL, exePath, _countof(exePath))) {
+        wchar_t *p = wcsrchr(exePath, L'\\');
+        if (p) {
+            *p = 0;
+            wchar_t dllPath[MAX_PATH];
+            swprintf_s(dllPath, L"%s\\mingw_dlls", exePath);
+            SetDllDirectoryW(dllPath);
+        }
+    }
+
+    // ── Route on command-line argument ────────────────────────────────────────
+    // "--new"       → open a fresh empty project in this process (no entry screen)
+    // "--open=<id>" → open an existing project by DB id in this process
+    // (anything else) → show the entry / launcher screen
+    // ─────────────────────────────────────────────────────────────────────────
+    std::wstring args = pCmdLine ? pCmdLine : L"";
+
+    // Load locale for main-window modes (mirrors entry-screen WM_CREATE logic)
+    auto LoadLocaleForMainMode = [&]() {
+        std::wstring code;
+        if (!ReadSavedLocale(code) || code.empty()) code = L"en_GB";
+        LoadLocaleFile(code, g_locale);
+    };
+
+    if (args == L"--new") {
+        LoadLocaleForMainMode();
+        MainWindow::CreateNew(hInstance, g_locale);
+        MSG msg;
+        while (GetMessageW(&msg, NULL, 0, 0)) { TranslateMessage(&msg); DispatchMessageW(&msg); }
+        return (int)msg.wParam;
+    }
+
+    if (args.substr(0, 7) == L"--open=") {
+        int projId = _wtoi(args.c_str() + 7);
+        ProjectRow project;
+        if (projId > 0 && DB::GetProject(projId, project)) {
+            LoadLocaleForMainMode();
+            MainWindow::Create(hInstance, project, g_locale);
+            MSG msg;
+            while (GetMessageW(&msg, NULL, 0, 0)) { TranslateMessage(&msg); DispatchMessageW(&msg); }
+            return (int)msg.wParam;
+        }
+        // Project not found — fall through to show entry screen
+    }
+
+    // ── Launcher / entry screen mode ──────────────────────────────────────────
     WNDCLASSEXW wc = { };
     wc.cbSize = sizeof(WNDCLASSEXW);
     wc.lpfnWndProc = WndProc;
@@ -1517,30 +1583,14 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR pCmdLine, int nCmdShow
     wc.lpszClassName = CLASS_NAME;
     wc.hCursor = LoadCursorW(NULL, IDC_ARROW);
     wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
-
-    // Load embedded icon resource (resource id 1). Use a large and a small icon.
-    wc.hIcon = (HICON)LoadImageW(hInstance, MAKEINTRESOURCEW(1), IMAGE_ICON, 0, 0, LR_DEFAULTCOLOR);
+    wc.hIcon   = (HICON)LoadImageW(hInstance, MAKEINTRESOURCEW(1), IMAGE_ICON, 0,  0,  LR_DEFAULTCOLOR);
     wc.hIconSm = (HICON)LoadImageW(hInstance, MAKEINTRESOURCEW(1), IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR);
-
     RegisterClassExW(&wc);
 
-    // Add mingw_dlls folder (if present) to DLL search path so runtime can find bundled DLLs
-    wchar_t exePath[MAX_PATH];
-    if (GetModuleFileNameW(NULL, exePath, _countof(exePath))) {
-        wchar_t *p = wcsrchr(exePath, L'\\');
-        if (p) {
-            *p = 0; // terminate at directory
-            wchar_t dllPath[MAX_PATH];
-            swprintf_s(dllPath, L"%s\\mingw_dlls", exePath);
-            SetDllDirectoryW(dllPath);
-        }
-    }
-
-    // Calculate centered position for entry window
     int x, y;
     GetCenteredPosition(NULL, S(560), S(270), x, y);
-    
-    HWND hwnd = CreateWindowExW(0, CLASS_NAME, L"Skeleton App",
+
+    HWND hwnd = CreateWindowExW(0, CLASS_NAME, L"SetupCraft",
         WS_OVERLAPPEDWINDOW & ~WS_MAXIMIZEBOX & ~WS_THICKFRAME,
         x, y, S(560), S(270),
         NULL, NULL, hInstance, NULL);
@@ -1554,7 +1604,6 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR pCmdLine, int nCmdShow
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
-
     return (int)msg.wParam;
 }
 

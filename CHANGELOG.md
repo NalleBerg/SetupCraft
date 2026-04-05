@@ -2,6 +2,17 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.04.05.10] - 2026-04-05
+
+### Fixed
+- **Main window opened in the background**: After `ShowWindow`/`UpdateWindow`, the window is now brought to the foreground via a `HWND_TOPMOST`/`HWND_NOTOPMOST` pair followed by `SetForegroundWindow`. A long-standing annoyance where the project window opened behind other running applications.
+- **Fresh-process architecture — crash on second project open and background-opening root cause**: `--new` and `--open=<id>` command-line modes added to `wWinMain`. The entry screen now calls `SpawnSelf` and posts quit instead of creating the main window in-process. Every project window runs in its own fresh `SetupCraft.exe` process with a clean Win32 class registration and COM state. Eliminates the heap-corruption crash that occurred when closing one project and opening another in the same process.
+- **`SwitchPage` silently destroyed the status bar on every non-initial page switch**: `s_hStatus` and `s_hAboutButton` have IDs outside the toolbar-button range (`IDC_TB_FILES`–`IDC_TB_ABOUT`), so the `isToolbarBtn` guard in the child-window enumeration missed them. After the first switch away from and back to any page the status bar was destroyed and `s_hStatus` became a dangling handle (blank status strip, potential crash on `SetWindowText`). Fixed by adding both HWNDs to the exclusion list.
+- **`WM_DESTROY` did not post quit message**: With the fresh-process architecture, each project window runs in its own process. `WM_DESTROY` now calls `PostQuitMessage(0)` so the message loop exits cleanly when the window is closed.
+- **Stale HWND/HMSB pointers caused heap corruption on second `MainWindow::Create`**: Static HWND and HMSB pointers were left non-NULL from the previous session after `DestroyWindow`. On the next `Create`, `WM_SIZE` called `msb_reposition` on already-freed `MsbContext` memory, corrupting the heap. All static handles are now nulled at the top of `Create()` before `CreateWindowExW`.
+- **Tooltip popup leaked between sessions**: The `WS_POPUP` tooltip window (`s_hTooltip`) is not automatically destroyed when its owner is destroyed. Added explicit `DestroyWindow(s_hTooltip)` + null assignment in `WM_DESTROY`. Without this, `IsWindow(s_hTooltip)` returned TRUE on the next open, causing the stale popup to be reused with garbage state.
+- **`Msb_TargetSubclassProc` `WM_DESTROY` did not chain to the original WndProc**: After `msb_detach` freed the contexts, the handler returned 0 without calling `CallWindowProcW(origProc, ...)`. The original control's own `WM_DESTROY` was never invoked. Fixed by saving `origProc` before the detach calls and then chaining through.
+
 ## [2026.04.03.09] - 2026-04-03
 
 ### Added
