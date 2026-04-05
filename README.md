@@ -142,6 +142,41 @@ This will compile the project using MinGW and create the executable in the `Setu
 
 This project is licensed under GPLv2. See [GPLv2.md](GPLv2.md) for details.
 
+## Developer Documentation
+
+All subsystem documentation lives in plain-text files in the root of the repository. [`API_list.txt`](API_list.txt) is the master index — read it first. The files follow a simple naming convention:
+
+| Suffix | Contents |
+|--------|----------|
+| `_API.txt` | Public interface — what to call, parameters, return values, usage examples |
+| `_INTERNALS.txt` | Architecture and flow reference — how the subsystem works inside, bug history, fix guidance |
+
+### Quick reference
+
+| File | What it covers |
+|------|---------------|
+| [`API_list.txt`](API_list.txt) | Master documentation index — start here |
+| [`my_scrollbar_API.txt`](my_scrollbar_API.txt) | Custom fade scrollbar — `msb_attach/detach/sync/reposition`, flags, wiring pattern |
+| [`tooltip_API.txt`](tooltip_API.txt) | Multilingual tooltip system — creation, positioning, subclassing, locale integration |
+| [`edit_rtf_API.txt`](edit_rtf_API.txt) | General-purpose RTF editor modal — `OpenRtfEditor()`, responsive toolbar, image embedding |
+| [`notes_editor_API.txt`](notes_editor_API.txt) | Compact RTF notes/description popup — `OpenNotesEditor()`, RTF stream in/out |
+| [`vfs_picker_API.txt`](vfs_picker_API.txt) | Reusable VFS file/folder picker dialog — `ShowVfsPicker()`, `VfsPickerParams`, result struct |
+| [`dragdrop_API.txt`](dragdrop_API.txt) | Win32 TreeView/ListView drag-and-drop module — subclass detection, callbacks, parent hooks |
+| [`spinner_dialog_API.txt`](spinner_dialog_API.txt) | Modal progress/spinner dialog — API, thread usage, progress callback protocol |
+| [`checkbox_API.txt`](checkbox_API.txt) | Theme-aware custom checkbox — creation, drawing, TreeView state images, step-by-step guide |
+| [`shell32_API.txt`](shell32_API.txt) | Shell icon loading reference — verified sequential indices for shell32.dll/imageres.dll |
+| [`button_INTERNALS.txt`](button_INTERNALS.txt) | Custom button and toolbar system — drawing, hover/tooltip flow, adding a new toolbar button |
+| [`button_rightclick_combo_INTERNALS.txt`](button_rightclick_combo_INTERNALS.txt) | Reusable ListView + action buttons + right-click menu pattern |
+| [`dialog_INTERNALS.txt`](dialog_INTERNALS.txt) | Custom modal dialog system — measure-then-create pattern, layout constants, Z-order policy |
+| [`i18n_INTERNALS.txt`](i18n_INTERNALS.txt) | Internationalisation policy — locale file format, key naming, runtime lookup, adding new keys |
+| [`files_save_load_INTERNALS.txt`](files_save_load_INTERNALS.txt) | Files-page save/load architecture — VFS, DB table, load path, bug history |
+| [`shortcuts_INTERNALS.txt`](shortcuts_INTERNALS.txt) | Shortcuts page module — lifecycle, TreeView rename flow, context menu dispatch, locale keys |
+| [`deps_INTERNALS.txt`](deps_INTERNALS.txt) | Dependencies page module — data model, enums, edit dialog, DB schema, wiring guide |
+| [`dialogs_INTERNALS.txt`](dialogs_INTERNALS.txt) | Dialogs page module — row visibility rules, preview dialog, scrollbar wiring, locale keys |
+| [`comp_deps_INTERNALS.txt`](comp_deps_INTERNALS.txt) | Component dependency panel — ListView subclass, VFS file-tree viewer, cascade-remove logic |
+| [`sc_shortcut_dialog_INTERNALS.txt`](sc_shortcut_dialog_INTERNALS.txt) | Configure Shortcut modal — `SC_EditShortcutDialog()`, icon picker, layout constants |
+| [`scrollbar_INTERNALS.txt`](scrollbar_INTERNALS.txt) | Shortcuts-page native vertical scrollbar — SCROLLINFO, manual scroll-child enumeration |
+
 ## Prebuilt Binaries
 
 Prebuilt binaries are included in the `SetupCraft` directory for quick testing without compilation.
