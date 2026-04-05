@@ -2,6 +2,18 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.04.05.15] - 2026-04-05
+
+### Changed
+- **Shortcuts page — native WS_VSCROLL replaced with my_scrollbar**: `s_hMsbSc` (HMSB) attached to the main window after page build (`msb_attach` / `msb_set_insets(pageY, statusH)` / `msb_set_edge_gap(4)`) — identical pattern to the Dialogs page. No native gutter; bar fades in/out gracefully. Detached in SwitchPage teardown. `SC_TearDown` simplified. `WM_SIZE` Shortcuts block extended to mirror Dialogs page: update SCROLLINFO, clamp position, move children, `msb_sync`. MSB bar HWND excluded from child-enum loops in `WM_MOUSEWHEEL` and `WM_VSCROLL`.
+- **Documentation restructure — API_INTERNALS directory**: All `*_API.txt` and `*_INTERNALS.txt` moved from project root into `API_INTERNALS\API\` (reusable toolbox modules) and `API_INTERNALS\INTERNALS\` (project-internal architecture). `API_list.txt` updated with full paths, two-section layout, and a living-document maintenance rule. `scrollbar_INTERNALS.txt` updated to document the MSB migration.
+
+### Added
+- **skeleton_idea.txt**: New planning document in `API_INTERNALS\API\` — checklist for a future reusable Win32/C++ project skeleton (build system, sqlite3, UI modules, localisation stub, DPI, icons, Inno Setup stub, doc seed) and open decisions for publish time.
+
+### Fixed
+- **Track-click and thumb drag broken on Shortcuts and Dialogs page scrollbars**: Both `WM_VSCROLL` handlers used `si.nPos` from `GetScrollInfo` as `oldPos`. MSB pre-calls `SetScrollInfo(nPos=newPos)` before sending `SB_THUMBTRACK`/`SB_THUMBPOSITION`, so `si.nPos == newPos` at read time → `dy=0` → children never move. Fixed by using `SC_GetScrollOffset()` / `IDLG_GetScrollOffset()` as `oldPos`. `SIF_TRACKPOS` also unreliable — MSB encodes position in `HIWORD(wParam)`. Both pitfalls documented in `my_scrollbar_API.txt`.
+
 ## [2026.04.05.14] - 2026-04-05
 
 ### Added

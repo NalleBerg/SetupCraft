@@ -77,6 +77,7 @@ int MainWindow::s_toolbarHeight = 50;
 int MainWindow::s_currentPageIndex = 0;
 static int  s_scPageContentH   = 0;  // absolute Y of first pixel below Shortcuts page content
 static int  s_idlgPageContentH = 0;  // absolute Y of first pixel below Dialogs page content
+static HMSB s_hMsbSc           = NULL; // custom scrollbar for the Shortcuts page
 static HMSB s_hMsbIdlg         = NULL; // custom scrollbar for the Dialogs page
 static HMSB s_hMsbFilesTreeV   = NULL; // Files page - TreeView vertical bar
 static HMSB s_hMsbFilesTreeH   = NULL; // Files page - TreeView horizontal bar
@@ -521,6 +522,7 @@ HWND MainWindow::Create(HINSTANCE hInstance, const ProjectRow &project, const st
     s_hMsbCompTreeH  = NULL;
     s_hMsbCompListV  = NULL;
     s_hMsbCompListH  = NULL;
+    s_hMsbSc         = NULL;
     s_hMsbIdlg       = NULL;
     // Null stale HWND handles so IsWindow guards work correctly on second open.
     s_hTreeView     = NULL;
@@ -1802,6 +1804,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
     // It lives in memory for the full project session and is only written
     // to DB on explicit Save (IDM_FILE_SAVE).  SwitchPage(9) reads it directly.
 
+    if (s_hMsbSc)   { msb_detach(s_hMsbSc);   s_hMsbSc   = NULL; }
     if (s_hMsbIdlg) { msb_detach(s_hMsbIdlg); s_hMsbIdlg = NULL; }
     IDLG_TearDown(hwnd);
     SC_TearDown(hwnd);
@@ -2735,9 +2738,8 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
     case 2: // Shortcuts page — delegated to the shortcuts module
     {
         s_scPageContentH = SC_BuildPage(hwnd, hInst, pageY, rc.right, s_hPageTitleFont, s_hGuiFont, s_locale);
-        // Add a vertical scrollbar when the content is taller than the view.
+        // Attach the custom hidden scrollbar (mirrors the Dialogs page pattern).
         {
-            // Use the actual status-bar height so the scroll rect never overlaps it.
             int statusH = 25;
             if (s_hStatus && IsWindow(s_hStatus)) {
                 RECT rcSB; GetWindowRect(s_hStatus, &rcSB);
@@ -2745,22 +2747,22 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
             }
             int viewH    = rc.bottom - pageY - statusH;
             int contentH = s_scPageContentH - pageY + S(15);  // +15 px gap at bottom
-            if (contentH > viewH) {
-                LONG ws = GetWindowLongW(hwnd, GWL_STYLE);
-                if (!(ws & WS_VSCROLL)) {
-                    SetWindowLongW(hwnd, GWL_STYLE, ws | WS_VSCROLL);
-                    SetWindowPos(hwnd, NULL, 0, 0, 0, 0,
-                        SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
-                }
-                SCROLLINFO si = {};
-                si.cbSize = sizeof(si);
-                si.fMask  = SIF_RANGE | SIF_PAGE | SIF_POS | SIF_DISABLENOSCROLL;
-                si.nMin   = 0;
-                si.nMax   = contentH - 1;
-                si.nPage  = (UINT)viewH;
-                si.nPos   = 0;
-                SetScrollInfo(hwnd, SB_VERT, &si, TRUE);
-            }
+            SCROLLINFO si = {};
+            si.cbSize = sizeof(si);
+            si.fMask  = SIF_RANGE | SIF_PAGE | SIF_POS | SIF_DISABLENOSCROLL;
+            si.nMin   = 0;
+            si.nMax   = std::max(contentH - 1, viewH);
+            si.nPage  = (UINT)viewH;
+            si.nPos   = 0;
+            SetScrollInfo(hwnd, SB_VERT, &si, FALSE);  // store range; no native bar
+            if (!s_hMsbSc)
+                s_hMsbSc = msb_attach(hwnd, MSB_VERTICAL);
+            else
+                msb_sync(s_hMsbSc);
+            /* Restrict bar to page area: skip toolbar at top, status bar at bottom. */
+            msb_set_insets(s_hMsbSc, pageY, statusH);
+            /* Shift 4 px inward from the right edge so the hint strip is visible. */
+            msb_set_edge_gap(s_hMsbSc, 4);
         }
         // Give every page control WS_CLIPSIBLINGS so that when any of them
         // scrolls into the status-bar zone it does NOT paint over the status
@@ -7281,9 +7283,58 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             }
         }
 
-        // ── Shortcuts page (index 2) ── delegated to shortcuts module ────
-        if (s_currentPageIndex == 2)
+        // ── Shortcuts page (index 2) ── resize controls + sync scrollbar ──
+        if (s_currentPageIndex == 2) {
             SC_OnResize(hwnd, rc.right);
+            if (s_hMsbSc) {
+                int statusH = 25;
+                if (s_hStatus && IsWindow(s_hStatus)) {
+                    RECT rcSB; GetWindowRect(s_hStatus, &rcSB);
+                    statusH = rcSB.bottom - rcSB.top;
+                }
+                int pageY2   = s_toolbarHeight;
+                int viewH    = rc.bottom - pageY2 - statusH;
+                int contentH = s_scPageContentH - pageY2 + S(15);
+
+                SCROLLINFO si = {};
+                si.cbSize = sizeof(si);
+                si.fMask  = SIF_RANGE | SIF_PAGE | SIF_POS | SIF_DISABLENOSCROLL;
+                si.nMin   = 0;
+                si.nMax   = std::max(contentH - 1, viewH);
+                si.nPage  = (UINT)viewH;
+                SCROLLINFO siOld = {}; siOld.cbSize = sizeof(siOld); siOld.fMask = SIF_POS;
+                GetScrollInfo(hwnd, SB_VERT, &siOld);
+                int maxPos = std::max(0, contentH - viewH);
+                int newPos = std::min(siOld.nPos, maxPos);
+                si.nPos = newPos;
+                SetScrollInfo(hwnd, SB_VERT, &si, FALSE);
+
+                if (newPos != siOld.nPos) {
+                    int dy = newPos - siOld.nPos;
+                    HWND hMsbBar = msb_get_bar_hwnd(s_hMsbSc);
+                    HWND hC = GetWindow(hwnd, GW_CHILD);
+                    while (hC) {
+                        HWND hN = GetWindow(hC, GW_HWNDNEXT);
+                        if (hC != s_hStatus && hC != s_hAboutButton && hC != hMsbBar) {
+                            int cid = GetDlgCtrlID(hC);
+                            bool isTB = (cid >= IDC_TB_FILES && cid <= IDC_TB_ABOUT) ||
+                                         cid == IDC_TB_DIALOGS || cid == IDC_TB_COMPONENTS ||
+                                         cid == IDC_TB_EXIT    || cid == IDC_TB_CLOSE_PROJECT;
+                            if (!isTB) {
+                                RECT rcC; GetWindowRect(hC, &rcC);
+                                MapWindowPoints(HWND_DESKTOP, hwnd, (POINT*)&rcC, 2);
+                                SetWindowPos(hC, NULL, rcC.left, rcC.top - dy, 0, 0,
+                                             SWP_NOZORDER | SWP_NOSIZE | SWP_NOACTIVATE);
+                            }
+                        }
+                        hC = hN;
+                    }
+                    SC_SetScrollOffset(newPos);
+                }
+
+                msb_sync(s_hMsbSc);
+            }
+        }
 
         // ── Dialogs page (index 4) ── update scroll range then sync bar ──
         if (s_currentPageIndex == 4 && s_hMsbIdlg) {
@@ -10800,10 +10851,11 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 // Move every page child by -dy.  SW_SCROLLCHILDREN is NOT used because
                 // it skips children whose top starts outside the scroll rect (i.e. the
                 // controls that start below the viewport and need to scroll into view).
+                HWND hMsbBar = s_hMsbSc ? msb_get_bar_hwnd(s_hMsbSc) : NULL;
                 HWND hC = GetWindow(hwnd, GW_CHILD);
                 while (hC) {
                     HWND hN = GetWindow(hC, GW_HWNDNEXT);
-                    if (hC != s_hStatus && hC != s_hAboutButton) {
+                    if (hC != s_hStatus && hC != s_hAboutButton && hC != hMsbBar) {
                         int cid = GetDlgCtrlID(hC);
                         bool isTB = (cid >= IDC_TB_FILES && cid <= IDC_TB_ABOUT) ||
                                      cid == IDC_TB_DIALOGS || cid == IDC_TB_COMPONENTS ||
@@ -10895,7 +10947,10 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             if (maxSc <= 0) break;
             SCROLLINFO si = {}; si.cbSize = sizeof(si); si.fMask = SIF_ALL;
             GetScrollInfo(hwnd, SB_VERT, &si);
-            int oldPos = si.nPos;
+            /* Use the stored child offset as oldPos — MSB pre-calls SetScrollInfo
+             * before sending SB_THUMBTRACK/SB_THUMBPOSITION, so si.nPos is
+             * already the new position and would give dy=0 (no movement). */
+            int oldPos = SC_GetScrollOffset();
             int newPos = oldPos;
             switch (LOWORD(wParam)) {
             case SB_LINEUP:        newPos -= S(20); break;
@@ -10905,13 +10960,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             case SB_TOP:           newPos  = 0;     break;
             case SB_BOTTOM:        newPos  = maxSc; break;
             case SB_THUMBTRACK:
-            case SB_THUMBPOSITION: {
-                SCROLLINFO si2 = {}; si2.cbSize = sizeof(si2);
-                si2.fMask = SIF_TRACKPOS;
-                GetScrollInfo(hwnd, SB_VERT, &si2);
-                newPos = si2.nTrackPos;
-                break;
-            }
+            case SB_THUMBPOSITION: newPos  = (int)(short)HIWORD(wParam); break;
             }
             newPos = std::max(0, std::min(newPos, maxSc));
             if (newPos != oldPos) {
@@ -10919,10 +10968,11 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 si.fMask = SIF_POS; si.nPos = newPos;
                 SetScrollInfo(hwnd, SB_VERT, &si, TRUE);
                 // Move every page child by -dy (same reasoning as WM_MOUSEWHEEL).
+                HWND hMsbBar = s_hMsbSc ? msb_get_bar_hwnd(s_hMsbSc) : NULL;
                 HWND hC = GetWindow(hwnd, GW_CHILD);
                 while (hC) {
                     HWND hN = GetWindow(hC, GW_HWNDNEXT);
-                    if (hC != s_hStatus && hC != s_hAboutButton) {
+                    if (hC != s_hStatus && hC != s_hAboutButton && hC != hMsbBar) {
                         int cid = GetDlgCtrlID(hC);
                         bool isTB = (cid >= IDC_TB_FILES && cid <= IDC_TB_ABOUT) ||
                                      cid == IDC_TB_DIALOGS || cid == IDC_TB_COMPONENTS ||
@@ -10960,7 +11010,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             if (maxSc <= 0) break;
             SCROLLINFO si = {}; si.cbSize = sizeof(si); si.fMask = SIF_ALL;
             GetScrollInfo(hwnd, SB_VERT, &si);
-            int oldPos = si.nPos;
+            /* Same MSB pre-SetScrollInfo issue — use stored offset as oldPos. */
+            int oldPos = IDLG_GetScrollOffset();
             int newPos = oldPos;
             switch (LOWORD(wParam)) {
             case SB_LINEUP:        newPos -= S(20); break;
@@ -11083,6 +11134,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         // subclass chain.  Without the assignments below, the static HMSB pointers would
         // remain non-NULL on the next MainWindow::Create, and the first WM_SIZE would
         // call msb_reposition() on dangling freed memory → heap corruption / crash.
+        s_hMsbSc         = NULL;
         s_hMsbIdlg       = NULL;
         s_hMsbFilesTreeV = NULL;
         s_hMsbFilesTreeH = NULL;

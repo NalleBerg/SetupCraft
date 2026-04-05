@@ -2,197 +2,228 @@
   SetupCraft — Documentation Index
 ================================================================================
 
+  Location:
+    API_INTERNALS\API\         Reusable toolbox modules — public interfaces.
+                               When the project is done, a consolidated API.txt
+                               will be generated from these files.
+    API_INTERNALS\INTERNALS\   Project-internal architecture — subsystem flow,
+                               bug history, and fix guidance.
+
+  Living document rule:
+    This file is kept up to date throughout development. Every time a module
+    is added, moved, or improved, the entry here is updated in the same step.
+    By publish time it will be a complete, accurate index ready to seed the
+    project skeleton for future Win32/C++ apps.
+
   Naming convention:
     _API.txt        Public component interface — what to call and what it returns.
     _INTERNALS.txt  Architectural / flow reference — how a subsystem works
                     internally, bug history, and fix guidance.
 
-  File                              Description
+  ── API (reusable toolbox modules) ──────────────────────────────────────────
+
+  File                                          Description
   ──────────────────────────────────────────────────────────────────────────────
-  tooltip_API.txt                   Custom multilingual tooltip system — creation,
-                                    positioning, subclassing, and locale integration.
+  API_INTERNALS\API\tooltip_API.txt             Custom multilingual tooltip system — creation,
+                                                positioning, subclassing, and locale integration.
 
-  spinner_dialog_API.txt            Modal progress/spinner dialog component — API,
-                                    thread usage, and progress callback protocol.
+  API_INTERNALS\API\spinner_dialog_API.txt      Modal progress/spinner dialog component — API,
+                                                thread usage, and progress callback protocol.
 
-  dragdrop_API.txt                  Generic Win32 TreeView/ListView drag-and-drop
-                                    module — subclass-based detection, callbacks,
-                                    parent hooks, and utility functions.
+  API_INTERNALS\API\dragdrop_API.txt            Generic Win32 TreeView/ListView drag-and-drop
+                                                module — subclass-based detection, callbacks,
+                                                parent hooks, and utility functions.
 
-  files_save_load_INTERNALS.txt     Files-page save/load architecture — data flow
-                                    between the TreeView, s_virtualFolderFiles,
-                                    SaveTreeToDb, the DB files table, DB-rebuild
-                                    load path, and fixed-bug history.
+  API_INTERNALS\API\shell32_API.txt             Shell icon loading reference — PrivateExtractIconsW
+                                                vs LoadImageW(MAKEINTRESOURCE), verified
+                                                sequential icon indices for shell32.dll and
+                                                imageres.dll, ImageList loading pattern,
+                                                and ComponentRow dest_path cascade-scope rules.
 
-  button_INTERNALS.txt              Custom button & toolbar system — ButtonColor
-                                    enum, CreateCustomButton* variants, icon
-                                    property scheme, ButtonSubclassProc hover/
-                                    tooltip flow, DrawCustomButton WM_DRAWITEM
-                                    path, toolbar row layout, and step-by-step
-                                    guide for adding a new toolbar button.
+  API_INTERNALS\API\edit_rtf_API.txt            General-purpose resizable RTF editor modal —
+                                                OpenRtfEditor() API, RtfEditorData struct,
+                                                responsive one/two-row toolbar layout
+                                                (RtfEd_LayoutToolbar, recalculated on WM_SIZE),
+                                                18 controls (Bold/Italic/Underline/Strike/
+                                                Subscript/Superscript/FontFace/FontSize/TextColor/
+                                                Highlight/Align/Bullet/Numbered/Insert Image/
+                                                Open file), Ctrl+B/I/U keyboard shortcuts,
+                                                BS_AUTOCHECKBOX|BS_PUSHLIKE toggle state with
+                                                EN_SELCHANGE sync, PNG/JPEG image insertion via
+                                                \pict\pngblip/\jpegblip hex stream, Open button
+                                                streams RTF/TXT/.md files, pLocale field for
+                                                i18n (27 locale keys), hover tooltips on all 18
+                                                toolbar controls (RtfEd_SetToolTip /
+                                                RtfEd_ToolbarBtnProc subclass pattern), RTF stream
+                                                in/out, optional char limit, WS_OVERLAPPEDWINDOW
+                                                resizable, control ID range 4500–4530.
 
-  shell32_API.txt                   Shell icon loading reference — PrivateExtractIconsW
-                                    vs LoadImageW(MAKEINTRESOURCE), verified
-                                    sequential icon indices for shell32.dll and
-                                    imageres.dll, ImageList loading pattern,
-                                    and ComponentRow dest_path cascade-scope rules.
+  API_INTERNALS\API\notes_editor_API.txt        Rich-text Notes/Description editor popup —
+                                                OpenNotesEditor() API, NotesEditorData struct,
+                                                RTF stream in/out, 500-char limit, Bold/Italic/
+                                                Underline/Subscript/Superscript/Font size/Color,
+                                                toolbar, i18n string fields, comdlg32 colour
+                                                picker, DPI-aware layout.
 
-  dialog_INTERNALS.txt              Custom modal dialog system — measure-then-create
-                                    dynamic sizing pattern, layout constants,
-                                    ExpandEscapes / MeasureDialogTextHeight helpers,
-                                    AdjustWindowRectEx sizing recipe, WM_CREATE
-                                    GetClientRect layout, per-dialog status
-                                    (which dialogs have been converted), and
-                                    Z-order / always-on-top policy (no WS_EX_TOPMOST;
-                                    use ownership for intra-app Z-order; audit
-                                    checklist for translation pass).
+  API_INTERNALS\API\vfs_picker_API.txt          Reusable VFS-backed file/folder picker dialog —
+                                                ShowVfsPicker() entry point, VfsPickerParams config
+                                                struct (singleSelect, showFilePane, allowFolderPick,
+                                                fileFilter), VfsPicker_IsExecutable() predicate,
+                                                VfsPickerResult output, MainWindow::TreeSnapshot_*
+                                                accessor wiring, locale keys, and usage examples for
+                                                both exe-picker and folder-picker modes.
 
-  edit_rtf_API.txt                  General-purpose resizable RTF editor modal —
-                                    OpenRtfEditor() API, RtfEditorData struct,
-                                    responsive one/two-row toolbar layout
-                                    (RtfEd_LayoutToolbar, recalculated on WM_SIZE),
-                                    18 controls (Bold/Italic/Underline/Strike/
-                                    Subscript/Superscript/FontFace/FontSize/TextColor/
-                                    Highlight/Align/Bullet/Numbered/Insert Image/
-                                    Open file), Ctrl+B/I/U keyboard shortcuts,
-                                    BS_AUTOCHECKBOX|BS_PUSHLIKE toggle state with
-                                    EN_SELCHANGE sync, PNG/JPEG image insertion via
-                                    \pict\pngblip/\jpegblip hex stream, Open button
-                                    streams RTF/TXT/.md files, pLocale field for
-                                    i18n (27 locale keys), hover tooltips on all 18
-                                    toolbar controls (RtfEd_SetToolTip /
-                                    RtfEd_ToolbarBtnProc subclass pattern), RTF stream
-                                    in/out, optional char limit, WS_OVERLAPPEDWINDOW
-                                    resizable, control ID range 4500–4530.
+  API_INTERNALS\API\checkbox_API.txt            Custom theme-aware checkbox — CreateCustomCheckbox,
+                                                DrawCustomCheckbox, OnCheckboxSettingChange,
+                                                CreateCheckboxStateImageList,
+                                                UpdateTreeViewCheckboxImages, colour palettes for
+                                                Light/Dark/HC Black/HC White themes, BM_GETCHECK/
+                                                BM_SETCHECK compatibility, and step-by-step guide
+                                                for adding a new checkbox or TreeView state image
+                                                list.
 
-  notes_editor_API.txt              Rich-text Notes/Description editor popup —
-                                    OpenNotesEditor() API, NotesEditorData struct,
-                                    RTF stream in/out, 500-char limit, Bold/Italic/
-                                    Underline/Subscript/Superscript/Font size/Color
+  API_INTERNALS\API\skeleton_idea.txt           Future project skeleton — checklist of what to
+                                                include (build system, sqlite3, UI modules,
+                                                localisation stub, DPI, icons, Inno Setup stub,
+                                                doc seed) and open decisions to resolve at
+                                                publish time.
 
-  sc_shortcut_dialog_INTERNALS.txt  Configure Shortcut modal dialog — SC_EditShortcutDialog()
-                                    API, ScDlgData heap struct, modal message-loop pattern,
-                                    ScIconPreviewProc subclass, icon file picker filter
-                                    (*.ico;*.exe;*.dll), layout constants, locale keys,
-                                    and caller wiring from shortcuts.cpp.
-                                    toolbar, i18n string fields, comdlg32 colour
-                                    picker, DPI-aware layout.
+  API_INTERNALS\API\my_scrollbar_API.txt        Custom Win32 scrollbar — full public API.
+                                                msb_attach / msb_detach / msb_sync /
+                                                msb_notify_content_changed; MSB_VERTICAL /
+                                                MSB_HORIZONTAL / MSB_NOHIDE flags; color and
+                                                layout macros; RichEdit specifics (nMax/nPos
+                                                measurement, EM_SETRECT format-rect management,
+                                                EM_SHOWSCROLLBAR suppression); typical wiring
+                                                pattern for V+H dual-attach. Status: complete
+                                                and fully working as of 2026-04-03. ListView
+                                                live drag fixed (LVM_SCROLL delta path).
 
-  vfs_picker_API.txt                Reusable VFS-backed file/folder picker dialog —
-                                    ShowVfsPicker() entry point, VfsPickerParams config
-                                    struct (singleSelect, showFilePane, allowFolderPick,
-                                    fileFilter), VfsPicker_IsExecutable() predicate,
-                                    VfsPickerResult output, MainWindow::TreeSnapshot_*
-                                    accessor wiring, locale keys, and usage examples for
-                                    both exe-picker and folder-picker modes.
+  ── INTERNALS (project-internal architecture) ────────────────────────────────
 
-  checkbox_API.txt                  Custom theme-aware checkbox — CreateCustomCheckbox,
-                                    DrawCustomCheckbox, OnCheckboxSettingChange,
-                                    CreateCheckboxStateImageList,
-                                    UpdateTreeViewCheckboxImages, colour palettes for
-                                    Light/Dark/HC Black/HC White themes, BM_GETCHECK/
-                                    BM_SETCHECK compatibility, and step-by-step guide
-                                    for adding a new checkbox or TreeView state image
-                                    list.
+  API_INTERNALS\INTERNALS\files_save_load_INTERNALS.txt
+                                                Files-page save/load architecture — data flow
+                                                between the TreeView, s_virtualFolderFiles,
+                                                SaveTreeToDb, the DB files table, DB-rebuild
+                                                load path, and fixed-bug history.
 
-  comp_deps_INTERNALS.txt           Component dependency-summary panel — two-column
-                                    ListView, DepListSubclassProc (hover tooltip via
-                                    project tooltip system, double-click file popup,
-                                    right-click context menu), ShowDepsFileListPopup
-                                    VFS file-tree viewer, Remove/Choose custom buttons,
-                                    folder-coverage filter, cascade-remove logic, and
-                                    full locale key reference.
+  API_INTERNALS\INTERNALS\button_INTERNALS.txt  Custom button & toolbar system — ButtonColor
+                                                enum, CreateCustomButton* variants, icon
+                                                property scheme, ButtonSubclassProc hover/
+                                                tooltip flow, DrawCustomButton WM_DRAWITEM
+                                                path, toolbar row layout, and step-by-step
+                                                guide for adding a new toolbar button.
 
-  button_rightclick_combo_INTERNALS.txt
-                                    Reusable pattern: ListView + explicit action
-                                    buttons + right-click context menu. Covers
-                                    subclass proc wiring (SetWindowLongPtrW),
-                                    TPM_RETURNCMD dispatch, Remove button enable/
-                                    disable via LVN_ITEMCHANGED, context menu
-                                    delegating to the button handler, tooltip
-                                    integration, and step-by-step guide for
-                                    replicating the pattern in a new dialog.
+  API_INTERNALS\INTERNALS\dialog_INTERNALS.txt  Custom modal dialog system — measure-then-create
+                                                dynamic sizing pattern, layout constants,
+                                                ExpandEscapes / MeasureDialogTextHeight helpers,
+                                                AdjustWindowRectEx sizing recipe, WM_CREATE
+                                                GetClientRect layout, per-dialog status
+                                                (which dialogs have been converted), and
+                                                Z-order / always-on-top policy (no WS_EX_TOPMOST;
+                                                use ownership for intra-app Z-order; audit
+                                                checklist for translation pass).
 
-  shortcuts_INTERNALS.txt           Shortcuts page module architecture — static
-                                    variables, SC_BuildPage / SC_Reset / SC_TearDown
-                                    lifecycle, SC_OnNotify return-value convention,
-                                    TreeView TVN_BEGINLABELEDIT / TVN_ENDLABELEDIT
-                                    in-place rename flow, SC_OnContextMenu dispatch
-                                    pattern (TPM_RETURNCMD → SendMessageW WM_COMMAND),
-                                    shell32.dll icon indices used, ImageList lifetime,
-                                    and full locale key table.
+  API_INTERNALS\INTERNALS\sc_shortcut_dialog_INTERNALS.txt
+                                                Configure Shortcut modal dialog — SC_EditShortcutDialog()
+                                                API, ScDlgData heap struct, modal message-loop pattern,
+                                                ScIconPreviewProc subclass, icon file picker filter
+                                                (*.ico;*.exe;*.dll), layout constants, locale keys,
+                                                and caller wiring from shortcuts.cpp.
 
-  deps_INTERNALS.txt                Dependencies page module architecture —
-                                    ExternalDep data model (instructions_list
-                                    vector<wstring> for multi-page RTF instructions;
-                                    dep_instructions DB table), enums (DepDelivery /
-                                    DepArch / DepOffline / DepInstallOrder with
-                                    DIO_UNSPECIFIED sentinel and DIO_CUSTOM_DIALOG
-                                    stage), DIO_BEFORE_WELCOME restriction for
-                                    Instructions Only, ListView subclass for
-                                    right-click context menu, modal measure-then-
-                                    create edit dialog (instructions icon-grid with
-                                    InstrIconCtx / WM_DEPINSTR_REMOVE, install order
-                                    as named dropdown combo), DB table schema and
-                                    CRUD API, control ID ranges, locale key table,
-                                    and mainwindow.cpp wiring guide.
+  API_INTERNALS\INTERNALS\comp_deps_INTERNALS.txt
+                                                Component dependency-summary panel — two-column
+                                                ListView, DepListSubclassProc (hover tooltip via
+                                                project tooltip system, double-click file popup,
+                                                right-click context menu), ShowDepsFileListPopup
+                                                VFS file-tree viewer, Remove/Choose custom buttons,
+                                                folder-coverage filter, cascade-remove logic, and
+                                                full locale key reference.
 
-  my_scrollbar_API.txt              Custom Win32 scrollbar — full public API.
-                                    msb_attach / msb_detach / msb_sync /
-                                    msb_notify_content_changed; MSB_VERTICAL /
-                                    MSB_HORIZONTAL / MSB_NOHIDE flags; color and
-                                    layout macros; RichEdit specifics (nMax/nPos
-                                    measurement, EM_SETRECT format-rect management,
-                                    EM_SHOWSCROLLBAR suppression); typical wiring
-                                    pattern for V+H dual-attach.  Status: complete
-                                    and fully working as of 2026-04-03. ListView
-                                    live drag fixed (LVM_SCROLL delta path).
+  API_INTERNALS\INTERNALS\button_rightclick_combo_INTERNALS.txt
+                                                Reusable pattern: ListView + explicit action
+                                                buttons + right-click context menu. Covers
+                                                subclass proc wiring (SetWindowLongPtrW),
+                                                TPM_RETURNCMD dispatch, Remove button enable/
+                                                disable via LVN_ITEMCHANGED, context menu
+                                                delegating to the button handler, tooltip
+                                                integration, and step-by-step guide for
+                                                replicating the pattern in a new dialog.
 
-  scrollbar_custom_make.txt         Build plan for my_scrollbar.h / my_scrollbar.cpp
-                                    — 9-phase custom Win32 scrollbar. All phases DONE.
+  API_INTERNALS\INTERNALS\shortcuts_INTERNALS.txt
+                                                Shortcuts page module architecture — static
+                                                variables, SC_BuildPage / SC_Reset / SC_TearDown
+                                                lifecycle, SC_OnNotify return-value convention,
+                                                TreeView TVN_BEGINLABELEDIT / TVN_ENDLABELEDIT
+                                                in-place rename flow, SC_OnContextMenu dispatch
+                                                pattern (TPM_RETURNCMD → SendMessageW WM_COMMAND),
+                                                shell32.dll icon indices used, ImageList lifetime,
+                                                and full locale key table.
 
-  scrollbar_reopen_INTERNALS.txt    MSB lifecycle across project-close/reopen and
-                                    page switches — the double-free crash pattern
-                                    (WM_DESTROY → Msb_TargetSubclassProc → msb_detach
-                                    frees ctx before explicit detach runs), three root
-                                    fixes (chain WM_DESTROY, null statics in WM_DESTROY,
-                                    null statics at top of Create()), the sister bug
-                                    (detach BEFORE controlIds[] loop, not after), rule
-                                    for adding MSBs to any new page, and key ID ranges.
+  API_INTERNALS\INTERNALS\deps_INTERNALS.txt    Dependencies page module architecture —
+                                                ExternalDep data model (instructions_list
+                                                vector<wstring> for multi-page RTF instructions;
+                                                dep_instructions DB table), enums (DepDelivery /
+                                                DepArch / DepOffline / DepInstallOrder with
+                                                DIO_UNSPECIFIED sentinel and DIO_CUSTOM_DIALOG
+                                                stage), DIO_BEFORE_WELCOME restriction for
+                                                Instructions Only, ListView subclass for
+                                                right-click context menu, modal measure-then-
+                                                create edit dialog (instructions icon-grid with
+                                                InstrIconCtx / WM_DEPINSTR_REMOVE, install order
+                                                as named dropdown combo), DB table schema and
+                                                CRUD API, control ID ranges, locale key table,
+                                                and mainwindow.cpp wiring guide.
 
-  scrollbar_INTERNALS.txt           Shortcuts-page vertical scrollbar — SCROLLINFO
-                                    setup, why SW_SCROLLCHILDREN fails for content
-                                    that starts below the viewport, correct manual
-                                    child-enumeration pattern with SetWindowPos,
-                                    windows to exclude (toolbar buttons, status bar,
-                                    About button), SC_SetScrollOffset integration,
-                                    SC_TearDown cleanup protocol, and status-bar
-                                    HWND_TOP anti-overlap technique.
+  API_INTERNALS\INTERNALS\scrollbar_custom_make.txt
+                                                Build plan for my_scrollbar.h / my_scrollbar.cpp
+                                                — 9-phase custom Win32 scrollbar. All phases DONE.
 
-  i18n_INTERNALS.txt                Internationalisation policy — English-first rule
-                                    (only en_GB.txt maintained during development),
-                                    locale file format (key=value, \\n escapes),
-                                    key naming conventions (subsystem_ prefix,
-                                    _dlg_ qualifier), runtime lookup pattern with
-                                    fallback, ExpandEscapes usage, and step-by-step
-                                    guide for adding a new locale key.
+  API_INTERNALS\INTERNALS\scrollbar_reopen_INTERNALS.txt
+                                                MSB lifecycle across project-close/reopen and
+                                                page switches — the double-free crash pattern
+                                                (WM_DESTROY → Msb_TargetSubclassProc → msb_detach
+                                                frees ctx before explicit detach runs), three root
+                                                fixes (chain WM_DESTROY, null statics in WM_DESTROY,
+                                                null statics at top of Create()), the sister bug
+                                                (detach BEFORE controlIds[] loop, not after), rule
+                                                for adding MSBs to any new page, and key ID ranges.
 
-  dialogs_INTERNALS.txt             Dialogs page module (toolbar index 4) —
-                                    InstallerDialogType enum (0–8) and row
-                                    visibility rules, installer-title section
-                                    (48×48 icon preview, OFN_EXPLORER .ico picker,
-                                    title edit field, IDLG_SetInstallerInfo /
-                                    IDLG_GetInstallerTitle / IDLG_GetInstallerIconPath),
-                                    control ID ranges (7000–7123), module-private
-                                    state variables, IDLG_OnCommand dispatch cases,
-                                    preview dialog PreviewWndProc (BS_PUSHBUTTON
-                                    ◀/▶ glyph buttons, MeasureButtonWidth sizing),
-                                    vertical scrollbar (IDLG_BuildPage int return,
-                                    IDLG_SetScrollOffset / IDLG_GetScrollOffset,
-                                    WS_CLIPSIBLINGS, IDLG_TearDown cleanup),
-                                    installer_dialogs DB schema and CRUD API,
-                                    mainwindow.cpp 6-point wiring checklist
-                                    (with mistake history), layout constants,
-                                    and full locale key table.
+  API_INTERNALS\INTERNALS\scrollbar_INTERNALS.txt
+                                                Shortcuts-page vertical scrollbar — SCROLLINFO
+                                                setup, why SW_SCROLLCHILDREN fails, correct manual
+                                                child-enumeration pattern with SetWindowPos,
+                                                windows to exclude (toolbar buttons, status bar,
+                                                About button, MSB bar window), SC_SetScrollOffset
+                                                integration, SC_TearDown cleanup protocol, and
+                                                status-bar HWND_TOP anti-overlap technique.
+                                                (Migrated from native WS_VSCROLL to my_scrollbar
+                                                MSB on 2026-04-05 — same pattern as Dialogs page.)
+
+  API_INTERNALS\INTERNALS\i18n_INTERNALS.txt    Internationalisation policy — English-first rule
+                                                (only en_GB.txt maintained during development),
+                                                locale file format (key=value, \n escapes),
+                                                key naming conventions (subsystem_ prefix,
+                                                _dlg_ qualifier), runtime lookup pattern with
+                                                fallback, ExpandEscapes usage, and step-by-step
+                                                guide for adding a new locale key.
+
+  API_INTERNALS\INTERNALS\dialogs_INTERNALS.txt Dialogs page module (toolbar index 4) —
+                                                InstallerDialogType enum (0–8) and row
+                                                visibility rules, installer-title section
+                                                (48×48 icon preview, OFN_EXPLORER .ico picker,
+                                                title edit field, IDLG_SetInstallerInfo /
+                                                IDLG_GetInstallerTitle / IDLG_GetInstallerIconPath),
+                                                control ID ranges (7000–7123), module-private
+                                                state variables, IDLG_OnCommand dispatch cases,
+                                                preview dialog PreviewWndProc (BS_PUSHBUTTON
+                                                ◀/▶ glyph buttons, MeasureButtonWidth sizing),
+                                                vertical scrollbar (IDLG_BuildPage int return,
+                                                IDLG_SetScrollOffset / IDLG_GetScrollOffset,
+                                                WS_CLIPSIBLINGS, IDLG_TearDown cleanup),
+                                                installer_dialogs DB schema and CRUD API,
+                                                mainwindow.cpp 6-point wiring checklist
+                                                (with mistake history), layout constants,
+                                                and full locale key table.
 
 ================================================================================

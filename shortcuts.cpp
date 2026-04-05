@@ -1133,14 +1133,8 @@ void SC_TearDown(HWND hwnd)
         DestroyWindow(h);
     }
 
-    // Remove the vertical scrollbar and reset the scroll offset.
+    // Reset the scroll offset (MSB is detached by SwitchPage teardown in mainwindow.cpp).
     s_scScrollOffset = 0;
-    LONG wstyle = GetWindowLongW(hwnd, GWL_STYLE);
-    if (wstyle & WS_VSCROLL) {
-        SetWindowLongW(hwnd, GWL_STYLE, wstyle & ~WS_VSCROLL);
-        SetWindowPos(hwnd, NULL, 0, 0, 0, 0,
-            SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
-    }
 }
 
 // ── SC_SetScrollOffset / SC_GetScrollOffset ───────────────────────────────────

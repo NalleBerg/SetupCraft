@@ -234,8 +234,26 @@
   case SB_THUMBTRACK:
   case SB_THUMBPOSITION: newPos = (int)(short)HIWORD(wParam); break;
 
+  // oldPos must come from your own stored offset, NOT GetScrollInfo:
+  //   int oldPos = SC_GetScrollOffset();   // NOT si.nPos
+  // Reason: MSB calls SetScrollInfo(nPos=newPos) BEFORE sending
+  // SB_THUMBTRACK/SB_THUMBPOSITION, so si.nPos already equals newPos
+  // at the time GetScrollInfo runs -> oldPos==newPos -> dy=0 -> no movement.
+  // Your stored offset (SC_GetScrollOffset / IDLG_GetScrollOffset) still holds
+  // the old value at this point, giving the correct delta.
+
   Nothing else is needed.  WM_SIZE, scroll events, and mouse wheel are all
   handled transparently inside the subclass.
+
+  !! COMMON MISTAKE — SIF_TRACKPOS and si.nPos do NOT work with MSB !!
+  The native scrollbar stores the drag/track position in nTrackPos (read via
+  GetScrollInfo SIF_TRACKPOS) and does NOT update nPos until you call
+  SetScrollInfo.  MSB is the opposite: it pre-updates nPos via SetScrollInfo
+  before sending WM_VSCROLL, and encodes the position in HIWORD(wParam).
+  Two consequences:
+    1. GetScrollInfo(SIF_TRACKPOS).nTrackPos is stale — use HIWORD(wParam).
+    2. GetScrollInfo.nPos == newPos already — use your own stored offset for
+       oldPos to compute dy correctly (see wiring pattern above).
 
   4d. TreeView / ListView (V + H bars, hidden/fade mode)
   ───────────────────────────────────────────────────────

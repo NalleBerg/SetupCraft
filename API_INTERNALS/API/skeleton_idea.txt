@@ -1,0 +1,68 @@
+================================================================================
+  Project Skeleton — Idea & Checklist
+================================================================================
+
+  Goal: when SetupCraft is published, extract a reusable Win32/C++ project
+  skeleton so future projects start with a solid, proven foundation rather
+  than from scratch.
+
+  Philosophy: API_list.txt is a living document — updated throughout
+  development every time a module is added, moved, or improved. By the time
+  this project is published, API_list.txt will be a complete, accurate index
+  of every reusable tool and architectural pattern, ready to seed the skeleton.
+
+  ── What to include ──────────────────────────────────────────────────────────
+
+  Build system
+    [ ] makeit.bat          — one-shot build script (MinGW/GCC, resource
+                              compilation, manifest embedding, strip)
+    [ ] CMakeLists.txt      — CMake alternative, already battle-tested here
+    [ ] app.manifest        — DPI awareness, ComCtl v6, UAC level
+
+  Database layer
+    [ ] sqlite3\            — amalgamation sources (sqlite3.c / sqlite3.h)
+    [ ] db.h / db.cpp       — thin C++ wrapper: open/close, exec, prepared
+                              statements, RAII transaction guard
+
+  Reusable UI modules  (copy from API_INTERNALS\API\)
+    [ ] my_scrollbar        — custom fade scrollbar (V + H, MSB_NOHIDE flag)
+    [ ] tooltip             — multilingual tooltip system
+    [ ] checkbox            — theme-aware custom checkbox + TreeView states
+    [ ] dragdrop            — TreeView/ListView drag-and-drop
+    [ ] spinner_dialog      — modal progress/spinner dialog
+    [ ] edit_rtf            — resizable RTF editor modal
+    [ ] notes_editor        — lightweight RTF notes popup
+    [ ] vfs_picker          — VFS-backed file/folder picker dialog
+
+  Localisation stub
+    [ ] languages.h / languages.cpp  — locale loading, key lookup, ExpandEscapes
+    [ ] locale\en_GB.txt             — seed file with skeleton keys only
+
+  DPI support
+    [ ] dpi.h / dpi.cpp     — DPI helper (scale factors, per-monitor v2)
+
+  Icons / branding
+    [ ] icons\README.txt    — slot conventions (app icon, toolbar icons)
+    [ ] make_ico.ps1        — PNG → .ico conversion script
+
+  Inno Setup stub
+    [ ] inno\template.iss   — minimal installer template
+    [ ] inno\compile_inno.bat
+
+  Documentation seed
+    [ ] API_list.txt        — pre-populated with all included API entries
+    [ ] API_INTERNALS\API\  — copies of all included _API.txt files
+
+  ── Notes & decisions to make ────────────────────────────────────────────────
+
+  - Decide on a skeleton repo name (e.g. "win32-cpp-skeleton" or "WinBase").
+  - Strip all SetupCraft-specific IDs, DB schema, and page logic — skeleton
+    should compile to a blank main window + toolbar stub + status bar only.
+  - Keep mingw_dlls\README.md so the DLL bundling convention is documented.
+  - Consider a fix_locales.ps1 stub for future locale sync automation.
+  - my_scrollbar is the heaviest dependency; decide whether it ships as
+    source pair (my_scrollbar.h/.cpp) or as a header-only option.
+  - sqlite3 amalgamation version: pin to the version used in SetupCraft
+    at publish time and note it here.
+
+================================================================================

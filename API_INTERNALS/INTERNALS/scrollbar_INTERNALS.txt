@@ -5,10 +5,12 @@
 
 1. OVERVIEW
 ───────────
-The Shortcuts page (page index 2) can contain more controls than fit in the
-window.  A native Win32 WS_VSCROLL scrollbar is added to the main window when
-needed.  SCROLLINFO is used to configure range and page size.  Scrolling is
-driven by WM_VSCROLL (scrollbar drag / arrow) and WM_MOUSEWHEEL.
+The Shortcuts page (page index 2) uses a custom hidden scrollbar (my_scrollbar,
+HMSB s_hMsbSc) attached to the main window — identical to the Dialogs page
+pattern (s_hMsbIdlg).  There is NO native WS_VSCROLL on the main window.
+SCROLLINFO is used only as an internal range tracker; the visible widget is the
+MSB bar.  Scrolling is driven by WM_VSCROLL (MSB thumb drag / arrow) and
+WM_MOUSEWHEEL.
 
 A canonical abstraction is provided in shortcuts.cpp: the current scroll
 offset in pixels is stored in s_scScrollOffset and exposed via:
@@ -20,6 +22,11 @@ SC_RefreshDesktopStrip and SC_RefreshPinStrips subtract the current offset when
 positioning their controls, so those helpers are scroll-aware without needing
 any extra wiring.
 
+[Migration note — 2026-04-05]
+Previously a native WS_VSCROLL was conditionally added to the main window when
+contentH > viewH.  Replaced with always-attached MSB (same as Dialogs page) so
+the bar fades in/out gracefully and no FRAMECHANGED flash occurs on page build.
+
 
 2. SCROLLINFO SETUP  (mainwindow.cpp, SwitchPage case 2)
 ─────────────────────────────────────────────────────────
@@ -30,19 +37,21 @@ Called once after SC_BuildPage returns the absolute-Y of the last content row:
     int pageY   = s_toolbarHeight;
     int statusH = <measured via GetWindowRect(s_hStatus)>;
     int viewH   = clientBottom - pageY - statusH;
-    int contentH = s_scPageContentH + S(15) - pageY;   // + 15 px bottom pad
+    int contentH = s_scPageContentH - pageY + S(15);   // + 15 px bottom pad
 
-    if (contentH > viewH) {
-        style |= WS_VSCROLL;
-        SCROLLINFO si = {};
-        si.cbSize = sizeof(si);
-        si.fMask  = SIF_RANGE | SIF_PAGE | SIF_POS;
-        si.nMin   = 0;
-        si.nMax   = contentH - 1;
-        si.nPage  = viewH;          // system caps nPos at nMax-nPage+1 = maxSc
-        si.nPos   = 0;
-        SetScrollInfo(hwnd, SB_VERT, &si, TRUE);
-    }
+    SCROLLINFO si = {};
+    si.cbSize = sizeof(si);
+    si.fMask  = SIF_RANGE | SIF_PAGE | SIF_POS | SIF_DISABLENOSCROLL;
+    si.nMin   = 0;
+    si.nMax   = std::max(contentH - 1, viewH);
+    si.nPage  = viewH;
+    si.nPos   = 0;
+    SetScrollInfo(hwnd, SB_VERT, &si, FALSE);   // FALSE = no native bar
+
+    if (!s_hMsbSc) s_hMsbSc = msb_attach(hwnd, MSB_VERTICAL);
+    else            msb_sync(s_hMsbSc);
+    msb_set_insets(s_hMsbSc, pageY, statusH);   // clamp bar to page area
+    msb_set_edge_gap(s_hMsbSc, 4);              // 4 px inward from right edge
 
     maxSc (effective) = contentH - viewH = s_scPageContentH + S(15) - pageY
                         - (clientBottom - pageY - statusH)
@@ -70,12 +79,14 @@ scroll step, corrupting its position.
 4. CORRECT SCROLL MECHANISM
 ─────────────────────────────
 Both WM_MOUSEWHEEL and WM_VSCROLL enumerate every direct child of hwnd and
-call SetWindowPos on each page control individually:
+call SetWindowPos on each page control individually.  The MSB bar window itself
+is excluded from the loop (it must not be scrolled):
 
+    HWND hMsbBar = s_hMsbSc ? msb_get_bar_hwnd(s_hMsbSc) : NULL;
     HWND hC = GetWindow(hwnd, GW_CHILD);
     while (hC) {
         HWND hN = GetWindow(hC, GW_HWNDNEXT);
-        if (hC != s_hStatus && hC != s_hAboutButton) {
+        if (hC != s_hStatus && hC != s_hAboutButton && hC != hMsbBar) {
             int cid = GetDlgCtrlID(hC);
             bool isTB = (cid >= IDC_TB_FILES && cid <= IDC_TB_ABOUT) ||
                          cid == IDC_TB_DIALOGS || cid == IDC_TB_COMPONENTS ||
@@ -117,6 +128,7 @@ Handle          Condition                   Reason
 ─────────────── ─────────────────────────── ──────────────────────────────────
 s_hStatus       explicitly excluded         always pinned to window bottom
 s_hAboutButton  explicitly excluded         top-right corner, always visible
+hMsbBar         msb_get_bar_hwnd(s_hMsbSc)  the scrollbar widget itself
 toolbar buttons IDC_TB_FILES … IDC_TB_ABOUT Fixed toolbar area; moving them
                 IDC_TB_DIALOGS              would corrupt the toolbar layout.
                 IDC_TB_COMPONENTS
@@ -127,20 +139,20 @@ All other direct children of hwnd while page 2 is active are page controls
 created by SC_BuildPage and are safe to move.
 
 
-6. TEARDOWN  (SC_TearDown in shortcuts.cpp)
-────────────────────────────────────────────
-Called from SwitchPage before switching away from page 2:
+6. TEARDOWN  (SwitchPage in mainwindow.cpp + SC_TearDown in shortcuts.cpp)
+────────────────────────────────────────────────────────────────────────────
+SwitchPage teardown (before DestroyWindow loop):
+
+    if (s_hMsbSc) { msb_detach(s_hMsbSc); s_hMsbSc = NULL; }
+
+SC_TearDown (shortcuts.cpp) destroys strip controls and resets offset:
 
     DestroyWindow(DSK_STRIP)      — desktop strip control
     DestroyWindow(SMPIN_STRIP)    — Start-menu pin strip
     DestroyWindow(TBPIN_STRIP)    — Taskbar pin strip
-    SC_SetScrollOffset(0)         — reset logical offset
-    s_scScrollOffset = 0
+    s_scScrollOffset = 0          — reset logical offset
 
-    // Remove the scrollbar from the main window
-    LONG_PTR style = GetWindowLongPtrW(hwnd, GWL_STYLE);
-    SetWindowLongPtrW(hwnd, GWL_STYLE, style & ~WS_VSCROLL);
-    SetScrollInfo(hwnd, SB_VERT, ...nMax=0, nPage=1..., TRUE);
+No WS_VSCROLL removal is needed (no native bar was added).
 
 
 7. SC_BUILDPAGE RETURN VALUE
