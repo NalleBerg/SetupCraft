@@ -2,6 +2,20 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.04.05.13] - 2026-04-05
+
+### Fixed
+- **H-bar hint strip obscured by V-bar bottom gap**: `Msb_PositionBar` reserved full 12 px for the H-bar at the V-bar bottom even when H was in 3 px hint-strip state. Reserve now tracks live `fadeWidth`: `max(fadeWidth, MSB_WIDTH_HIDDEN) + edgeGap + insetFar`.
+- **V-bar height did not update when H-bar appeared/disappeared**: `Msb_UpdateVisibility` state transitions and the 16 ms fade timer now reposition the V-bar peer after every H-bar width change.
+- **TreeView H-bar invisible on first attach**: `msb_attach` sampled scroll range after `ShowScrollBar(FALSE)`, which resets the TreeView H-range to zero. Fixed by sampling `GetScrollInfo` before the hide call (`preHideOverflows`); bar starts `FADE_HIDDEN` if content was already overflowing.
+- **Three scrollbars stuck visible (infinite expand–contract loop)**: Target `WM_MOUSEMOVE` proximity expanded from both `FADE_HIDDEN` and `FADE_INVISIBLE`. When the bar contracted to 3 px and the cursor was still within the 12 px proximity zone of the target, it immediately re-expanded. Fixed: proximity expansion limited to `FADE_INVISIBLE` only.
+- **Scrollbar contracted immediately on mouse leave**: Contraction now delayed 200 ms (timer ID 4). Re-entry, click, or drag end cancels the timer.
+- **Edge gap inconsistent across H-bars**: All H-bars use `SM_CYEDGE + SM_CYBORDER` as base; CompTreeView H-bar adds +2 px extra.
+
+### Changed
+- **Files ListView — column order and no truncation**: Columns reordered to Destination → Source Path. Both columns auto-sized (`LVSCW_AUTOSIZE` / `LVSCW_AUTOSIZE_USEHEADER`) after every populate/add. `LVS_EX_INFOTIP` and `LVN_GETINFOTIP` handler removed. `WM_SIZE` no longer forces proportional column widths — narrow windows show the H-scrollbar instead of truncating.
+- **Components ListView — Source Path auto-sized**: `LVSCW_AUTOSIZE_USEHEADER` applied after every populate. `LVS_EX_INFOTIP` removed.
+
 ## [2026.04.05.10] - 2026-04-05
 
 ### Fixed

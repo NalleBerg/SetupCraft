@@ -430,6 +430,14 @@ static BOOL Msb_UpdateVisibility(MsbCtx* ctx)
             ctx->fadeState = FADE_INVISIBLE;
             ctx->fadeWidth = 0.0f;
             ShowWindow(ctx->hBar, SW_HIDE);
+            /* H-bar disappeared: let V-bar peer expand back to full height. */
+            if ((ctx->flags & MSB_HORIZONTAL) && ctx->hTarget) {
+                MsbCtx* ctxV = (MsbCtx*)GetPropW(ctx->hTarget, kMsbTargetPropV);
+                if (ctxV && IsWindow(ctxV->hBar) && ctxV->fadeState != FADE_INVISIBLE) {
+                    Msb_PositionBar(ctxV);
+                    InvalidateRect(ctxV->hBar, NULL, FALSE);
+                }
+            }
         }
         return FALSE;
     }
@@ -439,6 +447,14 @@ static BOOL Msb_UpdateVisibility(MsbCtx* ctx)
         ctx->fadeWidth = (float)S(ctx, MSB_WIDTH_HIDDEN);
         Msb_PositionBar(ctx);
         ShowWindow(ctx->hBar, SW_SHOWNOACTIVATE);
+        /* H-bar just appeared: shorten the V-bar peer so they stay flush. */
+        if ((ctx->flags & MSB_HORIZONTAL) && ctx->hTarget) {
+            MsbCtx* ctxV = (MsbCtx*)GetPropW(ctx->hTarget, kMsbTargetPropV);
+            if (ctxV && IsWindow(ctxV->hBar) && ctxV->fadeState != FADE_INVISIBLE) {
+                Msb_PositionBar(ctxV);
+                InvalidateRect(ctxV->hBar, NULL, FALSE);
+            }
+        }
     }
     return TRUE;
 }
@@ -867,6 +883,7 @@ static LRESULT CALLBACK Msb_BarWndProc(HWND hwnd, UINT msg,
 
         case WM_LBUTTONDOWN: {
             if (!ctx) break;
+            KillTimer(hwnd, 4); /* cancel any pending leave-delay contraction */
             /* If the bar is in hint-strip state (3 px), jump to full width
              * immediately so the user can hit-test arrows/track/thumb now.*/
             if (!(ctx->flags & MSB_NOHIDE) && ctx->fadeState == FADE_HIDDEN) {
@@ -985,8 +1002,9 @@ static LRESULT CALLBACK Msb_BarWndProc(HWND hwnd, UINT msg,
 
         case WM_MOUSEMOVE: {
             if (!ctx) break;
-            /* Expand on first cursor entry when bar is in hidden-strip state.
-             * FADE_INVISIBLE means content fits — bar shouldn't appear at all. */
+            /* Mouse re-entered bar — cancel any pending leave-delay. */
+            KillTimer(hwnd, 4);
+            /* Expand on cursor entry when bar is in hidden or contracting state. */
             if (!(ctx->flags & MSB_NOHIDE) &&
                 (ctx->fadeState == FADE_HIDDEN || ctx->fadeState == FADE_CONTRACTING)) {
                 KillTimer(hwnd, 3);
@@ -1095,12 +1113,12 @@ static LRESULT CALLBACK Msb_BarWndProc(HWND hwnd, UINT msg,
             ctx->arrowUpState   = ARROW_NORMAL;
             ctx->arrowDownState = ARROW_NORMAL;
             InvalidateRect(hwnd, NULL, FALSE);
-            /* Fade contract on mouse leave (hidden mode) */
+            /* Arm a 200 ms leave-delay (timer 4) before contracting.
+             * The animation itself starts when timer 4 fires. */
             if (!(ctx->flags & MSB_NOHIDE) &&
                 (ctx->fadeState == FADE_VISIBLE || ctx->fadeState == FADE_EXPANDING)) {
                 KillTimer(hwnd, 3);
-                ctx->fadeState = FADE_CONTRACTING;
-                SetTimer(hwnd, 3, 16, NULL);
+                SetTimer(hwnd, 4, 200, NULL);
             }
             return 0;
         }
@@ -1160,6 +1178,17 @@ static LRESULT CALLBACK Msb_BarWndProc(HWND hwnd, UINT msg,
 
         case WM_TIMER: {
             if (!ctx) break;
+            if (wParam == 4) {
+                /* Leave-delay expired: start the actual contraction animation. */
+                KillTimer(hwnd, 4);
+                if (ctx && !(ctx->flags & MSB_NOHIDE) &&
+                    (ctx->fadeState == FADE_VISIBLE || ctx->fadeState == FADE_EXPANDING ||
+                     ctx->fadeState == FADE_HIDDEN)) {
+                    ctx->fadeState = FADE_CONTRACTING;
+                    SetTimer(hwnd, 3, 16, NULL);
+                }
+                return 0;
+            }
             if (wParam == 2) {
                 /* Wheel-idle reset: wheel has been quiet for 220 ms */
                 KillTimer(hwnd, 2);
@@ -1203,6 +1232,14 @@ static LRESULT CALLBACK Msb_BarWndProc(HWND hwnd, UINT msg,
                     }
                 }
                 Msb_PositionBar(ctx);
+                /* H-bar animating: keep V-bar peer flush with H-bar top. */
+                if ((ctx->flags & MSB_HORIZONTAL) && ctx->hTarget) {
+                    MsbCtx* ctxV = (MsbCtx*)GetPropW(ctx->hTarget, kMsbTargetPropV);
+                    if (ctxV && IsWindow(ctxV->hBar) && ctxV->fadeState != FADE_INVISIBLE) {
+                        Msb_PositionBar(ctxV);
+                        InvalidateRect(ctxV->hBar, NULL, FALSE);
+                    }
+                }
                 Msb_Layout(ctx);
                 InvalidateRect(hwnd, NULL, FALSE);
                 return 0;
@@ -1223,6 +1260,7 @@ static LRESULT CALLBACK Msb_BarWndProc(HWND hwnd, UINT msg,
                 KillTimer(hwnd, ctx->timerId);
                 ctx->timerId = 0;
             }
+            if (ctx) KillTimer(hwnd, 4); /* cancel any leave-delay too */
             if (ctx) {
                 ctx->dragging       = FALSE;
                 ctx->thumbState     = THUMB_NORMAL;
@@ -1400,9 +1438,15 @@ static LRESULT CALLBACK Msb_TargetSubclassProc(HWND hwnd, UINT msg,
             int mx = GET_X_LPARAM(lParam);
             int my = GET_Y_LPARAM(lParam);
             if (ctxV && !(ctxV->flags & MSB_NOHIDE) &&
-                (ctxV->fadeState == FADE_HIDDEN || ctxV->fadeState == FADE_INVISIBLE) &&
+                ctxV->fadeState == FADE_INVISIBLE &&
                 Msb_ContentOverflows(ctxV) &&
                 mx >= rcT.right - S(ctxV, MSB_WIDTH_FULL)) {
+                /* Only trigger from FADE_INVISIBLE: when bar is FADE_HIDDEN (3px
+                 * hint strip showing), the bar's own WM_MOUSEMOVE handles expansion
+                 * once the cursor enters the strip.  Expanding from the target's
+                 * proximity zone while already FADE_HIDDEN causes an infinite loop:
+                 * bar settles at 3px → target re-expands → WM_MOUSELEAVE contracts
+                 * → bar reaches FADE_HIDDEN again → repeat. */
                 if (ctxV->fadeState == FADE_INVISIBLE) {
                     ctxV->fadeWidth = 0.0f;
                     Msb_PositionBar(ctxV);
@@ -1413,7 +1457,7 @@ static LRESULT CALLBACK Msb_TargetSubclassProc(HWND hwnd, UINT msg,
                 SetTimer(ctxV->hBar, 3, 16, NULL);
             }
             if (ctxH && !(ctxH->flags & MSB_NOHIDE) &&
-                (ctxH->fadeState == FADE_HIDDEN || ctxH->fadeState == FADE_INVISIBLE) &&
+                ctxH->fadeState == FADE_INVISIBLE &&
                 Msb_ContentOverflows(ctxH) &&
                 my >= rcT.bottom - S(ctxH, MSB_WIDTH_FULL)) {
                 if (ctxH->fadeState == FADE_INVISIBLE) {
@@ -1476,10 +1520,14 @@ static void Msb_PositionBar(MsbCtx* ctx)
 
     if (vert) {
         /* Right edge, trimmed by insetNear (top) and insetFar (bottom). */
+        /* Reserve exactly the space the H-bar currently occupies (fadeWidth),
+         * plus its edgeGap and insetFar, so V-bar bottom is always flush with
+         * H-bar top regardless of whether H is in hint-strip or full-width mode. */
         int hBarH = 0;
         MsbCtx* ctxH = (MsbCtx*)GetPropW(ctx->hTarget, kMsbTargetPropH);
         if (ctxH && IsWindow(ctxH->hBar) && ctxH->fadeState != FADE_INVISIBLE)
-            hBarH = S(ctxH, MSB_WIDTH_FULL);
+            hBarH = max((int)(ctxH->fadeWidth + 0.5f), S(ctxH, MSB_WIDTH_HIDDEN))
+                    + ctxH->edgeGap + ctxH->insetFar;
         int top    = ctx->insetNear;
         int height = ch - ctx->insetNear - hBarH - ctx->insetFar;
         if (height < 1) height = 1;
@@ -1555,6 +1603,19 @@ HMSB msb_attach(HWND hTarget, DWORD flags)
     if (!(tStyle & WS_CLIPSIBLINGS))
         SetWindowLongPtrW(hTarget, GWL_STYLE, tStyle | WS_CLIPSIBLINGS);
 
+    /* Check overflow BEFORE hiding the native bar.
+     * For TreeView targets, ShowScrollBar(FALSE) can cause the control to
+     * reset its SB_HORZ SCROLLINFO range to 0, making the post-hide
+     * Msb_ContentOverflows check return FALSE even when content genuinely
+     * overflows.  Capture the state now so we can use it below. */
+    BOOL preHideOverflows = FALSE;
+    if (!(flags & MSB_NOHIDE)) {
+        BOOL vert2 = !(flags & MSB_HORIZONTAL);
+        SCROLLINFO si2 = {}; si2.cbSize = sizeof(si2); si2.fMask = SIF_ALL;
+        GetScrollInfo(hTarget, vert2 ? SB_VERT : SB_HORZ, &si2);
+        preHideOverflows = ((si2.nMax - si2.nMin) - (int)si2.nPage > 0);
+    }
+
     /* Hide the native scrollbar (keep the WS_VSCROLL style so SCROLLINFO
      * is maintained by the target window — we just suppress the drawing). */
     BOOL vert = !(flags & MSB_HORIZONTAL);
@@ -1569,6 +1630,15 @@ HMSB msb_attach(HWND hTarget, DWORD flags)
         ctx->fadeState = FADE_INVISIBLE;
         ctx->fadeWidth = 0.0f;
         ShowWindow(ctx->hBar, SW_HIDE);
+        /* If content was already overflowing before we hid the native bar,
+         * start in FADE_HIDDEN (hint strip visible) rather than FADE_INVISIBLE.
+         * This matters for TreeView where ShowScrollBar(FALSE) resets nMax. */
+        if (preHideOverflows) {
+            ctx->fadeState = FADE_HIDDEN;
+            ctx->fadeWidth = (float)S(ctx, MSB_WIDTH_HIDDEN);
+            Msb_PositionBar(ctx);
+            ShowWindow(ctx->hBar, SW_SHOWNOACTIVATE);
+        }
     }
 
     /* If the peer bar already exists (e.g. H bar attaching after V bar was
@@ -1723,6 +1793,10 @@ void msb_set_edge_gap(HMSB h, int gap)
     if (!h) return;
     MsbCtx* ctx = (MsbCtx*)h;
     ctx->edgeGap = gap;
+    /* Suppress native bar first so GetClientRect in Msb_PositionBar sees the
+     * full client dimensions rather than a native-scrollbar-reduced rect. */
+    BOOL vert = !(ctx->flags & MSB_HORIZONTAL);
+    Msb_HideNativeBar(ctx->hTarget, ctx->isRichEdit, vert);
     Msb_PositionBar(ctx);
     Msb_Layout(ctx);
     InvalidateRect(ctx->hBar, NULL, FALSE);

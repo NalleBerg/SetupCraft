@@ -1321,14 +1321,16 @@ static void ForceRefreshListView(HWND hwndListView, HTREEITEM hItem) {
             LVITEMW lvi = {};
             lvi.mask     = LVIF_TEXT | LVIF_PARAM | LVIF_IMAGE;
             lvi.iItem    = ListView_GetItemCount(hwndListView);
-            lvi.pszText  = (LPWSTR)fileInfo.sourcePath.c_str();
+            lvi.pszText  = (LPWSTR)fileInfo.destination.c_str();
             lvi.iImage   = sfi.iIcon;
             wchar_t* copy = (wchar_t*)malloc((fileInfo.sourcePath.size() + 1) * sizeof(wchar_t));
             if (copy) { wcscpy(copy, fileInfo.sourcePath.c_str()); lvi.lParam = (LPARAM)copy; }
             int idx = ListView_InsertItem(hwndListView, &lvi);
-            ListView_SetItemText(hwndListView, idx, 1, (LPWSTR)fileInfo.destination.c_str());
+            ListView_SetItemText(hwndListView, idx, 1, (LPWSTR)fileInfo.sourcePath.c_str());
         }
     }
+    ListView_SetColumnWidth(hwndListView, 0, LVSCW_AUTOSIZE_USEHEADER);
+    ListView_SetColumnWidth(hwndListView, 1, LVSCW_AUTOSIZE);
     InvalidateRect(hwndListView, NULL, TRUE);
     UpdateWindow(hwndListView);
 }
@@ -2018,23 +2020,21 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
             ListView_SetImageList(s_hListView, hSysImageList, LVSIL_SMALL);
         }
         
-        ListView_SetExtendedListViewStyle(s_hListView, LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES | LVS_EX_INFOTIP);
+        ListView_SetExtendedListViewStyle(s_hListView, LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
         
         LVCOLUMNW col = {};
         col.mask = LVCF_TEXT | LVCF_WIDTH;
-        { RECT rcLv = {}; GetClientRect(s_hListView, &rcLv);
-          int lvCW = rcLv.right > 0 ? rcLv.right : listWidth;
-          col.cx = (int)(lvCW * 0.55);
-          col.pszText = (LPWSTR)L"Source Path";
-          ListView_InsertColumn(s_hListView, 0, &col);
-          col.cx = lvCW - col.cx;
+        { col.cx = S(180);
           col.pszText = (LPWSTR)L"Destination";
+          ListView_InsertColumn(s_hListView, 0, &col);
+          col.cx = S(350);
+          col.pszText = (LPWSTR)L"Source Path";
           ListView_InsertColumn(s_hListView, 1, &col); }
         // Attach custom hidden scrollbars to the ListView.
         s_hMsbFilesListV = msb_attach(s_hListView, MSB_VERTICAL);
         s_hMsbFilesListH = msb_attach(s_hListView, MSB_HORIZONTAL);
         // Same border gap as the TreeView bars.
-        if (s_hMsbFilesListH) msb_set_edge_gap(s_hMsbFilesListH, GetSystemMetrics(SM_CYEDGE) + 2);
+        if (s_hMsbFilesListH) msb_set_edge_gap(s_hMsbFilesListH, GetSystemMetrics(SM_CYEDGE) + GetSystemMetrics(SM_CYBORDER) + 6);
         
         // Always create "Program Files" root node (use Windows-localized name)
         std::wstring defaultInstallPath = GetProgramFilesPath() + L"\\" + s_currentProject.name;
@@ -2164,7 +2164,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         s_hMsbFilesTreeH = msb_attach(s_hTreeView, MSB_HORIZONTAL);
         // Shift the H bar up by the WS_EX_CLIENTEDGE border height so it sits
         // visually inside the pane rather than flush against the nc border.
-        if (s_hMsbFilesTreeH) msb_set_edge_gap(s_hMsbFilesTreeH, GetSystemMetrics(SM_CYEDGE) + 2);
+        if (s_hMsbFilesTreeH) msb_set_edge_gap(s_hMsbFilesTreeH, GetSystemMetrics(SM_CYEDGE) + GetSystemMetrics(SM_CYBORDER) + 6);
         // Subclass TreeView so we can show tooltip on hover
         if (s_hTreeView) {
             s_prevTreeProc = (WNDPROC)SetWindowLongPtrW(s_hTreeView, GWLP_WNDPROC, (LONG_PTR)TreeView_SubclassProc);
@@ -2980,7 +2980,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
             listX, splitY, listW, splitH,
             hwnd, (HMENU)IDC_COMP_LISTVIEW, hInst, NULL);
         ListView_SetExtendedListViewStyle(s_hCompListView,
-            LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES | LVS_EX_INFOTIP);
+            LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
 
         // Columns
         auto compLocStr = [&](const wchar_t *key, const wchar_t *fallback) -> std::wstring {
@@ -3000,14 +3000,14 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
             col.pszText = (LPWSTR)cDesc.c_str(); col.cx = S(180); ListView_InsertColumn(s_hCompListView, colIdx++, &col);
             col.pszText = (LPWSTR)cReq.c_str();  col.cx = S(75);  ListView_InsertColumn(s_hCompListView, colIdx++, &col);
             col.pszText = (LPWSTR)cType.c_str(); col.cx = S(65);  ListView_InsertColumn(s_hCompListView, colIdx++, &col);
-            col.pszText = (LPWSTR)cPath.c_str(); col.cx = listW - S(510 + 20); ListView_InsertColumn(s_hCompListView, colIdx++, &col);
+            col.pszText = (LPWSTR)cPath.c_str(); col.cx = S(350); ListView_InsertColumn(s_hCompListView, colIdx++, &col);
         }
         // Attach custom scrollbars to the ListView now (before population).
         if (s_hMsbCompListV) { msb_detach(s_hMsbCompListV); s_hMsbCompListV = NULL; }
         if (s_hMsbCompListH) { msb_detach(s_hMsbCompListH); s_hMsbCompListH = NULL; }
         s_hMsbCompListV = msb_attach(s_hCompListView, MSB_VERTICAL);
         s_hMsbCompListH = msb_attach(s_hCompListView, MSB_HORIZONTAL);
-        if (s_hMsbCompListH) msb_set_edge_gap(s_hMsbCompListH, GetSystemMetrics(SM_CYEDGE) + 2);
+        if (s_hMsbCompListH) msb_set_edge_gap(s_hMsbCompListH, GetSystemMetrics(SM_CYEDGE) + GetSystemMetrics(SM_CYBORDER) + 6);
 
         // s_components is loaded once when the project opens (MainWindow::Create).
         // On subsequent visits to this page it is used as-is from memory.
@@ -3141,7 +3141,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         if (s_hMsbCompTreeH) { msb_detach(s_hMsbCompTreeH); s_hMsbCompTreeH = NULL; }
         s_hMsbCompTreeV = msb_attach(s_hCompTreeView, MSB_VERTICAL);
         s_hMsbCompTreeH = msb_attach(s_hCompTreeView, MSB_HORIZONTAL);
-        if (s_hMsbCompTreeH) msb_set_edge_gap(s_hMsbCompTreeH, GetSystemMetrics(SM_CYEDGE) + 2);
+        if (s_hMsbCompTreeH) msb_set_edge_gap(s_hMsbCompTreeH, GetSystemMetrics(SM_CYEDGE) + GetSystemMetrics(SM_CYBORDER) + 8);
 
         break;
     }
@@ -7056,14 +7056,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                       S(20) + treeWidth + S(5), s_toolbarHeight + viewTop, listWidth, viewHeight);
             EndDeferWindowPos(hdwp);
 
-            // ListView column widths (proportional to client area, not window width)
-            if (s_hListView && IsWindow(s_hListView)) {
-                RECT rcLv = {}; GetClientRect(s_hListView, &rcLv);
-                int lvCW = rcLv.right > 0 ? rcLv.right : listWidth;
-                int col0W = (int)(lvCW * 0.55);
-                ListView_SetColumnWidth(s_hListView, 0, col0W);
-                ListView_SetColumnWidth(s_hListView, 1, lvCW - col0W);
-            }
+            // Column widths stay content-sized; H-bar appears on narrow windows.
             // Reposition all four bars so they track the new control corners.
             msb_reposition(s_hMsbFilesTreeV);
             msb_reposition(s_hMsbFilesTreeH);
@@ -7099,9 +7092,6 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                       listX, splitY, listW, splitH);
             EndDeferWindowPos(hdwp);
 
-            // Update last (Source Path) column to fill remaining width
-            if (s_hCompListView && IsWindow(s_hCompListView))
-                ListView_SetColumnWidth(s_hCompListView, 4, listW - S(510 + 20));
             // Reposition all four comp bars so they track the new control corners.
             msb_reposition(s_hMsbCompTreeV);
             msb_reposition(s_hMsbCompTreeH);
@@ -7396,7 +7386,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                         lvi.mask     = LVIF_TEXT | LVIF_PARAM | LVIF_IMAGE;
                         lvi.iItem    = ListView_GetItemCount(s_hListView);
                         lvi.iSubItem = 0;
-                        lvi.pszText  = (LPWSTR)fileInfo.sourcePath.c_str();
+                        lvi.pszText  = (LPWSTR)fileInfo.destination.c_str();
                         lvi.iImage   = sfi.iIcon;
                         wchar_t* pathCopy = (wchar_t*)malloc((fileInfo.sourcePath.length() + 1) * sizeof(wchar_t));
                         if (pathCopy) {
@@ -7404,9 +7394,11 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                             lvi.lParam = (LPARAM)pathCopy;
                         }
                         int idx = ListView_InsertItem(s_hListView, &lvi);
-                        ListView_SetItemText(s_hListView, idx, 1, (LPWSTR)fileInfo.destination.c_str());
+                        ListView_SetItemText(s_hListView, idx, 1, (LPWSTR)fileInfo.sourcePath.c_str());
                     }
                 }
+                ListView_SetColumnWidth(s_hListView, 0, LVSCW_AUTOSIZE_USEHEADER);
+                ListView_SetColumnWidth(s_hListView, 1, LVSCW_AUTOSIZE);
 
                 // Force ListView to redraw
                 InvalidateRect(s_hListView, NULL, TRUE);
@@ -7441,18 +7433,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             return 0;
         }
         
-        // Handle ListView tooltip request
-        if (nmhdr->idFrom == 100 && nmhdr->code == LVN_GETINFOTIP) {
-            LPNMLVGETINFOTIP pGetInfoTip = (LPNMLVGETINFOTIP)lParam;
-            LVITEM lvi = {};
-            lvi.mask = LVIF_PARAM;
-            lvi.iItem = pGetInfoTip->iItem;
-            if (ListView_GetItem(s_hListView, &lvi) && lvi.lParam) {
-                wchar_t* fullPath = (wchar_t*)lvi.lParam;
-                wcsncpy(pGetInfoTip->pszText, fullPath, pGetInfoTip->cchTextMax - 1);
-                pGetInfoTip->pszText[pGetInfoTip->cchTextMax - 1] = L'\0';
-            }
-        }
+
         
         
         // Handle double-click on Registry ListView -> edit value
@@ -7534,6 +7515,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                     ListView_SetItemText(s_hCompListView, lrow, 4, (LPWSTR)vf.sourcePath.c_str());
                 }
             }
+            ListView_SetColumnWidth(s_hCompListView, 4, LVSCW_AUTOSIZE_USEHEADER);
             // Re-suppress native ListView bars that get re-enabled on item insertion.
             if (s_hMsbCompListV) { ShowScrollBar(s_hCompListView, SB_VERT, FALSE); msb_sync(s_hMsbCompListV); }
             if (s_hMsbCompListH) { ShowScrollBar(s_hCompListView, SB_HORZ, FALSE); msb_sync(s_hMsbCompListH); }
@@ -7880,7 +7862,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                         lvi.mask = LVIF_TEXT | LVIF_PARAM | LVIF_IMAGE;
                         lvi.iItem = ListView_GetItemCount(s_hListView);
                         lvi.iSubItem = 0;
-                        lvi.pszText = (LPWSTR)fullPath.c_str();
+                        std::wstring dest = L"\\" + fileName;
+                        lvi.pszText = (LPWSTR)dest.c_str();
                         lvi.iImage = sfi.iIcon;
                         
                         wchar_t* pathCopy = (wchar_t*)malloc((fullPath.length() + 1) * sizeof(wchar_t));
@@ -7890,8 +7873,9 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                         }
                         
                         int idx = ListView_InsertItem(s_hListView, &lvi);
-                        std::wstring dest = L"\\" + fileName;
-                        ListView_SetItemText(s_hListView, idx, 1, (LPWSTR)dest.c_str());
+                        ListView_SetItemText(s_hListView, idx, 1, (LPWSTR)fullPath.c_str());
+                        ListView_SetColumnWidth(s_hListView, 0, LVSCW_AUTOSIZE_USEHEADER);
+                        ListView_SetColumnWidth(s_hListView, 1, LVSCW_AUTOSIZE);
                         
                         // If target folder is virtual (no physical path), store file for persistence
                         if (hTargetFolder) {
@@ -7955,7 +7939,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                             lvi.mask = LVIF_TEXT | LVIF_PARAM | LVIF_IMAGE;
                             lvi.iItem = ListView_GetItemCount(s_hListView);
                             lvi.iSubItem = 0;
-                            lvi.pszText = (LPWSTR)fullPath.c_str();
+                            std::wstring dest = L"\\" + fileName;
+                            lvi.pszText = (LPWSTR)dest.c_str();
                             lvi.iImage = sfi.iIcon;
                             
                             wchar_t* pathCopy = (wchar_t*)malloc((fullPath.length() + 1) * sizeof(wchar_t));
@@ -7965,8 +7950,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                             }
                             
                             int idx = ListView_InsertItem(s_hListView, &lvi);
-                            std::wstring dest = L"\\" + fileName;
-                            ListView_SetItemText(s_hListView, idx, 1, (LPWSTR)dest.c_str());
+                            ListView_SetItemText(s_hListView, idx, 1, (LPWSTR)fullPath.c_str());
                             
                             // If target folder is virtual (no physical path), store file for persistence
                             if (hTargetFolder) {
@@ -7993,6 +7977,10 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                     }
                 }
                 
+                if (s_hListView) {
+                    ListView_SetColumnWidth(s_hListView, 0, LVSCW_AUTOSIZE_USEHEADER);
+                    ListView_SetColumnWidth(s_hListView, 1, LVSCW_AUTOSIZE);
+                }
                 MarkAsModified();
                 UpdateComponentsButtonState(hwnd);
             }
