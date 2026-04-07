@@ -62,6 +62,13 @@
   - Consider a fix_locales.ps1 stub for future locale sync automation.
   - my_scrollbar is the heaviest dependency; decide whether it ships as
     source pair (my_scrollbar.h/.cpp) or as a header-only option.
+  - ListView H-scroll lesson: GetScrollInfo.nPos is zeroed by
+    ShowScrollBar(FALSE) and not updated by LVM_SCROLL.  The only
+    reliable true offset is -Header_GetItemRect(col0).left (encapsulated
+    as Msb_GetListViewHPos()).  Use LVM_SCROLL for delta scrolling; never
+    SetScrollInfo inside Msb_ScrollToPos (triggers WM_NCPAINT blink loop).
+    WM_NCPAINT fires synchronously inside LVM_SCROLL before the header
+    repositions — do NOT read or write lvHPos there.
   - sqlite3 amalgamation version: pin to the version used in SetupCraft
     at publish time and note it here.
 

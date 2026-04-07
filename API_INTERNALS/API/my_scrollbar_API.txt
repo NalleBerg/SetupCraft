@@ -29,12 +29,13 @@
   • DPI-aware: all pixel values go through S() internally; works at any DPI.
   • No SetupCraft dependencies — only <windows.h>.
 
-  Status (2026-04-03)
+  Status (2026-04-07)
   ────────────────────
     Thumb drag         ✓  Works correctly.
     Arrow click        ✓  Works correctly (auto-repeat, 350 ms / 50 ms).
     Track click        ✓  Works correctly (jump to position, not page scroll).
     Mouse wheel        ✓  Works correctly (sub-tick accumulation).
+    Tilt wheel (H)     ✓  Works correctly.
     Fade / hide        ✓  Works correctly (proximity expand, 150 ms animation).
     V+H dual attach    ✓  Works correctly (V bar shortened for H bar).
     Last-line margin   ✓  Survives all scroll events via EM_SETRECT re-apply.
@@ -43,15 +44,24 @@
     Page scrollbar     ✓  Dialogs page; msb_set_insets / msb_set_edge_gap;
                           WM_SIZE updates SCROLLINFO + calls msb_sync so bar
                           hides when content fits and returns when window shrinks.
-    ListView V+H       ✓  Uses LVM_SCROLL (pixel delta); vertical delta
-                          multiplied by row height from ListView_GetItemRect.
-                          Column widths based on GetClientRect width (not window
-                          width) to avoid false H-bar overflow from border gap.
-    TreeView V+H       ✓  Live drag sends SetScrollInfo + SB_THUMBTRACK;
-                          SB_THUMBPOSITION sent only on mouse-up. Visibility
-                          guard (Msb_UpdateVisibilityGuarded) prevents transient
-                          zero scroll-range from hiding the bar. H-bar sits
-                          SM_CYEDGE+2 px above the nc border via msb_set_edge_gap.
+    ListView V+H       ✓  H-axis scroll position tracked in MsbCtx.lvHPos
+                          (GetScrollInfo.nPos unreliable: ShowScrollBar(FALSE)
+                          zeroes it; LVM_SCROLL doesn't update it). Arrow,
+                          track-click, thumb-drag, and tilt-wheel all work.
+                          Scroll range (nMax/nPage) derived from live column
+                          widths and client rect via Msb_FixListViewHScrollInfo.
+                          Vertical delta multiplied by row height from
+                          ListView_GetItemRect.  Column widths based on
+                          GetClientRect width (not window width) to avoid false
+                          H-bar overflow from border gap.
+    TreeView V+H       ✓  Show/hide, scrollwheel, thumb drag all working.
+                          V-axis overflow detected via TVGN_NEXTVISIBLE tree-walk
+                          (SCROLLINFO unreliable after ShowScrollBar(FALSE) zeroes
+                          it). WM_NCPAINT intercepted to permanently suppress native
+                          bars (TreeView re-enables them on every NC repaint).
+                          Msb_ReconstructTreeVScrollInfo rebuilds synthetic
+                          SCROLLINFO (nMin/nMax/nPage/nPos) from tree state after
+                          every HideNativeBar on V-axis so thumb position is correct.
     Resize reposition  ✓  msb_reposition() re-derives bar position + visibility
                           from target's current client rect; called from WM_SIZE.
                           Msb_HideNativeBar called before Msb_PositionBar so
@@ -257,68 +267,150 @@
 
   4d. TreeView / ListView (V + H bars, hidden/fade mode)
   ───────────────────────────────────────────────────────
-  IMPORTANT — TreeView attach timing:
-  msb_attach must be called AFTER all TreeView_InsertItem calls.
-  TreeView internally re-enables its native scrollbar during item insertion,
-  undoing the ShowScrollBar(FALSE) that msb_attach calls.  Calling attach
-  after population means ShowScrollBar(FALSE) runs last and suppresses the
-  native bars correctly.
 
-  For the ListView attach there is no such restriction — attach can be called
-  after creating the window and adding columns, before populating.  However,
-  every PopulateListView / ListView_InsertItem fill path must re-suppress the
-  native bars afterward (see re-suppression pattern below).
+  ┌─ TREEVIEW CHECKLIST ─────────────────────────────────────────────────┐
+  │ □  WS_VSCROLL | WS_HSCROLL in CreateWindowExW style                 │
+  │ □  msb_attach AFTER all InsertItem + Expand calls                   │
+  │ □  msb_set_edge_gap for H-bar (SM_CYEDGE + SM_CYBORDER + 6)         │
+  │ □  msb_detach BEFORE the controlIds[] DestroyWindow loop            │
+  │ □  TVN_ITEMEXPANDED hook — GUARDED + msb_reposition both axes       │
+  │ □  msb_reposition in WM_SIZE (after EndDeferWindowPos)              │
+  └──────────────────────────────────────────────────────────────────────┘
 
-  // After creating the windows and adding ListView columns:
-  s_hMsbListV = msb_attach(s_hListView, MSB_VERTICAL);
-  s_hMsbListH = msb_attach(s_hListView, MSB_HORIZONTAL);
-  // Same edge gap for the ListView H-bar:
-  if (s_hMsbListH) msb_set_edge_gap(s_hMsbListH, GetSystemMetrics(SM_CYEDGE) + 2);
+  ── Creation style ──────────────────────────────────────────────────────
+  WS_VSCROLL | WS_HSCROLL MUST be in the CreateWindowExW style even though
+  the native bars will be visually hidden by MSB.  Without these styles the
+  TreeView never populates SCROLLINFO (nMax always stays 0), so GetScrollInfo
+  returns zero and MSB always reads "no overflow" → bars never appear.
+  The visual native bars are suppressed by msb_attach (and by the WM_NCPAINT
+  interception — see Implementation notes); the STYLE must remain.
 
-  // After ALL TreeView_InsertItem / expansion calls (tree fully populated):
-  s_hMsbTreeV = msb_attach(s_hTreeView, MSB_VERTICAL);
-  s_hMsbTreeH = msb_attach(s_hTreeView, MSB_HORIZONTAL);
-  // Shift H-bar above the WS_EX_CLIENTEDGE nc border so the hint strip is visible:
-  if (s_hMsbTreeH) msb_set_edge_gap(s_hMsbTreeH, GetSystemMetrics(SM_CYEDGE) + 2);
+    s_hTree = CreateWindowExW(WS_EX_CLIENTEDGE, WC_TREEVIEWW, L"",
+        WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_HSCROLL |
+        TVS_HASLINES | TVS_LINESATROOT | TVS_HASBUTTONS | ...,
+        x, y, w, h, hwnd, (HMENU)IDC_MY_TREE, hInst, NULL);
 
-  // After every PopulateListView / batch ListView_InsertItem call:
-  // (ListView re-enables its native bars when items are inserted)
-  if (s_hMsbListV) { ShowScrollBar(s_hListView, SB_VERT, FALSE); msb_sync(s_hMsbListV); }
-  if (s_hMsbListH) { ShowScrollBar(s_hListView, SB_HORZ, FALSE); msb_sync(s_hMsbListH); }
+  ── Attach sequence ─────────────────────────────────────────────────────
+  Must happen in this exact order:
 
-  // In SwitchPage teardown — BEFORE any DestroyWindow call that targets the
-  // TreeView or ListView.  CRITICAL: if the TV/LV control IDs appear in your
-  // controlIds[] array (or any loop that calls DestroyWindow on children),
-  // msb_detach MUST be called before that loop runs.  DestroyWindow fires
-  // WM_DESTROY → Msb_TargetSubclassProc → internal msb_detach, freeing the
-  // ctx.  An explicit msb_detach afterward then reuses the freed memory →
-  // heap corruption → crash seconds later.  (Components page crash, 2026-04-03.)
-  if (s_hMsbTreeV) { msb_detach(s_hMsbTreeV); s_hMsbTreeV = NULL; }
-  if (s_hMsbTreeH) { msb_detach(s_hMsbTreeH); s_hMsbTreeH = NULL; }
-  if (s_hMsbListV) { msb_detach(s_hMsbListV); s_hMsbListV = NULL; }
-  if (s_hMsbListH) { msb_detach(s_hMsbListH); s_hMsbListH = NULL; }
+    // 1. Populate the tree (all InsertItem + Expand calls).
+    RebuildMyTree();
 
-  Implementation notes for ListView and TreeView targets:
-  • ListView ignores external WM_VSCROLL/WM_HSCROLL for absolute positioning.
-    The module uses LVM_SCROLL (pixel delta) internally via Msb_ScrollToPos.
-  • ListView vertical SCROLLINFO.nPos is in rows, not pixels.  Msb_ScrollToPos
-    multiplies the row delta by the item row height (ListView_GetItemRect)
-    before calling LVM_SCROLL.
-  • ListView horizontal SCROLLINFO.nPos is in pixels — no conversion needed.
-  • TreeView responds correctly to SetScrollInfo + WM_VSCROLL SB_THUMBTRACK
-    during live drag; SB_THUMBPOSITION is sent only on WM_LBUTTONUP.
-  • Visibility guard: Msb_UpdateVisibilityGuarded is used for all scroll
-    events on TreeView/ListView targets.  It allows FADE_INVISIBLE → FADE_HIDDEN
-    (bar becomes visible when content first overflows) but blocks
-    FADE_HIDDEN → FADE_INVISIBLE (transient zero scroll-range from internal
-    auto-scroll-to-selection cannot hide a bar already showing).
-  • H-bar edge gap: call msb_set_edge_gap(hH, GetSystemMetrics(SM_CYEDGE)+2)
-    after attaching the H-bar so the 3 px hint strip sits inside the client
-    area rather than flush against the WS_EX_CLIENTEDGE nc border.
-  • Arrow clicks use LVM_SCROLL (pixel step) for ListView; WM_VSCROLL/HSCROLL
-    SB_LINEUP/SB_LINEDOWN for TreeView — handled automatically by Msb_Scroll.
-  • msb_notify_content_changed is not needed for TreeView/ListView (their
-    SCROLLINFO is always current).
+    // 2. Install subclass and attach bars.  Initial visibility is evaluated
+    //    inside msb_attach via Msb_ContentOverflows.  For the V-axis this
+    //    uses a TVGN_NEXTVISIBLE tree-walk (not SCROLLINFO — which is
+    //    unreliable at attach time) so bars start in the correct state.
+    //    No further WM_SIZE or msb_reposition call is needed after attach.
+    s_hMsbTreeV = msb_attach(hTree, MSB_VERTICAL);
+    s_hMsbTreeH = msb_attach(hTree, MSB_HORIZONTAL);
+    // Raise H-bar above the WS_EX_CLIENTEDGE border so hint strip is visible:
+    if (s_hMsbTreeH)
+        msb_set_edge_gap(s_hMsbTreeH, GetSystemMetrics(SM_CYEDGE)
+                                    + GetSystemMetrics(SM_CYBORDER) + 6);
+
+  ── Teardown (SwitchPage) ───────────────────────────────────────────────
+  MUST come BEFORE any loop that calls DestroyWindow on the TreeView.
+  If the TreeView's control ID is in controlIds[] or any child-destroy loop,
+  DestroyWindow fires WM_DESTROY → internal msb_detach (frees ctx).  An
+  explicit msb_detach afterward reuses freed memory → heap corruption → crash.
+
+    // ← Put this ABOVE the controlIds[] DestroyWindow loop.
+    if (s_hMsbTreeV) { msb_detach(s_hMsbTreeV); s_hMsbTreeV = NULL; }
+    if (s_hMsbTreeH) { msb_detach(s_hMsbTreeH); s_hMsbTreeH = NULL; }
+    // ← controlIds[] loop + DestroyWindow calls follow here.
+
+  ── TVN_ITEMEXPANDED hook ───────────────────────────────────────────────
+  The TreeView does NOT send WM_VSCROLL or WM_SIZE when items are expanded
+  or collapsed.  Hook TVN_ITEMEXPANDED in WndProc WM_NOTIFY.
+
+  !! GUARD IS MANDATORY !!
+  RebuildMyTree() calls TreeView_Expand() synchronously, which fires
+  TVN_ITEMEXPANDED BEFORE msb_attach has been called.  The guard
+  `if (s_hMsbTreeV || s_hMsbTreeH)` is FALSE during initial build (both
+  nil) and TRUE after attach — safely skips the handler during build.
+
+  !! JUST CALL msb_reposition — nothing else !!
+  Two approaches that DO NOT work and must NOT be used:
+  • SendMessageW(WM_SIZE) with unchanged client dimensions: the TreeView
+    caches its client size and skips scroll recalculation — V SCROLLINFO
+    remains stale, V bar never appears.
+  • Capture SCROLLINFO / ShowScrollBar(FALSE) / restore / msb_reposition:
+    silently fails for V-axis — TreeView only updates SB_VERT nMax/nPage
+    during WM_SIZE, not during expand/collapse, so siV.nMax==0 at
+    TVN_ITEMEXPANDED time → restore skipped → V bar never appears.
+    H-axis works (H extent set at item insertion time) but V does not.
+
+  msb_reposition() internally calls HideNativeBar → tree-walk
+  (Msb_ReconstructTreeVScrollInfo, TVGN_NEXTVISIBLE) → Msb_UpdateVisibility,
+  bypassing SCROLLINFO entirely for V and giving the correct answer.
+
+    // In WndProc WM_NOTIFY (inside the main switch, not a sub-dialog):
+    if (nmhdr->idFrom == IDC_MY_TREE && nmhdr->code == TVN_ITEMEXPANDED
+        && (s_hMsbTreeV || s_hMsbTreeH)) {
+        if (s_hMsbTreeV) msb_reposition(s_hMsbTreeV);
+        if (s_hMsbTreeH) msb_reposition(s_hMsbTreeH);
+    }
+
+  ── WM_SIZE hook ────────────────────────────────────────────────────────
+  Call msb_reposition after EndDeferWindowPos for all bars.  msb_reposition
+  uses the unguarded Msb_UpdateVisibility so bars correctly go INVISIBLE
+  when the window is resized large enough to fit all content.
+
+    // In WM_SIZE, after EndDeferWindowPos for page controls:
+    if (s_hMsbTreeV) msb_reposition(s_hMsbTreeV);
+    if (s_hMsbTreeH) msb_reposition(s_hMsbTreeH);
+
+  ── ListView re-suppression after populate ──────────────────────────────
+  ListView re-enables its native bars every time items are inserted.
+  After every PopulateListView / batch InsertItem call:
+
+    if (s_hMsbListV) { ShowScrollBar(s_hList, SB_VERT, FALSE); msb_sync(s_hMsbListV); }
+    if (s_hMsbListH) { ShowScrollBar(s_hList, SB_HORZ, FALSE); msb_sync(s_hMsbListH); }
+
+  ── Implementation notes (handled internally — no per-page action needed) ──
+  • WM_NCPAINT interception (inNcPaint guard): the TreeView re-enables its
+    native scrollbars inside its own WM_NCPAINT handler on every NC repaint
+    — triggered by expand/collapse, scrollwheel, focus, hover, anything.
+    The subclass intercepts WM_NCPAINT: lets origProc paint the NC area,
+    then immediately calls HideNativeBar for both axes.  The resulting
+    re-entrant WM_NCPAINT (from ShowScrollBar(FALSE)) is forwarded straight
+    to origProc via the `inNcPaint` flag and then cleared.  Result: native
+    bars are permanently invisible regardless of what triggers NC repaint.
+  • V-axis overflow via TVGN_NEXTVISIBLE tree-walk: SCROLLINFO.nPage is
+    unreliable for TreeView V-axis — ShowScrollBar(FALSE) zeroes it, and
+    WM_SIZE with unchanged client rect may not recompute it.  V-axis
+    overflow detection walks expanded visible items via TVGN_NEXTVISIBLE
+    from root, counting rows against (clientHeight / itemHeight) capacity.
+    Msb_ReconstructTreeVScrollInfo (called by msb_reposition and in every
+    HideNativeBar path for V) also rebuilds a synthetic SCROLLINFO
+    (nMin=0, nMax=totalRows-1, nPage=capacity, nPos=firstVisibleRowIndex)
+    so thumb position, arrow clicks, and thumb drag all work correctly.
+  • H-axis uses capture/restore (not tree-walk): H extent is updated
+    immediately on item insertion, so GetScrollInfo(SB_HORZ) is reliable.
+    Capture before HideNativeBar, restore after, in all five event handlers.
+  • WM_SIZE re-entrancy (inWmSize guard): HideNativeBar → ShowScrollBar(FALSE)
+    changes the NC area → Windows fires synchronous WM_SIZE back to the target.
+    Guard returns 0 WITHOUT calling origProc (origProc would re-show native bars).
+  • Scroll events (WM_VSCROLL, WM_HSCROLL, WM_MOUSEWHEEL) call HideNativeBar
+    + Msb_ReconstructTreeVScrollInfo after origProc, then the GUARDED
+    visibility check (Msb_UpdateVisibilityGuarded) — allows INVISIBLE→HIDDEN
+    on first overflow, blocks HIDDEN→INVISIBLE from transient zero-range
+    events (e.g. auto-scroll-to-selection).  msb_reposition uses the
+    UNGUARDED check — only call from real layout events (WM_SIZE,
+    TVN_ITEMEXPANDED).
+  • ListView: H-axis scroll position is tracked independently in
+    MsbCtx.lvHPos because GetScrollInfo(SB_HORZ).nPos is unreliable —
+    ShowScrollBar(FALSE) zeroes it and LVM_SCROLL does not update it.
+    Arrow buttons use WM_HSCROLL (which the ListView handles correctly when
+    nMax is pre-restored via SetScrollInfo + Msb_FixListViewHScrollInfo);
+    WM_HSCROLL interceptor captures nPos after origProc and writes it to
+    lvHPos before HideNativeBar zeroes SCROLLINFO.  Track-click and thumb-
+    drag call LVM_SCROLL with delta = newPos - lvHPos; update lvHPos = newPos.
+    nMax/nPage for thumb sizing come from Msb_FixListViewHScrollInfo: live
+    column widths (Msb_ListViewTotalColumnWidth) and GetClientRect.
+    nPos for Msb_Layout also uses lvHPos.
+  • TreeView thumb drag: SetScrollInfo + SB_THUMBTRACK live; SB_THUMBPOSITION
+    on mouse-up only.
 
 
 5. CUSTOMISATION  (my_scrollbar.h macros)

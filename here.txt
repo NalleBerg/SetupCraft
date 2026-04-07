@@ -1,249 +1,88 @@
 ================================================================================
   Session State — SetupCraft
-  Version: 2026.03.31.08  (see curver.txt)
-  Commit: (see git log — pushed end of session 31.03.2026)
+  Version: 2026.04.07.11  (see curver.txt)
+  Commit: (see git log — pushed end of session 07.04.2026)
 ================================================================================
 
 ------------------------------------------------------------------------
-COMPLETED THIS SESSION (31.03.2026)
+KNOWN ISSUE — Dependencies page H-bar (thumb drag not working correctly)
 ------------------------------------------------------------------------
 
- [OK]  Custom scrollbar Phase 1 — my_scrollbar.h / my_scrollbar.cpp
-         Custom Win32 scrollbar window class ("MyScrollbar"), DPI-aware
-         layout, double-buffered GDI painting. Rounded track/arrows/thumb,
-         triangle arrow glyphs. Proportional thumb from GetScrollInfo.
-         MSB_VERTICAL, MSB_HORIZONTAL, MSB_NOHIDE flags.
-         Public API: msb_attach / msb_detach / msb_sync.
+ [!!] Dependencies page ListView horizontal scrollbar — PARTIALLY WORKING
+      Arrow buttons (left/right): work correctly.
+      Track-click: works correctly.
+      Tilt-wheel: works correctly.
+      Thumb drag: content moves right when dragging right, but thumb does
+        not visually follow. Cannot drag back left. Blinks at right end.
 
- [OK]  Dual-attach fix
-         Two bars (V+H) can now share a single target window. Separate
-         property keys MSB_Target_V / MSB_Target_H prevent second attach
-         from capturing Msb_TargetSubclassProc as origProc (infinite
-         recursion on scroll). Subclass installed once; both bars
-         dispatched from Msb_TargetSubclassProc.
+      Root cause (identified): ListView H-scroll is extremely unreliable.
+        ShowScrollBar(FALSE) zeroes SCROLLINFO.nPos. LVM_SCROLL does not
+        update it. WM_HSCROLL may not update it when nMax=0. The WM_NCPAINT
+        fires synchronously inside LVM_SCROLL before the header repositions.
+        Result: no single read point gives a reliable current position.
 
- [OK]  Native bar suppression fix
-         ShowScrollBar(FALSE) does not stick on RichEdit — control re-shows
-         native bars on scroll and resize. Fixed with EM_SHOWSCROLLBAR
-         (0x0460) and re-suppression in WM_SIZE, WM_VSCROLL, WM_HSCROLL.
+      Approach taken: MsbCtx.lvHPos tracking + Msb_GetListViewHPos()
+        (reads -Header_GetItemRect(col0).left). The header IS the ground
+        truth — but WM_NCPAINT fires before header is repositioned, so
+        reading it there gives stale value and corrupts delta calculation.
+        Guard added to skip sync when our bar has capture, but thumb drag
+        is still broken because dragStartPos feeds from lvHPos which drifts.
 
- [OK]  Bar scrolling with RichEdit content fix
-         Bar was child of target → moved with scrolled content. Fixed by
-         making bar a child of target's parent (sibling), positioned via
-         ClientToScreen + ScreenToClient mapping on every WM_SIZE.
+      What still needs to be done:
+        - Thumb drag: fix dragStartPos to always read Msb_GetListViewHPos()
+          JUST BEFORE capturing the mouse (drag-start moment only). 
+          Then in WM_MOUSEMOVE, compute newPos from dragStartPos + pixel
+          delta as now. In Msb_ScrollToPos read header BEFORE LVM_SCROLL
+          for delta, then read header AFTER for lvHPos readback.
+        - The blink at right end: likely from Msb_ScrollToPos being called
+          in a tight loop with delta=0 (already clamped). Add early return
+          when delta==0 after clamping.
+        - Consider: after WM_LBUTTONUP (drag end), re-read header into
+          lvHPos one final time to capture any last-moment clamp.
 
- [OK]  Custom scrollbar Phase 2 — mouse interaction
-         Arrow clicks: SB_LINEUP / SB_LINEDOWN / SB_LINELEFT / SB_LINERIGHT.
-         Track clicks: SB_PAGEUP / SB_PAGEDOWN. Auto-repeat timer (350 ms
-         initial delay, 50 ms repeat). Thumb drag: SetCapture, pixel→pos
-         mapping, SB_THUMBTRACK + SB_THUMBPOSITION + SB_ENDSCROLL.
-
- [OK]  Own mousewheel handler
-         WM_MOUSEWHEEL / WM_MOUSEHWHEEL intercepted in the target subclass.
-         Sends explicit SB_LINEUP / SB_LINEDOWN commands (honouring
-         SPI_GETWHEELSCROLLLINES). Suppresses RichEdit's native wheel
-         entirely — RichEdit does not update SCROLLINFO.nPos reliably on
-         native wheel. Sub-tick wheelAccum accumulation for smooth
-         high-precision devices.
-
- [OK]  Horizontal bar independent from vertical scroll
-         WM_VSCROLL / WM_HSCROLL now update only the relevant axis bar.
-         (Previously both bars updated on any scroll, causing horizontal
-         thumb to drift when scrolling vertically.)
-
- [OK]  Standalone test app (test_scrollbar/)
-         Three-pane layout: top-left read-only RE + vertical bar,
-         top-right writable RE + vertical bar, bottom full-width RE
-         + vertical + horizontal bars. Bottom pane uses wide-content
-         text (each line ~200 chars) for horizontal scroll testing.
-         Built as ScrollbarTest.exe via test_scrollbar/CMakeLists.txt.
+      Other pages: Files, Components, Registry — H-bars all work perfectly.
+      Dependencies is unique in keeping stale lvHPos across scrolls/resizes.
 
 ------------------------------------------------------------------------
-KNOWN ISSUES / TODO NEXT
+COMPLETED THIS SESSION (07.04.2026)
 ------------------------------------------------------------------------
 
- [!!]  Custom scrollbar Phase 2 — mouse interaction (WIP)
-         Basic click/page/drag/wheel works but still buggy:
-         - Scrollbar can drift off screen (PositionBar issue under scroll)
-         - Thumb position not always in sync
-         - Native bar re-shows in some edge cases
-         Continue from here next session. See scrollbar_custom_make.txt Phase 2.
+ [OK]  Dependencies page MSB H-bar — partial fix
+         - WM_NCPAINT: H SCROLLINFO capture/restore added (was missing);
+           ShowScrollBar(SB_HORZ,FALSE) silently zeroed nPos after every
+           LVM_SCROLL, corrupting the next delta.
+         - deps.cpp: All 6 ShowScrollBar(SB_HORZ,FALSE) calls now use
+           capture/restore pattern.
+         - Msb_Scroll (ListView H): replaced WM_HSCROLL path with
+           Msb_ScrollToPos via column-width stepping.
+         - WM_HSCROLL interceptor: removed unreliable lvHPos=siPre.nPos.
+         - WM_MOUSEHWHEEL (tilt-wheel): ListView H now routes through
+           Msb_ScrollToPos (LVM_SCROLL + lvHPos), bypassing WM_HSCROLL.
+         - Msb_GetListViewHPos(): reads -Header_GetItemRect(col0).left
+           for the true visual scroll offset — never reads GetScrollInfo.
+         - Msb_ScrollToPos: reads header BEFORE LVM_SCROLL for delta,
+           reads header AFTER for lvHPos readback.
+         - msb_sync: uses Msb_GetListViewHPos() not GetScrollInfo.nPos.
+         - dragStartPos at drag-start: uses Msb_GetListViewHPos().
+         - WM_NCPAINT: does NOT sync lvHPos (fires before header moves).
+         - WM_SIZE: syncs lvHPos from header with capture guard.
+         - msb_reposition: syncs lvHPos from header.
+         - HDN_ENDTRACK in DEP_OnNotify: calls msb_reposition after
+           column resize so lvHPos is corrected.
+         - Forward declaration added for Msb_ScrollToPos (used before def).
+         - Build: clean.
+         Arrow buttons, track-click, tilt-wheel: WORKING.
+         Thumb drag: BROKEN (see above).
 
- [!!]  Custom scrollbar Phase 3 — hover/drag color states
-         Thumb changes color on hover (THUMB_HOVER) and drag (THUMB_DRAG).
-         Arrow buttons highlight on hover (ARROW_HOVER) and press (ARROW_PRESSED).
-         Use TrackMouseEvent(TME_LEAVE) for WM_MOUSELEAVE.
-         Follow scrollbar_custom_make.txt Phase 3 spec.
-
- [!!]  Custom scrollbar Phase 4 — fade animation + hidden mode
-         Bar expands from MSB_WIDTH_HIDDEN to MSB_WIDTH_FULL on hover,
-         contracts on mouse leave. Requires WM_TIMER-based alpha/width
-         animation. See Phase 4 in scrollbar_custom_make.txt.
-
- [!!]  scrollbar.h / scrollbar.cpp (old RESC module) — keep until Phase 8
-         After Phase 8 integration into SetupCraft, replace all
-         RESC_Attach / RESC_Detach calls with msb_attach / msb_detach.
-
- [!!]  ContentRichEditSubclassProc in dialogs.cpp still inline duplicate
-         Once my_scrollbar Phase 8 is done, replace with msb_attach/msb_detach.
-
-------------------------------------------------------------------------
-CARRIED OVER FROM 30.03.2026
-------------------------------------------------------------------------
-
- [!!]  Table right-click — still not working reliably
-
- [!!]  AutoFitComponentHeight — formula still not correct for images:
-         The dialog resizes but the RTF content (e.g. an embedded logo
-         image) is still clipped; the RichEdit area is too short to show
-         the full image without scrolling.
-         - Possible fixes to try next session:
-             1. Force a layout pass before calling EM_FORMATRANGE
-             2. Re-center the preview on the parent window after resize
-             3. Use EM_GETLINECOUNT x line-height as an alternative measure
-
- [!!]  s_previewUserSized is global — should be per-dialog-type.
+ [OK]  Dependencies page — test data
+         15 rows (IDs 9000-9020) covering all delivery/required/detection
+         combos + H-overflow row. Still present — DELETE before release.
 
 ------------------------------------------------------------------------
-COMPLETED PREVIOUS SESSION (30.03.2026)
+NEXT SESSION — start here
 ------------------------------------------------------------------------
 
- [OK]  Scrollbar thumb sync fix — dialogs.cpp (ContentRichEditSubclassProc)
- [OK]  Reusable scrollbar module: scrollbar.h / scrollbar.cpp (RESC_*)
- [OK]  Custom scrollbar build plan: scrollbar_custom_make.txt (9 phases)
-
-         Fix: pre-scroll delta arithmetic — read GetScrollInfo(SIF_ALL) BEFORE
-         CallWindowProcW, compute newPos from the scroll code (SB_LINEUP etc.)
-         in line-unit space, let RichEdit scroll natively, then SetScrollPos
-         to the pre-computed value. No post-scroll read needed. Works for both
-         writable and read-only RichEdits.
-         Same fix applied to WM_MOUSEWHEEL handler in PreviewWndProc.
-
- [OK]  Reusable scrollbar module created: scrollbar.h / scrollbar.cpp
-         Pure Win32, no SetupCraft dependencies. API:
-           HRESC RESC_Attach(HWND)       — subclasses RichEdit, syncs thumb
-           void  RESC_Detach(HRESC)      — restores original proc
-           void  RESC_SyncThumb(HRESC)   — manual sync after programmatic scroll
-           LRESULT RESC_OnMouseWheel(HRESC, WPARAM) — mousewheel with pre-delta
-         CMakeLists.txt updated to include scrollbar.cpp.
-         API documented in scrollbar_API.txt; entry added to API_list.txt.
-
- [OK]  Custom scrollbar build plan created: scrollbar_custom_make.txt
-         9-phase plan for a full custom Win32 scrollbar (my_scrollbar.h/.cpp)
-         with: fade-on-hover hidden mode, always-visible mode, rounded ends,
-         visible arrows, thumb color states (normal/hover/drag), vertical +
-         horizontal, works on RichEdit and any SCROLLINFO-based window.
-         Includes standalone test app (test_scrollbar.exe).
-         Estimated 11–15 days @ 3 hrs/day.
-         Work starts next session.
-
-------------------------------------------------------------------------
-KNOWN ISSUES / TODO NEXT
-------------------------------------------------------------------------
-
- [!!]  Custom scrollbar (my_scrollbar.h/.cpp) — Phase 1 starts next session
-         Follow scrollbar_custom_make.txt phase plan.
-         scrollbar.h/scrollbar.cpp to be removed after Phase 8 integration.
-
- [!!]  ContentRichEditSubclassProc in dialogs.cpp still inline duplicate
-         Once my_scrollbar Phase 8 is done, replace with msb_attach/msb_detach.
-
-------------------------------------------------------------------------
-CARRIED OVER FROM 27.03.2026
-------------------------------------------------------------------------
-
- [!!]  Table right-click — still not working reliably (see above)
-
- [!!]  AutoFitComponentHeight — formula still not correct for images:
-         The dialog resizes but the RTF content (e.g. an embedded logo
-         image) is still clipped; the RichEdit area is too short to show
-         the full image without scrolling.
-         - Window grows from its top-left corner (SWP_NOMOVE) rather than
-           re-centering after a size increase
-         - Suspect: EM_FORMATRANGE measurement is off when the RichEdit
-           has not been fully laid out at measurement time
-         - Possible fixes to try next session:
-             1. Force a layout pass (SetWindowPos + UpdateWindow on the
-                preview window) before calling EM_FORMATRANGE
-             2. After resize, re-center the preview on the parent window
-             3. Use EM_GETLINECOUNT x line-height as an alternative measure
-
- [!!]  s_previewUserSized is global — should be per-dialog-type:
-         Auto-fit lock is per-open-preview-session (one bool for all).
-
-------------------------------------------------------------------------
-COMPLETED PREVIOUS SESSION (27.03.2026)
-------------------------------------------------------------------------
-
- [OK]  RTF editor — table dialog: column width fields
-         - "Column width (px, 0=auto)" edit + spinner (0-9999) added to dialog
-         - "Column width (%, 0=auto)" edit + spinner (0-100) linked to px field
-           (changing one updates the other via EN_CHANGE sync / syncingWidth guard)
-         - Both fields default to 0 (auto) for new tables — explicit value only
-           saved when the user actually sets one (bug fix: was auto-computing
-           initPx from editorWidth*widthPct/cols which then got saved on OK,
-           overriding table-width% when adding more columns)
-         - colWidthPx stored in RtfTableParams; applied via colWidthPx*15 twips
-           in both InsertTableNative and ApplyTableProps when > 0
-         - edWidthPx threaded into dialog via RtfEd_ShowTableDialog(parent, p,
-           isEdit, edWidthPx) for accurate px<->pct conversion
-
- [OK]  RTF editor — table dialog: cell H alignment field
-         - "Cell H alignment" combobox (Left / Centre / Right) added to dialog
-         - cellHAlign stored in RtfTableParams (0=Left 1=Centre 2=Right)
-         - On OK, EM_SETPARAFORMAT PFM_ALIGNMENT applied to the full table
-           selection in both InsertTableNative and ApplyTableProps
-
- [OK]  RTF editor — table dialog: label clarifications
-         - "H alignment" renamed to "Table alignment" (row-on-page, not cell text)
-         - "V alignment" renamed to "Cell V alignment"
-
- [OK]  RTF editor — toolbar tooltip fix
-         - "Insert table  (2 x 2)" -> "Insert table..."
-
- [OK]  RTF editor — right-click context menu in tables
-         - Replaced WM_RBUTTONUP with proper WM_RBUTTONDOWN + WM_CONTEXTMENU
-           approach — WM_RBUTTONDOWN pre-positions the caret; WM_CONTEXTMENU
-           (generated by DefWindowProc after button release) is where the table
-           check and menu are shown; also handles keyboard-invoked context menu
-           (lParam == -1 case, derives screen pos from EM_POSFROMCHAR)
-         - Context menu now shows "Table properties..." + "Cell alignment" submenu
-           (Align left / Align centre / Align right)
-         - Cell alignment items call RtfEd_SetAlignment(hwnd, PFA_*)
-         - Right-clicking outside a table falls through to DefWindowProc
-           (standard RichEdit cut/copy/paste menu)
-
- [!!]  Table right-click — menu still doesn't show reliably
-         The WM_CONTEXTMENU approach is the correct Win32 pattern;
-         if still unreliable, possible cause: RichEdit subclass proc is not
-         receiving WM_CONTEXTMENU because the RichEdit itself handles it.
-         Next session: try intercepting NM_RCLICK via WM_NOTIFY on the parent,
-         or hook WM_CONTEXTMENU at the editor window level (not the RichEdit).
-
- [OK]  RTF editor — main window foreground after editor closes
-         - OpenRtfEditor now calls SetForegroundWindow + BringWindowToTop
-           on hwndParent after the modal loop exits
-
-------------------------------------------------------------------------
-KNOWN ISSUES / TODO NEXT
-------------------------------------------------------------------------
-
- [!!]  Table right-click — still not working reliably (see above)
-
- [!!]  AutoFitComponentHeight — formula still not correct for images:
-         The dialog resizes but the RTF content (e.g. an embedded logo
-         image) is still clipped; the RichEdit area is too short to show
-         the full image without scrolling.
-         - Window grows from its top-left corner (SWP_NOMOVE) rather than
-           re-centering after a size increase
-         - Suspect: EM_FORMATRANGE measurement is off when the RichEdit
-           has not been fully laid out at measurement time
-         - Possible fixes to try next session:
-             1. Force a layout pass (SetWindowPos + UpdateWindow on the
-                preview window) before calling EM_FORMATRANGE
-             2. After resize, re-center the preview on the parent window
-             3. Use EM_GETLINECOUNT x line-height as an alternative measure
-
- [!!]  s_previewUserSized is global — should be per-dialog-type:
-         Auto-fit lock is per-open-preview-session (one bool for all).
-================================================================================
+ [ ]  Fix Dep H-bar thumb drag (see KNOWN ISSUE above)
+ [ ]  Remove test data from deps.cpp (s_testDataAdded + IDs 9000-9020)
+ [ ]  Update docs once H-bar is fully fixed
+ [ ]  Release commit

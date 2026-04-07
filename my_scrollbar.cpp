@@ -73,6 +73,8 @@ typedef struct MsbCtx {
     BOOL    isRichEdit;     /* TRUE if hTarget is a RichEdit                  */
     BOOL    isListView;     /* TRUE if hTarget is a SysListView32             */
     BOOL    isTreeView;     /* TRUE if hTarget is a SysTreeView32             */
+    BOOL    inWmSize;       /* re-entrancy guard: TRUE while WM_SIZE is being processed */
+    BOOL    inNcPaint;      /* re-entrancy guard: TRUE while WM_NCPAINT is being processed */
 
     /* DPI */
     float   dpiScale;       /* actual DPI / 96.0f                             */
@@ -129,6 +131,13 @@ typedef struct MsbCtx {
      * Shifts a vertical bar left / horizontal bar up so it sits slightly
      * inside the edge rather than flush against it. Set via msb_set_edge_gap(). */
     int     edgeGap;
+
+    /* Tracked actual horizontal scroll position for ListView H-axis (pixels).
+     * GetScrollInfo(SB_HORZ).nPos is unreliable: ShowScrollBar(FALSE) zeroes
+     * it, and LVM_SCROLL does not update it.  We maintain the authoritative
+     * value here and use it exclusively instead of GetScrollInfo for nPos.
+     * Initialised to 0 (calloc); updated by every H scroll operation. */
+    int     lvHPos;
 } MsbCtx;
 
 /* Window property key to retrieve MsbCtx from the bar window proc. */
@@ -218,6 +227,48 @@ static BOOL Msb_EnsureClass(HINSTANCE hInst)
 #endif
 
 /* ── Native scrollbar suppression / restoration ─────────────────────────────*/
+
+/* After ShowScrollBar(FALSE) for a TreeView V-axis, the control resets
+ * SB_VERT SCROLLINFO entirely (nMin=nMax=nPage=nPos=0).  This makes the
+ * TreeView think scroll position is 0, so SB_LINEUP/SB_LINEDOWN in
+ * WM_VSCROLL do nothing and Msb_Layout draws a full-height thumb.
+ * Fix: reconstruct SCROLLINFO from live tree state after every HideNativeBar
+ * on the V-axis for a TreeView.  Walk TVGN_NEXTVISIBLE to count total
+ * visible rows and the index of the first-visible item (scroll position). */
+static void Msb_ReconstructTreeVScrollInfo(HWND hWnd)
+{
+    int itemH = (int)SendMessageW(hWnd, TVM_GETITEMHEIGHT, 0, 0);
+    if (itemH <= 0) return;
+    RECT rc; GetClientRect(hWnd, &rc);
+    int nPage = rc.bottom / itemH;
+    if (nPage < 1) nPage = 1;
+
+    HTREEITEM hFirstVis = (HTREEITEM)SendMessageW(hWnd, TVM_GETNEXTITEM,
+                                                   TVGN_FIRSTVISIBLE, 0);
+    HTREEITEM hItem = (HTREEITEM)SendMessageW(hWnd, TVM_GETNEXTITEM,
+                                               TVGN_ROOT, 0);
+    int nTotal = 0, nPos = 0;
+    BOOL foundFirst = (hFirstVis == NULL);  /* treat NULL first-vis as pos=0 */
+    while (hItem) {
+        if (!foundFirst) {
+            if (hItem == hFirstVis) foundFirst = TRUE;
+            else nPos++;
+        }
+        nTotal++;
+        hItem = (HTREEITEM)SendMessageW(hWnd, TVM_GETNEXTITEM,
+                                         TVGN_NEXTVISIBLE, (LPARAM)hItem);
+    }
+
+    if (nTotal == 0) return;
+    SCROLLINFO si = {};
+    si.cbSize = sizeof(si);
+    si.fMask  = SIF_RANGE | SIF_PAGE | SIF_POS;
+    si.nMin   = 0;
+    si.nMax   = nTotal - 1;
+    si.nPage  = (UINT)nPage;
+    si.nPos   = nPos;
+    SetScrollInfo(hWnd, SB_VERT, &si, FALSE);
+}
 
 static void Msb_HideNativeBar(HWND hWnd, BOOL isRichEdit, BOOL vert)
 {
@@ -376,6 +427,61 @@ static void Msb_ClampRichHorzPos(MsbCtx* ctx)
     }
 }
 
+/* Measure total column width of a ListView (sum of all ListView_GetColumnWidth). */
+static int Msb_ListViewTotalColumnWidth(HWND hLV)
+{
+    HWND hHdr = ListView_GetHeader(hLV);
+    if (!hHdr) return 0;
+    int n = Header_GetItemCount(hHdr);
+    int total = 0;
+    for (int i = 0; i < n; i++)
+        total += ListView_GetColumnWidth(hLV, i);
+    return total;
+}
+
+/* Read the true H scroll position from the header control.
+ * In report mode, the header items scroll with the content: when the
+ * ListView is scrolled right by X pixels, column 0's left edge in
+ * header-client coordinates is at -X.  This is always accurate —
+ * GetScrollInfo.nPos is unreliable because ShowScrollBar(FALSE) zeroes it
+ * and WM_NCPAINT may fire before ListView commits its internal nPos. */
+static int Msb_GetListViewHPos(HWND hLV)
+{
+    HWND hHdr = ListView_GetHeader(hLV);
+    if (!hHdr || Header_GetItemCount(hHdr) == 0) return 0;
+    RECT rc = {};
+    if (!Header_GetItemRect(hHdr, 0, &rc)) return 0;
+    return max(0, -(int)rc.left);
+}
+
+/* Populate a SCROLLINFO with correct values for ListView H-axis.
+ * GetScrollInfo(SB_HORZ) nMax and nPage are unreliable for ListView in
+ * report mode: ShowScrollBar(FALSE) zeroes them, and the ListView may not
+ * maintain pixel-accurate values externally.  We compute:
+ *   nMax  = total column width - 1  (gives scroll range = totalW - clientW)
+ *   nPage = client area width in pixels
+ *   nPos  = GetScrollInfo().nPos    (reliable: stays in pixels)
+ * si must already have cbSize set before calling. */
+static void Msb_FixListViewHScrollInfo(HWND hLV, SCROLLINFO* si)
+{
+    int totalW  = Msb_ListViewTotalColumnWidth(hLV);
+    RECT rcC; GetClientRect(hLV, &rcC);
+    int clientW = rcC.right;
+
+    /* Preserve nPos from the live SCROLLINFO. */
+    SCROLLINFO live = {sizeof(live), SIF_POS};
+    GetScrollInfo(hLV, SB_HORZ, &live);
+
+    si->nMin  = 0;
+    si->nMax  = (totalW > 0) ? (totalW - 1) : 0;
+    si->nPage = (UINT)max(0, clientW);
+    si->nPos  = live.nPos;
+    /* Clamp nPos to valid scroll range. */
+    int maxPos = max(0, (int)(si->nMax - (int)si->nPage + 1));
+    if (si->nPos < 0)      si->nPos = 0;
+    if (si->nPos > maxPos) si->nPos = maxPos;
+}
+
 /*
  * Returns TRUE when there is content beyond the visible viewport on this
  * axis — i.e. when a scrollbar is actually needed.  For auto-hide bars the
@@ -414,6 +520,39 @@ static BOOL Msb_ContentOverflows(MsbCtx* ctx)
         SendMessageW(ctx->hTarget, EM_GETSCROLLPOS, 0, (LPARAM)&pt);
         si.nPos = vert ? pt.y : pt.x;
     }
+    /* TreeView V-axis: SCROLLINFO nMax/nPage are reset to 0 by ShowScrollBar(FALSE)
+     * and are NOT reliably repopulated by origProc(WM_SIZE) when the client size
+     * hasn't changed (TreeView caches its size).  Bypass SCROLLINFO entirely:
+     * walk the tree in expanded/visible order (TVGN_NEXTVISIBLE from root) and
+     * compare the expanded-row count against client-height / item-height capacity.
+     * Early exit keeps this O(overflow_point), which is fast in practice. */
+    if (ctx->isTreeView && vert && si.nPage == 0) {
+        RECT rcTv; GetClientRect(ctx->hTarget, &rcTv);
+        int itemH = (int)SendMessageW(ctx->hTarget, TVM_GETITEMHEIGHT, 0, 0);
+        if (itemH <= 0) return FALSE;
+        int capacity = rcTv.bottom / itemH;
+        int nRows = 0;
+        HTREEITEM hItem = (HTREEITEM)SendMessageW(ctx->hTarget,
+                                                   TVM_GETNEXTITEM, TVGN_ROOT, 0);
+        while (hItem) {
+            if (++nRows > capacity) return TRUE;
+            hItem = (HTREEITEM)SendMessageW(ctx->hTarget,
+                                             TVM_GETNEXTITEM, TVGN_NEXTVISIBLE,
+                                             (LPARAM)hItem);
+        }
+        return FALSE;
+    }
+    /* ListView H-axis: use live column widths vs client width.
+     * GetScrollInfo(SB_HORZ) nMax and nPage are unreliable after ShowScrollBar(FALSE)
+     * and may not reflect column-resize changes made through the header control. */
+    if (ctx->isListView && !vert) {
+        int totalW = Msb_ListViewTotalColumnWidth(ctx->hTarget);
+        RECT rcLV; GetClientRect(ctx->hTarget, &rcLV);
+        return (totalW > rcLV.right);
+    }
+    /* ListView H-axis (and other cases): nPage==0 means no overflow. */
+    if ((ctx->isTreeView || ctx->isListView) && si.nPage == 0)
+        return FALSE;
     int scrollRange = (si.nMax - si.nMin) - (int)si.nPage;
     return (scrollRange > 0);
 }
@@ -549,6 +688,13 @@ static void Msb_Layout(MsbCtx* ctx)
         POINT pt = {0, 0};
         SendMessageW(ctx->hTarget, EM_GETSCROLLPOS, 0, (LPARAM)&pt);
         si.nPos = vert ? pt.y : pt.x;
+    }
+    /* ListView H-axis: override nMax/nPage with live column widths / client width.
+     * GetScrollInfo(SB_HORZ) nMax and nPage are unreliable — they may be zero
+     * (zeroed by ShowScrollBar(FALSE)) or in wrong units, making the thumb tiny. */
+    else if (ctx->isListView && !vert) {
+        Msb_FixListViewHScrollInfo(ctx->hTarget, &si);
+        si.nPos = ctx->lvHPos;  /* authoritative — GetScrollInfo.nPos is stale */
     }
     /* For non-RichEdit controls (ListView, TreeView, …) the control may not
      * update GetScrollInfo.nPos until SB_THUMBPOSITION is committed.  During
@@ -764,6 +910,8 @@ static void Msb_Paint(HWND hwnd, MsbCtx* ctx)
 
 /* ── Bar window proc ─────────────────────────────────────────────────────────*/
 
+static void Msb_ScrollToPos(MsbCtx* ctx, int newPos); /* forward decl */
+
 /* Send a scroll message to the target and re-sync the bar. */
 static void Msb_Scroll(MsbCtx* ctx, UINT cmd)
 {
@@ -771,27 +919,44 @@ static void Msb_Scroll(MsbCtx* ctx, UINT cmd)
     UINT msg  = vert ? WM_VSCROLL : WM_HSCROLL;
 
     if (ctx->isListView) {
-        /* ListView ignores external WM_VSCROLL/WM_HSCROLL for position changes.
-         * Use LVM_SCROLL with a pixel delta instead. */
-        int lineH = SendMessageW(ctx->hTarget, LVM_GETITEMSPACING, TRUE, 0);
-        lineH = HIWORD(lineH);   /* icon-view item height; for report use row height */
-        /* For report-mode ListView, item height = row height */
+        if (!vert) {
+            /* ListView horizontal: route ALL H commands through Msb_ScrollToPos
+             * (LVM_SCROLL + lvHPos tracking) so the position is always accurate.
+             * WM_HSCROLL does not reliably update SCROLLINFO.nPos after
+             * ShowScrollBar(FALSE) zeroes nMax, so we never trust it for nPos. */
+            SCROLLINFO si = {sizeof(si), SIF_ALL};
+            Msb_FixListViewHScrollInfo(ctx->hTarget, &si);
+            int maxPos = max(0, (int)(si.nMax - (int)si.nPage + 1));
+            /* Column-width step for line scroll; page = client width. */
+            HWND hHdr = ListView_GetHeader(ctx->hTarget);
+            int colW = (hHdr && Header_GetItemCount(hHdr) > 0)
+                       ? ListView_GetColumnWidth(ctx->hTarget, 0) : S(ctx, 20);
+            int newPos = ctx->lvHPos;
+            switch (cmd) {
+                case SB_LINELEFT:  newPos -= colW;          break;
+                case SB_LINERIGHT: newPos += colW;          break;
+                case SB_PAGELEFT:  newPos -= (int)si.nPage; break;
+                case SB_PAGERIGHT: newPos += (int)si.nPage; break;
+                default:           newPos  = ctx->lvHPos;   break;
+            }
+            if (newPos < 0)       newPos = 0;
+            if (newPos > maxPos)  newPos = maxPos;
+            Msb_ScrollToPos(ctx, newPos);
+            /* Msb_ScrollToPos updated lvHPos and sent LVM_SCROLL.
+             * The WM_HSCROLL interceptor will run but must NOT overwrite lvHPos. */
+            return;
+        }
+        /* Vertical: LVM_SCROLL rounds to row boundaries and works reliably. */
         RECT rcItem = {}; ListView_GetItemRect(ctx->hTarget, 0, &rcItem, LVIR_BOUNDS);
         int rowH = (rcItem.bottom > rcItem.top) ? (rcItem.bottom - rcItem.top) : S(ctx, 16);
-        int dx = 0, dy = 0;
+        int dy = 0;
         switch (cmd) {
-            case SB_LINEUP:   vert ? (dy = -rowH) : (dx = -S(ctx, 20)); break;
-            case SB_LINEDOWN: vert ? (dy =  rowH) : (dx =  S(ctx, 20)); break;
-            case SB_PAGEUP: {
-                RECT rc; GetClientRect(ctx->hTarget, &rc);
-                vert ? (dy = -(rc.bottom)) : (dx = -(rc.right)); break;
-            }
-            case SB_PAGEDOWN: {
-                RECT rc; GetClientRect(ctx->hTarget, &rc);
-                vert ? (dy =  rc.bottom) : (dx =  rc.right); break;
-            }
+            case SB_LINEUP:   dy = -rowH; break;
+            case SB_LINEDOWN: dy =  rowH; break;
+            case SB_PAGEUP:  { RECT rc; GetClientRect(ctx->hTarget, &rc); dy = -rc.bottom; break; }
+            case SB_PAGEDOWN: { RECT rc; GetClientRect(ctx->hTarget, &rc); dy =  rc.bottom; break; }
         }
-        SendMessageW(ctx->hTarget, LVM_SCROLL, (WPARAM)dx, (LPARAM)dy);
+        SendMessageW(ctx->hTarget, LVM_SCROLL, 0, (LPARAM)dy);
     } else {
         SendMessageW(ctx->hTarget, msg, MAKEWPARAM(cmd, 0), 0);
     }
@@ -808,23 +973,41 @@ static void Msb_ScrollToPos(MsbCtx* ctx, int newPos)
     BOOL vert = !(ctx->flags & MSB_HORIZONTAL);
 
     if (ctx->isListView) {
-        SCROLLINFO si = {sizeof(si), SIF_POS};
-        GetScrollInfo(ctx->hTarget, vert ? SB_VERT : SB_HORZ, &si);
-        int delta = newPos - si.nPos;
-        int dx, dy;
-        if (vert) {
-            /* Vertical SCROLLINFO.nPos is in rows; LVM_SCROLL expects pixels. */
-            RECT rcItem = {};
-            ListView_GetItemRect(ctx->hTarget, 0, &rcItem, LVIR_BOUNDS);
-            int rowH = (rcItem.bottom > rcItem.top) ? (rcItem.bottom - rcItem.top) : S(ctx, 16);
-            dx = 0;
-            dy = delta * rowH;
-        } else {
-            /* Horizontal SCROLLINFO.nPos is already in pixels. */
-            dx = delta;
-            dy = 0;
+        if (!vert) {
+            /* Horizontal absolute scroll via LVM_SCROLL (pixel delta).
+             * WM_HSCROLL(SB_THUMBPOSITION) requires SIF_TRACKPOS which is set
+             * only by Windows's native scrollbar machinery — it cannot be set
+             * via SetScrollInfo.  The ListView therefore reads TRACKPOS=0 and
+             * scrolls to position 0 ("too far left").
+             * Fix: write nPos into SCROLLINFO BEFORE calling LVM_SCROLL so that
+             * our WM_NCPAINT intercept captures and restores the correct position.
+             * LVM_SCROLL does not update nPos itself, but we've already set it. */
+            SCROLLINFO si = {sizeof(si), SIF_ALL};
+            Msb_FixListViewHScrollInfo(ctx->hTarget, &si);
+            int maxPos = max(0, (int)(si.nMax - (int)si.nPage + 1));
+            if (newPos < 0)       newPos = 0;
+            if (newPos > maxPos)  newPos = maxPos;
+            /* Compute delta from the TRUE current position (header item rect)
+             * so we never accumulate drift from previous scroll steps. */
+            int curPos = Msb_GetListViewHPos(ctx->hTarget);
+            int delta  = newPos - curPos;
+            if (delta != 0)
+                SendMessageW(ctx->hTarget, LVM_SCROLL, (WPARAM)delta, 0);
+            /* After LVM_SCROLL the ListView may have clamped differently from
+             * our maxPos.  Read the true final position back so subsequent
+             * delta calculations are always correct.  Msb_Layout uses lvHPos
+             * for thumb drawing; it never reads GetScrollInfo.nPos for H. */
+            ctx->lvHPos = Msb_GetListViewHPos(ctx->hTarget);
+            return;
         }
-        if (dx || dy) SendMessageW(ctx->hTarget, LVM_SCROLL, (WPARAM)dx, (LPARAM)dy);
+        /* Vertical: LVM_SCROLL with row-height conversion works reliably. */
+        SCROLLINFO si = {sizeof(si), SIF_POS};
+        GetScrollInfo(ctx->hTarget, SB_VERT, &si);
+        int delta = newPos - si.nPos;
+        RECT rcItem = {};
+        ListView_GetItemRect(ctx->hTarget, 0, &rcItem, LVIR_BOUNDS);
+        int rowH = (rcItem.bottom > rcItem.top) ? (rcItem.bottom - rcItem.top) : S(ctx, 16);
+        if (delta) SendMessageW(ctx->hTarget, LVM_SCROLL, 0, (LPARAM)(delta * rowH));
     } else {
         /* TreeView and other controls: SetScrollInfo + WM_VSCROLL/HSCROLL. */
         SCROLLINFO setSi = {sizeof(SCROLLINFO), SIF_POS};
@@ -915,6 +1098,11 @@ static LRESULT CALLBACK Msb_BarWndProc(HWND hwnd, UINT msg,
                     POINT pt = {0, 0};
                     SendMessageW(ctx->hTarget, EM_GETSCROLLPOS, 0, (LPARAM)&pt);
                     startPos = vert ? pt.y : pt.x;
+                } else if (ctx->isListView && !vert) {
+                    /* Read true position from header — GetScrollInfo.nPos and
+                     * lvHPos can both be stale for ListView H-axis. */
+                    startPos = Msb_GetListViewHPos(ctx->hTarget);
+                    ctx->lvHPos = startPos;  /* sync so Msb_Layout draws thumb correctly */
                 } else {
                     SCROLLINFO si = {sizeof(si), SIF_POS};
                     GetScrollInfo(ctx->hTarget,
@@ -972,6 +1160,10 @@ static LRESULT CALLBACK Msb_BarWndProc(HWND hwnd, UINT msg,
                         si.nMax = contentW;
                         si.nMin = 0;
                     }
+                } else if (ctx->isListView && !vert) {
+                    /* ListView H-axis: live column-width / client-width measurement,
+                     * same as Msb_Layout, so track-click lands correctly. */
+                    Msb_FixListViewHScrollInfo(ctx->hTarget, &si);
                 }
                 int scrollRange = (si.nMax - si.nMin) - (int)si.nPage + 1;
                 if (scrollRange < 1) scrollRange = 1;
@@ -1036,6 +1228,9 @@ static LRESULT CALLBACK Msb_BarWndProc(HWND hwnd, UINT msg,
                         si.nMax = contentW;
                         si.nMin = 0;
                     }
+                } else if (ctx->isListView && !vert) {
+                    /* ListView H-axis: live column-width / client-width, same as Msb_Layout. */
+                    Msb_FixListViewHScrollInfo(ctx->hTarget, &si);
                 }
                 int trackPx = vert ? (ctx->rTrack.bottom - ctx->rTrack.top)
                                    : (ctx->rTrack.right  - ctx->rTrack.left);
@@ -1109,6 +1304,9 @@ static LRESULT CALLBACK Msb_BarWndProc(HWND hwnd, UINT msg,
         case WM_MOUSELEAVE: {
             if (!ctx) break;
             ctx->trackingMouse  = FALSE;
+            /* Don't reset thumb state or start contraction while thumb is
+             * being dragged — the cursor leaving the bar strip is expected. */
+            if (ctx->dragging) return 0;
             ctx->thumbState     = THUMB_NORMAL;
             ctx->arrowUpState   = ARROW_NORMAL;
             ctx->arrowDownState = ARROW_NORMAL;
@@ -1181,6 +1379,8 @@ static LRESULT CALLBACK Msb_BarWndProc(HWND hwnd, UINT msg,
             if (wParam == 4) {
                 /* Leave-delay expired: start the actual contraction animation. */
                 KillTimer(hwnd, 4);
+                /* Don't contract while dragging — WM_LBUTTONUP will handle it. */
+                if (ctx->dragging) return 0;
                 if (ctx && !(ctx->flags & MSB_NOHIDE) &&
                     (ctx->fadeState == FADE_VISIBLE || ctx->fadeState == FADE_EXPANDING ||
                      ctx->fadeState == FADE_HIDDEN)) {
@@ -1213,7 +1413,7 @@ static LRESULT CALLBACK Msb_BarWndProc(HWND hwnd, UINT msg,
                 /* Fade animation tick — expand or contract the bar width */
                 float fullW   = (float)S(ctx, MSB_WIDTH_FULL);
                 float hiddenW = (float)S(ctx, MSB_WIDTH_HIDDEN);
-                float step    = (fullW - hiddenW) / 9.0f;  /* ~150 ms at 16 ms/tick */
+                float step    = (fullW - hiddenW) / 4.5f;  /* ~75 ms at 16 ms/tick */
                 if (ctx->fadeState == FADE_EXPANDING) {
                     ctx->fadeWidth += step;
                     if (ctx->fadeWidth >= fullW) {
@@ -1320,26 +1520,133 @@ static LRESULT CALLBACK Msb_TargetSubclassProc(HWND hwnd, UINT msg,
     if (!any) return DefWindowProcW(hwnd, msg, wParam, lParam);
 
     switch (msg) {
-        case WM_SIZE: {
+        case WM_NCPAINT: {
+            /* TreeView/ListView re-show native scrollbars inside their WM_NCPAINT
+             * handler every time they repaint their NC area (borders + bars).
+             * Intercept: let origProc paint, then immediately suppress native bars.
+             * inNcPaint guard breaks the loop: our ShowScrollBar(FALSE) call sends
+             * another WM_NCPAINT which we let pass through directly, so the bar is
+             * painted in the hidden state on the second pass. */
+            if ((ctxV && ctxV->inNcPaint) || (ctxH && ctxH->inNcPaint))
+                return CallWindowProcW(any->origProc, hwnd, msg, wParam, lParam);
+            if (ctxV) ctxV->inNcPaint = TRUE;
+            if (ctxH) ctxH->inNcPaint = TRUE;
+            /* Guard WM_SIZE too: the ListView/TreeView WM_NCPAINT handler calls
+             * ShowScrollBar(TRUE) which changes the client area and fires a
+             * synchronous WM_SIZE.  Without this guard our WM_SIZE handler runs
+             * fully (calls HideNativeBar → ShowScrollBar(FALSE) → another WM_SIZE
+             * → another client-area change) on every scroll step → jitter. */
+            if (ctxV) ctxV->inWmSize = TRUE;
+            if (ctxH) ctxH->inWmSize = TRUE;
             LRESULT r = CallWindowProcW(any->origProc, hwnd, msg, wParam, lParam);
-            /* Suppress native bars FIRST: the target may re-show them during its
-             * own WM_SIZE (TreeView/ListView re-enable native bars when content
-             * overflows).  Hiding them now guarantees GetClientRect returns the
-             * full client rect — not reduced by a native scrollbar gutter —
-             * before Msb_PositionBar reads it. */
+            if (ctxV) ctxV->inWmSize = FALSE;
+            if (ctxH) ctxH->inWmSize = FALSE;
+            /* Capture H SCROLLINFO AFTER origProc — origProc updates nPos to the
+             * current scroll position (e.g. after an LVM_SCROLL-triggered repaint).
+             * ShowScrollBar(SB_HORZ, FALSE) resets nMax/nPage/nPos to 0 for
+             * ListView/TreeView; restoring keeps the correct position so that the
+             * next Msb_ScrollToPos delta is accurate and Msb_Layout shows the
+             * thumb in the right place. */
+            SCROLLINFO siH = {sizeof(siH)};
+            BOOL restoreH = FALSE;
+            if (ctxH && (ctxH->isListView || ctxH->isTreeView)) {
+                siH.fMask = SIF_RANGE | SIF_PAGE | SIF_POS;
+                GetScrollInfo(hwnd, SB_HORZ, &siH);
+                restoreH = (siH.nMax > siH.nMin);
+                /* Do NOT sync lvHPos here: WM_NCPAINT fires synchronously
+                 * inside LVM_SCROLL BEFORE the ListView repositions the header
+                 * control, so Msb_GetListViewHPos() would return the old value
+                 * and corrupt lvHPos.  lvHPos is managed by Msb_ScrollToPos
+                 * (during scrolling) and msb_reposition/WM_SIZE (on layout
+                 * changes such as column resize and window resize). */
+            }
             if (ctxV) Msb_HideNativeBar(hwnd, ctxV->isRichEdit, TRUE);
             if (ctxH) Msb_HideNativeBar(hwnd, ctxH->isRichEdit, FALSE);
-            if (ctxV) { Msb_UpdateVisibilityGuarded(ctxV); Msb_PositionBar(ctxV); Msb_Layout(ctxV); InvalidateRect(ctxV->hBar, NULL, FALSE); }
-            if (ctxH) { Msb_UpdateVisibilityGuarded(ctxH); Msb_PositionBar(ctxH); Msb_Layout(ctxH); InvalidateRect(ctxH->hBar, NULL, FALSE); }
+            /* Reconstruct V for TreeView; restore H for ListView/TreeView. */
+            if (ctxV && ctxV->isTreeView) Msb_ReconstructTreeVScrollInfo(hwnd);
+            if (restoreH) SetScrollInfo(hwnd, SB_HORZ, &siH, FALSE);
+            if (ctxV) ctxV->inNcPaint = FALSE;
+            if (ctxH) ctxH->inNcPaint = FALSE;
+            return r;
+        }
+
+        case WM_SIZE: {
+            /* Re-entrancy guard: Msb_HideNativeBar calls ShowScrollBar(FALSE),
+             * which changes the NC area and causes Windows to send a synchronous
+             * WM_SIZE back to the target.  If we forwarded that re-entrant WM_SIZE
+             * to origProc, the TreeView would call ShowScrollBar(TRUE) again
+             * (content still overflows from its perspective) → NC changes again
+             * → another WM_SIZE → infinite blink loop.
+             * Solution: swallow the re-entrant WM_SIZE entirely (return 0).
+             * The outer invocation handles HideNativeBar + UpdateVisibility after
+             * origProc returns, which leaves the correct final state. */
+            if ((ctxV && ctxV->inWmSize) || (ctxH && ctxH->inWmSize))
+                return 0;
+            if (ctxV) ctxV->inWmSize = TRUE;
+            if (ctxH) ctxH->inWmSize = TRUE;
+            LRESULT r = CallWindowProcW(any->origProc, hwnd, msg, wParam, lParam);
+            /* For TreeView/ListView targets, ShowScrollBar(FALSE) inside
+             * Msb_HideNativeBar can reset nMax to 0 even when content genuinely
+             * overflows.  Capture the real SCROLLINFO BEFORE hiding; restore it
+             * after so Msb_UpdateVisibilityGuarded and Msb_Layout see correct
+             * values.  Only restore when the pre-hide range was non-zero
+             * (i.e. content really did overflow before we hid the bar). */
+            /* Suppress native bars.  For TreeView V-axis, reconstruct
+             * SCROLLINFO from live tree state (item count + first-visible
+             * index) instead of capture/restore: ShowScrollBar(FALSE) resets
+             * nMax/nPos to 0, and the pre-hide capture is only valid if
+             * origProc(WM_SIZE) actually recomputed SCROLLINFO (not guaranteed
+             * for unchanged client size).  H-axis uses capture/restore because
+             * nMax is set at item insertion time and reliably non-zero. */
+            SCROLLINFO siPreH = {sizeof(siPreH)};
+            BOOL restoreH = FALSE;
+            if (ctxH && (ctxH->isTreeView || ctxH->isListView)) {
+                siPreH.fMask = SIF_RANGE | SIF_PAGE | SIF_POS;
+                GetScrollInfo(hwnd, SB_HORZ, &siPreH);
+                restoreH = (siPreH.nMax > siPreH.nMin);
+                /* Sync lvHPos from the header control on real layout changes
+                 * (column resize, window resize).  Guard: skip when our bar
+                 * has capture — WM_SIZE can fire mid-scroll due to the
+                 * ShowScrollBar(TRUE/FALSE) client-area change, and we do not
+                 * want to overwrite the lvHPos that Msb_ScrollToPos just set. */
+                if (ctxH->isListView) {
+                    HWND cap = GetCapture();
+                    if (cap != ctxH->hBar)
+                        ctxH->lvHPos = Msb_GetListViewHPos(hwnd);
+                }
+            }
+            if (ctxV) Msb_HideNativeBar(hwnd, ctxV->isRichEdit, TRUE);
+            if (ctxH) Msb_HideNativeBar(hwnd, ctxH->isRichEdit, FALSE);
+            /* For TreeView V-axis: reconstruct SCROLLINFO from tree state. */
+            if (ctxV && ctxV->isTreeView) Msb_ReconstructTreeVScrollInfo(hwnd);
+            if (restoreH) SetScrollInfo(hwnd, SB_HORZ, &siPreH, FALSE);
+            /* WM_SIZE reflects a real layout change (not a transient scroll event),
+             * so use the UNGUARDED check: bars may correctly go INVISIBLE here when
+             * content genuinely fits after a resize or after expand/collapse causes
+             * a native-bar show/hide that sends WM_SIZE to the target. */
+            if (ctxV) { Msb_UpdateVisibility(ctxV); Msb_PositionBar(ctxV); Msb_Layout(ctxV); InvalidateRect(ctxV->hBar, NULL, FALSE); }
+            if (ctxH) { Msb_UpdateVisibility(ctxH); Msb_PositionBar(ctxH); Msb_Layout(ctxH); InvalidateRect(ctxH->hBar, NULL, FALSE); }
             /* Keep the RichEdit format rect inside the bar edges so the last
              * line is scrollable fully above the H bar. */
             if (any->isRichEdit) Msb_ApplyRichFormatRect(hwnd);
+            if (ctxV) ctxV->inWmSize = FALSE;
+            if (ctxH) ctxH->inWmSize = FALSE;
             return r;
         }
 
         case WM_VSCROLL: {
             LRESULT r = CallWindowProcW(any->origProc, hwnd, msg, wParam, lParam);
-            if (ctxV) Msb_HideNativeBar(hwnd, ctxV->isRichEdit, TRUE);
+            if (ctxV) {
+                Msb_HideNativeBar(hwnd, ctxV->isRichEdit, TRUE);
+                /* TreeView: reconstruct from tree state (capture/restore fails
+                 * because ShowScrollBar(FALSE) zeroes nMax/nPos). */
+                if (ctxV->isTreeView) Msb_ReconstructTreeVScrollInfo(hwnd);
+                else if (ctxV->isListView) {
+                    SCROLLINFO siPre = {}; siPre.cbSize = sizeof(siPre); siPre.fMask = SIF_ALL;
+                    GetScrollInfo(hwnd, SB_VERT, &siPre);
+                    if (siPre.nMax > siPre.nMin) SetScrollInfo(hwnd, SB_VERT, &siPre, FALSE);
+                }
+            }
             if (any->isRichEdit) Msb_ApplyRichFormatRect(hwnd);
             if (ctxV) {
                 /* For TreeView/ListView, use the guarded variant that allows
@@ -1356,7 +1663,21 @@ static LRESULT CALLBACK Msb_TargetSubclassProc(HWND hwnd, UINT msg,
         case WM_HSCROLL: {
             LRESULT r = CallWindowProcW(any->origProc, hwnd, msg, wParam, lParam);
             if (ctxH) {
+                /* Same capture/restore for TreeView/ListView H-bar. */
+                SCROLLINFO siPre = {}; BOOL restore = FALSE;
+                if (ctxH->isTreeView || ctxH->isListView) {
+                    siPre.cbSize = sizeof(siPre); siPre.fMask = SIF_ALL;
+                    GetScrollInfo(hwnd, SB_HORZ, &siPre);
+                    restore = (siPre.nMax > siPre.nMin);
+                    /* Do NOT update lvHPos here for ListView: WM_HSCROLL may come
+                     * from Msb_Scroll (which has already updated lvHPos via
+                     * Msb_ScrollToPos) or from the tilt-wheel path.  The tilt-wheel
+                     * path updates lvHPos separately after this interceptor returns.
+                     * Trusting siPre.nPos is unsafe because ShowScrollBar(FALSE) may
+                     * have zeroed it before origProc ran. */
+                }
                 Msb_HideNativeBar(hwnd, ctxH->isRichEdit, FALSE);
+                if (restore) SetScrollInfo(hwnd, SB_HORZ, &siPre, FALSE);
                 if (any->isRichEdit) Msb_ApplyRichFormatRect(hwnd);
                 /* Clamp position: EM_SETTARGETDEVICE gives a 32767-px scroll range;
                  * enforce our measured content width so the user can't scroll into
@@ -1393,7 +1714,10 @@ static LRESULT CALLBACK Msb_TargetSubclassProc(HWND hwnd, UINT msg,
             for (int i = 0; i < steps; i++)
                 CallWindowProcW(any->origProc, hwnd, WM_VSCROLL,
                                 MAKEWPARAM(cmd, 0), 0);
+            /* For TreeView: reconstruct SCROLLINFO from tree state after hide.
+             * Capture/restore fails because ShowScrollBar(FALSE) zeroes nMax. */
             Msb_HideNativeBar(hwnd, ctxV->isRichEdit, TRUE);
+            if (ctxV->isTreeView) Msb_ReconstructTreeVScrollInfo(hwnd);
             /* Keep bar in hint-strip mode — only update position indicator.
              * Never expand toward full width on wheel scroll. */
             if (Msb_UpdateVisibilityGuarded(ctxV)) {
@@ -1415,10 +1739,36 @@ static LRESULT CALLBACK Msb_TargetSubclassProc(HWND hwnd, UINT msg,
             ctxH->wheelAccum -= steps * WHEEL_DELTA;
             UINT cmd = (steps > 0) ? SB_LINERIGHT : SB_LINELEFT;
             steps = abs(steps);
-            for (int i = 0; i < steps; i++)
-                CallWindowProcW(any->origProc, hwnd, WM_HSCROLL,
-                                MAKEWPARAM(cmd, 0), 0);
+            if (ctxH->isListView) {
+                /* ListView H: use Msb_ScrollToPos (LVM_SCROLL + lvHPos tracking)
+                 * for each step so position is always accurate — same as Msb_Scroll. */
+                SCROLLINFO siW = {sizeof(siW), SIF_ALL};
+                Msb_FixListViewHScrollInfo(hwnd, &siW);
+                int maxPos = max(0, (int)(siW.nMax - (int)siW.nPage + 1));
+                HWND hHdr = ListView_GetHeader(hwnd);
+                int colW = (hHdr && Header_GetItemCount(hHdr) > 0)
+                           ? ListView_GetColumnWidth(hwnd, 0) : 20;
+                int newPos = ctxH->lvHPos;
+                for (int i = 0; i < steps; i++)
+                    newPos += (cmd == SB_LINERIGHT) ? colW : -colW;
+                if (newPos < 0)       newPos = 0;
+                if (newPos > maxPos)  newPos = maxPos;
+                Msb_ScrollToPos(ctxH, newPos);
+            } else {
+                /* Non-ListView: original WM_HSCROLL path. */
+                for (int i = 0; i < steps; i++)
+                    CallWindowProcW(any->origProc, hwnd, WM_HSCROLL,
+                                    MAKEWPARAM(cmd, 0), 0);
+            }
+            /* Capture SCROLLINFO before HideNativeBar resets nMax. */
+            SCROLLINFO siPreH = {}; BOOL restoreH = FALSE;
+            if (ctxH->isTreeView || ctxH->isListView) {
+                siPreH.cbSize = sizeof(siPreH); siPreH.fMask = SIF_ALL;
+                GetScrollInfo(hwnd, SB_HORZ, &siPreH);
+                restoreH = (siPreH.nMax > siPreH.nMin);
+            }
             Msb_HideNativeBar(hwnd, ctxH->isRichEdit, FALSE);
+            if (restoreH) SetScrollInfo(hwnd, SB_HORZ, &siPreH, FALSE);
             /* Clamp scroll position — same reason as in WM_HSCROLL. */
             Msb_ClampRichHorzPos(ctxH);
             /* Keep bar in hint-strip mode — only update position indicator. */
@@ -1498,6 +1848,20 @@ static LRESULT CALLBACK Msb_TargetSubclassProc(HWND hwnd, UINT msg,
  */
 static void Msb_PositionBar(MsbCtx* ctx)
 {
+    /* Do not reposition while a bar window has mouse capture (drag, track-click,
+     * arrow auto-repeat).  LVM_SCROLL internally calls ShowScrollBar(TRUE/FALSE)
+     * mid-scroll, which fires WM_SIZE on the ListView before WM_NCPAINT.  That
+     * WM_SIZE reaches here with a temporarily wrong client rect (native bar
+     * briefly shown/hidden), making the bar jump a few px and back each step.
+     * After ReleaseCapture the next normal layout call repositions correctly. */
+    HWND captured = GetCapture();
+    if (captured) {
+        MsbCtx* pV = (MsbCtx*)GetPropW(ctx->hTarget, kMsbTargetPropV);
+        MsbCtx* pH = (MsbCtx*)GetPropW(ctx->hTarget, kMsbTargetPropH);
+        if ((pV && captured == pV->hBar) || (pH && captured == pH->hBar))
+            return;
+    }
+
     /* Use the actual parent of the bar window for coordinate mapping.
      * When the target is a top-level window (no parent), the bar was created
      * as a child of the target itself; GetParent(hBar) handles both cases. */
@@ -1610,16 +1974,42 @@ HMSB msb_attach(HWND hTarget, DWORD flags)
      * overflows.  Capture the state now so we can use it below. */
     BOOL preHideOverflows = FALSE;
     if (!(flags & MSB_NOHIDE)) {
-        BOOL vert2 = !(flags & MSB_HORIZONTAL);
-        SCROLLINFO si2 = {}; si2.cbSize = sizeof(si2); si2.fMask = SIF_ALL;
-        GetScrollInfo(hTarget, vert2 ? SB_VERT : SB_HORZ, &si2);
-        preHideOverflows = ((si2.nMax - si2.nMin) - (int)si2.nPage > 0);
+        /* TreeView/ListView: nPage is 0 at attach time (control hasn't been
+         * sized/painted yet), so (nMax - nMin - nPage) is always positive and
+         * the overflow check gives a false positive.  Always start INVISIBLE
+         * for these controls; the caller must send WM_SIZE after attach to
+         * establish the real initial visibility state. */
+        BOOL canTrustScrollInfo = !(ctx->isTreeView || ctx->isListView);
+        if (canTrustScrollInfo) {
+            BOOL vert2 = !(flags & MSB_HORIZONTAL);
+            SCROLLINFO si2 = {}; si2.cbSize = sizeof(si2); si2.fMask = SIF_ALL;
+            GetScrollInfo(hTarget, vert2 ? SB_VERT : SB_HORZ, &si2);
+            preHideOverflows = ((si2.nMax - si2.nMin) - (int)si2.nPage > 0);
+        }
     }
 
     /* Hide the native scrollbar (keep the WS_VSCROLL style so SCROLLINFO
      * is maintained by the target window — we just suppress the drawing). */
     BOOL vert = !(flags & MSB_HORIZONTAL);
+    /* Capture the full SCROLLINFO before hiding so we can restore it below.
+     * ShowScrollBar(FALSE) resets nMax to 0 for TreeView/ListView; restoring
+     * gives Msb_Layout the correct nPage/nMax for the initial thumb size. */
+    SCROLLINFO siPreAttach = {};
+    siPreAttach.cbSize = sizeof(siPreAttach);
+    siPreAttach.fMask  = SIF_RANGE | SIF_PAGE | SIF_POS;
+    GetScrollInfo(hTarget, vert ? SB_VERT : SB_HORZ, &siPreAttach);
     Msb_HideNativeBar(hTarget, ctx->isRichEdit, vert);
+    /* Restore SCROLLINFO if HideNativeBar reset it (TreeView/ListView quirk). */
+    if ((ctx->isTreeView || ctx->isListView) && siPreAttach.nMax > siPreAttach.nMin)
+        SetScrollInfo(hTarget, vert ? SB_VERT : SB_HORZ, &siPreAttach, FALSE);
+
+    /* Initialise lvHPos for ListView H-axis from the pre-hide SCROLLINFO.
+     * calloc zeroes it, but if the ListView was already scrolled when msb_attach
+     * is called (its horizontal position survives item deletion/re-insertion
+     * because column widths are unchanged), lvHPos must start at the real
+     * scroll position or every subsequent LVM_SCROLL delta will be wrong. */
+    if (ctx->isListView && !vert)
+        ctx->lvHPos = siPreAttach.nPos;
 
     /* Initialise animation width: NOHIDE starts fully visible; auto-hide
      * starts invisible (bar window hidden) until content overflows. */
@@ -1725,6 +2115,16 @@ void msb_sync(HMSB h)
     if (!h) return;
     MsbCtx* ctx = (MsbCtx*)h;
     if (!ctx->hBar || !IsWindow(ctx->hBar)) return;
+    /* For ListView H-axis: the caller is expected to have done capture/restore
+     * of SCROLLINFO before calling msb_sync (e.g. the suppress pattern in
+     * deps.cpp).  That makes GetScrollInfo.nPos reliable at this point.
+     * Sync lvHPos from it so that external scroll resets (ListView_DeleteAllItems
+     * resets the scroll position to 0) are reflected in our tracked position. */
+    if (ctx->isListView && (ctx->flags & MSB_HORIZONTAL)) {
+        /* Use the header control rect — GetScrollInfo.nPos is unreliable
+         * (zeroed by ShowScrollBar(FALSE); not updated by LVM_SCROLL). */
+        ctx->lvHPos = Msb_GetListViewHPos(ctx->hTarget);
+    }
     /* Re-evaluate overflow: may show or hide the bar window. */
     if (!(ctx->flags & MSB_NOHIDE)) {
         if (!Msb_UpdateVisibility(ctx)) return;  /* bar hidden — nothing to paint */
@@ -1740,9 +2140,34 @@ void msb_reposition(HMSB h)
     MsbCtx* ctx = (MsbCtx*)h;
     if (!ctx->hBar || !IsWindow(ctx->hBar)) return;
     if (!ctx->hTarget || !IsWindow(ctx->hTarget)) return;
-    /* This is called from an explicit resize (WM_SIZE), not from a transient
-     * scroll event, so use the unguarded visibility check.  If content
-     * genuinely fits after the resize, hide the bar. */
+    /* Suppress native bar — TreeView may have re-enabled it since the last
+     * subclass-proc handler ran (e.g. TVN_ITEMEXPANDED causes the control to
+     * call ShowScrollBar(TRUE) internally when content overflows). */
+    BOOL vert = !(ctx->flags & MSB_HORIZONTAL);
+    /* For ListView/TreeView H-axis: capture SCROLLINFO before hiding because
+     * ShowScrollBar(SB_HORZ, FALSE) resets nMax/nPage/nPos to 0, causing
+     * Msb_ContentOverflows to return FALSE and hiding the bar after every
+     * WM_SIZE repositioning even when content genuinely overflows. */
+    SCROLLINFO siPreH = {sizeof(siPreH)};
+    BOOL restoreH = FALSE;
+    if (!vert && (ctx->isListView || ctx->isTreeView)) {
+        siPreH.fMask = SIF_RANGE | SIF_PAGE | SIF_POS;
+        GetScrollInfo(ctx->hTarget, SB_HORZ, &siPreH);
+        restoreH = (siPreH.nMax > siPreH.nMin);
+        /* Sync lvHPos from header — native bar is still active here, so the
+         * header item rect gives the true visual offset (e.g. after a column
+         * resize that shifted the scroll position). */
+        if (ctx->isListView)
+            ctx->lvHPos = Msb_GetListViewHPos(ctx->hTarget);
+    }
+    Msb_HideNativeBar(ctx->hTarget, ctx->isRichEdit, vert);
+    /* For TreeView V-axis: reconstruct SCROLLINFO from tree state because
+     * ShowScrollBar(FALSE) zeroed nMax/nPos. */
+    if (ctx->isTreeView && vert)
+        Msb_ReconstructTreeVScrollInfo(ctx->hTarget);
+    if (restoreH)
+        SetScrollInfo(ctx->hTarget, SB_HORZ, &siPreH, FALSE);
+    /* Now check overflow and, if visible, reposition and relayout. */
     if (!Msb_UpdateVisibility(ctx)) return;  /* bar hidden — nothing to do */
     /* Re-position from the target's current client rect corners. */
     Msb_PositionBar(ctx);

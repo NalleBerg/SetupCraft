@@ -107,17 +107,94 @@ When you attach custom scrollbars to a new page's TreeView / ListView:
       loop destroys the target windows.  The detach block must sit directly
       above the "Destroy all known control IDs" comment, NOT after it.
       EVERY page whose TreeView/ListView IDs appear in controlIds[] must have
-      its MSBs detached here.  Getting this wrong causes a double-free / crash
-      ("white screen then terminate") when switching away from that page.
+      its MSBs detached here.  Getting this wrong = double-free crash.
         if (s_hMsbFooV) { msb_detach(s_hMsbFooV); s_hMsbFooV = NULL; }
         …
-  (e) In SwitchPage — SETUP section (case N) — call msb_attach after the
-      target window is fully populated (so ShowScrollBar(FALSE) inside
-      msb_attach runs last and wins against TreeView's native re-enable).
-  (f) Add any persistent HWND statics for the new page's controls to the
-      Create() stale-state reset block and to the explicit exclusion list in
-      the generic child-window destroy loop (if they have IDs outside the
-      toolbar range 5010–5019 / 5080–5083).
+  (e) In SwitchPage — SETUP section (case N) — call msb_attach AFTER the
+      target window is fully populated (all InsertItem + Expand calls done).
+      This ensures ShowScrollBar(FALSE) inside msb_attach runs after the
+      tree has re-enabled native bars for the last time during population.
+        s_hMsbFooV = msb_attach(hFoo, MSB_VERTICAL);
+        s_hMsbFooH = msb_attach(hFoo, MSB_HORIZONTAL);
+        if (s_hMsbFooH)
+            msb_set_edge_gap(s_hMsbFooH,
+                GetSystemMetrics(SM_CYEDGE) + GetSystemMetrics(SM_CYBORDER) + 6);
+        // No extra WM_SIZE or msb_reposition needed after attach — done.
+  (f) Add any persistent HWND statics to the Create() stale-state reset block
+      and to the explicit exclusion list in the generic child-window destroy loop
+      (for IDs outside toolbar range 5010–5019 / 5080–5083).
+  (g) **REQUIRED**: Create the TreeView / ListView with WS_VSCROLL|WS_HSCROLL
+      in its window style.  Without these styles the control never populates
+      SCROLLINFO (nMax always 0) → MSB reads "no overflow" → bars never appear.
+      The native bar VISUAL is suppressed by msb_attach; the STYLE must remain.
+  (h) **REQUIRED for TreeViews**: Hook TVN_ITEMEXPANDED in the page's WM_NOTIFY
+      handler.  The GUARD `if (s_hMsbFooV || s_hMsbFooH)` IS MANDATORY — the
+      tree fires TVN_ITEMEXPANDED synchronously during initial populate (before
+      msb_attach), and the guard prevents the handler from running then.
+
+      Just call msb_reposition.  Do NOT do ShowScrollBar/GetScrollInfo/SetScrollInfo
+      or SendMessageW(WM_SIZE) — both approaches fail for the V-axis:
+      • Capture/restore: TreeView only updates SB_VERT nMax during WM_SIZE, not
+        during expand, so siV.nMax==0 at TVN_ITEMEXPANDED time → V bar never shows.
+      • SendMessageW(WM_SIZE) same-size: TreeView caches client size, skips
+        scroll recalculation → V SCROLLINFO still stale after the call.
+      msb_reposition handles HideNativeBar + Msb_ReconstructTreeVScrollInfo
+      (TVGN_NEXTVISIBLE tree-walk) + Msb_UpdateVisibility internally.
+
+        if (nmhdr->idFrom == IDC_YOUR_TREE && nmhdr->code == TVN_ITEMEXPANDED
+            && (s_hMsbFooV || s_hMsbFooH)) {
+            if (s_hMsbFooV) msb_reposition(s_hMsbFooV);
+            if (s_hMsbFooH) msb_reposition(s_hMsbFooH);
+        }
+  (i) **REQUIRED**: Hook WM_SIZE in the page's resize block and call
+      msb_reposition after EndDeferWindowPos for all bars on that page.
+        if (s_hMsbFooV) msb_reposition(s_hMsbFooV);
+        if (s_hMsbFooH) msb_reposition(s_hMsbFooH);
+
+
+WHAT my_scrollbar.cpp HANDLES INTERNALLY (no per-page action needed)
+─────────────────────────────────────────────────────────────────────────────
+
+  WM_NCPAINT interception (inNcPaint guard)
+  ──────────────────────────────────────────
+  The TreeView re-enables its native scrollbars inside its own WM_NCPAINT
+  handler on every NC repaint — triggered by expand/collapse, scrollwheel,
+  focus change, hover, anything.  Without intervention ShowScrollBar(FALSE)
+  is only temporary between events.
+  Fix: the subclass intercepts WM_NCPAINT, lets origProc paint the NC area,
+  then calls HideNativeBar on both axes.  The re-entrant WM_NCPAINT caused by
+  ShowScrollBar(FALSE) is forwarded directly to origProc via the `inNcPaint`
+  flag (preventing a loop), then the flag is cleared.  Native bars are
+  permanently invisible regardless of what triggers NC repaint.
+
+  V-axis overflow via TVGN_NEXTVISIBLE tree-walk
+  ───────────────────────────────────────────────
+  GetScrollInfo(SB_VERT).nPage for TreeView is unreliable — ShowScrollBar(FALSE)
+  zeroes it, and same-size WM_SIZE may not recompute it.  Msb_ContentOverflows
+  for TreeView V-axis ignores SCROLLINFO when nPage==0: walks expanded visible
+  items via TVGN_NEXTVISIBLE from root, compares count vs (clientH / itemH)
+  capacity.  Returns TRUE as soon as rowCount > capacity (early exit, O(N)).
+  Msb_ReconstructTreeVScrollInfo (called by msb_reposition and after every
+  HideNativeBar on V-axis) rebuilds a synthetic SCROLLINFO:
+    nMin=0, nMax=totalRows-1, nPage=capacity, nPos=firstVisibleRowIndex
+  so thumb position, arrow clicks, and thumb drag all have a correct reference.
+
+  WM_SIZE re-entrancy loop (inWmSize guard)
+  ──────────────────────────────────────────
+  Msb_HideNativeBar → ShowScrollBar(FALSE) changes the NC area → Windows
+  sends a synchronous WM_SIZE back while we are still inside WM_SIZE handler.
+  Without a guard: origProc(WM_SIZE) → ShowScrollBar(TRUE) → NC → WM_SIZE → ...
+  Fix: `inWmSize` BOOL in MsbCtx.  Re-entrant WM_SIZE returns 0 WITHOUT
+  calling origProc (origProc would re-show native bars and perpetuate the loop).
+
+  ShowScrollBar(FALSE) resets SCROLLINFO
+  ─────────────────────────────────────────
+  TreeView/ListView reset nMax/nPage/nPos to 0 on ShowScrollBar(FALSE).
+  For V-axis (TreeView): Msb_ReconstructTreeVScrollInfo rebuilds correct state
+  from the live tree instead of restoring old values (which may be stale).
+  For H-axis: pre-hide capture / post-hide restore still works because H
+  extent is set at item insertion time and is reliable.  Transparent to caller.
+
 
 KEY ID RANGES (as of this writing)
 ─────────────────────────────────────────────────────────────────────────────
@@ -131,3 +208,4 @@ KEY ID RANGES (as of this writing)
 
 Control IDs in ranges 5100–5110, 5300–5304 are per-page labels destroyed
 by the controlIds[] array—they never reach the generic loop.
+

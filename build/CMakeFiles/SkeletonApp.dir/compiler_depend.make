@@ -3207,6 +3207,7 @@ CMakeFiles/SkeletonApp.dir/deps.cpp.obj: C:/Users/NalleBerg/Documents/C++/Worksp
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/deps.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/dpi.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/mainwindow.h \
+  C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/my_scrollbar.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/tooltip.h
 
 CMakeFiles/SkeletonApp.dir/dialogs.cpp.obj: C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/dialogs.cpp \
@@ -10085,6 +10086,8 @@ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_algo.h:
 
 C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/uniform_int_dist.h:
 
+C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/my_scrollbar.h:
+
 C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/dragdrop.cpp:
 
 C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/array:
@@ -10100,8 +10103,6 @@ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/compare:
 C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/unordered_map:
 
 C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/dragdrop.h:
-
-C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/my_scrollbar.h:
 
 C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/languages.cpp:
 

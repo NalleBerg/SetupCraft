@@ -188,4 +188,79 @@ on the current font and DPI and may not match the live window height.
 - Window resize while page 2 is active does not recalculate maxSc or reposition
   page controls; a page-switch round-trip is required to resize the page
   correctly.
+
+
+10. START-MENU TREEVIEW MSBs  (s_hMsbScSmTreeV / s_hMsbScSmTreeH)
+────────────────────────────────────────────────────────────────────
+The Shortcuts page also has a Start-Menu TreeView (IDC_SC_SM_TREE,
+s_hScStartMenuTree) which gets its own pair of custom scroll bars so it
+matches the style of the Registry and Files tree views.
+
+Creation style — REQUIRED:
+    WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_HSCROLL | TVS_…
+
+WS_VSCROLL and WS_HSCROLL MUST be set even though the native bar visuals are
+hidden by MSB (ShowScrollBar FALSE).  Without them, the TreeView never
+populates SCROLLINFO (nMax always stays 0) and the MSB bars are permanently
+blank with no scrolling.
+
+Attach/detach wiring follows the exact same pattern as the Registry page MSBs;
+see scrollbar_reopen_INTERNALS.txt "RULE FOR ADDING MSBs" (points a–i) and
+the "TREEVIEW/LISTVIEW SCROLLINFO RESET BUG" section for the ShowScrollBar
+nMax-reset pitfall that is already handled inside my_scrollbar.cpp.
+
+Initial visibility (SwitchPage case 2, after msb_attach + msb_set_edge_gap):
+    RECT rcT; GetClientRect(hSmTree, &rcT);
+    SendMessageW(hSmTree, WM_SIZE, SIZE_RESTORED, MAKELPARAM(rcT.right, rcT.bottom));
+This sends WM_SIZE through the installed subclass.  origProc(WM_SIZE) causes the
+TreeView to recompute its layout (nPage = items-per-view).  The subclass then
+captures that fresh SCROLLINFO, hides native bars, restores, and calls the
+UNGUARDED Msb_UpdateVisibility on both axes — correct INVISIBLE/HIDDEN from page open.
+
+TVN_ITEMEXPANDED hook (mainwindow.cpp WM_NOTIFY, after SC_OnNotify dispatch):
+    if (nmhdr->idFrom == IDC_SC_SM_TREE && nmhdr->code == TVN_ITEMEXPANDED
+        && (s_hMsbScSmTreeV || s_hMsbScSmTreeH)) {
+        // hide native bars, restore SCROLLINFO, then:
+        msb_reposition(s_hMsbScSmTreeV);
+        msb_reposition(s_hMsbScSmTreeH);
+    }
+Required because tree expansion/collapse doesn't trigger WM_VSCROLL or WM_SIZE
+on the TreeView.  Guard "(V||H)" prevents running during initial populate (before
+MSBs are attached), avoiding stale-SCROLLINFO corruption.
+
+Edge gap:
+    msb_set_edge_gap(s_hMsbScSmTreeH, SM_CYEDGE + SM_CYBORDER + 6);
+Applied to the H-bar so it clears the WS_EX_CLIENTEDGE border at the bottom
+of the tree.  The V-bar uses the default gap (0 — hugs the right edge).
+
+
+11. DEPENDENCIES PAGE LISTVIEW MSBs  (s_hMsbDepListV / s_hMsbDepListH)
+────────────────────────────────────────────────────────────────────────
+IDC_DEP_LIST (deps.cpp) gets V+H Custom scrollbars so the Dependencies page
+matches all other pages.
+
+Key ListView H-axis notes (see scrollbar_custom_make_INTERNALS.txt §KEY NOTES):
+  • GetScrollInfo(SB_HORZ).nPos is unreliable for ListView H: ShowScrollBar(FALSE)
+    zeroes it; LVM_SCROLL doesn't update it.  MSB tracks position in MsbCtx.lvHPos.
+  • H scroll range (nMax/nPage) uses live column widths + client width, NOT
+    GetScrollInfo, because the native bar may have zeroed nMax.  Helper:
+    Msb_FixListViewHScrollInfo (called in Msb_Layout, Msb_Scroll, Msb_ScrollToPos,
+    track-click, drag).
+  • WM_HSCROLL(SB_THUMBPOSITION) does NOT work for absolute positioning (requires
+    SCROLLINFO.nTrackPos which only the native scrollbar machinery sets); use
+    LVM_SCROLL(delta) where delta = newPos - lvHPos.
+  • Arrows and tilt wheel use WM_HSCROLL (which the ListView handles correctly
+    when nMax is pre-restored before the send).
+  • H scrollbar must be suppressed explicitly after every InsertItem/populate call
+    in deps.cpp using the capture/restore pattern (not plain ShowScrollBar):
+        SCROLLINFO siH = {sizeof(siH), SIF_ALL};
+        GetScrollInfo(s_hDepList, SB_HORZ, &siH);
+        ShowScrollBar(s_hDepList, SB_HORZ, FALSE);
+        if (siH.nMax > siH.nMin) SetScrollInfo(s_hDepList, SB_HORZ, &siH, FALSE);
+        msb_sync(s_hMsbDepListH);
+
+Teardown — MUST come BEFORE the controlIds[] DestroyWindow loop (same rule as
+all other MSB-attached controls — see scrollbar_reopen_INTERNALS.txt):
+    DEP_TearDown(hwnd);   // contains msb_detach calls
+    // ← controlIds[] loop follows
 ================================================================================

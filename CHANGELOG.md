@@ -2,6 +2,23 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.04.07.11] - 2026-04-07
+
+### Fixed
+- **Dependencies page MSB H-bar — WM_NCPAINT capture/restore**: `ShowScrollBar(SB_HORZ, FALSE)` inside `WM_NCPAINT` was zeroing `SCROLLINFO.nPos` after every `LVM_SCROLL`. Fixed by capturing `SB_HORZ` SCROLLINFO after `origProc` but before `HideNativeBar`, restoring afterward.
+- **Dependencies page — deps.cpp capture/restore pattern**: All six `ShowScrollBar(SB_HORZ, FALSE)` calls now capture/restore SCROLLINFO so `msb_sync` sees valid range and position.
+- **Msb_Scroll ListView H — routed through Msb_ScrollToPos**: Arrow/page commands now use column-width stepping via `Msb_ScrollToPos` (LVM_SCROLL + lvHPos) instead of `CallWindowProcW(WM_HSCROLL)` which does not reliably update `SCROLLINFO.nPos` when `nMax=0`.
+- **WM_MOUSEHWHEEL ListView H — routed through Msb_ScrollToPos**: Tilt-wheel now accumulates steps × column-width via `Msb_ScrollToPos`, bypassing `WM_HSCROLL` entirely for ListView H.
+- **WM_HSCROLL interceptor — lvHPos no longer updated**: Removed unreliable `ctxH->lvHPos = siPre.nPos`. `lvHPos` managed exclusively by `Msb_ScrollToPos` and `Msb_GetListViewHPos()` readbacks.
+- **HDN_ENDTRACK in DEP_OnNotify**: Column resize now calls `msb_reposition` which syncs `lvHPos` from the header before hiding native bar.
+- **WM_NCPAINT: no longer syncs lvHPos**: Removed sync — fires before header repositions; would read stale position and corrupt delta.
+
+### Added
+- **Msb_GetListViewHPos()**: New helper reads `-Header_GetItemRect(col0).left` — the only reliable source for true visual H scroll offset for ListView. Used by `Msb_ScrollToPos` (before/after `LVM_SCROLL`), `msb_sync`, `msb_reposition`, drag-start, and `WM_SIZE`.
+
+### Known issues
+- **Dependencies H-bar thumb drag**: Content moves when dragging right but thumb does not follow; cannot drag back left; blinks at right end. Arrow buttons, track-click, tilt-wheel are working. Fix deferred.
+
 ## [2026.04.05.15] - 2026-04-05
 
 ### Changed

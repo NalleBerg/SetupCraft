@@ -1004,7 +1004,8 @@ int SC_BuildPage(HWND hwnd, HINSTANCE hInst, int pageY, int clientWidth,
     // Item height set to S(34) so 32×32 icons have a little breathing room.
     int smTreeH = S(160);
     s_hScStartMenuTree = CreateWindowExW(WS_EX_CLIENTEDGE, WC_TREEVIEWW, L"",
-        WS_CHILD | WS_VISIBLE | TVS_HASLINES | TVS_LINESATROOT |
+        WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_HSCROLL |
+        TVS_HASLINES | TVS_LINESATROOT |
         TVS_HASBUTTONS | TVS_SHOWSELALWAYS | TVS_EDITLABELS | TVS_NOTOOLTIPS,
         treeX, rowY, treeW, smTreeH,
         hwnd, (HMENU)IDC_SC_SM_TREE, hInst, NULL);
@@ -1143,6 +1144,7 @@ void SC_TearDown(HWND hwnd)
 // dynamically created controls at the correct physical Y position.
 void SC_SetScrollOffset(int off) { s_scScrollOffset = off; }
 int  SC_GetScrollOffset()        { return s_scScrollOffset; }
+HWND SC_GetStartMenuTree()       { return s_hScStartMenuTree; }
 
 // ── SC_OnResize ───────────────────────────────────────────────────────────────
 

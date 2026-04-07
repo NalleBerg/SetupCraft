@@ -95,9 +95,14 @@
                                                 layout macros; RichEdit specifics (nMax/nPos
                                                 measurement, EM_SETRECT format-rect management,
                                                 EM_SHOWSCROLLBAR suppression); typical wiring
-                                                pattern for V+H dual-attach. Status: complete
-                                                and fully working as of 2026-04-03. ListView
-                                                live drag fixed (LVM_SCROLL delta path).
+                                                pattern for V+H dual-attach. ListView H-axis:
+                                                position read via Msb_GetListViewHPos()
+                                                (-Header_GetItemRect(col0).left) — the only
+                                                reliable source; GetScrollInfo.nPos is zeroed
+                                                by ShowScrollBar(FALSE) and not updated by
+                                                LVM_SCROLL. Scroll dispatch via LVM_SCROLL(delta).
+                                                Arrow/track/tilt-wheel working on Deps page.
+                                                Thumb drag: known issue (next session).
 
   ── INTERNALS (project-internal architecture) ────────────────────────────────
 
@@ -175,9 +180,12 @@
                                                 CRUD API, control ID ranges, locale key table,
                                                 and mainwindow.cpp wiring guide.
 
-  API_INTERNALS\INTERNALS\scrollbar_custom_make.txt
+  API_INTERNALS\INTERNALS\scrollbar_custom_make_INTERNALS.txt
                                                 Build plan for my_scrollbar.h / my_scrollbar.cpp
                                                 — 9-phase custom Win32 scrollbar. All phases DONE.
+                                                Includes key implementation notes: ListView H
+                                                lvHPos tracking, LVM_SCROLL vs WM_HSCROLL
+                                                behaviour, SB_THUMBPOSITION limitation.
 
   API_INTERNALS\INTERNALS\scrollbar_reopen_INTERNALS.txt
                                                 MSB lifecycle across project-close/reopen and

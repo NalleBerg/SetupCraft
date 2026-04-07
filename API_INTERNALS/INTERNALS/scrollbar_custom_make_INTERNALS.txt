@@ -313,7 +313,7 @@ FILES
 
 [ ] PHASE 8 — Integration into SetupCraft (0.5 day)
     ---------------------------------------------------
-    Goal: Replace scrollbar.cpp / ContentRichEditSubclassProc with my_scrollbar.
+    STATUS: [DONE] — All pages integrated. All MSB scrollbars working.
 
     Steps:
     8.1  In dialogs.cpp (PreviewDialog WM_INITDIALOG):
@@ -334,7 +334,8 @@ FILES
 
 [ ] PHASE 9 — Polish (1–2 days)
     --------------------------------
-    - Tune colors to match SetupCraft's existing checkbox/tick visual style
+    STATUS: [DONE] — Colors tuned, all edge cases handled, ListView H-axis
+    fully working with lvHPos tracking.
     - Keyboard accessibility: WM_KEYDOWN on bar window (arrow keys, PgUp/PgDn)
     - Edge case: content shorter than one page (thumb fills full track, arrows
       disabled/dimmed)
@@ -364,8 +365,76 @@ FILES
   /* Call this after programmatic scrolls that bypass WM_VSCROLL/WM_HSCROLL. */
   void msb_sync(HMSB h);
 
-  /* (Future) Override colors at runtime. */
-  /* void msb_set_colors(HMSB h, const MSB_Colors* c); */
+  /* Restrict bar to sub-range of target edge (skip toolbar / status bar). */
+  void msb_set_insets(HMSB h, int insetNear, int insetFar);
+
+  /* Shift bar inward from window edge by gap unscaled px. */
+  void msb_set_edge_gap(HMSB h, int gap);
+
+  /* Return the bar's HWND (to exclude from child-moving scroll loops). */
+  HWND msb_get_bar_hwnd(HMSB h);
+
+  /* Re-derive bar position from target's current client rect + visibility. */
+  void msb_reposition(HMSB h);
+
+  /* Clear cached content dimensions and re-sync both bars. */
+  void msb_notify_content_changed(HMSB h);
+
+  ======================================================================
+  KEY IMPLEMENTATION NOTES (added 2026-04-07)
+  ======================================================================
+
+  ListView H-axis — GetScrollInfo.nPos is unreliable
+  ──────────────────────────────────────────────────
+  Problem: Two separate mechanisms maintain the ListView's H scroll state:
+    • Internal visual position — updated by LVM_SCROLL and WM_HSCROLL.
+    • SCROLLINFO.nPos — updated by WM_HSCROLL only; zeroed by ShowScrollBar(FALSE).
+  Since MSB calls ShowScrollBar(FALSE), SCROLLINFO.nPos is zero or stale in
+  every path that uses LVM_SCROLL (track-click, thumb-drag).
+
+  Fix: MsbCtx.lvHPos — an authoritative H position field maintained by MSB.
+    • WM_HSCROLL interceptor: reads siPre.nPos BEFORE HideNativeBar, stores
+      in ctxH->lvHPos.  (ListView writes correct nPos to SCROLLINFO when
+      it processes WM_HSCROLL; capture it before we zero it.)
+    • WM_MOUSEHWHEEL: same — reads siPreH.nPos, stores in ctxH->lvHPos.
+    • Msb_ScrollToPos (ListView H): delta = newPos - lvHPos; LVM_SCROLL(delta);
+      lvHPos = newPos.
+    • Msb_Scroll pre-restore (ListView H): SetScrollInfo uses lvHPos for nPos.
+    • Msb_Layout (ListView H): si.nPos = lvHPos.
+    • Drag start: reads ctx->lvHPos for dragStartPos.
+
+  ListView H — lvHPos sync rules\n  ──────────────────────────────────────────────────────────────────────────────
+  lvHPos is authoritative for the H scroll position.  Three places sync it:
+
+    a) msb_attach: reads siPreAttach.nPos (before HideNativeBar) and stores it
+       in lvHPos.  Handles the case where the ListView was scrolled when the
+       page is rebuilt (ListView H scroll can survive DeleteAllItems because
+       column widths are unchanged).
+
+    b) WM_HSCROLL interceptor: after origProc processes WM_HSCROLL, reads
+       siPre.nPos (before HideNativeBar zeroes it) and stores in lvHPos.
+       Handles arrow-button and tilt-wheel scrolls.
+
+    c) msb_sync: reads GetScrollInfo.nPos and stores in lvHPos.  Safe because
+       the caller (e.g. the RefreshList suppress pattern in deps.cpp) has just
+       done capture/restore, making GetScrollInfo.nPos correct.  Handles
+       external scroll resets such as ListView_DeleteAllItems (which resets the
+       ListView scroll to 0 while lvHPos stays at the old value).
+
+  Caller rule: ALWAYS do capture/restore before calling msb_sync for ListView H.
+  The capture/restore pattern (not just ShowScrollBar):
+      SCROLLINFO siH = {sizeof(siH), SIF_ALL};
+      GetScrollInfo(hList, SB_HORZ, &siH);
+      ShowScrollBar(hList, SB_HORZ, FALSE);
+      if (siH.nMax > siH.nMin) SetScrollInfo(hList, SB_HORZ, &siH, FALSE);
+      msb_sync(s_hMsbListH);   // now lvHPos synced from siH.nPos
+  ──────────────────────────────────────────────────
+  WM_HSCROLL(SB_THUMBPOSITION, MAKEWPARAM(SB_THUMBPOSITION, newPos)) sends
+  newPos in HIWORD(wParam).  The ListView reads SCROLLINFO.nTrackPos for
+  SB_THUMBPOSITION, NOT HIWORD.  nTrackPos is written only by Windows's
+  native scrollbar drag machinery; SetScrollInfo cannot set it.
+  Result: using SB_THUMBPOSITION scrolls to 0 (nTrackPos=0) regardless of
+  the HIWORD value.  Use LVM_SCROLL(delta) instead for absolute H positioning.
 
 ================================================================================
   NOTES FOR FUTURE SESSIONS

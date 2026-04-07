@@ -11,6 +11,7 @@
 
 #include "deps.h"
 #include "dep_edit_dialog.h"
+#include "my_scrollbar.h"
 #include "mainwindow.h"   // MainWindow::MarkAsModified(), GetLocale()
 #include "dpi.h"          // S() DPI-scale macro
 #include "button.h"       // CreateCustomButtonWithIcon, CreateCustomButtonWithCompositeIcon
@@ -28,6 +29,10 @@ extern "C" __declspec(dllimport) UINT WINAPI PrivateExtractIconsW(
 
 static std::vector<ExternalDep> s_deps;
 static int                       s_nextDepId = 1;   // in-memory counter; reset by DEP_Reset
+
+// Custom scrollbar handles for the ListView.
+static HMSB s_hMsbDepListV = NULL;
+static HMSB s_hMsbDepListH = NULL;
 
 // Live handles to the page ListView and buttons.
 // Set by DEP_BuildPage; the SwitchPage teardown destroys the page container
@@ -171,7 +176,9 @@ static LRESULT CALLBACK DepListSubclassProc(
 void DEP_Reset()
 {
     s_deps.clear();
-    s_nextDepId  = 1;
+    s_nextDepId    = 1;
+    s_hMsbDepListV = NULL;  // stale-handle guard (WM_DESTROY already freed ctx)
+    s_hMsbDepListH = NULL;
 }
 
 bool DEP_HasAny()
@@ -183,6 +190,10 @@ bool DEP_HasAny()
 
 void DEP_TearDown(HWND /*hwnd*/)
 {
+    // Detach custom scrollbars BEFORE any DestroyWindow calls.
+    if (s_hMsbDepListV) { msb_detach(s_hMsbDepListV); s_hMsbDepListV = NULL; }
+    if (s_hMsbDepListH) { msb_detach(s_hMsbDepListH); s_hMsbDepListH = NULL; }
+
     // Restore ListView subclass proc before the window is destroyed.
     if (s_hDepList && IsWindow(s_hDepList) && s_origListProc) {
         SetWindowLongPtrW(s_hDepList, GWLP_WNDPROC, (LONG_PTR)s_origListProc);
@@ -317,6 +328,124 @@ void DEP_BuildPage(HWND hwnd, HINSTANCE hInst,
 
     // Populate from in-memory state.
     RefreshList();
+    // Attach custom hidden scrollbars after the list is populated.
+    s_hMsbDepListV = msb_attach(s_hDepList, MSB_VERTICAL);
+    s_hMsbDepListH = msb_attach(s_hDepList, MSB_HORIZONTAL);
+    if (s_hMsbDepListH)
+        msb_set_edge_gap(s_hMsbDepListH,
+            GetSystemMetrics(SM_CYEDGE) + GetSystemMetrics(SM_CYBORDER) + 6);
+    // ListView re-enables native bars on every InsertItem; suppress now.
+    if (s_hMsbDepListV) { ShowScrollBar(s_hDepList, SB_VERT, FALSE); msb_sync(s_hMsbDepListV); }
+    if (s_hMsbDepListH) {
+        // ShowScrollBar(SB_HORZ, FALSE) zeroes nMax/nPage/nPos; capture first so
+        // msb_sync sees a valid SCROLLINFO and keeps the bar visible.
+        SCROLLINFO siH = {sizeof(siH), SIF_ALL};
+        GetScrollInfo(s_hDepList, SB_HORZ, &siH);
+        ShowScrollBar(s_hDepList, SB_HORZ, FALSE);
+        if (siH.nMax > siH.nMin) SetScrollInfo(s_hDepList, SB_HORZ, &siH, FALSE);
+        msb_sync(s_hMsbDepListH);
+    }
+
+    // ── TEST DATA: overflow V+H ── remove before release ─────────────────────
+    // Appended once per session so the list overflows both V and H regardless
+    // of the project's real content.  Covers all delivery types, both
+    // required/optional, and all three detection strategies so every column
+    // path is exercised.  IDs start at 9000 to avoid DB collisions.
+    // Delete this block (and s_testDataAdded) before shipping.
+    {
+        static bool s_testDataAdded = false;
+        if (!s_testDataAdded) {
+            s_testDataAdded = true;
+            auto add = [&](int id, const wchar_t* name, DepDelivery del,
+                           bool req, const wchar_t* regKey,
+                           const wchar_t* filePath) {
+                ExternalDep d;
+                d.id               = id;
+                d.display_name     = name;
+                d.delivery         = del;
+                d.is_required      = req;
+                d.detect_reg_key   = regKey  ? regKey  : L"";
+                d.detect_file_path = filePath ? filePath : L"";
+                s_deps.push_back(d);
+            };
+            // Rows: mix all four delivery types, both required/optional,
+            // all three detection kinds (reg, file, none).
+            add(9000, L"Microsoft Visual C++ 2022 Redistributable (x64) — Required Runtime",
+                DD_AUTO_DOWNLOAD,    true,
+                L"HKLM\\SOFTWARE\\Microsoft\\VisualStudio\\14.0\\VC\\Runtimes\\X64", nullptr);
+            add(9001, L".NET 8.0 Desktop Runtime — Windows Presentation Foundation",
+                DD_AUTO_DOWNLOAD,    true,
+                L"HKLM\\SOFTWARE\\dotnet\\Setup\\InstalledVersions\\x64\\sharedhost", nullptr);
+            add(9002, L"DirectX End-User Runtime Web Installer (June 2010)",
+                DD_REDIRECT_URL,     false,
+                nullptr, L"%SystemRoot%\\System32\\d3dx9_43.dll");
+            add(9003, L"WebView2 Runtime — Evergreen Bootstrapper from Microsoft CDN",
+                DD_AUTO_DOWNLOAD,    true,
+                L"HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}", nullptr);
+            add(9004, L"OpenSSL 3.x Light — TLS 1.3 Support Library (bundled, no install)",
+                DD_BUNDLED,          true,
+                nullptr, L"%ProgramFiles%\\MyApp\\bin\\libssl-3-x64.dll");
+            add(9005, L"SQLite 3.45 Amalgamation (bundled as static lib, no detection needed)",
+                DD_BUNDLED,          true,
+                nullptr, nullptr);
+            add(9006, L"WinPcap / Npcap Network Capture Driver — Optional Packet Analyser Feature",
+                DD_REDIRECT_URL,     false,
+                L"HKLM\\SYSTEM\\CurrentControlSet\\Services\\npcap", nullptr);
+            add(9007, L"7-Zip Command-Line Tool — Required for Archive Extraction Module",
+                DD_INSTRUCTIONS_ONLY, false,
+                nullptr, L"%ProgramFiles%\\7-Zip\\7z.exe");
+            add(9008, L"Python 3.12 Embeddable Package (x64) — Scripting Engine",
+                DD_AUTO_DOWNLOAD,    false,
+                L"HKLM\\SOFTWARE\\Python\\PythonCore\\3.12\\InstallPath", nullptr);
+            add(9009, L"Git for Windows — Required by the Automatic Update Sub-System",
+                DD_REDIRECT_URL,     true,
+                nullptr, L"%ProgramFiles%\\Git\\bin\\git.exe");
+            add(9010, L"MSVC Runtime 14.38 — Extremely Long Name to Force Horizontal Column Overflow Without Any Doubt Whatsoever",
+                DD_AUTO_DOWNLOAD,    true,
+                L"HKLM\\SOFTWARE\\Microsoft\\VisualStudio\\14.0\\VC\\Runtimes\\ARM64", nullptr);
+            add(9011, L"Node.js 20 LTS — Server-Side Scripting for Dashboard Extension (Optional)",
+                DD_INSTRUCTIONS_ONLY, false,
+                nullptr, L"%ProgramFiles%\\nodejs\\node.exe");
+            add(9012, L"libcurl 8.6 with WinSSL Backend (bundled DLL, silent, no user prompt)",
+                DD_BUNDLED,          true,
+                nullptr, nullptr);
+            add(9013, L"Ghostscript 10.03 PostScript Interpreter — PDF Export Feature Only",
+                DD_REDIRECT_URL,     false,
+                nullptr, L"%ProgramFiles%\\gs\\gs10.03.0\\bin\\gswin64c.exe");
+            add(9014, L"Universal CRT (KB2999226) — Windows 8.1 and Earlier Only",
+                DD_AUTO_DOWNLOAD,    true,
+                L"HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Component Based Servicing\\Packages\\Package_for_KB2999226", nullptr);
+            add(9015, L"OpenJDK 21 LTS — Required by the Report Generator Module",
+                DD_AUTO_DOWNLOAD,    false,
+                L"HKLM\\SOFTWARE\\Eclipse Adoptium\\JDK\\21.0\\hotspot\\MSI", nullptr);
+            add(9016, L"Bonjour for Windows — mDNS Service Discovery (Optional LAN Feature)",
+                DD_BUNDLED,          false,
+                nullptr, L"%ProgramFiles%\\Bonjour\\mDNSResponder.exe");
+            add(9017, L"Microsoft Edge WebView2 Runtime Evergreen — Fallback for Older Systems",
+                DD_REDIRECT_URL,     false,
+                nullptr, nullptr);
+            add(9018, L"Redis 7.2 for Windows — Optional Caching Layer for Enterprise Installations",
+                DD_INSTRUCTIONS_ONLY, false,
+                nullptr, L"%ProgramFiles%\\Redis\\redis-server.exe");
+            add(9019, L"Inno Setup 6.3 — Required Only if the Developer Wants to Repackage Manually",
+                DD_REDIRECT_URL,     false,
+                nullptr, L"%ProgramFiles(x86)%\\Inno Setup 6\\ISCC.exe");
+            add(9020, L"WinSparkle 0.8 — Automatic Update Framework (bundled, MIT-licensed)",
+                DD_BUNDLED,          true,
+                nullptr, nullptr);
+            RefreshList();
+            // Re-suppress native bars re-enabled by ListView_InsertItem.
+            if (s_hMsbDepListV) { ShowScrollBar(s_hDepList, SB_VERT, FALSE); msb_sync(s_hMsbDepListV); }
+            if (s_hMsbDepListH) {
+                SCROLLINFO siH = {sizeof(siH), SIF_ALL};
+                GetScrollInfo(s_hDepList, SB_HORZ, &siH);
+                ShowScrollBar(s_hDepList, SB_HORZ, FALSE);
+                if (siH.nMax > siH.nMin) SetScrollInfo(s_hDepList, SB_HORZ, &siH, FALSE);
+                msb_sync(s_hMsbDepListH);
+            }
+        }
+    }
+    // ── END TEST DATA ─────────────────────────────────────────────────────────
 }
 
 // ── DEP_OnNotify ──────────────────────────────────────────────────────────────
@@ -324,6 +453,17 @@ void DEP_BuildPage(HWND hwnd, HINSTANCE hInst,
 LRESULT DEP_OnNotify(HWND /*hwnd*/, LPNMHDR nmhdr, bool* handled)
 {
     if (!s_hDepList) { *handled = false; return 0; }
+
+    // HDN_ENDTRACK fires (from the header child) when the user finishes resizing
+    // a column.  The ListView may have scrolled the content to keep columns
+    // visible; sync the H-bar's lvHPos so the next scroll delta is correct.
+    if (nmhdr->hwndFrom == ListView_GetHeader(s_hDepList) &&
+        (nmhdr->code == HDN_ENDTRACKW || nmhdr->code == HDN_ENDTRACKA)) {
+        if (s_hMsbDepListH) msb_reposition(s_hMsbDepListH);
+        *handled = false;   // let default processing continue
+        return 0;
+    }
+
     if (nmhdr->hwndFrom != s_hDepList) { *handled = false; return 0; }
 
     if (nmhdr->code == LVN_ITEMCHANGED) {
@@ -362,6 +502,14 @@ bool DEP_OnCommand(HWND hwnd, int id, int event, HWND /*hCtrl*/)
             blank.id = s_nextDepId++;
             s_deps.push_back(blank);
             RefreshList();
+            if (s_hMsbDepListV) { ShowScrollBar(s_hDepList, SB_VERT, FALSE); msb_sync(s_hMsbDepListV); }
+            if (s_hMsbDepListH) {
+                SCROLLINFO siH = {sizeof(siH), SIF_ALL};
+                GetScrollInfo(s_hDepList, SB_HORZ, &siH);
+                ShowScrollBar(s_hDepList, SB_HORZ, FALSE);
+                if (siH.nMax > siH.nMin) SetScrollInfo(s_hDepList, SB_HORZ, &siH, FALSE);
+                msb_sync(s_hMsbDepListH);
+            }
             // Select the newly added item.
             int last = (int)s_deps.size() - 1;
             ListView_SetItemState(s_hDepList, last,
@@ -379,6 +527,14 @@ bool DEP_OnCommand(HWND hwnd, int id, int event, HWND /*hCtrl*/)
         if (s_pLocale && DEP_EditDialog(hwnd, s_hInst, *s_pLocale, copy)) {
             *dep = copy;
             RefreshList();
+            if (s_hMsbDepListV) { ShowScrollBar(s_hDepList, SB_VERT, FALSE); msb_sync(s_hMsbDepListV); }
+            if (s_hMsbDepListH) {
+                SCROLLINFO siH = {sizeof(siH), SIF_ALL};
+                GetScrollInfo(s_hDepList, SB_HORZ, &siH);
+                ShowScrollBar(s_hDepList, SB_HORZ, FALSE);
+                if (siH.nMax > siH.nMin) SetScrollInfo(s_hDepList, SB_HORZ, &siH, FALSE);
+                msb_sync(s_hMsbDepListH);
+            }
             MainWindow::MarkAsModified();
         }
         return true;
@@ -418,6 +574,14 @@ bool DEP_OnCommand(HWND hwnd, int id, int event, HWND /*hCtrl*/)
         s_deps.erase(std::remove_if(s_deps.begin(), s_deps.end(),
             [removeId](const ExternalDep& d){ return d.id == removeId; }), s_deps.end());
         RefreshList();
+        if (s_hMsbDepListV) { ShowScrollBar(s_hDepList, SB_VERT, FALSE); msb_sync(s_hMsbDepListV); }
+        if (s_hMsbDepListH) {
+            SCROLLINFO siH = {sizeof(siH), SIF_ALL};
+            GetScrollInfo(s_hDepList, SB_HORZ, &siH);
+            ShowScrollBar(s_hDepList, SB_HORZ, FALSE);
+            if (siH.nMax > siH.nMin) SetScrollInfo(s_hDepList, SB_HORZ, &siH, FALSE);
+            msb_sync(s_hMsbDepListH);
+        }
         // Update button states.
         EnableWindow(s_hDepEdit,   FALSE);
         EnableWindow(s_hDepRemove, FALSE);
@@ -448,4 +612,20 @@ void DEP_LoadFromDb(int projectId)
     for (const ExternalDep& d : s_deps)
         if (d.id >= s_nextDepId) s_nextDepId = d.id + 1;
     RefreshList();
+    if (s_hMsbDepListV) { ShowScrollBar(s_hDepList, SB_VERT, FALSE); msb_sync(s_hMsbDepListV); }
+    if (s_hMsbDepListH) {
+        SCROLLINFO siH = {sizeof(siH), SIF_ALL};
+        GetScrollInfo(s_hDepList, SB_HORZ, &siH);
+        ShowScrollBar(s_hDepList, SB_HORZ, FALSE);
+        if (siH.nMax > siH.nMin) SetScrollInfo(s_hDepList, SB_HORZ, &siH, FALSE);
+        msb_sync(s_hMsbDepListH);
+    }
+}
+
+// ── DEP_RepositionScrollbars ──────────────────────────────────────────────────
+
+void DEP_RepositionScrollbars()
+{
+    if (s_hMsbDepListV) msb_reposition(s_hMsbDepListV);
+    if (s_hMsbDepListH) msb_reposition(s_hMsbDepListH);
 }

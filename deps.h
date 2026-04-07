@@ -137,3 +137,6 @@ void DEP_SaveToDb(int projectId);
 
 // Load the dependency list from the database; replaces in-memory state.
 void DEP_LoadFromDb(int projectId);
+
+// Call from mainwindow WM_SIZE after EndDeferWindowPos for the dep list.
+void DEP_RepositionScrollbars();

@@ -139,6 +139,11 @@ int SC_BuildPage(HWND hwnd, HINSTANCE hInst, int pageY, int clientWidth,
 void SC_SetScrollOffset(int off);
 int  SC_GetScrollOffset();
 
+// Returns the live HWND of the Start Menu / Programs folder TreeView, or NULL
+// if the Shortcuts page is not currently shown.  Used by mainwindow.cpp to
+// attach / detach the MSB scrollbars for the tree (s_hMsbScSmTreeV/H).
+HWND SC_GetStartMenuTree();
+
 // Tear down the Shortcuts page.
 // Destroys the Start Menu TreeView window and its associated image list property.
 // s_scMenuNodes and s_scShortcuts are NOT cleared — they survive page switches.

@@ -78,6 +78,8 @@ int MainWindow::s_currentPageIndex = 0;
 static int  s_scPageContentH   = 0;  // absolute Y of first pixel below Shortcuts page content
 static int  s_idlgPageContentH = 0;  // absolute Y of first pixel below Dialogs page content
 static HMSB s_hMsbSc           = NULL; // custom scrollbar for the Shortcuts page
+static HMSB s_hMsbScSmTreeV    = NULL; // Shortcuts page - Start Menu TreeView vertical bar
+static HMSB s_hMsbScSmTreeH    = NULL; // Shortcuts page - Start Menu TreeView horizontal bar
 static HMSB s_hMsbIdlg         = NULL; // custom scrollbar for the Dialogs page
 static HMSB s_hMsbFilesTreeV   = NULL; // Files page - TreeView vertical bar
 static HMSB s_hMsbFilesTreeH   = NULL; // Files page - TreeView horizontal bar
@@ -523,7 +525,10 @@ HWND MainWindow::Create(HINSTANCE hInstance, const ProjectRow &project, const st
     s_hMsbCompListV  = NULL;
     s_hMsbCompListH  = NULL;
     s_hMsbSc         = NULL;
+    s_hMsbScSmTreeV  = NULL;
+    s_hMsbScSmTreeH  = NULL;
     s_hMsbIdlg       = NULL;
+    DEP_Reset();           // nullifies s_hMsbDepListV/H (WM_DESTROY already freed ctx)
     // Null stale HWND handles so IsWindow guards work correctly on second open.
     s_hTreeView     = NULL;
     s_hListView     = NULL;
@@ -1690,6 +1695,15 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
     if (s_hMsbRegTreeH) { msb_detach(s_hMsbRegTreeH); s_hMsbRegTreeH = NULL; }
     if (s_hMsbRegListV) { msb_detach(s_hMsbRegListV); s_hMsbRegListV = NULL; }
     if (s_hMsbRegListH) { msb_detach(s_hMsbRegListH); s_hMsbRegListH = NULL; }
+    // Same for the Shortcuts page Start Menu TreeView — IDC_SC_SM_TREE is in
+    // controlIds[] below, so the same double-free pattern applies.
+    if (s_hMsbScSmTreeV) { msb_detach(s_hMsbScSmTreeV); s_hMsbScSmTreeV = NULL; }
+    if (s_hMsbScSmTreeH) { msb_detach(s_hMsbScSmTreeH); s_hMsbScSmTreeH = NULL; }
+    // Same for Dependencies page — IDC_DEP_LIST is caught by the child-window
+    // enumeration loop below (page-area enumerate), so its WM_DESTROY fires
+    // Msb_TargetSubclassProc → msb_detach.  DEP_TearDown must therefore run
+    // BEFORE that loop, not after, to avoid the double-free / heap corruption.
+    DEP_TearDown(hwnd);
 
     // Destroy all known control IDs from previous pages
     int controlIds[] = {
@@ -1808,7 +1822,6 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
     if (s_hMsbIdlg) { msb_detach(s_hMsbIdlg); s_hMsbIdlg = NULL; }
     IDLG_TearDown(hwnd);
     SC_TearDown(hwnd);
-    DEP_TearDown(hwnd);
 
     // Clear registry values map
     s_registryValues.clear();
@@ -2763,6 +2776,18 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
             msb_set_insets(s_hMsbSc, pageY, statusH);
             /* Shift 4 px inward from the right edge so the hint strip is visible. */
             msb_set_edge_gap(s_hMsbSc, 4);
+        }
+        // Attach V+H hidden scrollbars to the Start Menu TreeView.
+        // Pattern mirrors the Registry page (s_hMsbRegTreeV/H).
+        {
+            HWND hSmTree = SC_GetStartMenuTree();
+            if (hSmTree) {
+                s_hMsbScSmTreeV = msb_attach(hSmTree, MSB_VERTICAL);
+                s_hMsbScSmTreeH = msb_attach(hSmTree, MSB_HORIZONTAL);
+                if (s_hMsbScSmTreeH)
+                    msb_set_edge_gap(s_hMsbScSmTreeH,
+                        GetSystemMetrics(SM_CYEDGE) + GetSystemMetrics(SM_CYBORDER) + 6);
+            }
         }
         // Give every page control WS_CLIPSIBLINGS so that when any of them
         // scrolls into the status-bar zone it does NOT paint over the status
@@ -7280,6 +7305,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 ListView_SetColumnWidth(hDepList, 2, (int)(w * 0.18));
                 ListView_SetColumnWidth(hDepList, 3,
                     w - (int)(w*0.35) - (int)(w*0.22) - (int)(w*0.18));
+                DEP_RepositionScrollbars();
             }
         }
 
@@ -7334,6 +7360,9 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 
                 msb_sync(s_hMsbSc);
             }
+            // Reposition the Start Menu TreeView bars after any resize.
+            if (s_hMsbScSmTreeV) msb_reposition(s_hMsbScSmTreeV);
+            if (s_hMsbScSmTreeH) msb_reposition(s_hMsbScSmTreeH);
         }
 
         // ── Dialogs page (index 4) ── update scroll range then sync bar ──
@@ -7398,6 +7427,26 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         if (DragDrop_OnBeginDrag(nmhdr)) return 0;
         { bool scH = false; LRESULT scR = SC_OnNotify(hwnd, nmhdr, &scH); if (scH) return scR; }
         { bool depH = false; LRESULT depR = DEP_OnNotify(hwnd, nmhdr, &depH); if (depH) return depR; }
+        // Refresh Start-Menu tree MSBs after expand/collapse.
+        // GUARD: only act when MSBs are actually attached.  TreeView_Expand
+        // in SC_RebuildSmTree fires TVN_ITEMEXPANDED synchronously BEFORE the
+        // tree has painted (nPage==0), so without this guard we would restore
+        // SCROLLINFO with nPage=0, making msb_attach see "overflow" when there
+        // is none.  msb_attach is called AFTER SC_BuildPage returns, so
+        // s_hMsbScSmTreeV/H are NULL during the initial tree population.
+        if (nmhdr->idFrom == IDC_SC_SM_TREE && nmhdr->code == TVN_ITEMEXPANDED
+            && (s_hMsbScSmTreeV || s_hMsbScSmTreeH)) {
+            /* After expand/collapse the visible-row count changes.  V-axis
+             * SCROLLINFO (nMax/nPage) is only updated by the TreeView during
+             * its own WM_SIZE processing, not at notification time, so sending
+             * WM_SIZE with unchanged dimensions is a no-op for the V bar.
+             * msb_reposition() bypasses SCROLLINFO entirely for V: it calls
+             * Msb_UpdateVisibility → Msb_ContentOverflows which uses a tree-walk
+             * (TVGN_NEXTVISIBLE) to count expanded rows vs viewport capacity.
+             * That gives the correct answer immediately, with no WM_SIZE needed. */
+            if (s_hMsbScSmTreeV) msb_reposition(s_hMsbScSmTreeV);
+            if (s_hMsbScSmTreeH) msb_reposition(s_hMsbScSmTreeH);
+        }
 
         // Drag-and-drop begin notifications are superseded by the dragdrop
         // module (subclass-based threshold detection).  No action needed here.
@@ -11135,6 +11184,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         // remain non-NULL on the next MainWindow::Create, and the first WM_SIZE would
         // call msb_reposition() on dangling freed memory → heap corruption / crash.
         s_hMsbSc         = NULL;
+        s_hMsbScSmTreeV  = NULL;
+        s_hMsbScSmTreeH  = NULL;
         s_hMsbIdlg       = NULL;
         s_hMsbFilesTreeV = NULL;
         s_hMsbFilesTreeH = NULL;
