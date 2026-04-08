@@ -127,6 +127,12 @@ void IDLG_SaveToDb(int projectId);
 // Call after IDLG_Reset() when opening an existing project (project.id > 0).
 void IDLG_LoadFromDb(int projectId);
 
+// Fill any empty in-memory dialog slots with default RTF, substituting
+// <<AppName>>, <<AppVersion>>, and <<AppNameAndVersion>> with the given values.
+// Call once in Create() after IDLG_LoadFromDb() (or after IDLG_Reset() for new
+// projects) so both new and existing projects get sensible starter content.
+void IDLG_ApplyDefaults(const std::wstring& appName, const std::wstring& appVersion);
+
 // Route WM_COMMAND messages from WndProc.
 // Returns true when the command was fully handled (caller should return 0).
 bool IDLG_OnCommand(HWND hwnd, int wmId, int wmEvent, HWND hCtrl);

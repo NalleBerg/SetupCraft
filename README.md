@@ -2,7 +2,7 @@
 
 An installer creation tool for making your developed packages distributable. Designed to be simple to use with a clean, native Windows interface.
 
-**Current Release:** Version 2026.04.08.08 (Published: 08.04.2026 08:12)
+**Current Release:** Version 2026.04.08.11 (Published: 08.04.2026 11:10)
 
 > Note: This project is in active development. Entry screen, Files management, Shortcuts, Dependencies, and Dialogs pages are complete.
 

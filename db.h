@@ -113,4 +113,6 @@ namespace DB {
     bool DeleteInstallerDialogsForProject(int projectId);
     // Returns vector of (dialog_type, content_rtf) pairs ordered by dialog_type.
     std::vector<std::pair<int,std::wstring>> GetInstallerDialogsForProject(int projectId);
+    // Returns all (dialog_type, content_rtf) default templates from dialog_defaults table.
+    std::vector<std::pair<int,std::wstring>> GetAllDialogDefaults();
 }

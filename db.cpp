@@ -187,6 +187,41 @@ bool DB::InitDb() {
         "UNIQUE(project_id, dialog_type));",
         NULL, NULL, &errmsg);
 
+    // Default RTF content for each installer dialog type (placeholders: <<AppName>>,
+    // <<AppVersion>>, <<AppNameAndVersion>>). INSERT OR IGNORE — never overwrites
+    // developer customisations stored in the DB.
+    p_exec(db,
+        "CREATE TABLE IF NOT EXISTS dialog_defaults ("
+        "dialog_type INTEGER PRIMARY KEY, "
+        "content_rtf TEXT NOT NULL DEFAULT '');",
+        NULL, NULL, &errmsg);
+    {
+        struct { int type; const wchar_t* rtf; } kDD[] = {
+            { 0, LR"({\rtf1\ansi\deff0{\fonttbl{\f0\fswiss\fcharset0 Arial;}}\f0\fs20\pard\qc{\b\fs28 Welcome to <<AppNameAndVersion>>}\par\pard\ql\sb120 This setup program will install <<AppName>> in your computer. Click \u171?Next\u187?  to continue.\par})" },
+            { 1, LR"({\rtf1\ansi\deff0{\fonttbl{\f0\fswiss\fcharset0 Arial;}}\f0\fs20\pard\ql Please read the following license agreement carefully. You must accept the terms to continue installing <<AppName>>.\par})" },
+            { 2, LR"({\rtf1\ansi\deff0{\fonttbl{\f0\fswiss\fcharset0 Arial;}}\f0\fs20\pard\ql The following components are required by <<AppName>>. If any are missing, they will be downloaded and installed.\par})" },
+            { 3, LR"({\rtf1\ansi\deff0{\fonttbl{\f0\fswiss\fcharset0 Arial;}}\f0\fs20\pard\ql Choose whether to install <<AppName>> for yourself only, or for all users of this computer.\par})" },
+            { 4, LR"({\rtf1\ansi\deff0{\fonttbl{\f0\fswiss\fcharset0 Arial;}}\f0\fs20\pard\ql Select the components of <<AppName>> you want to install.\par})" },
+            { 5, LR"({\rtf1\ansi\deff0{\fonttbl{\f0\fswiss\fcharset0 Arial;}}\f0\fs20\pard\ql Choose where to create shortcuts for <<AppName>>.\par})" },
+            { 6, LR"({\rtf1\ansi\deff0{\fonttbl{\f0\fswiss\fcharset0 Arial;}}\f0\fs20\pard\ql Setup is ready to install <<AppName>> on your computer.\par\pard\ql\sb120 Click \u171?Install\u187?  to begin, or \u171?Back\u187?  to review your settings.\par})" },
+            { 7, LR"({\rtf1\ansi\deff0{\fonttbl{\f0\fswiss\fcharset0 Arial;}}\f0\fs20\pard\ql Please wait while <<AppName>> is being installed on your computer.\par})" },
+            { 8, LR"({\rtf1\ansi\deff0{\fonttbl{\f0\fswiss\fcharset0 Arial;}}\f0\fs20\pard\qc{\b\fs28 Installation Complete}\par\pard\ql\sb120 <<AppNameAndVersion>> has been installed on your computer.\par\pard\ql\sb120 Click \u171?Finish\u187?  to exit.\par})" },
+        };
+        const char* seedSql =
+            "INSERT OR IGNORE INTO dialog_defaults (dialog_type, content_rtf) VALUES (?,?);";
+        for (int i = 0; i < 9; i++) {
+            void* s2 = NULL;
+            if (p_prepare(db, seedSql, -1, &s2, NULL) == 0) {
+                std::string sT = std::to_string(kDD[i].type);
+                std::string sR = WToUtf8(kDD[i].rtf);
+                p_bind_text(s2, 1, sT.c_str(), -1, NULL);
+                p_bind_text(s2, 2, sR.c_str(),  -1, NULL);
+                p_step(s2);
+                if (p_finalize) p_finalize(s2);
+            }
+        }
+    }
+
     // Check if projects table is empty, if so add SetupCraft project
     const char *countSql = "SELECT COUNT(*) FROM projects;";
     void *stmt = NULL;
@@ -1203,6 +1238,28 @@ bool DB::DeleteInstallerDialogsForProject(int projectId)
     if (p_finalize) p_finalize(stmt);
     p_close(db);
     return true;
+}
+
+std::vector<std::pair<int,std::wstring>> DB::GetAllDialogDefaults()
+{
+    std::vector<std::pair<int,std::wstring>> out;
+    std::wstring dbPath = GetAppDataDbPath();
+    std::string dbPathUtf8 = WToUtf8(dbPath);
+    void* db = NULL;
+    int flags = 0x00000002 | 0x00000004;
+    if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return out;
+    const char* sql =
+        "SELECT dialog_type, content_rtf FROM dialog_defaults ORDER BY dialog_type ASC;";
+    void* stmt = NULL;
+    if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return out; }
+    while (p_step(stmt) == 100 /*SQLITE_ROW*/) {
+        int type = (int)p_col_int64(stmt, 0);
+        const unsigned char* c = p_col_text(stmt, 1);
+        out.push_back({ type, Utf8ToW(c ? (const char*)c : "") });
+    }
+    if (p_finalize) p_finalize(stmt);
+    p_close(db);
+    return out;
 }
 
 std::vector<std::pair<int,std::wstring>> DB::GetInstallerDialogsForProject(int projectId)

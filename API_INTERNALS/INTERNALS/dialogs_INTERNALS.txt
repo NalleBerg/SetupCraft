@@ -81,26 +81,15 @@
     static HICON s_hRowIcons[IDLG_COUNT]
 
   Preview persistence (logical px at 96 dpi; restored in IDLG_LoadFromDb):
-    static int  s_previewLogW      = 460   // installer_preview_w_<id>
-    static int  s_previewLogH      = 360   // installer_preview_h_<id>
-    static bool s_previewUserSized = false // installer_preview_user_sized_<id>
-      // True once the developer has adjusted the preview via the sizer.
-      // When true, AutoFitComponentHeight is skipped so the chosen size
-      // is never overwritten by automatic layout calculations.
-      // Reset to false by IDLG_Reset() on project switch / new project.
-      //
-      // BUG (to fix next session):
-      //   This flag is global (one bool for all dialog types).  The correct
-      //   design is per-dialog-type so that resizing on the Components page
-      //   does not suppress auto-fit when the developer later opens a
-      //   different dialog type (e.g. Shortcuts).
-      //
-      //   Planned fix:
-      //     bool s_previewUserSized[IDLG_COUNT] = {};
-      //     Sizer EN_CHANGE: s_previewUserSized[pd->type] = true
-      //     AutoFitComponentHeight checks: s_previewUserSized[IDLG_COMPONENTS]
-      //     Persistence keys: installer_preview_user_sized_<id>_<type>
-      //     IDLG_Reset: memset(s_previewUserSized, 0, sizeof(s_previewUserSized))
+    static int  s_previewLogW               = 460  // installer_preview_w_<id>
+    static int  s_previewLogH               = 360  // installer_preview_h_<id>
+    static bool s_previewUserSized[IDLG_COUNT] = {} // per-type; installer_preview_user_sized_<id>
+      // True once the developer has adjusted the preview for a given dialog
+      // type via the sizer.  When true, AutoFitPreview skips that type so
+      // the chosen size is never overwritten by automatic measurements.
+      // Reset to all-false by IDLG_Reset() on project switch / new project.
+      // DB persistence uses IDLG_COMPONENTS slot only (backward-compat);
+      // other per-type values reset to false on every open (auto-fit reruns).
 
   Active control HWNDs (valid between BuildPage and TearDown):
     static HWND s_hRowIcon[IDLG_COUNT]
@@ -228,20 +217,34 @@
     When contentHidden=true: RichEdit hidden; extras fill full avail height.
     InvalidateRect(hwnd, NULL, FALSE) at end to repaint vacated areas.
 
-  Auto-fit — AutoFitComponentHeight(HWND hPreview, HWND hSizer, PreviewData* pd)
-    Called from NavigateTo and ShowPreviewDialog when type == IDLG_COMPONENTS
-    and s_previewUserSized[IDLG_COMPONENTS] == false.
-    contentHidden=true:  logH = 144 + max(nItems,1) * 28
-    contentHidden=false:
-      Creates a hidden measurement RichEdit (1px tall, NO WS_EX_CLIENTEDGE —
-      a border would give negative client height, breaking layout) as a
-      WS_CHILD | WS_VISIBLE of hPreview, positioned off-screen to the left.
-      Streams the RTF in, calls UpdateWindow, then reads GetScrollInfo.
-      Because the viewport is 1px, content always overflows → accurate result
-      including embedded images (EM_FORMATRANGE undercounts pictures).
-      rtfLogH from that measurement; logH = 160 + rtfLogH + n*28.
-      When the 75% cap applies, contentFitH is updated to the capped viewport
-      height so LayoutPreviewControls always reserves room for extras + buttons.
+  Auto-fit — AutoFitPreview(HWND hPreview, PreviewData* pd)
+    Called from ShowPreviewDialog (post-creation) and NavigateTo for ALL
+    9 dialog types.  Skips silently when s_previewUserSized[pd->type] is true
+    (developer has manually sized that type via the sizer).
+
+    Width measurement:
+      ScanRtfNaturalWidthTwips(rtf) parses \picwgoal tags to find the widest
+      embedded image in twips; converts to logical px.  Result clamped to
+      [400, screen_w * 0.95].  400 px minimum avoids word-wrap breakdown for
+      narrow images (GNU logo narrowing the License dialog to 200 px was the
+      trigger for this floor).
+
+    Height measurement:
+      Creates a 1 px WS_CHILD | WS_VISIBLE of the live hPreview (NO
+      WS_EX_CLIENTEDGE — border would make client height negative at 1 px).
+      Streams RTF in, calls UpdateWindow, reads GetScrollInfo(SB_VERT).
+      nPage ≤ 1 so content always overflows → reliable total height including
+      embedded images (EM_FORMATRANGE undercounts pictures).
+      Single layout:  logH = kPreviewChromeLogH + rtfLogH  (114 + measured)
+      Split layout:   logH = 160 + rtfLogH + nExtras*28
+      No-RTF layout:  logH = 144 + max(nItems,1)*28
+      Cap at 75% screen height.  When cap applies, contentFitH stores the
+      capped RichEdit viewport height so LayoutPreviewControls reserves room
+      for extras and buttons.
+
+    Repositioning:
+      Uses SetWindowPos SWP_NOMOVE after measuring; ShowPreviewDialog then
+      re-centres on both axes after the call.
 
   MeasureRichEditLogHeight(HWND hRE)
     Primary: GetScrollInfo(SB_VERT) — if nMax > 0 the scroll range is set and
@@ -296,11 +299,32 @@
     IDLG_SaveToDb(projectId)   → in IDM_FILE_SAVE handler
     IDLG_LoadFromDb(projectId) → in project-open path (after IDLG_Reset + SetInstallerInfo)
 
+  Table: dialog_defaults
+  ─────────────────────────────────────────────────────────────────────────────
+  Column        Type     Notes
+  ─────────────────────────────────────────────────────────────────────────────
+  dialog_type   INTEGER  PRIMARY KEY (InstallerDialogType value 0–8)
+  content_rtf   TEXT     RTF template with <<AppName>>, <<AppVersion>>,
+                         and <<AppNameAndVersion>> placeholders.
+                         <<AppNameAndVersion>> = "Name, Version" or
+                         "Name" when version string is empty.
+  ─────────────────────────────────────────────────────────────────────────────
+  Seeded in DB::InitDb with INSERT OR IGNORE for all 9 types — never
+  overwrites rows already in the DB (developer edits are safe).
+
+  Functions in db.cpp:
+    GetAllDialogDefaults() → vector<pair<int,wstring>> (all 9 rows ordered by type)
+
+  Combined with installer_dialogs by:
+    IDLG_ApplyDefaults(appName, appVersion) in dialogs.cpp
+      For each type: if s_dialogs[type].content_rtf is empty, fetch default,
+      call SubstitutePlaceholders(rtf, name, version), store in-memory.
+
 --------------------------------------------------------------------------------
 8. MAINWINDOW.CPP WIRING CHECKLIST
 --------------------------------------------------------------------------------
 
-  Six points that MUST be wired for a correct Dialogs page:
+  Seven points that MUST be wired for a correct Dialogs page:
 
   [1] #include "dialogs.h"
 
@@ -310,7 +334,10 @@
   [3] Project-open / new-project path (after IDLG_Reset):
         IDLG_Reset(hwnd);
         IDLG_SetInstallerInfo(project.name, L"");   // or load icon path from DB
-        IDLG_LoadFromDb(project.id);
+        IDLG_LoadFromDb(project.id);               // no-op for new (id==0) projects
+        IDLG_ApplyDefaults(project.name, project.version); // fills empty slots
+        // IDLG_ApplyDefaults only fills slots where content_rtf is still empty;
+        // it is safe to call on every open — existing content is never touched.
 
   [4] Toolbar page-switch (case 4 in ShowPage switch):
         IDLG_BuildPage(hwnd);
@@ -323,6 +350,10 @@
         if (IDLG_OnCommand(hwnd, wParam, lParam)) return 0;
         // Must appear BEFORE the default break so it can catch EN_CHANGE from
         // IDC_IDLG_INST_TITLE_EDIT (high-word == EN_CHANGE == 0x0300).
+
+  [7] IDM_FILE_SAVE handler:
+        IDLG_SaveToDb(s_currentProject.id);
+        IDLG_LoadFromDb(s_currentProject.id);  // refresh IDs from DB
 
   MISTAKE HISTORY:
     - [5] was missing initially → row buttons rendered as blank grey rectangles.

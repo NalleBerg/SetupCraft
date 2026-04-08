@@ -23,6 +23,7 @@
 #include "dpi.h"          // S()
 #include "button.h"       // CreateCustomButtonWithIcon(), MeasureButtonWidth()
 #include "checkbox.h"     // CreateCustomCheckbox, DrawCustomCheckbox
+#include "my_scrollbar.h" // msb_attach / msb_detach / msb_sync
 #include <richedit.h>     // EM_STREAMIN, SF_RTF, EDITSTREAM
 
 // PrivateExtractIconsW — undocumented but reliable fixed-size icon loader.
@@ -193,7 +194,7 @@ static WNDPROC s_origContentProc = NULL; // original RichEdit proc — restored 
 // Content height may use up to this fraction of the monitor work-area height.
 // When height is capped a vertical scrollbar is added; its width is reserved so
 // the text viewport stays exactly at the capped content width.
-static constexpr float kPreviewMaxWidthPct  = 0.90f;  // 90 % of work-area width
+static constexpr float kPreviewMaxWidthPct  = 0.95f;  // 95 % of work-area width
 static constexpr float kPreviewMaxHeightPct = 0.75f;  // 75 % of work-area height
 // Content alignment within the preview when the window is larger than auto-fit.
 // 0=Left/Top, 1=Center/Middle, 2=Right/Bottom. Defaults to Center/Middle.
@@ -218,6 +219,7 @@ struct PreviewData {
     // Interior controls for relayout and navigation
     HWND                hTypeTitle;  // dialog-type name STATIC at the top
     HWND                hContent;    // RichEdit (content area)
+    HMSB                hContentSB;  // custom scrollbar on hContent (NULL when not needed)
     HWND                hBack;       // Back button
     HWND                hNext;       // Next / Finish button
     HWND                hCancel;     // Cancel button
@@ -453,6 +455,31 @@ static void LayoutPreviewControls(HWND hwnd, PreviewData* pd)
                      wNext, btnH, SWP_NOZORDER | SWP_NOACTIVATE);
         SetWindowTextW(pd->hNext, nextTxt.c_str());
     }
+    // Sync the custom scrollbar to reflect whether the current content
+    // overflows the RichEdit's visible area (handles both auto-fit and
+    // developer-manually-sized cases in one place).
+    if (pd->hContent && IsWindow(pd->hContent)) {
+        // Ensure WS_VSCROLL is always set so the RichEdit maintains SCROLLINFO.
+        LONG cst = GetWindowLongW(pd->hContent, GWL_STYLE);
+        if (!(cst & WS_VSCROLL)) {
+            SetWindowLongW(pd->hContent, GWL_STYLE, cst | WS_VSCROLL);
+            SetWindowPos(pd->hContent, NULL, 0, 0, 0, 0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED | SWP_NOACTIVATE);
+        }
+        UpdateWindow(pd->hContent);  // flush layout so GetScrollInfo is current
+        SCROLLINFO si = {}; si.cbSize = sizeof(si); si.fMask = SIF_ALL;
+        GetScrollInfo(pd->hContent, SB_VERT, &si);
+        bool overflow = si.nMax > 0 && si.nPage > 0 && (UINT)si.nPage <= (UINT)si.nMax;
+        if (overflow && !pd->hContentSB) {
+            pd->hContentSB = msb_attach(pd->hContent, MSB_VERTICAL);
+        } else if (!overflow && pd->hContentSB) {
+            msb_detach(pd->hContentSB);
+            pd->hContentSB = NULL;
+        } else if (overflow && pd->hContentSB) {
+            msb_sync(pd->hContentSB);  // re-sync thumb after size or content change
+        }
+    }
+
     // Force the parent to repaint vacated areas when controls shift position
     // (e.g. the extras label disappearing on a 1-px resize).
     InvalidateRect(hwnd, NULL, FALSE);
@@ -660,149 +687,195 @@ static int MeasureRichEditLogHeight(HWND hRE)
     return MulDiv((int)fr.rc.top, 96, 1440);
 }
 
-// Auto-fit the preview window height to the IDLG_COMPONENTS page contents.
-// Two layouts are handled:
+// Forward declaration (defined near ShowPreviewDialog, used here).
+static int ScanRtfNaturalWidthTwips(const std::wstring& rtf);
+
+// ── AutoFitPreview — resize the preview window to fit the current dialog's RTF
+// ─────────────────────────────────────────────────────────────────────────────
+// Must be called AFTER the preview window is visible so the 1 px-tall hidden
+// measurement RichEdit (WS_CHILD of hPreview) gets a genuine paint pass and
+// populates its vertical scroll range.  Using a visible top-level parent is the
+// key requirement; children of GetDesktopWindow() are never properly painted.
 //
-//  contentHidden = true  (no RTF — items fill the full interior)
-//    editY(60) + extLblH(22) + extGap(6) + items + breathing(10) + btnH(30) + pad(16)
-//    → logH = 144 + n×28   (n = max(nItems,1))
+// Single layout (showExtras=false):
+//   Width  — largest \picwgoal or \cellx twip value, converted to logical px.
+//             Fallback: s_previewLogW (saved/previous width).
+//   Height — 1 px measurement RichEdit → GetScrollInfo nMax+1 (physical px).
+//   logH   = measuredRtfH + kPreviewChromeLogH (114 logical px).
 //
-//  contentHidden = false  (RTF present — split: RTF top, items bottom)
-//    RTF height is measured by streaming content into a 1px-tall WS_VISIBLE
-//    WS_CHILD of hPreview (off-screen to the left).  After UpdateWindow the
-//    scroll range nMax+1 gives the true total content height, including
-//    embedded \pict images (which are fully rendered in the scroll layout
-//    even though the window is out of view).
-//    → logH = 160 + rtfLogH + n×28
+// Split layout (showExtras=true, contentHidden=false):
+//   Width  — same twip scan.
+//   Height — 1 px measurement; logH = 160 + rtfLogH + n×28 (n = checkbox count).
+//   pd->contentFitH = rtfLogH so LayoutPreviewControls sizes the RTF area correctly.
 //
-// The sizer height spinner is updated to match the new size.
-static void AutoFitComponentHeight(HWND hPreview, HWND hSizer, PreviewData* pd)
+// Split layout no-RTF (contentHidden=true — extras fill the full interior):
+//   Width  — unchanged (no RTF → no natural-width hint).
+//   Height — 144 + n×28.
+//
+// Both axes capped: width ≤ kPreviewMaxWidthPct, height ≤ kPreviewMaxHeightPct.
+// When the height cap is hit in single layout, WS_VSCROLL is added to
+// pd->hContent and the preview is widened by SM_CXVSCROLL so the text viewport
+// width remains constant.
+//
+// Updates: s_previewLogW, s_previewLogH, pd->contentNaturalW/H, pd->contentFitH,
+// pd->contentNeedsScroll, and the sizer W/H spinners.
+// Uses SWP_NOMOVE — caller handles repositioning / centring.
+// Skips silently when s_previewUserSized[(int)pd->type] is true.
+static void AutoFitPreview(HWND hPreview, PreviewData* pd)
 {
-    int n = std::max((int)pd->hCompChecks.size(), 1);
-    int logH;
-    if (pd->contentHidden) {
-        // No RTF: editY(60) + extLblH(22) + extGap(6) + items + breathing(10)
-        //        + btnH(30) + pad(16) = 144 + n*28
-        logH = 144 + n * 28;
-    } else {
-        // Split layout: LayoutPreviewControls gives the RTF area exactly avail/2,
-        // where avail = logH - 114.  For the full image/content to be visible:
-        //   avail/2 >= rtfLogH  →  logH >= 2*rtfLogH + 114
-        // For all checkboxes to fit in the lower half:
-        //   avail/2 - 36 >= n*28 - 4  →  logH >= n*56 + 178
-        // Use whichever constraint is tighter, plus a small breathing margin.
-        // Measure content height using a dedicated hidden off-screen RichEdit
-        // at the current preview width and 1px tall so the content always
-        // overflows → GetScrollInfo returns the true total height including
-        // embedded images (EM_FORMATRANGE measure-only mode does not render
-        // images and routinely undercounts them).
-        int rtfLogH = 60;  // safe minimum
-        {
-            static HMODULE s_hReM2 = NULL;
-            if (!s_hReM2) {
-                s_hReM2 = LoadLibraryW(L"Msftedit.dll");
-                if (!s_hReM2) s_hReM2 = LoadLibraryW(L"Riched20.dll");
-            }
-            WNDCLASSEXW wce2 = {}; wce2.cbSize = sizeof(wce2);
-            const wchar_t* reClass2 =
-                (s_hReM2 && GetClassInfoExW(s_hReM2, L"RICHEDIT50W", &wce2))
-                ? L"RICHEDIT50W" : L"RichEdit20W";
+    if (!hPreview || !IsWindow(hPreview) || !pd) return;
+    if (s_previewUserSized[(int)pd->type]) return;
 
-            // Use the current preview client width minus padding for the
-            // measurement RichEdit so reflowed line breaks match the live view.
-            RECT rcPrev; GetClientRect(hPreview, &rcPrev);
-            int measW = std::max((int)(rcPrev.right) - 2 * S(16) - 2 * GetSystemMetrics(SM_CXEDGE), S(100));
+    // ── Work-area caps ────────────────────────────────────────────────────────
+    int maxLogW, maxLogH;
+    {
+        HMONITOR hMon = MonitorFromWindow(hPreview, MONITOR_DEFAULTTONEAREST);
+        MONITORINFO mi = {}; mi.cbSize = sizeof(mi);
+        if (hMon && GetMonitorInfoW(hMon, &mi)) {
+            maxLogW = (int)((mi.rcWork.right  - mi.rcWork.left) * kPreviewMaxWidthPct  / g_dpiScale + 0.5f);
+            maxLogH = (int)((mi.rcWork.bottom - mi.rcWork.top)  * kPreviewMaxHeightPct / g_dpiScale + 0.5f);
+        } else {
+            maxLogW = (int)(GetSystemMetrics(SM_CXSCREEN) * kPreviewMaxWidthPct  / g_dpiScale + 0.5f);
+            maxLogH = (int)(GetSystemMetrics(SM_CYSCREEN) * kPreviewMaxHeightPct / g_dpiScale + 0.5f);
+        }
+    }
 
-            // The measurement RichEdit must be a WS_VISIBLE child of the
-            // real, visible preview window so that UpdateWindow triggers a
-            // genuine paint pass and the RichEdit sets up its scroll range.
-            // Positioned at negative x (to the left of the client area) so
-            // it is never seen by the user.  1px tall → content always
-            // overflows → GetScrollInfo gives the true total height.
-            // No WS_EX_CLIENTEDGE — its 2px top+bottom border would produce a
-            // negative client area on a 1px-tall window, so the RichEdit would
-            // never lay out content and GetScrollInfo would always return 0.
-            HWND hM = CreateWindowExW(0, reClass2, L"",
+    const std::wstring& rtf = s_dialogs[(int)pd->type].content_rtf;
+
+    // ── Width: parse RTF for fixed-width markers (twips → logical px) ─────────
+    // logW = preview client width (logical px).  Fallback = current s_previewLogW.
+    int logW = s_previewLogW;
+    if (!rtf.empty()) {
+        int twips = ScanRtfNaturalWidthTwips(rtf);
+        if (twips > 0) {
+            int contentLogW = twips / 15;
+            // Preview client ← RichEdit (cW - 2×pad(16)) with WS_EX_CLIENTEDGE.
+            // WS_EX_CLIENTEDGE adds 2×SM_CXEDGE border + 2 internal margin px.
+            int edgePx = (int)((GetSystemMetrics(SM_CXEDGE) * 2 + 2) / g_dpiScale + 0.5f);
+            logW = contentLogW + 32 + edgePx + 1;  // +32 = 2×pad; +1 sub-pixel tolerance
+        }
+    }
+    // Minimum: 400 logical px so text-only and narrow-image dialogs always have
+    // a comfortable word-wrap width.  Structural dialogs (wide table, wide image)
+    // override this naturally via the twip scan above.
+    logW = std::max(logW, 400);
+    logW = std::min(logW, maxLogW);
+
+    // ── Measurement RichEdit class ─────────────────────────────────────────────
+    // 1 px tall, WS_VISIBLE, WS_CHILD of hPreview (visible top-level) → content
+    // always overflows → GetScrollInfo nMax+1 = true total height incl. images.
+    // No WS_EX_CLIENTEDGE: its 2px border makes the client area negative on a
+    // 1px-tall window → RichEdit never lays out → GetScrollInfo returns 0.
+    static HMODULE s_hReMx = NULL;
+    if (!s_hReMx) {
+        s_hReMx = LoadLibraryW(L"Msftedit.dll");
+        if (!s_hReMx) s_hReMx = LoadLibraryW(L"Riched20.dll");
+    }
+    WNDCLASSEXW wcex = {}; wcex.cbSize = sizeof(wcex);
+    const wchar_t* reClassX =
+        (s_hReMx && GetClassInfoExW(s_hReMx, L"RICHEDIT50W", &wcex))
+        ? L"RICHEDIT50W" : L"RichEdit20W";
+    // Width = live RichEdit interior = (cW - 2×pad) - 2×SM_CXEDGE.
+    // (No WS_EX_CLIENTEDGE on measurement → set its width = that interior value.)
+    int measPhysW = S(logW) - 2 * S(16) - 2 * GetSystemMetrics(SM_CXEDGE);
+    if (measPhysW < S(100)) measPhysW = S(100);
+
+    // ── Height / logH ──────────────────────────────────────────────────────────
+    int  logH        = s_previewLogH;  // fallback to current
+    bool needsVScroll = false;
+
+    if (pd->showExtras) {
+        // ── Split layout (Components page etc.) ───────────────────────────────
+        int n = std::max((int)pd->hCompChecks.size(), 1);
+        if (pd->contentHidden) {
+            // No RTF — extras fill the full interior.
+            // editY(60) + extLblH(22) + extGap(6) + n×28 + breathing(10)
+            //   + gap(8) + btnH(30) + pad(16)  =  144 + n×28
+            logH = 144 + n * 28;
+        } else {
+            int rtfLogH = 60;  // safe minimum
+            HWND hM = CreateWindowExW(0, reClassX, L"",
                 WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL,
-                -(measW + 100), 0, measW, 1,
+                -(measPhysW + 100), 0, measPhysW, 1,
                 hPreview, NULL, s_hInst, NULL);
             if (hM) {
                 SendMessageW(hM, EM_SETTYPOGRAPHYOPTIONS,
                              TO_ADVANCEDTYPOGRAPHY, TO_ADVANCEDTYPOGRAPHY);
                 if (pd->hGuiFont) SendMessageW(hM, WM_SETFONT, (WPARAM)pd->hGuiFont, FALSE);
                 SendMessageW(hM, EM_SETBKGNDCOLOR, 0, RGB(255, 255, 255));
-                const std::wstring& rtf = s_dialogs[(int)IDLG_COMPONENTS].content_rtf;
-                if (!rtf.empty()) StreamRtfIn(hM, rtf);
-                UpdateWindow(hM);  // force paint → scroll range is populated
+                StreamRtfIn(hM, rtf);
+                UpdateWindow(hM);
                 int measured = MeasureRichEditLogHeight(hM);
                 if (measured > 60) rtfLogH = measured;
                 DestroyWindow(hM);
             }
+            if (rtfLogH < 60) rtfLogH = 60;
+            // editY(60) + rtfLogH + gap(8) + extLbl(22) + extGap(6)
+            //   + n×28 + breathing(10) + gap(8) + btnH(30) + pad(16)  =  160 + rtfLogH + n×28
+            logH = 160 + rtfLogH + n * 28;
+            pd->contentFitH = rtfLogH;
+            if (logH > maxLogH) {
+                logH = maxLogH;
+                int cappedRtfLogH = maxLogH - 160 - n * 28;
+                if (cappedRtfLogH < 60) cappedRtfLogH = 60;
+                pd->contentFitH = cappedRtfLogH;
+            }
         }
-        if (rtfLogH < 60) rtfLogH = 60;  // safe minimum
-        // Tight-fit formula: give the RichEdit exactly what it needs and the
-        // items panel exactly what it needs — no 50/50 wasted space.
-        //   editY(60) + rtfLogH + gap(8) + extLbl(22) + extGap(6)
-        //   + n*itemH(28) + breathing(10) + gap(8) + btnH(30) + pad(16) = 160 + rtfLogH + n*28
-        // (Derived by equating last-item-bottom + S(10) <= btnY = cH - S(46))
-        logH = 160 + rtfLogH + n * 28;
-        pd->contentFitH = rtfLogH;
-    }
-    // ── 75% screen height cap — add scrollbar only when content overflows ─────
-    {
-        HMONITOR hMon = MonitorFromWindow(hPreview, MONITOR_DEFAULTTONEAREST);
-        MONITORINFO mi = {}; mi.cbSize = sizeof(mi);
-        int maxLogH;
-        if (hMon && GetMonitorInfoW(hMon, &mi))
-            maxLogH = (int)((mi.rcWork.bottom - mi.rcWork.top) * 0.75f / g_dpiScale);
-        else
-            maxLogH = (int)(GetSystemMetrics(SM_CYSCREEN) * 0.75f / g_dpiScale);
-        bool needsScroll = logH > maxLogH;
-        if (needsScroll) {
-            logH = maxLogH;
-            // Recalculate the viewport height that fits in the capped window so
-            // LayoutPreviewControls reserves the correct space for the extras
-            // panel and buttons (they must always be visible, never scrolled off).
-            // Inverting the formula: logH = 160 + contentFitH + n×28
-            int cappedRtfLogH = maxLogH - 160 - n * 28;
-            if (cappedRtfLogH < 60) cappedRtfLogH = 60;
-            pd->contentFitH = cappedRtfLogH;
+        pd->contentNeedsScroll = false;  // split: items always fit below RTF
+        pd->contentNaturalW    = 0;      // alignment only applies to single layout
+        pd->contentNaturalH    = 0;
+    } else {
+        // ── Single layout ─────────────────────────────────────────────────────
+        // Interior chrome: pad(16) + titleH(36) + 2×gap(8) + btnH(30) + pad(16) = 114
+        constexpr int kChromeLogH = 114;
+        int rtfLogH = 100;  // safe minimum
+        if (!rtf.empty()) {
+            HWND hM = CreateWindowExW(0, reClassX, L"",
+                WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL,
+                -(measPhysW + 100), 0, measPhysW, 1,
+                hPreview, NULL, s_hInst, NULL);
+            if (hM) {
+                SendMessageW(hM, EM_SETTYPOGRAPHYOPTIONS,
+                             TO_ADVANCEDTYPOGRAPHY, TO_ADVANCEDTYPOGRAPHY);
+                if (pd->hGuiFont) SendMessageW(hM, WM_SETFONT, (WPARAM)pd->hGuiFont, FALSE);
+                SendMessageW(hM, EM_SETBKGNDCOLOR, 0, RGB(255, 255, 255));
+                StreamRtfIn(hM, rtf);
+                UpdateWindow(hM);
+                int measured = MeasureRichEditLogHeight(hM);
+                if (measured > 0) rtfLogH = measured;
+                DestroyWindow(hM);
+            }
         }
-        pd->contentNeedsScroll = needsScroll;
+        rtfLogH      = std::max(rtfLogH, 100);
+        needsVScroll = (rtfLogH > maxLogH - kChromeLogH);
+        if (needsVScroll) rtfLogH = maxLogH - kChromeLogH;
+        logH = rtfLogH + kChromeLogH;
+        pd->contentNaturalW    = logW;     // used by H-align in LayoutPreviewControls
+        pd->contentNaturalH    = rtfLogH;  // used by V-align in LayoutPreviewControls
     }
+
     logH = std::max(150, logH);
     s_previewLogH = logH;
+    s_previewLogW = logW;
 
-    // Show or hide the vertical scrollbar on the RichEdit; when adding one,
-    // widen the preview window by SM_CXVSCROLL so the text viewport stays constant.
-    int sbPx = 0;  // extra physical pixels to add to preview width
-    if (pd->hContent && IsWindow(pd->hContent)) {
-        LONG st = GetWindowLongW(pd->hContent, GWL_STYLE);
-        bool hasSb = (st & WS_VSCROLL) != 0;
-        if (pd->contentNeedsScroll && !hasSb) {
-            SetWindowLongW(pd->hContent, GWL_STYLE, st | WS_VSCROLL);
-            SetWindowPos(pd->hContent, NULL, 0,0,0,0,
-                SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_FRAMECHANGED|SWP_NOACTIVATE);
-        } else if (!pd->contentNeedsScroll && hasSb) {
-            SetWindowLongW(pd->hContent, GWL_STYLE, st & ~WS_VSCROLL);
-            SetWindowPos(pd->hContent, NULL, 0,0,0,0,
-                SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_FRAMECHANGED|SWP_NOACTIVATE);
-        }
-        if (pd->contentNeedsScroll) sbPx = GetSystemMetrics(SM_CXVSCROLL);
-    }
-
-    RECT adj = { 0, 0, S(s_previewLogW) + sbPx, S(logH) };
+    // ── Resize the preview window (SWP_NOMOVE — caller handles repositioning) ─
+    // SyncContentScrollbar (called from LayoutPreviewControls on WM_SIZE) will
+    // attach / detach the custom scrollbar after hContent is laid out.
+    RECT adj = { 0, 0, S(logW), S(logH) };
     AdjustWindowRectEx(&adj, kPreviewStyle, FALSE, kPreviewExStyle);
     SetWindowPos(hPreview, NULL, 0, 0,
                  adj.right - adj.left, adj.bottom - adj.top,
                  SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
 
-    if (hSizer && IsWindow(hSizer)) {
-        SizerData* sd = (SizerData*)GetWindowLongPtrW(hSizer, GWLP_USERDATA);
-        HWND hHS = GetDlgItem(hSizer, IDC_IDLG_SZR_H_SPIN);
-        if (sd && hHS) {
+    // ── Update both sizer spinners ────────────────────────────────────────────
+    if (pd->hSizer && IsWindow(pd->hSizer)) {
+        SizerData* sd = (SizerData*)GetWindowLongPtrW(pd->hSizer, GWLP_USERDATA);
+        if (sd) {
+            HWND hWS = GetDlgItem(pd->hSizer, IDC_IDLG_SZR_W_SPIN);
+            HWND hHS = GetDlgItem(pd->hSizer, IDC_IDLG_SZR_H_SPIN);
             sd->ignoring = true;
-            SendMessageW(hHS, UDM_SETPOS32, 0, (LPARAM)logH);
+            if (hWS) SendMessageW(hWS, UDM_SETPOS32, 0, (LPARAM)s_previewLogW);
+            if (hHS) SendMessageW(hHS, UDM_SETPOS32, 0, (LPARAM)s_previewLogH);
             sd->ignoring = false;
         }
     }
@@ -813,7 +886,7 @@ static void AutoFitComponentHeight(HWND hPreview, HWND hSizer, PreviewData* pd)
 static void NavigateTo(HWND hwnd, PreviewData* pd, InstallerDialogType newType)
 {
     pd->type        = newType;
-    pd->contentFitH = 0;  // reset; AutoFitComponentHeight will re-measure if needed
+    pd->contentFitH = 0;  // reset; AutoFitPreview will re-measure if needed
     PopulateExtras(hwnd, pd, newType);
 
     // Window caption: "{Installer title} — Preview — {Dialog name}"
@@ -844,36 +917,14 @@ static void NavigateTo(HWND hwnd, PreviewData* pd, InstallerDialogType newType)
         SendMessageW(pd->hContent, EM_SCROLLCARET, 0, 0);
     }
 
-    // If the scrollbar was active (content was taller than 75% of the screen),
-    // remove it and revert the preview to its canonical width before laying out
-    // the new page — otherwise the window stays SM_CXVSCROLL px too wide.
-    if (pd->contentNeedsScroll) {
-        pd->contentNeedsScroll = false;
-        if (pd->hContent && IsWindow(pd->hContent)) {
-            LONG st = GetWindowLongW(pd->hContent, GWL_STYLE);
-            if (st & WS_VSCROLL) {
-                SetWindowLongW(pd->hContent, GWL_STYLE, st & ~WS_VSCROLL);
-                SetWindowPos(pd->hContent, NULL, 0,0,0,0,
-                    SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_FRAMECHANGED|SWP_NOACTIVATE);
-            }
-        }
-        RECT adjR = { 0, 0, S(s_previewLogW), S(s_previewLogH) };
-        AdjustWindowRectEx(&adjR, kPreviewStyle, FALSE, kPreviewExStyle);
-        SetWindowPos(hwnd, NULL, 0, 0, adjR.right - adjR.left, adjR.bottom - adjR.top,
-                     SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
-    }
-
     // Reposition buttons (text and enable state may have changed)
     LayoutPreviewControls(hwnd, pd);
 
-    // Auto-fit height for the Components page (both split and no-content layouts)
-    // so the window always feels right out of the box.  Skip if the developer has
-    // already manually resized via the sizer — we must respect that choice.
-    if (newType == IDLG_COMPONENTS && !s_previewUserSized[IDLG_COMPONENTS]) {
-        // Force a full paint cycle so EM_FORMATRANGE sees the final laid-out content.
-        UpdateWindow(hwnd);
-        AutoFitComponentHeight(hwnd, pd->hSizer, pd);
-    }
+    // Auto-fit both dimensions for all dialog types so the window always feels
+    // right out of the box.  AutoFitPreview skips internally if the developer
+    // has already manually resized via the sizer.
+    UpdateWindow(hwnd);
+    AutoFitPreview(hwnd, pd);
 }
 
 // ── Preview window proc ───────────────────────────────────────────────────────
@@ -910,13 +961,11 @@ static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
         if (pd->hTitleFont) SendMessageW(pd->hTypeTitle, WM_SETFONT, (WPARAM)pd->hTitleFont, TRUE);
 
         // RichEdit — created writable so EM_STREAMIN works; made read-only after.
-        // Created WITHOUT WS_VSCROLL; AutoFitComponentHeight adds it only when the
-        // 75%-screen-height cap is hit, compensating the dialog width so the text
-        // viewport stays the same width whether or not a scrollbar is present.
-        // When auto-fit determined a scrollbar is needed (contentNeedsScroll was
-        // set by ShowPreviewDialog before CreateWindowExW), we start with it.
-        DWORD reStyle = WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_AUTOVSCROLL;
-        if (pd->contentNeedsScroll) reStyle |= WS_VSCROLL;
+        // Created with WS_VSCROLL so the RichEdit always maintains SCROLLINFO
+        // internally; the custom scrollbar (my_scrollbar) hides the native gutter
+        // and replaces it when SyncContentScrollbar (called from LayoutPreviewControls)
+        // detects overflow after the window is sized.
+        DWORD reStyle = WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL;
         pd->hContent = CreateWindowExW(WS_EX_CLIENTEDGE, reClass, L"",
             reStyle, 0, 0, 10, 10,
             hwnd, (HMENU)(UINT_PTR)IDC_IDLG_PRV_CONTENT, cs->hInstance, NULL);
@@ -1087,6 +1136,11 @@ static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
         return (LRESULT)GetSysColorBrush(COLOR_WINDOW);
 
     case WM_DESTROY:
+        // Detach the custom scrollbar before the RichEdit is destroyed.
+        if (pd && pd->hContentSB) {
+            msb_detach(pd->hContentSB);
+            pd->hContentSB = NULL;
+        }
         // Restore the original RichEdit window proc before the control is destroyed.
         if (pd && pd->hContent && IsWindow(pd->hContent) && s_origContentProc)
             SetWindowLongPtrW(pd->hContent, GWLP_WNDPROC, (LONG_PTR)s_origContentProc);
@@ -1310,23 +1364,17 @@ static void ResizePreview(SizerData* sd, int logW, int logH)
                  SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
-// ── MeasureRtfPreviewSize ─────────────────────────────────────────────────────
-// Width — parse the RTF for absolute twip widths rather than trying to measure
-// rendered horizontal overflow (which is unreliable in word-wrapping RichEdits):
+// ── ScanRtfNaturalWidthTwips ──────────────────────────────────────────────────
+// Parse the RTF for absolute twip widths rather than trying to measure rendered
+// horizontal overflow (which is unreliable in word-wrapping RichEdits):
 //
-//   \cellxNNNN   — right edge of a table cell, measured from the table left edge
+//   \cellxNNNN    — right edge of a table cell, from the table left edge
 //   \picwgoalNNNN — desired display width of an embedded image
 //
 // Taking the maximum value gives the natural content width independent of DPI:
 //   logical px = twips / 15   (always, because twips·DPI/1440 / (DPI/96) = twips·96/1440)
 //
-// For plain text (no tables or images), the content adapts to any width, so the
-// fallback width is kept.
-//
-// Height — create a hidden RichEdit at the determined width, stream the RTF in,
-// then read the vertical scroll range or EM_FORMATRANGE.
-//
-// If rtf is empty the function returns the fallback dimensions unchanged.
+// For plain text (no tables or images) returns 0 so the fallback width is kept.
 
 static int ScanRtfNaturalWidthTwips(const std::wstring& rtf)
 {
@@ -1347,117 +1395,6 @@ static int ScanRtfNaturalWidthTwips(const std::wstring& rtf)
         }
     }
     return maxTwips;
-}
-
-static void MeasureRtfPreviewSize(
-    const std::wstring& rtf,
-    HFONT               hFont,
-    int                 maxContentW,   // logical px cap — 90% work area minus outer chrome
-    int                 maxContentH,   // logical px cap — 75% work area minus interior chrome
-    int                 fallbackW,     // used when RTF has no fixed-width content
-    int                 fallbackH,
-    int*                outLogW,       // preview client width  (logical px)
-    int*                outLogH,       // RichEdit content height (logical px)
-    bool*               outNeedsVScroll)
-{
-    *outLogW         = fallbackW;
-    *outLogH         = fallbackH;
-    *outNeedsVScroll = false;
-
-    if (rtf.empty()) return;
-
-    // ── Width: parse RTF for fixed-width markers ──────────────────────────────
-    // logicalPx = twips / 15 (DPI-independent).
-    // The preview client width = RichEdit content width + 2×pad(16) + 2×SM_CXEDGE
-    // + 2 for RichEdit's built-in 1px left/right internal margin.
-    int logW = fallbackW;
-    {
-        int twips = ScanRtfNaturalWidthTwips(rtf);
-        if (twips > 0) {
-            int contentLogW = twips / 15;
-            // 2 × WS_EX_CLIENTEDGE inset + 2 × RichEdit internal margin (1px each side).
-            int edgePx = (int)((GetSystemMetrics(SM_CXEDGE) * 2 + 2) / g_dpiScale + 0.5f);
-            logW = contentLogW + 32 + edgePx + 1;  // +1 for sub-pixel rounding tolerance
-        }
-    }
-    logW = std::max(logW, 200);
-    logW = std::min(logW, maxContentW);
-
-    // ── Height: stream RTF into a hidden RichEdit at the determined width ─────
-    static HMODULE s_hReM = NULL;
-    if (!s_hReM) {
-        s_hReM = LoadLibraryW(L"Msftedit.dll");
-        if (!s_hReM) s_hReM = LoadLibraryW(L"Riched20.dll");
-    }
-    WNDCLASSEXW wce2 = {}; wce2.cbSize = sizeof(wce2);
-    const wchar_t* reClass =
-        (s_hReM && GetClassInfoExW(s_hReM, L"RICHEDIT50W", &wce2))
-        ? L"RICHEDIT50W" : L"RichEdit20W";
-
-    // Viewport width = logW - 2×pad - 2×edge (same formula as LayoutPreviewControls).
-    int edgePx  = (int)(GetSystemMetrics(SM_CXEDGE) * 2 / g_dpiScale + 0.5f);
-    int reLogW  = logW - 32 - edgePx;
-    if (reLogW < 100) reLogW = 100;
-    int rePhysW = S(reLogW);
-    // Intentionally tiny so GetScrollInfo always reports the full content height
-    // (when the viewport is small, scroll range = nMax+1 = total content height).
-    // A tall window causes images to fit → GetScrollInfo is unreliable → EM_FORMATRANGE
-    // undercounts embedded pictures.  A 10-px viewport avoids this trap.
-    int rePhysH = S(10);
-
-    HWND hMeasure = CreateWindowExW(WS_EX_CLIENTEDGE, reClass, L"",
-        WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_AUTOVSCROLL,
-        -(rePhysW + 100), 0, rePhysW, rePhysH,
-        GetDesktopWindow(), NULL, s_hInst, NULL);
-    if (!hMeasure) { *outLogW = logW; return; }
-
-    SendMessageW(hMeasure, EM_SETTYPOGRAPHYOPTIONS,
-                 TO_ADVANCEDTYPOGRAPHY, TO_ADVANCEDTYPOGRAPHY);
-    if (hFont) SendMessageW(hMeasure, WM_SETFONT, (WPARAM)hFont, FALSE);
-    SendMessageW(hMeasure, EM_SETBKGNDCOLOR, 0, RGB(255, 255, 255));
-    StreamRtfIn(hMeasure, rtf);
-    UpdateWindow(hMeasure);
-
-    // Primary: vertical scroll range (nMax+1 = total content height in physical px).
-    int logH = fallbackH;
-    {
-        SCROLLINFO siV = {}; siV.cbSize = sizeof(siV); siV.fMask = SIF_RANGE | SIF_PAGE;
-        GetScrollInfo(hMeasure, SB_VERT, &siV);
-        int physH = (siV.nMax > 0) ? siV.nMax + 1 : 0;
-
-        // Fallback: EM_FORMATRANGE (reliable for text-only content that hasn't scrolled).
-        if (physH <= 0) {
-            RECT fmtRc; GetClientRect(hMeasure, &fmtRc);
-            HDC hdc = GetDC(hMeasure);
-            if (hdc) {
-                int dpiX = GetDeviceCaps(hdc, LOGPIXELSX);
-                if (!dpiX) dpiX = 96;
-                LONG wTwips = MulDiv(fmtRc.right - fmtRc.left, 1440, dpiX);
-                FORMATRANGE fr = {};
-                fr.hdc      = hdc; fr.hdcTarget = hdc;
-                fr.chrg     = { 0, -1 };
-                fr.rcPage   = { 0, 0, wTwips, 0x0FFFFFFF };
-                fr.rc       = fr.rcPage;
-                SendMessageW(hMeasure, EM_FORMATRANGE, FALSE, (LPARAM)&fr);
-                SendMessageW(hMeasure, EM_FORMATRANGE, FALSE, 0);
-                physH = MulDiv((int)fr.rc.top, dpiX, 1440);
-                ReleaseDC(hMeasure, hdc);
-            }
-        }
-
-        if (physH > 0)
-            logH = (int)(physH / g_dpiScale + 0.5f);
-        logH = std::max(logH, 100);
-    }
-    DestroyWindow(hMeasure);
-
-    // ── Cap height and signal scrollbar need ──────────────────────────────────
-    bool needsVScroll = (logH > maxContentH);
-    if (needsVScroll) logH = maxContentH;
-
-    *outLogW         = logW;
-    *outLogH         = logH;
-    *outNeedsVScroll = needsVScroll;
 }
 
 // ── ShowPreviewDialog ─────────────────────────────────────────────────────────
@@ -1483,53 +1420,6 @@ static void ShowPreviewDialog(HWND hwndParent, InstallerDialogType type)
         RegisterClassExW(&wc);
 
         s_classesOk = true;
-    }
-
-    // ── Auto-fit preview to RTF content (unless developer has resized it) ────
-    bool autoFitNeedsVScroll = false;
-    int  autoFitNaturalW = 0;
-    int  autoFitNaturalH = 0;
-    {
-        // Determine work-area limits for the monitor where the parent lives.
-        MONITORINFO miF = {}; miF.cbSize = sizeof(miF);
-        HMONITOR hMonF = MonitorFromWindow(hwndParent, MONITOR_DEFAULTTONEAREST);
-        if (!s_previewUserSized[(int)type] && hMonF && GetMonitorInfoW(hMonF, &miF)) {
-            // Convert work-area to logical px.
-            int waW_log = (int)((miF.rcWork.right  - miF.rcWork.left) / g_dpiScale + 0.5f);
-            int waH_log = (int)((miF.rcWork.bottom - miF.rcWork.top)  / g_dpiScale + 0.5f);
-
-            // Reserve window chrome so the caps apply to *content* dimensions.
-            RECT rcDelta = { 0, 0, 0, 0 };
-            AdjustWindowRectEx(&rcDelta, kPreviewStyle, FALSE, kPreviewExStyle);
-            int chromeW_log = (int)((rcDelta.right  - rcDelta.left) / g_dpiScale + 0.5f);
-            int chromeH_log = (int)((rcDelta.bottom - rcDelta.top)  / g_dpiScale + 0.5f);
-            // kPreviewChromeLogH: fixed interior chrome (title label + gaps + buttons).
-            constexpr int kPreviewChromeLogH = 114;
-            chromeH_log += kPreviewChromeLogH;
-
-            int maxContentW = (int)(waW_log * kPreviewMaxWidthPct)  - chromeW_log;
-            int maxContentH = (int)(waH_log * kPreviewMaxHeightPct) - chromeH_log;
-            if (maxContentW < 200) maxContentW = 200;
-            if (maxContentH < 100) maxContentH = 100;
-
-            const std::wstring& rtf = s_dialogs[(int)type].content_rtf;
-            int measLogW = 0, measLogH = 0;
-            bool measNeedsVScroll = false;
-            MeasureRtfPreviewSize(rtf, s_hGuiFont,
-                maxContentW, maxContentH,
-                s_previewLogW, s_previewLogH - kPreviewChromeLogH,
-                &measLogW, &measLogH, &measNeedsVScroll);
-            s_previewLogW  = measLogW;
-            s_previewLogH  = measLogH + kPreviewChromeLogH;
-            autoFitNeedsVScroll = measNeedsVScroll;
-            autoFitNaturalW = measLogW;  // content-area width for alignment
-            autoFitNaturalH = measLogH;  // content-area height for alignment
-            // Widen the window by the scrollbar width so the text viewport stays
-            // the same whether or not a scrollbar is present.
-            if (autoFitNeedsVScroll)
-                s_previewLogW += (int)(GetSystemMetrics(SM_CXVSCROLL)
-                                       / g_dpiScale + 0.5f);
-        }
     }
 
     // ── Compute preview outer size ────────────────────────────────────────────
@@ -1592,13 +1482,10 @@ static void ShowPreviewDialog(HWND hwndParent, InstallerDialogType type)
 
     // ── Create preview ────────────────────────────────────────────────────────
     PreviewData pd = {};
-    pd.type              = type;
-    pd.hGuiFont          = s_hGuiFont;
-    pd.hTitleFont        = s_hTitleFont;
-    pd.running           = true;
-    pd.contentNeedsScroll = autoFitNeedsVScroll;
-    pd.contentNaturalW    = autoFitNaturalW;
-    pd.contentNaturalH    = autoFitNaturalH;
+    pd.type       = type;
+    pd.hGuiFont   = s_hGuiFont;
+    pd.hTitleFont = s_hTitleFont;
+    pd.running    = true;
 
     // Window caption: "{Installer title} — Preview — {Dialog name}"
     std::wstring dlgName = L10n(kDialogNameKeys[(int)type], kDialogNameFallbacks[(int)type]);
@@ -1637,26 +1524,33 @@ static void ShowPreviewDialog(HWND hwndParent, InstallerDialogType type)
     UpdateWindow(hPreview);
     if (hSizer) { ShowWindow(hSizer, SW_SHOW); UpdateWindow(hSizer); }
 
-    // Auto-fit height AFTER the window is visible so EM_FORMATRANGE measures
-    // a fully rendered RichEdit (images and OLE objects need a live DC).
-    if (pd.type == IDLG_COMPONENTS && !s_previewUserSized[IDLG_COMPONENTS]) {
-        AutoFitComponentHeight(hPreview, hSizer, &pd);
-        // AutoFitComponentHeight uses SWP_NOMOVE — re-centre vertically after resize.
+    // Auto-fit AFTER the window is visible so MeasureRichEditLogHeight
+    // gets a genuine paint pass (images and OLE objects need a live DC).
+    // AutoFitPreview handles ALL dialog types; skips if developer resized.
+    AutoFitPreview(hPreview, &pd);
+    // AutoFitPreview uses SWP_NOMOVE — re-centre on both axes after resize.
+    {
         RECT rcW; GetWindowRect(hPreview, &rcW);
+        int newW  = rcW.right  - rcW.left;
         int newH  = rcW.bottom - rcW.top;
-        int newPy = rcParent.top + (rcParent.bottom - rcParent.top - newH) / 2;
+        int newPx = rcParent.left + (rcParent.right  - rcParent.left - newW) / 2;
+        int newPy = rcParent.top  + (rcParent.bottom - rcParent.top  - newH) / 2;
         HMONITOR hM2 = MonitorFromWindow(hPreview, MONITOR_DEFAULTTONEAREST);
         MONITORINFO mi2 = {}; mi2.cbSize = sizeof(mi2);
         if (hM2 && GetMonitorInfoW(hM2, &mi2)) {
-            int bTop = mi2.rcWork.top, bBot = mi2.rcWork.bottom;
-            if (newPy + newH > bBot) newPy = bBot - newH;
-            if (newPy < bTop)        newPy = bTop;
+            RECT& wa2 = mi2.rcWork;
+            if (newPx + newW > wa2.right)  newPx = wa2.right  - newW;
+            if (newPy + newH > wa2.bottom) newPy = wa2.bottom - newH;
+            if (newPx < wa2.left)  newPx = wa2.left;
+            if (newPy < wa2.top)   newPy = wa2.top;
         }
-        SetWindowPos(hPreview, NULL, px, newPy, 0, 0,
+        SetWindowPos(hPreview, NULL, newPx, newPy, 0, 0,
                      SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
-        if (hSizer && IsWindow(hSizer))
-            SetWindowPos(hSizer, NULL, sxX, newPy, 0, 0,
+        if (hSizer && IsWindow(hSizer)) {
+            int newSxX = newPx - S(8) - szW;
+            SetWindowPos(hSizer, NULL, newSxX, newPy, 0, 0,
                          SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+        }
     }
 
     EnableWindow(hwndParent, FALSE);
@@ -2025,6 +1919,43 @@ bool IDLG_OnCommand(HWND hwnd, int wmId, int wmEvent, HWND /*hCtrl*/)
     }
 
     return false;
+}
+
+// ── IDLG_ApplyDefaults ────────────────────────────────────────────────────────
+// Fills any in-memory dialog slot that is still empty with default RTF from the
+// dialog_defaults table, after substituting <<AppName>>, <<AppVersion>>, and
+// <<AppNameAndVersion>> (resolves to "Name, Version" or just "Name" when empty).
+// Called once in mainwindow Create() so both new and existing projects see
+// sensible starter text on the Dialogs page without developer effort.
+
+static std::wstring SubstitutePlaceholders(std::wstring rtf,
+    const std::wstring& name, const std::wstring& version)
+{
+    std::wstring nameVer = version.empty() ? name : name + L", " + version;
+    auto repl = [](std::wstring& s, const std::wstring& from, const std::wstring& to) {
+        size_t pos = 0;
+        while ((pos = s.find(from, pos)) != std::wstring::npos) {
+            s.replace(pos, from.size(), to);
+            pos += to.size();
+        }
+    };
+    // Replace compound placeholder first to avoid partial matches with <<AppName>>
+    repl(rtf, L"<<AppNameAndVersion>>", nameVer);
+    repl(rtf, L"<<AppName>>",           name);
+    repl(rtf, L"<<AppVersion>>",        version);
+    return rtf;
+}
+
+void IDLG_ApplyDefaults(const std::wstring& appName, const std::wstring& appVersion)
+{
+    auto defaults = DB::GetAllDialogDefaults();
+    for (const auto& d : defaults) {
+        if (d.first < 0 || d.first >= IDLG_COUNT) continue;
+        if (!s_dialogs[d.first].content_rtf.empty()) continue; // already has content
+        if (d.second.empty()) continue;
+        s_dialogs[d.first].content_rtf =
+            SubstitutePlaceholders(d.second, appName, appVersion);
+    }
 }
 
 // ── IDLG_SaveToDb ─────────────────────────────────────────────────────────────

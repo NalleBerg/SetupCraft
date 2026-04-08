@@ -101,8 +101,8 @@
                                                 reliable source; GetScrollInfo.nPos is zeroed
                                                 by ShowScrollBar(FALSE) and not updated by
                                                 LVM_SCROLL. Scroll dispatch via LVM_SCROLL(delta).
-                                                Arrow/track/tilt-wheel working on Deps page.
-                                                Thumb drag: known issue (next session).
+                                                All Deps page H-bar interactions working: arrows,
+                                                track-click, tilt-wheel, and thumb drag.
 
   ── INTERNALS (project-internal architecture) ────────────────────────────────
 
@@ -222,9 +222,24 @@
                                                 vertical scrollbar (IDLG_BuildPage int return,
                                                 IDLG_SetScrollOffset / IDLG_GetScrollOffset,
                                                 WS_CLIPSIBLINGS, IDLG_TearDown cleanup),
+                                                dialog_defaults DB table (INSERT OR IGNORE seed
+                                                for all 9 types; <<AppName>> / <<AppVersion>> /
+                                                <<AppNameAndVersion>> placeholders),
+                                                IDLG_ApplyDefaults wiring (called in Create()
+                                                after IDLG_LoadFromDb — fills empty slots),
                                                 installer_dialogs DB schema and CRUD API,
-                                                mainwindow.cpp 6-point wiring checklist
+                                                mainwindow.cpp 7-point wiring checklist
                                                 (with mistake history), layout constants,
                                                 and full locale key table.
+
+  preview_autofit_INTERNALS.txt                 Preview dialog auto-fit and scrollbar system —
+                                                AutoFitPreview (all dialog types, both layouts),
+                                                ScanRtfNaturalWidthTwips (twip→logical-px width),
+                                                SyncContentScrollbar (my_scrollbar attach/detach
+                                                for both auto-fit cap and manual-resize overflow),
+                                                layout constants (kPreviewChromeLogH=114,
+                                                split 160+n×28, no-RTF 144+n×28), width formula,
+                                                cap values (95 %/75 %), scrollbar lifecycle,
+                                                s_previewUserSized per-type suppression.
 
 ================================================================================

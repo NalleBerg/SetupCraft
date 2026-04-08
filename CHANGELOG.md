@@ -2,6 +2,24 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.04.08.11] - 2026-04-08
+
+### Added
+- **Installer dialog defaults — `dialog_defaults` table**: New DB table `dialog_defaults(dialog_type PK, content_rtf)` seeded in `DB::InitDb` with `INSERT OR IGNORE` for all 9 dialog types. RTF templates include `<<AppName>>`, `<<AppVersion>>`, `<<AppNameAndVersion>>` placeholders (`<<AppNameAndVersion>>` = "Name, Version" or "Name" when version empty). Developer edits in DB are never overwritten. `DB::GetAllDialogDefaults()` added to `db.cpp`/`db.h`.
+- **`IDLG_ApplyDefaults(appName, appVersion)`**: New function in `dialogs.cpp`/`dialogs.h`. Called once in `mainwindow.cpp Create()` after `IDLG_LoadFromDb`. Fills each empty in-memory dialog slot with the substituted default RTF. Both new projects (all slots empty) and existing projects with partially-filled dialogs get sensible starter content without developer effort. `SubstitutePlaceholders` processes `<<AppNameAndVersion>>` before `<<AppName>>` to avoid partial-match collisions.
+- **`SyncContentScrollbar`**: Block at end of `LayoutPreviewControls`. Attaches/detaches a `my_scrollbar` (`hContentSB` in `PreviewData`) on the content RichEdit when content overflows. Triggered by both the 75% auto-fit cap and a manually-set too-small window. `WS_VSCROLL` always set on `hContent` so `SCROLLINFO` stays valid.
+- **`preview_autofit_INTERNALS.txt`**: New documentation file (project root) covering `AutoFitPreview`, `ScanRtfNaturalWidthTwips`, `SyncContentScrollbar`, layout constants, cap values, and per-type `s_previewUserSized` suppression. Entry added to `API_list.txt`.
+
+### Changed
+- **Preview dialog auto-fit — all 9 types**: `AutoFitPreview(hPreview, pd)` replaces `AutoFitComponentHeight`. Old function was limited to `IDLG_COMPONENTS`; all other types were stuck at the default 214 px height. New function uses a 1 px WS_CHILD of the live preview (not broken `GetDesktopWindow` parent), handles both single and split layouts, caps at 75% screen height. Called from `ShowPreviewDialog` (post-creation) and `NavigateTo` for every type.
+- **`s_previewUserSized` per-type**: Static upgraded from `bool` to `bool[IDLG_COUNT]`. Resizing the preview on one dialog type no longer suppresses auto-fit on all others.
+- **Preview minimum width 400 px**: Raised from 200 px. The GNU logo's `\picwgoal` is narrow; 200 px caused word-wrap breakdown in the License dialog.
+- **`kPreviewMaxWidthPct` 0.95**: Widened from 0.90 (95% of screen width cap).
+
+### Removed
+- **`MeasureRtfPreviewSize`**: Removed. Used `GetDesktopWindow()` as measurement parent; no WM_PAINT pass ran so content height was always wrong (stuck at 1 px). Replaced by live-parent measurement in `AutoFitPreview`.
+- **Pre-creation auto-fit block in `ShowPreviewDialog`**: Removed. Auto-fit now runs post-show via `AutoFitPreview` for all types, after the window and RichEdit are fully created and painted.
+
 ## [2026.04.08.08] - 2026-04-08
 
 ### Fixed

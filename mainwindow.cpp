@@ -578,6 +578,9 @@ HWND MainWindow::Create(HINSTANCE hInstance, const ProjectRow &project, const st
         DEP_LoadFromDb(project.id);   // load external dependencies
         IDLG_LoadFromDb(project.id);  // load installer dialog RTF content
     }
+    // Fill any empty dialog slots with default RTF (with project name/version substituted).
+    // Works for both new projects (all slots empty) and older projects that lack some dialogs.
+    IDLG_ApplyDefaults(s_currentProject.name, s_currentProject.version);
 
     // Restore registry statics from project row
     s_appPublisher      = project.app_publisher;

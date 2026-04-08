@@ -1,0 +1,164 @@
+preview_autofit_INTERNALS.txt
+====================================================
+Internal design notes for the preview dialog auto-fit
+and scrollbar system in dialogs.cpp.
+====================================================
+
+OVERVIEW
+--------
+When the developer clicks "Preview..." the preview window opens at
+the best-fit size for the selected dialog's RTF content.
+Width and height are measured from the live RichEdit after the window
+is visible, capped at 95 % of work-area width and 75 % of work-area
+height.  If the developer manually resizes via the sizer, that type's
+auto-fit is permanently suppressed for the session.
+
+If content still overflows after sizing (either because of the cap or
+because the developer manually made the window too small), a custom
+my_scrollbar appears on the right edge of the RichEdit.
+
+KEY FUNCTIONS
+-------------
+AutoFitPreview(HWND hPreview, PreviewData* pd)      [~line 724]
+  Called after ShowWindow (post-creation) and after each NavigateTo.
+  Skips silently when s_previewUserSized[(int)pd->type] is true.
+
+  Width algorithm:
+    ScanRtfNaturalWidthTwips → largest \cellx or \picwgoal twip value
+    logW = twips/15 + 32 + edgePx + 1
+    where edgePx = (SM_CXEDGE×2+2)/g_dpiScale
+    Clamped to [200 … maxLogW].  Fallback = s_previewLogW.
+
+  Height algorithm (single layout, showExtras=false):
+    1-px WS_VISIBLE WS_CHILD of hPreview, NO WS_EX_CLIENTEDGE
+    → StreamRtfIn → UpdateWindow → GetScrollInfo nMax+1 → logH
+    kChromeLogH = 114 (pad16 + titleH36 + 2×gap8 + btnH30 + pad16)
+    logH = rtfLogH + 114
+    If rtfLogH > maxLogH - 114 → cap: rtfLogH = maxLogH - 114
+
+  Height algorithm (split layout, showExtras=true, contentHidden=false):
+    Same 1-px measurement technique.
+    logH = 160 + rtfLogH + n×28  (n = checkbox count, min 1)
+    pd->contentFitH = rtfLogH so LayoutPreviewControls sizes the RTF
+    area precisely.
+    If logH > maxLogH → cap: contentFitH = maxLogH - 160 - n×28
+
+  Height algorithm (split layout, contentHidden=true / no RTF):
+    logH = 144 + n×28  (no measurement needed)
+
+  Why 1-px window, child of hPreview?
+    The desktop window never triggers a genuine paint pass on its
+    children.  GetScrollInfo(SB_VERT).nMax returns 0 → height
+    falls back to std::max(..., 100) = 100 → clipped display.
+    A 1-px child of the visible hPreview gets painted → RichEdit
+    sets its scroll range → nMax+1 = true total content height.
+
+  Resize:
+    SetWindowPos(SWP_NOMOVE) on hPreview.
+    WM_SIZE → LayoutPreviewControls → SyncContentScrollbar.
+    Caller (ShowPreviewDialog / NavigateTo) re-centres both axes.
+
+ScanRtfNaturalWidthTwips(rtf)                       [~line 1376]
+  Parses RTF source for \cellx and \picwgoal values.
+  Returns the maximum twip value found, or 0 for plain text.
+  logicalPx = twips / 15  (DPI-independent identity).
+
+SyncContentScrollbar(hwnd, pd)  [inside LayoutPreviewControls ~line 452]
+  Called at the END of every LayoutPreviewControls invocation, which
+  fires on every WM_SIZE (sizer or auto-fit) and NavigateTo.
+  Handles BOTH auto-fit overflow AND developer-manual-size overflow.
+
+  Algorithm:
+    1. Ensure WS_VSCROLL is set on pd->hContent so the RichEdit always
+       maintains SCROLLINFO internally.
+    2. UpdateWindow(pd->hContent) to flush layout.
+    3. GetScrollInfo(SB_VERT, SIF_ALL):
+         overflow = nMax > 0 && nPage > 0 && nPage <= nMax
+    4. overflow && !hContentSB → msb_attach(hContent, MSB_VERTICAL)
+       !overflow && hContentSB → msb_detach; hContentSB = NULL
+       overflow && hContentSB → msb_sync  (re-sync thumb after resize)
+
+  The custom scrollbar (my_scrollbar) overlays the RichEdit's right
+  edge as a child of hContent — no extra window width is needed.
+  The native scrollbar gutter is hidden by msb_attach internally.
+
+PREVIEW DATA FIELDS
+-------------------
+pd->hContentSB         HMSB handle; NULL when scrollbar not attached.
+pd->contentFitH        Measured RTF height in logical px for split
+                       layout (passed to LayoutPreviewControls).
+pd->contentNaturalW/H  Measured content dimensions for H/V-align in
+                       LayoutPreviewControls (single layout only).
+
+s_previewUserSized[]   bool[IDLG_COUNT]; set true when the developer
+                       moves/resizes via the sizer.  AutoFitPreview
+                       skips when true.  Saved to DB for IDLG_COMPONENTS.
+                       Reset by IDLG_Reset (new project).
+                       Reverted on Cancel in ShowPreviewDialog.
+
+LAYOUT CONSTANTS
+----------------
+kPreviewChromeLogH = 114
+  pad(16) + titleH(36) + gap(8) + gap(8) + btnH(30) + pad(16)
+  Fixed interior chrome for single layout.
+
+Split-layout height formula:
+  editY(60) + rtfLogH + gap(8) + extLbl(22) + extGap(6)
+    + n×itemH(28) + breathing(10) + gap(8) + btnH(30) + pad(16)
+  = 160 + rtfLogH + n×28
+
+Split-layout no-RTF formula:
+  editY(60) + extLbl(22) + extGap(6) + n×28 + breathing(10)
+    + gap(8) + btnH(30) + pad(16) = 144 + n×28
+
+WIDTH FORMULA
+-------------
+measurement RichEdit interior width = (cW - 2×pad(16)) - 2×SM_CXEDGE
+  (No WS_EX_CLIENTEDGE on measurement window; its 2px border makes
+  client height negative on a 1-px window → layout never runs.)
+
+Preview client width = RichEdit content width + 2×pad(16) + 2×SM_CXEDGE + 2
+  The "+2" = RichEdit built-in 1-px left+right internal margin.
+  Simplified: logW = twips/15 + 32 + edgePx + 1
+
+CAP VALUES
+----------
+kPreviewMaxWidthPct  = 0.95f   (95 % of work-area width)
+kPreviewMaxHeightPct = 0.75f   (75 % of work-area height)
+
+SCROLLBAR LIFECYCLE
+-------------------
+Creation (WM_CREATE):
+  pd->hContent always created with WS_VSCROLL | ES_AUTOVSCROLL.
+  hContentSB starts NULL; SyncContentScrollbar attaches if needed
+  after first LayoutPreviewControls pass.
+
+Destruction (WM_DESTROY):
+  msb_detach(pd->hContentSB) before RichEdit is destroyed.
+  Restores native scrollbar and unsubclasses hContent.
+
+Navigation (NavigateTo):
+  New RTF streamed into hContent.
+  LayoutPreviewControls called → SyncContentScrollbar re-evaluates.
+  AutoFitPreview then resizes window for non-user-sized types;
+  that triggers WM_SIZE → LayoutPreviewControls again if size changed.
+
+Manual resize (SizerWndProc EN_CHANGE):
+  s_previewUserSized[type] = true.
+  ResizePreview → SetWindowPos on hPreview → WM_SIZE
+    → LayoutPreviewControls → SyncContentScrollbar.
+  AutoFitPreview is NOT called again for this type.
+
+CHANGE HISTORY
+--------------
+2026.04.08  Created.
+  - Replaced broken MeasureRtfPreviewSize (desktop-parent, never painted)
+    with AutoFitPreview using 1-px child of live hPreview.
+  - Replaced AutoFitComponentHeight (IDLG_COMPONENTS only) with
+    AutoFitPreview handling ALL dialog types and BOTH layouts.
+  - Replaced native WS_VSCROLL + width compensation (sbPx) with
+    my_scrollbar (overlays, no width change needed).
+  - SyncContentScrollbar handles overflow for both auto-fit cap and
+    developer manual-size too-small scenarios.
+  - Removed pre-creation MeasureRtfPreviewSize call from ShowPreviewDialog.
+  - ShowPreviewDialog now re-centres on both axes after AutoFitPreview.
