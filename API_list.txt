@@ -180,13 +180,6 @@
                                                 CRUD API, control ID ranges, locale key table,
                                                 and mainwindow.cpp wiring guide.
 
-  API_INTERNALS\INTERNALS\scrollbar_custom_make_INTERNALS.txt
-                                                Build plan for my_scrollbar.h / my_scrollbar.cpp
-                                                — 9-phase custom Win32 scrollbar. All phases DONE.
-                                                Includes key implementation notes: ListView H
-                                                lvHPos tracking, LVM_SCROLL vs WM_HSCROLL
-                                                behaviour, SB_THUMBPOSITION limitation.
-
   API_INTERNALS\INTERNALS\scrollbar_reopen_INTERNALS.txt
                                                 MSB lifecycle across project-close/reopen and
                                                 page switches — the double-free crash pattern

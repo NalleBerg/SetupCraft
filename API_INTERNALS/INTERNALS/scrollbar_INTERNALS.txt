@@ -239,7 +239,7 @@ of the tree.  The V-bar uses the default gap (0 — hugs the right edge).
 IDC_DEP_LIST (deps.cpp) gets V+H Custom scrollbars so the Dependencies page
 matches all other pages.
 
-Key ListView H-axis notes (see scrollbar_custom_make_INTERNALS.txt §KEY NOTES):
+Key ListView H-axis notes (see my_scrollbar_API.txt §1 status table and §4d checklist):
   • GetScrollInfo(SB_HORZ).nPos is unreliable for ListView H: ShowScrollBar(FALSE)
     zeroes it; LVM_SCROLL doesn't update it.  MSB tracks position in MsbCtx.lvHPos.
   • H scroll range (nMax/nPage) uses live column widths + client width, NOT
