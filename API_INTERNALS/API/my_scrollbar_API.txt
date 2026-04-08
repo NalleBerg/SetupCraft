@@ -44,16 +44,61 @@
     Page scrollbar     ✓  Dialogs page; msb_set_insets / msb_set_edge_gap;
                           WM_SIZE updates SCROLLINFO + calls msb_sync so bar
                           hides when content fits and returns when window shrinks.
-    ListView V+H       ✓  H-axis scroll position tracked in MsbCtx.lvHPos
-                          (GetScrollInfo.nPos unreliable: ShowScrollBar(FALSE)
-                          zeroes it; LVM_SCROLL doesn't update it). Arrow,
-                          track-click, thumb-drag, and tilt-wheel all work.
-                          Scroll range (nMax/nPage) derived from live column
-                          widths and client rect via Msb_FixListViewHScrollInfo.
-                          Vertical delta multiplied by row height from
+    ListView V+H       ✓  ALL interactions fully working (2026-04-08):
+                          arrow (20 px step), track-click, tilt-wheel (20 px ×
+                          lines), thumb drag.
+                          H-axis position tracked in MsbCtx.lvHPos because
+                          GetScrollInfo.nPos is unreliable (ShowScrollBar(FALSE)
+                          zeroes it; LVM_SCROLL does not update it).
+                          Scroll range (nMax/nPage) from live column widths and
+                          client rect via Msb_FixListViewHScrollInfo.  Vertical
+                          delta multiplied by row height from
                           ListView_GetItemRect.  Column widths based on
                           GetClientRect width (not window width) to avoid false
                           H-bar overflow from border gap.
+
+                          !! GOLDEN RULES FOR LISTVIEW H-AXIS (hard-won) !!
+
+                          1. LVM_SCROLL fires WM_NCPAINT + WM_HSCROLL
+                             SYNCHRONOUSLY BEFORE it returns.  WM_NCPAINT fires
+                             BEFORE the header control repositions its items.
+                             Therefore Msb_GetListViewHPos() (reads header rect)
+                             returns the OLD position inside the scroll hot-path.
+                             NEVER call it for delta calculations inside any path
+                             that is reachable from LVM_SCROLL.
+
+                          2. After LVM_SCROLL: set ctx->lvHPos = newPos (clamped
+                             target).  Do NOT re-read the header — it has not
+                             moved yet.  lvHPos self-corrects at drag-start
+                             (WM_LBUTTONDOWN before SetCapture) and in
+                             msb_reposition / WM_SIZE where the ListView has
+                             fully settled.
+
+                          3. Delta calculation: int delta = newPos - ctx->lvHPos.
+                             Both sides are our own tracked values; the result is
+                             always correct regardless of header state.
+
+                          4. SAFE places to call Msb_GetListViewHPos():
+                             drag-start (before SetCapture), msb_reposition,
+                             WM_SIZE (with capture guard).  Nowhere else.
+
+                          5. msb_attach BEFORE population (RefreshList /
+                             ListView_InsertItem) so the WM_NCPAINT subclass is
+                             in place during row insertion — prevents blink.
+
+                          6. After RefreshList: ShowScrollBar(FALSE) + msb_sync
+                             ONLY.  No capture/restore needed — msb_sync calls
+                             Msb_GetListViewHPos while the ListView is idle.
+
+                          7. Line step = S(ctx, 20) logical px.  Using
+                             ListView_GetColumnWidth(col0) is wrong — at 35 %
+                             list width that is ~280 px and feels like track-click
+                             rather than arrow.
+
+                          8. Msb_Scroll ListView H MUST call Msb_Layout +
+                             InvalidateRect + UpdateWindow before returning, even
+                             via the early-return path — otherwise the thumb never
+                             moves visually even though the content scrolled.
     TreeView V+H       ✓  Show/hide, scrollwheel, thumb drag all working.
                           V-axis overflow detected via TVGN_NEXTVISIBLE tree-walk
                           (SCROLLINFO unreliable after ShowScrollBar(FALSE) zeroes
@@ -275,6 +320,28 @@
   │ □  msb_detach BEFORE the controlIds[] DestroyWindow loop            │
   │ □  TVN_ITEMEXPANDED hook — GUARDED + msb_reposition both axes       │
   │ □  msb_reposition in WM_SIZE (after EndDeferWindowPos)              │
+  └──────────────────────────────────────────────────────────────────────┘
+
+  ┌─ LISTVIEW H-BAR CHECKLIST ────────────────────────────────────────────┐
+  │ □  WS_VSCROLL | WS_HSCROLL in CreateWindowExW style                 │
+  │ □  msb_attach BEFORE population (RefreshList / InsertItem)          │
+  │ □  msb_set_edge_gap(hH, SM_CYEDGE + SM_CYBORDER + 6) for H-bar      │
+  │ □  After population: ShowScrollBar(FALSE) + msb_sync — NO           │
+  │     capture/restore                                                  │
+  │ □  After column resize (HDN_ENDTRACKW/A in WM_NOTIFY): msb_reposition│
+  │ □  msb_detach BEFORE the controlIds[] DestroyWindow loop            │
+  │ □  msb_reposition in WM_SIZE (after EndDeferWindowPos)              │
+  │ □  NEVER call GetScrollInfo(SB_HORZ).nPos for H — always 0 after    │
+  │     ShowScrollBar(FALSE); LVM_SCROLL does not update it             │
+  │ □  NEVER call Msb_GetListViewHPos() inside the LVM_SCROLL hot-path  │
+  │     (WM_NCPAINT fires before the header repositions — stale read)   │
+  │ □  After LVM_SCROLL: ctx->lvHPos = newPos (clamped target), NOT a   │
+  │     header re-read                                                   │
+  │ □  Delta: newPos - ctx->lvHPos (both our tracked values) — NOT      │
+  │     newPos - Msb_GetListViewHPos()                                   │
+  │ □  Msb_Scroll ListView H: Msb_Layout + InvalidateRect + UpdateWindow │
+  │     before every return (including the early-return path)           │
+  │ □  Line step: S(ctx, 20) px — NOT ListView_GetColumnWidth(col0)     │
   └──────────────────────────────────────────────────────────────────────┘
 
   ── Creation style ──────────────────────────────────────────────────────

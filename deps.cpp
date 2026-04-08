@@ -326,25 +326,20 @@ void DEP_BuildPage(HWND hwnd, HINSTANCE hInst,
     s_origListProc = (WNDPROC)SetWindowLongPtrW(
         s_hDepList, GWLP_WNDPROC, (LONG_PTR)DepListSubclassProc);
 
-    // Populate from in-memory state.
-    RefreshList();
-    // Attach custom hidden scrollbars after the list is populated.
+    // Attach custom hidden scrollbars BEFORE population so the WM_NCPAINT
+    // intercept is in place during row insertion — same pattern as the
+    // Components page (mainwindow.cpp), where thumb drag is confirmed working.
     s_hMsbDepListV = msb_attach(s_hDepList, MSB_VERTICAL);
     s_hMsbDepListH = msb_attach(s_hDepList, MSB_HORIZONTAL);
     if (s_hMsbDepListH)
         msb_set_edge_gap(s_hMsbDepListH,
             GetSystemMetrics(SM_CYEDGE) + GetSystemMetrics(SM_CYBORDER) + 6);
-    // ListView re-enables native bars on every InsertItem; suppress now.
+
+    // Populate from in-memory state.
+    RefreshList();
+    // Re-suppress native bars re-enabled by ListView_InsertItem.
     if (s_hMsbDepListV) { ShowScrollBar(s_hDepList, SB_VERT, FALSE); msb_sync(s_hMsbDepListV); }
-    if (s_hMsbDepListH) {
-        // ShowScrollBar(SB_HORZ, FALSE) zeroes nMax/nPage/nPos; capture first so
-        // msb_sync sees a valid SCROLLINFO and keeps the bar visible.
-        SCROLLINFO siH = {sizeof(siH), SIF_ALL};
-        GetScrollInfo(s_hDepList, SB_HORZ, &siH);
-        ShowScrollBar(s_hDepList, SB_HORZ, FALSE);
-        if (siH.nMax > siH.nMin) SetScrollInfo(s_hDepList, SB_HORZ, &siH, FALSE);
-        msb_sync(s_hMsbDepListH);
-    }
+    if (s_hMsbDepListH) { ShowScrollBar(s_hDepList, SB_HORZ, FALSE); msb_sync(s_hMsbDepListH); }
 
     // ── TEST DATA: overflow V+H ── remove before release ─────────────────────
     // Appended once per session so the list overflows both V and H regardless
@@ -436,13 +431,7 @@ void DEP_BuildPage(HWND hwnd, HINSTANCE hInst,
             RefreshList();
             // Re-suppress native bars re-enabled by ListView_InsertItem.
             if (s_hMsbDepListV) { ShowScrollBar(s_hDepList, SB_VERT, FALSE); msb_sync(s_hMsbDepListV); }
-            if (s_hMsbDepListH) {
-                SCROLLINFO siH = {sizeof(siH), SIF_ALL};
-                GetScrollInfo(s_hDepList, SB_HORZ, &siH);
-                ShowScrollBar(s_hDepList, SB_HORZ, FALSE);
-                if (siH.nMax > siH.nMin) SetScrollInfo(s_hDepList, SB_HORZ, &siH, FALSE);
-                msb_sync(s_hMsbDepListH);
-            }
+            if (s_hMsbDepListH) { ShowScrollBar(s_hDepList, SB_HORZ, FALSE); msb_sync(s_hMsbDepListH); }
         }
     }
     // ── END TEST DATA ─────────────────────────────────────────────────────────
@@ -503,13 +492,7 @@ bool DEP_OnCommand(HWND hwnd, int id, int event, HWND /*hCtrl*/)
             s_deps.push_back(blank);
             RefreshList();
             if (s_hMsbDepListV) { ShowScrollBar(s_hDepList, SB_VERT, FALSE); msb_sync(s_hMsbDepListV); }
-            if (s_hMsbDepListH) {
-                SCROLLINFO siH = {sizeof(siH), SIF_ALL};
-                GetScrollInfo(s_hDepList, SB_HORZ, &siH);
-                ShowScrollBar(s_hDepList, SB_HORZ, FALSE);
-                if (siH.nMax > siH.nMin) SetScrollInfo(s_hDepList, SB_HORZ, &siH, FALSE);
-                msb_sync(s_hMsbDepListH);
-            }
+            if (s_hMsbDepListH) { ShowScrollBar(s_hDepList, SB_HORZ, FALSE); msb_sync(s_hMsbDepListH); }
             // Select the newly added item.
             int last = (int)s_deps.size() - 1;
             ListView_SetItemState(s_hDepList, last,
@@ -528,13 +511,7 @@ bool DEP_OnCommand(HWND hwnd, int id, int event, HWND /*hCtrl*/)
             *dep = copy;
             RefreshList();
             if (s_hMsbDepListV) { ShowScrollBar(s_hDepList, SB_VERT, FALSE); msb_sync(s_hMsbDepListV); }
-            if (s_hMsbDepListH) {
-                SCROLLINFO siH = {sizeof(siH), SIF_ALL};
-                GetScrollInfo(s_hDepList, SB_HORZ, &siH);
-                ShowScrollBar(s_hDepList, SB_HORZ, FALSE);
-                if (siH.nMax > siH.nMin) SetScrollInfo(s_hDepList, SB_HORZ, &siH, FALSE);
-                msb_sync(s_hMsbDepListH);
-            }
+            if (s_hMsbDepListH) { ShowScrollBar(s_hDepList, SB_HORZ, FALSE); msb_sync(s_hMsbDepListH); }
             MainWindow::MarkAsModified();
         }
         return true;
@@ -575,13 +552,7 @@ bool DEP_OnCommand(HWND hwnd, int id, int event, HWND /*hCtrl*/)
             [removeId](const ExternalDep& d){ return d.id == removeId; }), s_deps.end());
         RefreshList();
         if (s_hMsbDepListV) { ShowScrollBar(s_hDepList, SB_VERT, FALSE); msb_sync(s_hMsbDepListV); }
-        if (s_hMsbDepListH) {
-            SCROLLINFO siH = {sizeof(siH), SIF_ALL};
-            GetScrollInfo(s_hDepList, SB_HORZ, &siH);
-            ShowScrollBar(s_hDepList, SB_HORZ, FALSE);
-            if (siH.nMax > siH.nMin) SetScrollInfo(s_hDepList, SB_HORZ, &siH, FALSE);
-            msb_sync(s_hMsbDepListH);
-        }
+        if (s_hMsbDepListH) { ShowScrollBar(s_hDepList, SB_HORZ, FALSE); msb_sync(s_hMsbDepListH); }
         // Update button states.
         EnableWindow(s_hDepEdit,   FALSE);
         EnableWindow(s_hDepRemove, FALSE);

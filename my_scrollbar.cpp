@@ -927,14 +927,12 @@ static void Msb_Scroll(MsbCtx* ctx, UINT cmd)
             SCROLLINFO si = {sizeof(si), SIF_ALL};
             Msb_FixListViewHScrollInfo(ctx->hTarget, &si);
             int maxPos = max(0, (int)(si.nMax - (int)si.nPage + 1));
-            /* Column-width step for line scroll; page = client width. */
-            HWND hHdr = ListView_GetHeader(ctx->hTarget);
-            int colW = (hHdr && Header_GetItemCount(hHdr) > 0)
-                       ? ListView_GetColumnWidth(ctx->hTarget, 0) : S(ctx, 20);
+            /* Small fixed pixel step for arrow buttons; page = client width. */
+            const int lineStep = S(ctx, 20);
             int newPos = ctx->lvHPos;
             switch (cmd) {
-                case SB_LINELEFT:  newPos -= colW;          break;
-                case SB_LINERIGHT: newPos += colW;          break;
+                case SB_LINELEFT:  newPos -= lineStep;       break;
+                case SB_LINERIGHT: newPos += lineStep;       break;
                 case SB_PAGELEFT:  newPos -= (int)si.nPage; break;
                 case SB_PAGERIGHT: newPos += (int)si.nPage; break;
                 default:           newPos  = ctx->lvHPos;   break;
@@ -943,7 +941,11 @@ static void Msb_Scroll(MsbCtx* ctx, UINT cmd)
             if (newPos > maxPos)  newPos = maxPos;
             Msb_ScrollToPos(ctx, newPos);
             /* Msb_ScrollToPos updated lvHPos and sent LVM_SCROLL.
-             * The WM_HSCROLL interceptor will run but must NOT overwrite lvHPos. */
+             * The WM_HSCROLL interceptor will run but must NOT overwrite lvHPos.
+             * Repaint the bar so the thumb reflects the new position. */
+            Msb_Layout(ctx);
+            InvalidateRect(ctx->hBar, NULL, FALSE);
+            UpdateWindow(ctx->hBar);
             return;
         }
         /* Vertical: LVM_SCROLL rounds to row boundaries and works reliably. */
@@ -987,17 +989,17 @@ static void Msb_ScrollToPos(MsbCtx* ctx, int newPos)
             int maxPos = max(0, (int)(si.nMax - (int)si.nPage + 1));
             if (newPos < 0)       newPos = 0;
             if (newPos > maxPos)  newPos = maxPos;
-            /* Compute delta from the TRUE current position (header item rect)
-             * so we never accumulate drift from previous scroll steps. */
-            int curPos = Msb_GetListViewHPos(ctx->hTarget);
+            /* Compute delta from our tracked position (ctx->lvHPos).
+             * Msb_GetListViewHPos reads the header control, but the header
+             * may not have repositioned yet if WM_NCPAINT fired mid-scroll.
+             * Using lvHPos gives a consistent delta in both directions. */
+            int curPos = ctx->lvHPos;
             int delta  = newPos - curPos;
             if (delta != 0)
                 SendMessageW(ctx->hTarget, LVM_SCROLL, (WPARAM)delta, 0);
-            /* After LVM_SCROLL the ListView may have clamped differently from
-             * our maxPos.  Read the true final position back so subsequent
-             * delta calculations are always correct.  Msb_Layout uses lvHPos
-             * for thumb drawing; it never reads GetScrollInfo.nPos for H. */
-            ctx->lvHPos = Msb_GetListViewHPos(ctx->hTarget);
+            /* Trust newPos as authoritative — it is already clamped to maxPos.
+             * msb_reposition/WM_SIZE re-sync from the header on layout changes. */
+            ctx->lvHPos = newPos;
             return;
         }
         /* Vertical: LVM_SCROLL with row-height conversion works reliably. */
@@ -1745,12 +1747,11 @@ static LRESULT CALLBACK Msb_TargetSubclassProc(HWND hwnd, UINT msg,
                 SCROLLINFO siW = {sizeof(siW), SIF_ALL};
                 Msb_FixListViewHScrollInfo(hwnd, &siW);
                 int maxPos = max(0, (int)(siW.nMax - (int)siW.nPage + 1));
-                HWND hHdr = ListView_GetHeader(hwnd);
-                int colW = (hHdr && Header_GetItemCount(hHdr) > 0)
-                           ? ListView_GetColumnWidth(hwnd, 0) : 20;
+                /* Small fixed pixel step per tilt-wheel notch line. */
+                const int lineStep = S(ctxH, 20);
                 int newPos = ctxH->lvHPos;
                 for (int i = 0; i < steps; i++)
-                    newPos += (cmd == SB_LINERIGHT) ? colW : -colW;
+                    newPos += (cmd == SB_LINERIGHT) ? lineStep : -lineStep;
                 if (newPos < 0)       newPos = 0;
                 if (newPos > maxPos)  newPos = maxPos;
                 Msb_ScrollToPos(ctxH, newPos);

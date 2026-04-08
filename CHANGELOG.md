@@ -2,6 +2,18 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.04.08.08] - 2026-04-08
+
+### Fixed
+- **Dependencies page H-bar — thumb never moved visually**: `Msb_Scroll` ListView H returned early after `Msb_ScrollToPos` but before the `Msb_Layout + InvalidateRect + UpdateWindow` block at the function bottom. Content was scrolled but the bar was never repainted. Fixed by adding those three calls before the early `return`.
+- **Dependencies page H-bar — `lvHPos` set to stale header position after `LVM_SCROLL`**: `Msb_ScrollToPos` called `Msb_GetListViewHPos()` *after* `LVM_SCROLL` to update `lvHPos`. `LVM_SCROLL` fires `WM_NCPAINT` synchronously before returning; `WM_NCPAINT` fires before the header repositions, so the header still reflected the old offset — `lvHPos` was never advanced. Fixed: `ctx->lvHPos = newPos` (clamped target), not a header re-read.
+- **Dependencies page H-bar — cannot scroll back left (delta always 0)**: Delta computed as `newPos − Msb_GetListViewHPos()`. On leftward scrolls the header returned the old position (same WM_NCPAINT timing), making delta always non-negative. Fixed: `curPos = ctx->lvHPos`; delta is now correct in both directions.
+- **Dependencies page H-bar — blink and capture/restore mess on populate**: `msb_attach` was called *after* `RefreshList` so the WM_NCPAINT subclass was absent during row insertion. Four code-paths used a fragile capture/restore wrapper. Fixed: move `msb_attach` (V + H + edge gap) before `RefreshList`; replace all four capture/restore blocks with `ShowScrollBar(FALSE) + msb_sync` (the Components page pattern).
+- **Dependencies page H-bar — arrow buttons and tilt-wheel jumped a full column width**: Line step was `ListView_GetColumnWidth(col0)` ≈ 280 px — felt like track-click. Replaced with `S(ctx, 20)` (20 logical px, DPI-scaled) in both `Msb_Scroll` and `WM_MOUSEHWHEEL`.
+
+### Documentation
+- **my_scrollbar_API.txt**: Updated status table for ListView V+H with 8 golden rules for the `LVM_SCROLL` hot-path; added LISTVIEW H-BAR CHECKLIST box to section 4d alongside the existing TreeView checklist.
+
 ## [2026.04.07.11] - 2026-04-07
 
 ### Fixed
