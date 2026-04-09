@@ -197,15 +197,15 @@ bool DB::InitDb() {
         NULL, NULL, &errmsg);
     {
         struct { int type; const wchar_t* rtf; } kDD[] = {
-            { 0, LR"({\rtf1\ansi\deff0{\fonttbl{\f0\fswiss\fcharset0 Arial;}}\f0\fs20\pard\qc{\b\fs28 Welcome to <<AppNameAndVersion>>}\par\pard\ql\sb120 This setup program will install <<AppName>> in your computer. Click \u171?Next\u187?  to continue.\par})" },
-            { 1, LR"({\rtf1\ansi\deff0{\fonttbl{\f0\fswiss\fcharset0 Arial;}}{\colortbl ;\red0\green70\blue140;\red40\green40\blue40;\red100\green100\blue100;\red139\green0\blue0;}\f0\pard\qc\sb0\sa60\cf1{\b\fs28 Public Domain License}\par\pard\qc\sb0\sa200\cf1\fs18 The Unlicense\par\pard\ql\sb0\sa120\cf2\fs20 <<AppName>> is released into the public domain.\par Anyone is free to copy, modify, publish, use, compile, sell, or distribute this software, either in source code form or as a compiled binary, for any purpose, commercial or non-commercial, and by any means.\par In jurisdictions that recognise copyright laws, the author or authors dedicate any and all copyright interest in this software to the public domain. This dedication is intended to be an overt act of relinquishment in perpetuity of all present and future rights to this software under copyright law.\par{\cf4\b THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.}\par\pard\ql\sb120\sa0\cf3\fs18\i If you find <<AppName>> useful, a credit in your application\'92s About dialog or documentation is warmly appreciated \u8212? though it is not required.\i0\par})" },
-            { 2, LR"({\rtf1\ansi\deff0{\fonttbl{\f0\fswiss\fcharset0 Arial;}}\f0\fs20\pard\ql The following components are required by <<AppName>>. If any are missing, they will be downloaded and installed.\par})" },
-            { 3, LR"({\rtf1\ansi\deff0{\fonttbl{\f0\fswiss\fcharset0 Arial;}}\f0\fs20\pard\ql Choose whether to install <<AppName>> for yourself only, or for all users of this computer.\par})" },
-            { 4, LR"({\rtf1\ansi\deff0{\fonttbl{\f0\fswiss\fcharset0 Arial;}}\f0\fs20\pard\ql Select the components of <<AppName>> you want to install.\par})" },
-            { 5, LR"({\rtf1\ansi\deff0{\fonttbl{\f0\fswiss\fcharset0 Arial;}}\f0\fs20\pard\ql Choose where to create shortcuts for <<AppName>>.\par})" },
-            { 6, LR"({\rtf1\ansi\deff0{\fonttbl{\f0\fswiss\fcharset0 Arial;}}\f0\fs20\pard\ql Setup is ready to install <<AppName>> on your computer.\par\pard\ql\sb120 Click \u171?Install\u187?  to begin, or \u171?Back\u187?  to review your settings.\par})" },
-            { 7, LR"({\rtf1\ansi\deff0{\fonttbl{\f0\fswiss\fcharset0 Arial;}}\f0\fs20\pard\ql Please wait while <<AppName>> is being installed on your computer.\par})" },
-            { 8, LR"({\rtf1\ansi\deff0{\fonttbl{\f0\fswiss\fcharset0 Arial;}}\f0\fs20\pard\qc{\b\fs28 Installation Complete}\par\pard\ql\sb120 <<AppNameAndVersion>> has been installed on your computer.\par\pard\ql\sb120 Click \u171?Finish\u187?  to exit.\par})" },
+            { 0, LR"({\rtf1\ansi\deff0{\fonttbl{\f0\fswiss\fcharset0 Arial;}}\f0\fs20\pard\qc{\b\fs28 <<DlgDefaultWelcomeTitle>>}\par\pard\ql\sb120 <<DlgDefaultWelcomeBody>>\par})" },
+            { 1, LR"({\rtf1\ansi\deff0{\fonttbl{\f0\fswiss\fcharset0 Arial;}}{\colortbl ;\red0\green70\blue140;\red40\green40\blue40;\red100\green100\blue100;\red139\green0\blue0;}\f0\pard\qc\sb0\sa60\cf1{\b\fs28 Public Domain License}\par\pard\qc\sb0\sa200\cf1\fs18 The Unlicense\par\pard\ql\sb0\sa120\cf2\fs20 <<AppName>> is released into the public domain.\par Anyone is free to copy, modify, publish, use, compile, sell, or distribute this software, either in source code form or as a compiled binary, for any purpose, commercial or non-commercial, and by any means.\par In jurisdictions that recognise copyright laws, the author or authors dedicate any and all copyright interest in this software to the public domain. This dedication is intended to be an overt act of relinquishment in perpetuity of all present and future rights to this software under copyright law.\par{\cf4\b THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.}\par\pard\ql\sb120\sa0\cf3\fs18\i <<LicenseCreditNote>>\i0\par})" },
+            { 2, LR"({\rtf1\ansi\deff0{\fonttbl{\f0\fswiss\fcharset0 Arial;}}\f0\fs20\pard\ql <<DlgDefaultDepsBody>>\par})" },
+            { 3, LR"({\rtf1\ansi\deff0{\fonttbl{\f0\fswiss\fcharset0 Arial;}}\f0\fs20\pard\ql <<DlgDefaultForMeAllBody>>\par})" },
+            { 4, LR"({\rtf1\ansi\deff0{\fonttbl{\f0\fswiss\fcharset0 Arial;}}\f0\fs20\pard\ql <<DlgDefaultComponentsBody>>\par})" },
+            { 5, LR"({\rtf1\ansi\deff0{\fonttbl{\f0\fswiss\fcharset0 Arial;}}\f0\fs20\pard\ql <<DlgDefaultShortcutsBody>>\par})" },
+            { 6, LR"({\rtf1\ansi\deff0{\fonttbl{\f0\fswiss\fcharset0 Arial;}}\f0\fs20\pard\ql <<DlgDefaultReadyBody1>>\par\pard\ql\sb120 <<DlgDefaultReadyBody2>>\par})" },
+            { 7, LR"({\rtf1\ansi\deff0{\fonttbl{\f0\fswiss\fcharset0 Arial;}}\f0\fs20\pard\ql <<DlgDefaultInstallingBody>>\par})" },
+            { 8, LR"({\rtf1\ansi\deff0{\fonttbl{\f0\fswiss\fcharset0 Arial;}}\f0\fs20\pard\qc{\b\fs28 <<DlgDefaultFinishTitle>>}\par\pard\ql\sb120 <<DlgDefaultFinishBody1>>\par\pard\ql\sb120 <<DlgDefaultFinishBody2>>\par})" },
         };
         const char* seedSql =
             "INSERT OR IGNORE INTO dialog_defaults (dialog_type, content_rtf) VALUES (?,?);";
@@ -218,6 +218,47 @@ bool DB::InitDb() {
                 p_bind_text(s2, 2, sR.c_str(),  -1, NULL);
                 p_step(s2);
                 if (p_finalize) p_finalize(s2);
+            }
+        }
+        // Migration: replace any dialog_defaults rows that pre-date the
+        // <<LicenseCreditNote>> i18n placeholder (identified by still containing
+        // the old hardcoded English credit text).  Developer-customised defaults
+        // that have already adopted the placeholder are left untouched.
+        {
+            const char* migSql =
+                "UPDATE dialog_defaults SET content_rtf=? "
+                "WHERE dialog_type=1 "
+                "AND content_rtf NOT LIKE '%<<LicenseCreditNote>>%' "
+                "AND content_rtf LIKE '%warmly appreciated%';";
+            void* s3 = NULL;
+            if (p_prepare(db, migSql, -1, &s3, NULL) == 0) {
+                std::string sR = WToUtf8(kDD[1].rtf);
+                p_bind_text(s3, 1, sR.c_str(), -1, NULL);
+                p_step(s3);
+                if (p_finalize) p_finalize(s3);
+            }
+        }
+        // Migration: replace dialog_defaults rows for all non-License types that
+        // still contain the old hardcoded English body text (identified by NOT yet
+        // having any <<DlgDefault…>> placeholder).  Rows that the developer has
+        // already customised are left untouched because they will contain their
+        // own text, not the new placeholder tokens.
+        {
+            const char* migSql =
+                "UPDATE dialog_defaults SET content_rtf=? "
+                "WHERE dialog_type=? "
+                "AND content_rtf NOT LIKE '%<<DlgDefault%';";
+            for (int i = 0; i < 9; i++) {
+                if (i == 1) continue; // License handled separately above
+                void* s3 = NULL;
+                if (p_prepare(db, migSql, -1, &s3, NULL) == 0) {
+                    std::string sR = WToUtf8(kDD[i].rtf);
+                    std::string sT = std::to_string(kDD[i].type);
+                    p_bind_text(s3, 1, sR.c_str(), -1, NULL);
+                    p_bind_text(s3, 2, sT.c_str(), -1, NULL);
+                    p_step(s3);
+                    if (p_finalize) p_finalize(s3);
+                }
             }
         }
     }

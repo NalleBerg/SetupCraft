@@ -186,6 +186,14 @@ bool DEP_HasAny()
     return !s_deps.empty();
 }
 
+int DEP_GetDeliveryModeMask()
+{
+    int mask = 0;
+    for (const auto& d : s_deps)
+        mask |= (1 << (int)d.delivery);
+    return mask;
+}
+
 // ── DEP_TearDown ──────────────────────────────────────────────────────────────
 
 void DEP_TearDown(HWND /*hwnd*/)

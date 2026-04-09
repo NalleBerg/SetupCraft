@@ -369,20 +369,24 @@ static int Msb_MeasureRichVertMax(HWND hRE)
     int lineCount = (int)SendMessageW(hRE, EM_GETLINECOUNT, 0, 0);
     if (lineCount <= 0) return 1;
 
-    /* Measure line height as the Y difference between line 0 and line 1. */
+    int lastLine = lineCount - 1;
+    int lastChar = (int)SendMessageW(hRE, EM_LINEINDEX, lastLine, 0);
+    POINTL ptLast = {};
+    SendMessageW(hRE, EM_POSFROMCHAR, (WPARAM)&ptLast, (LPARAM)lastChar);
+
+    /* Measure the last line's actual height by comparing it with the line
+     * immediately above it.  Using lines 0-1 would give the wrong height for
+     * mixed-font documents (e.g. a large title followed by small italic text)
+     * because the first-line spacing is unrepresentative of the final line. */
     int lineH = 0;
-    if (lineCount >= 2) {
-        int c0 = (int)SendMessageW(hRE, EM_LINEINDEX, 0, 0);
-        int c1 = (int)SendMessageW(hRE, EM_LINEINDEX, 1, 0);
-        if (c0 >= 0 && c1 > c0) {
-            POINTL pt0 = {}, pt1 = {};
-            SendMessageW(hRE, EM_POSFROMCHAR, (WPARAM)&pt0, (LPARAM)c0);
-            SendMessageW(hRE, EM_POSFROMCHAR, (WPARAM)&pt1, (LPARAM)c1);
-            lineH = (int)(pt1.y - pt0.y);
-        }
+    if (lastLine > 0) {
+        int prevChar = (int)SendMessageW(hRE, EM_LINEINDEX, lastLine - 1, 0);
+        POINTL ptPrev = {};
+        SendMessageW(hRE, EM_POSFROMCHAR, (WPARAM)&ptPrev, (LPARAM)prevChar);
+        lineH = (int)(ptLast.y - ptPrev.y);
     }
     if (lineH <= 0) {
-        /* Single line or measurement failed — fall back to text metrics. */
+        /* Single-line doc or measurement failed — fall back to text metrics. */
         HDC hdc = GetDC(hRE);
         if (hdc) {
             TEXTMETRICW tm = {};
@@ -393,13 +397,7 @@ static int Msb_MeasureRichVertMax(HWND hRE)
     }
     if (lineH <= 0) lineH = 16; /* ultimate fallback */
 
-    /* Top of last line in client coords + vertical scroll offset = document Y.
-     * Add half a line of breathing room so the last line isn't flush against
-     * the bottom of the scrollable area. */
-    int lastLine = lineCount - 1;
-    int lastChar = (int)SendMessageW(hRE, EM_LINEINDEX, lastLine, 0);
-    POINTL ptLast = {};
-    SendMessageW(hRE, EM_POSFROMCHAR, (WPARAM)&ptLast, (LPARAM)lastChar);
+    /* Bottom of last line = top-of-last-line + line-height + scroll offset. */
     int docBottom = (int)ptLast.y + vertOff + lineH;
     return max(1, docBottom);
 }

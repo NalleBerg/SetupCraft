@@ -108,6 +108,12 @@ void DEP_Reset();
 // Used by IDLG_BuildPage to decide whether to show the Dependencies dialog row.
 bool DEP_HasAny();
 
+// Return a bitmask of every DepDelivery mode present in the current project's
+// dependency list.  Bit N is set when at least one dep has delivery == N.
+// Used by IDLG_ApplyDefaults to pick the most appropriate default body text
+// for the Dependencies installer dialog.
+int DEP_GetDeliveryModeMask();
+
 // Build all page controls as children of hwnd.
 // pageY        — top of the available page area in hwnd's client coords.
 // clientWidth  — current client width of hwnd.

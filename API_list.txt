@@ -236,9 +236,18 @@
                                                 AutoFitPreview (all dialog types, both layouts),
                                                 ScanRtfNaturalWidthTwips (twip→logical-px width),
                                                 SyncContentScrollbar (my_scrollbar attach/detach
-                                                for both auto-fit cap and manual-resize overflow),
+                                                for both auto-fit cap and manual-resize overflow;
+                                                when hContentSB is non-NULL, msb_sync is used
+                                                directly — GetScrollInfo path bypassed to avoid
+                                                false detach after EM_SHOWSCROLLBAR(FALSE)),
                                                 layout constants (kPreviewChromeLogH=114,
-                                                split 160+n×28, no-RTF 144+n×28), width formula,
+                                                split 160+extrasContentH+rtfLogH, no-RTF 144+n×28;
+                                                extrasContentH=n×28 for checkboxes,
+                                                extrasContentH=62 for radio-button types),
+                                                +1 logical-px rtfLogH tolerance in single-layout
+                                                non-capped path (prevents false 1-px overflow
+                                                from MeasureRichEditLogHeight vs Msb_MeasureRichVertMax
+                                                rounding difference), width formula,
                                                 cap values (95 %/75 %), scrollbar lifecycle,
                                                 s_previewUserSized per-type suppression.
 

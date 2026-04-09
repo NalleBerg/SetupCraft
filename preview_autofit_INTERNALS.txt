@@ -33,18 +33,31 @@ AutoFitPreview(HWND hPreview, PreviewData* pd)      [~line 724]
     1-px WS_VISIBLE WS_CHILD of hPreview, NO WS_EX_CLIENTEDGE
     → StreamRtfIn → UpdateWindow → GetScrollInfo nMax+1 → logH
     kChromeLogH = 114 (pad16 + titleH36 + 2×gap8 + btnH30 + pad16)
-    logH = rtfLogH + 114
-    If rtfLogH > maxLogH - 114 → cap: rtfLogH = maxLogH - 114
+    logH = rtfLogH + 114 + edgeHLog  (+1 tolerance — see below)
+    edgeHLog = round(2×SM_CYEDGE / g_dpiScale)
+    If rtfLogH > maxLogH - 114 - edgeHLog → cap: rtfLogH = maxLogH - 114 - edgeHLog
+    Otherwise: rtfLogH += 1  (1-logical-px tolerance, see "Scrollbar tolerance" note)
 
   Height algorithm (split layout, showExtras=true, contentHidden=false):
     Same 1-px measurement technique.
-    logH = 160 + rtfLogH + n×28  (n = checkbox count, min 1)
+    extrasContentH:
+      • Checkboxes (IDLG_COMPONENTS): n × 28  (n = checkbox count, min 1)
+      • Radio buttons (IDLG_FOR_ME_ALL): 62  (rH 24 + S(6) + rH 24 + breathing 8)
+    logH = 160 + rtfLogH + extrasContentH + edgeHLog
     pd->contentFitH = rtfLogH so LayoutPreviewControls sizes the RTF
     area precisely.
-    If logH > maxLogH → cap: contentFitH = maxLogH - 160 - n×28
+    If logH > maxLogH → cap: contentFitH = maxLogH - 160 - extrasContentH - edgeHLog
 
   Height algorithm (split layout, contentHidden=true / no RTF):
-    logH = 144 + n×28  (no measurement needed)
+    logH = 144 + n×28  (no measurement needed; only applies to IDLG_COMPONENTS)
+
+  Scrollbar tolerance note (single layout):
+    MeasureRichEditLogHeight (GetScrollInfo.nMax on 1-px window) and
+    Msb_MeasureRichVertMax (EM_POSFROMCHAR on live RichEdit) can differ
+    by 1 physical pixel due to integer rounding.  A 1-logical-px (+1)
+    is added to rtfLogH when the window is NOT capped so the viewport
+    is always ≥ the measured content bottom, preventing the custom
+    scrollbar from appearing on a correctly auto-fitted window.
 
   Why 1-px window, child of hPreview?
     The desktop window never triggers a genuine paint pass on its
@@ -71,12 +84,11 @@ SyncContentScrollbar(hwnd, pd)  [inside LayoutPreviewControls ~line 452]
   Algorithm:
     1. Ensure WS_VSCROLL is set on pd->hContent so the RichEdit always
        maintains SCROLLINFO internally.
-    2. UpdateWindow(pd->hContent) to flush layout.
-    3. GetScrollInfo(SB_VERT, SIF_ALL):
-         overflow = nMax > 0 && nPage > 0 && nPage <= nMax
-    4. overflow && !hContentSB → msb_attach(hContent, MSB_VERTICAL)
-       !overflow && hContentSB → msb_detach; hContentSB = NULL
-       overflow && hContentSB → msb_sync  (re-sync thumb after resize)
+    2. If hContentSB is non-NULL (already attached): msb_sync — keeps
+       the bar attached, uses Msb_ContentOverflows for visibility.
+    3. Otherwise: UpdateWindow → GetScrollInfo → if overflow attach MSB.
+    (Note: once attached the bar is never detached; Msb_ContentOverflows
+     uses EM_POSFROMCHAR-based measurement, not stale GetScrollInfo.)
 
   The custom scrollbar (my_scrollbar) overlays the RichEdit's right
   edge as a child of hContent — no extra window width is needed.

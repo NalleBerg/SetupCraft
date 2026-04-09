@@ -44,6 +44,7 @@ static const std::map<std::wstring,std::wstring>* s_pLocale = NULL;
 // Installer-title section state (survives page switches; cleared by IDLG_Reset).
 static std::wstring s_installTitle;             // text shown in installer title bar
 static std::wstring s_installIconPath;          // custom .ico path; empty = default
+static std::wstring s_previewAppName;           // project name used in preview finish dialog
 static HICON        s_hInstallIcon    = NULL;   // currently displayed icon HANDLE
 static HWND         s_hInstIconPreview = NULL;  // preview control for live updates
 
@@ -690,6 +691,7 @@ static int MeasureRichEditLogHeight(HWND hRE)
 
 // Forward declaration (defined near ShowPreviewDialog, used here).
 static int ScanRtfNaturalWidthTwips(const std::wstring& rtf);
+static void ShowFinishFeedback(HWND hOwner);
 
 // ── AutoFitPreview — resize the preview window to fit the current dialog's RTF
 // ─────────────────────────────────────────────────────────────────────────────
@@ -814,13 +816,27 @@ static void AutoFitPreview(HWND hPreview, PreviewData* pd)
             // hContent has WS_EX_CLIENTEDGE: add 2×SM_CYEDGE so the viewport
             // has enough room for the measured content without scrolling.
             int edgeHLog = (int)(2.0 * GetSystemMetrics(SM_CYEDGE) / g_dpiScale + 0.5f);
+            // Extras content height (the area below extLbl+extGap, above the
+            // breathing+gap+btnH+pad block).
+            // • Checkboxes: n×28 design-px (chkH 24 + S(4) spacing per item).
+            // • Radio buttons (FOR_ME_ALL): rH(24) + S(6) + rH(24) + breathing(8) = 62.
+            //   Using n=1 → n×28 = 28 is 34 px short, jamming the second radio
+            //   button against the navigation buttons.
+            int extrasContentH;
+            if (!pd->hCompChecks.empty()) {
+                extrasContentH = n * 28;
+            } else if (pd->hRadioMe && IsWindow(pd->hRadioMe) && IsWindowVisible(pd->hRadioMe)) {
+                extrasContentH = 62;   // rH(24) + S(6)(6) + rH(24) + breathing(8)
+            } else {
+                extrasContentH = n * 28;
+            }
             // editY(60) + rtfLogH + gap(8) + extLbl(22) + extGap(6)
-            //   + n×28 + breathing(10) + gap(8) + btnH(30) + pad(16)  =  160 + rtfLogH + n×28
-            logH = 160 + rtfLogH + n * 28 + edgeHLog;
+            //   + extrasContentH + gap(8) + btnH(30) + pad(16)  =  160 + rtfLogH + extrasContentH
+            logH = 160 + rtfLogH + extrasContentH + edgeHLog;
             pd->contentFitH = rtfLogH;
             if (logH > maxLogH) {
                 logH = maxLogH;
-                int cappedRtfLogH = maxLogH - 160 - n * 28 - edgeHLog;
+                int cappedRtfLogH = maxLogH - 160 - extrasContentH - edgeHLog;
                 if (cappedRtfLogH < 60) cappedRtfLogH = 60;
                 pd->contentFitH = cappedRtfLogH;
             }
@@ -856,10 +872,19 @@ static void AutoFitPreview(HWND hPreview, PreviewData* pd)
         // is tall enough for the content without a scrollbar.
         int edgeHLog = (int)(2.0 * GetSystemMetrics(SM_CYEDGE) / g_dpiScale + 0.5f);
         needsVScroll = (rtfLogH > maxLogH - kChromeLogH - edgeHLog);
-        if (needsVScroll) rtfLogH = maxLogH - kChromeLogH - edgeHLog;
+        if (needsVScroll) {
+            rtfLogH = maxLogH - kChromeLogH - edgeHLog;
+        } else {
+            // 1-logical-px tolerance prevents false overflow caused by the tiny
+            // measurement difference between MeasureRichEditLogHeight (GetScrollInfo
+            // nMax on the 1-px window) and Msb_MeasureRichVertMax (EM_POSFROMCHAR
+            // on the live RichEdit).  Without this, a 1-px discrepancy can keep
+            // the custom scrollbar visible on a perfectly auto-fitted window.
+            rtfLogH += 1;
+        }
         logH = rtfLogH + kChromeLogH + edgeHLog;
-        pd->contentNaturalW    = logW;     // used by H-align in LayoutPreviewControls
-        pd->contentNaturalH    = rtfLogH;  // used by V-align in LayoutPreviewControls
+        pd->contentNaturalW    = logW;               // used by H-align in LayoutPreviewControls
+        pd->contentNaturalH    = rtfLogH + edgeHLog; // outer reH must fit content + both borders
     }
 
     logH = std::max(150, logH);
@@ -1068,7 +1093,9 @@ static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
             // Navigate to the next visible dialog type; close when already at last.
             InstallerDialogType next = NextVisibleType(pd->type);
             if (next == pd->type) {
-                // At Finish — committed; do NOT cancel dimension changes.
+                // At Finish — show the "end of preview" feedback dialog, then
+                // close the preview committed (do NOT cancel dimension changes).
+                ShowFinishFeedback(hwnd);
                 pd->running = false;
             } else {
                 NavigateTo(hwnd, pd, next);
@@ -1407,6 +1434,160 @@ static int ScanRtfNaturalWidthTwips(const std::wstring& rtf)
     return maxTwips;
 }
 
+// ── ShowFinishFeedback — small "end of preview" dialog shown when Finish is clicked ──
+// Mimics the real installer's post-Finish moment: installer title in caption,
+// a "This is the end of the installer preview." message, and a disabled
+// "Open <AppName>" checkbox (checked, greyed — looks like the real finish page
+// but makes it clear it's only a preview).
+
+struct FinishFbData {
+    bool running;
+    bool ok;
+};
+
+// Control IDs for the finish-feedback dialog
+#define IDC_FFBK_MSG   1001
+#define IDC_FFBK_OPEN  1002
+#define IDC_FFBK_OK    1003
+
+static LRESULT CALLBACK FinishFeedbackWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    FinishFbData* fd = (FinishFbData*)(LONG_PTR)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+
+    switch (msg) {
+    case WM_CREATE: {
+        CREATESTRUCTW* cs = (CREATESTRUCTW*)lParam;
+        fd = (FinishFbData*)cs->lpCreateParams;
+        if (!fd) return -1;
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)fd);
+
+        HFONT hGuiFont = s_hGuiFont ? s_hGuiFont
+            : (HFONT)GetStockObject(DEFAULT_GUI_FONT);
+
+        // Message label
+        std::wstring msg_ = L10n(L"idlg_preview_done_msg",
+                                  L"This is the end of the installer preview.");
+        HWND hMsg = CreateWindowExW(0, L"STATIC", msg_.c_str(),
+            WS_CHILD | WS_VISIBLE | SS_LEFT,
+            S(16), S(16), S(280), S(32),
+            hwnd, (HMENU)(UINT_PTR)IDC_FFBK_MSG, cs->hInstance, NULL);
+        if (hGuiFont) SendMessageW(hMsg, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+
+        // "Open <AppName>" checkbox — ticked and disabled to simulate the real page
+        std::wstring appLabel = L10n(L"idlg_preview_done_open", L"Open <<AppName>>");
+        // Replace <<AppName>> placeholder with the live project name
+        std::wstring::size_type p;
+        while ((p = appLabel.find(L"<<AppName>>")) != std::wstring::npos)
+            appLabel.replace(p, 11, s_previewAppName.empty() ? L"app" : s_previewAppName);
+        HWND hChk = CreateWindowExW(0, L"BUTTON", appLabel.c_str(),
+            WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX | WS_DISABLED,
+            S(16), S(56), S(280), S(24),
+            hwnd, (HMENU)(UINT_PTR)IDC_FFBK_OPEN, cs->hInstance, NULL);
+        if (hGuiFont) SendMessageW(hChk, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+        SendMessageW(hChk, BM_SETCHECK, BST_CHECKED, 0);
+
+        // OK button
+        std::wstring okTxt = L10n(L"ok", L"OK");
+        HWND hOk = CreateWindowExW(0, L"BUTTON", okTxt.c_str(),
+            WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
+            S(16), S(96), S(80), S(30),
+            hwnd, (HMENU)(UINT_PTR)IDC_FFBK_OK, cs->hInstance, NULL);
+        if (hGuiFont) SendMessageW(hOk, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+        return 0;
+    }
+
+    case WM_COMMAND:
+        if (LOWORD(wParam) == IDC_FFBK_OK || LOWORD(wParam) == IDCANCEL) {
+            if (fd) { fd->ok = (LOWORD(wParam) == IDC_FFBK_OK); fd->running = false; }
+        }
+        return 0;
+
+    case WM_KEYDOWN:
+        if (wParam == VK_RETURN || wParam == VK_ESCAPE) {
+            if (fd) { fd->ok = (wParam == VK_RETURN); fd->running = false; }
+        }
+        return 0;
+
+    case WM_CLOSE:
+        if (fd) { fd->ok = false; fd->running = false; }
+        return 0;
+
+    case WM_CTLCOLORSTATIC:
+        SetBkColor((HDC)wParam, GetSysColor(COLOR_WINDOW));
+        SetTextColor((HDC)wParam, GetSysColor(COLOR_WINDOWTEXT));
+        return (LRESULT)GetSysColorBrush(COLOR_WINDOW);
+    }
+
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+// Shows the finish-feedback dialog as a modal popup over hOwner.
+// hOwner should be the preview window (not the main window) so the preview
+// stays disabled while this dialog is visible.
+static void ShowFinishFeedback(HWND hOwner)
+{
+    static bool s_classOk = false;
+    if (!s_classOk) {
+        WNDCLASSEXW wc    = {};
+        wc.cbSize         = sizeof(wc);
+        wc.hInstance      = s_hInst;
+        wc.hCursor        = LoadCursor(NULL, IDC_ARROW);
+        wc.hbrBackground  = (HBRUSH)(COLOR_WINDOW + 1);
+        wc.lpfnWndProc    = FinishFeedbackWndProc;
+        wc.lpszClassName  = L"IDLGFinishFbClass";
+        RegisterClassExW(&wc);
+        s_classOk = true;
+    }
+
+    FinishFbData fd = {};
+    fd.running = true;
+    fd.ok      = false;
+
+    // Caption: installer title or generic fallback
+    std::wstring caption = s_installTitle.empty()
+        ? L10n(L"idlg_preview_done_title", L"End of Preview")
+        : s_installTitle + L"  \u2014  "
+          + L10n(L"idlg_preview_done_title", L"End of Preview");
+
+    // Window size: fixed, small
+    const DWORD style   = WS_POPUP | WS_CAPTION | WS_SYSMENU;
+    const DWORD exStyle = WS_EX_DLGMODALFRAME;
+    RECT adj = { 0, 0, S(312), S(142) };
+    AdjustWindowRectEx(&adj, style, FALSE, exStyle);
+    int wndW = adj.right - adj.left;
+    int wndH = adj.bottom - adj.top;
+
+    // Centre over owner
+    RECT rcOwn; GetWindowRect(hOwner, &rcOwn);
+    int px = rcOwn.left + (rcOwn.right  - rcOwn.left - wndW) / 2;
+    int py = rcOwn.top  + (rcOwn.bottom - rcOwn.top  - wndH) / 2;
+
+    HWND hFb = CreateWindowExW(exStyle,
+        L"IDLGFinishFbClass", caption.c_str(), style,
+        px, py, wndW, wndH, hOwner, NULL, s_hInst, &fd);
+    if (!hFb) return;
+
+    // Apply installer icon to the caption if we have one
+    if (s_hInstallIcon)
+        SendMessageW(hFb, WM_SETICON, ICON_SMALL, (LPARAM)s_hInstallIcon);
+
+    EnableWindow(hOwner, FALSE);
+    ShowWindow(hFb, SW_SHOW);
+    UpdateWindow(hFb);
+
+    MSG m;
+    while (fd.running && GetMessageW(&m, NULL, 0, 0) > 0) {
+        if (IsDialogMessageW(hFb, &m)) continue;
+        TranslateMessage(&m);
+        DispatchMessageW(&m);
+    }
+
+    EnableWindow(hOwner, TRUE);
+    DestroyWindow(hFb);
+    SetActiveWindow(hOwner);
+    SetForegroundWindow(hOwner);
+}
+
 // ── ShowPreviewDialog ─────────────────────────────────────────────────────────
 
 static void ShowPreviewDialog(HWND hwndParent, InstallerDialogType type)
@@ -1621,6 +1802,7 @@ void IDLG_Reset()
         s_dialogs[i].content_rtf = L"";
     }
     s_installTitle     = L"";
+    s_previewAppName   = L"";
     s_installIconPath  = L"";
     memset(s_previewUserSized, 0, sizeof(s_previewUserSized));
     // s_hInstallIcon and s_hInstIconPreview are managed by BuildPage/TearDown.
@@ -1938,6 +2120,27 @@ bool IDLG_OnCommand(HWND hwnd, int wmId, int wmEvent, HWND /*hCtrl*/)
 // Called once in mainwindow Create() so both new and existing projects see
 // sensible starter text on the Dialogs page without developer effort.
 
+// ── RtfEncodeText — encode a plain-text string for embedding inside RTF ──────
+// Escapes RTF metacharacters and encodes non-ASCII as RTF \uN? Unicode escapes.
+static std::wstring RtfEncodeText(const std::wstring& text)
+{
+    std::wstring out;
+    out.reserve(text.size() * 3);
+    for (wchar_t ch : text) {
+        if      (ch == L'\\') { out += L"\\\\"; }
+        else if (ch == L'{')  { out += L"\\{";  }
+        else if (ch == L'}')  { out += L"\\}";  }
+        else if (ch < 128)    { out += ch; }
+        else {
+            // RTF Unicode escape \uN? — N is signed decimal (sign-extend wchar_t)
+            out += L"\\u";
+            out += std::to_wstring((int)(short)ch);
+            out += L'?';
+        }
+    }
+    return out;
+}
+
 static std::wstring SubstitutePlaceholders(std::wstring rtf,
     const std::wstring& name, const std::wstring& version)
 {
@@ -1953,11 +2156,72 @@ static std::wstring SubstitutePlaceholders(std::wstring rtf,
     repl(rtf, L"<<AppNameAndVersion>>", nameVer);
     repl(rtf, L"<<AppName>>",           name);
     repl(rtf, L"<<AppVersion>>",        version);
+    // License credit note — localized text embedded in RTF.
+    // The locale value is plain Unicode; <<AppName>> inside it is substituted
+    // first, then the whole string is RTF-encoded before splicing into the RTF.
+    if (rtf.find(L"<<LicenseCreditNote>>") != std::wstring::npos) {
+        std::wstring note = L10n(L"idlg_license_credit_note",
+            L"If you find <<AppName>> useful, a credit in your application\u2019s "
+            L"About dialog or documentation is warmly appreciated "
+            L"\u2014 though it is not required.");
+        repl(note, L"<<AppName>>", name);
+        repl(rtf, L"<<LicenseCreditNote>>", RtfEncodeText(note));
+    }
+    // Resolve <<DlgDefaultDepsBody>> based on which delivery modes the project uses.
+    if (rtf.find(L"<<DlgDefaultDepsBody>>") != std::wstring::npos) {
+        int mask = DEP_GetDeliveryModeMask();
+        const wchar_t* key;
+        if      (mask == 0 || mask == (1 << DD_BUNDLED))       key = L"idlg_default_deps_bundled";
+        else if (mask == (1 << DD_AUTO_DOWNLOAD))               key = L"idlg_default_deps_download";
+        else if (mask == (1 << DD_REDIRECT_URL))                key = L"idlg_default_deps_redirect";
+        else if (mask == (1 << DD_INSTRUCTIONS_ONLY))           key = L"idlg_default_deps_instructions";
+        else                                                     key = L"idlg_default_deps_mixed";
+        std::wstring text = L10n(key,
+            L"The following components are required by <<AppName>>. "
+            L"If any are missing, they will be downloaded or set up automatically.");
+        repl(text, L"<<AppName>>", name);
+        repl(rtf, L"<<DlgDefaultDepsBody>>", RtfEncodeText(text));
+    }
+    // Resolve all remaining <<DlgDefault*>> placeholders from locale strings.
+    struct { const wchar_t* ph; const wchar_t* key; const wchar_t* fallback; } kDlgKeys[] = {
+        { L"<<DlgDefaultWelcomeTitle>>",   L"idlg_default_welcome_title",
+          L"Welcome to <<AppNameAndVersion>>" },
+        { L"<<DlgDefaultWelcomeBody>>",    L"idlg_default_welcome_body",
+          L"This setup program will install <<AppName>> on your computer. "
+          L"Click \u00abNext\u00bb to continue." },
+        { L"<<DlgDefaultForMeAllBody>>",   L"idlg_default_for_me_all_body",
+          L"Choose whether to install <<AppName>> for yourself only, "
+          L"or for all users of this computer." },
+        { L"<<DlgDefaultComponentsBody>>", L"idlg_default_components_body",
+          L"Select the components of <<AppName>> you want to install." },
+        { L"<<DlgDefaultShortcutsBody>>",  L"idlg_default_shortcuts_body",
+          L"Choose where to create shortcuts for <<AppName>>." },
+        { L"<<DlgDefaultReadyBody1>>",     L"idlg_default_ready_body1",
+          L"Setup is ready to install <<AppName>> on your computer." },
+        { L"<<DlgDefaultReadyBody2>>",     L"idlg_default_ready_body2",
+          L"Click \u00abInstall\u00bb to begin, or \u00abBack\u00bb to review your settings." },
+        { L"<<DlgDefaultInstallingBody>>", L"idlg_default_installing_body",
+          L"Please wait while <<AppName>> is being installed on your computer." },
+        { L"<<DlgDefaultFinishTitle>>",    L"idlg_default_finish_title",
+          L"Installation Complete" },
+        { L"<<DlgDefaultFinishBody1>>",    L"idlg_default_finish_body1",
+          L"<<AppNameAndVersion>> has been installed on your computer." },
+        { L"<<DlgDefaultFinishBody2>>",    L"idlg_default_finish_body2",
+          L"Click \u00abFinish\u00bb to exit." },
+    };
+    for (const auto& k : kDlgKeys) {
+        if (rtf.find(k.ph) == std::wstring::npos) continue;
+        std::wstring text = L10n(k.key, k.fallback);
+        repl(text, L"<<AppNameAndVersion>>", nameVer);
+        repl(text, L"<<AppName>>",           name);
+        repl(rtf, k.ph, RtfEncodeText(text));
+    }
     return rtf;
 }
 
 void IDLG_ApplyDefaults(const std::wstring& appName, const std::wstring& appVersion)
 {
+    s_previewAppName = appName;  // keep in sync for preview Finish dialog
     auto defaults = DB::GetAllDialogDefaults();
     for (const auto& d : defaults) {
         if (d.first < 0 || d.first >= IDLG_COUNT) continue;

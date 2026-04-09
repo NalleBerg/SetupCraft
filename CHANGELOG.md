@@ -2,6 +2,15 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.04.09.12] - 2026-04-09
+
+### Fixed
+- **Preview auto-fit — License page: false scrollbar from 1-px rounding tolerance**: `MeasureRichEditLogHeight` (via `GetScrollInfo.nMax`) and `Msb_MeasureRichVertMax` (via `EM_POSFROMCHAR`) differ by ≤ 1 physical px due to integer rounding. When the window was sized exactly to `rtfLogH`, `Msb_ContentOverflows` saw a 1-px overflow and kept the custom scrollbar visible on the License page despite content fitting perfectly. Fixed by adding `rtfLogH += 1` (1 logical-px tolerance) in `AutoFitPreview` single-layout non-capped path so the window is always 1 logical px taller than the measured content height.
+- **Preview auto-fit — FOR_ME_ALL split layout: "Install for all users" too close to nav buttons**: `AutoFitPreview` split layout used `n × 28` for all extras types. For `IDLG_FOR_ME_ALL` (no checkboxes, just two radio buttons), `n = max(0, 1) = 1` → 28 px allocated; the actual radio-button area requires `rH(24) + S(6) + rH(24) + breathing(8) = 62 px`. Window was 34 px too short, jamming the "Install for all users" radio button against the nav row. Fixed by computing `extrasContentH` per type: checkboxes → `n × 28`; radio buttons (when `hRadioMe` is visible) → `62`. Capped path updated to use `extrasContentH` directly.
+
+### Added
+- **Preview — Finish button feedback dialog**: Clicking Finish now shows a small modal "End of Preview" dialog before closing. Caption is `{installer title} — End of Preview`; body shows a short message and a disabled, checked "Open \<AppName\>" checkbox (substituted with the real app name from `s_previewAppName`); OK dismisses the dialog and the preview closes. New function `ShowFinishFeedback(HWND)` + `FinishFeedbackWndProc` in `dialogs.cpp`. Locale keys: `idlg_preview_done_title`, `idlg_preview_done_msg`, `idlg_preview_done_open`.
+
 ## [2026.04.09.09] - 2026-04-09
 
 ### Fixed
