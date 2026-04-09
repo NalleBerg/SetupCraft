@@ -1587,6 +1587,10 @@ static LRESULT CALLBACK Msb_TargetSubclassProc(HWND hwnd, UINT msg,
             if (ctxV) ctxV->inWmSize = TRUE;
             if (ctxH) ctxH->inWmSize = TRUE;
             LRESULT r = CallWindowProcW(any->origProc, hwnd, msg, wParam, lParam);
+            /* RichEdit text may reflow on size change (line wrapping changes
+             * when client width changes); flush the cached document height so
+             * Msb_ContentOverflows re-measures on the next call. */
+            if (ctxV && ctxV->isRichEdit) ctxV->richVertMax = 0;
             /* For TreeView/ListView targets, ShowScrollBar(FALSE) inside
              * Msb_HideNativeBar can reset nMax to 0 even when content genuinely
              * overflows.  Capture the real SCROLLINFO BEFORE hiding; restore it

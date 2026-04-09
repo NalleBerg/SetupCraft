@@ -466,17 +466,18 @@ static void LayoutPreviewControls(HWND hwnd, PreviewData* pd)
             SetWindowPos(pd->hContent, NULL, 0, 0, 0, 0,
                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED | SWP_NOACTIVATE);
         }
-        UpdateWindow(pd->hContent);  // flush layout so GetScrollInfo is current
-        SCROLLINFO si = {}; si.cbSize = sizeof(si); si.fMask = SIF_ALL;
-        GetScrollInfo(pd->hContent, SB_VERT, &si);
-        bool overflow = si.nMax > 0 && si.nPage > 0 && (UINT)si.nPage <= (UINT)si.nMax;
-        if (overflow && !pd->hContentSB) {
-            pd->hContentSB = msb_attach(pd->hContent, MSB_VERTICAL);
-        } else if (!overflow && pd->hContentSB) {
-            msb_detach(pd->hContentSB);
-            pd->hContentSB = NULL;
-        } else if (overflow && pd->hContentSB) {
-            msb_sync(pd->hContentSB);  // re-sync thumb after size or content change
+        if (pd->hContentSB) {
+            // Bar already attached: let Msb_ContentOverflows decide visibility.
+            // GetScrollInfo is zeroed after EM_SHOWSCROLLBAR(FALSE) and must not
+            // be used to decide whether to keep or detach the custom scrollbar.
+            msb_sync(pd->hContentSB);
+        } else {
+            UpdateWindow(pd->hContent);  // flush layout so GetScrollInfo is current
+            SCROLLINFO si = {}; si.cbSize = sizeof(si); si.fMask = SIF_ALL;
+            GetScrollInfo(pd->hContent, SB_VERT, &si);
+            bool overflow = si.nMax > 0 && si.nPage > 0 && (UINT)si.nPage <= (UINT)si.nMax;
+            if (overflow)
+                pd->hContentSB = msb_attach(pd->hContent, MSB_VERTICAL);
         }
     }
 
@@ -810,13 +811,16 @@ static void AutoFitPreview(HWND hPreview, PreviewData* pd)
                 DestroyWindow(hM);
             }
             if (rtfLogH < 60) rtfLogH = 60;
+            // hContent has WS_EX_CLIENTEDGE: add 2×SM_CYEDGE so the viewport
+            // has enough room for the measured content without scrolling.
+            int edgeHLog = (int)(2.0 * GetSystemMetrics(SM_CYEDGE) / g_dpiScale + 0.5f);
             // editY(60) + rtfLogH + gap(8) + extLbl(22) + extGap(6)
             //   + n×28 + breathing(10) + gap(8) + btnH(30) + pad(16)  =  160 + rtfLogH + n×28
-            logH = 160 + rtfLogH + n * 28;
+            logH = 160 + rtfLogH + n * 28 + edgeHLog;
             pd->contentFitH = rtfLogH;
             if (logH > maxLogH) {
                 logH = maxLogH;
-                int cappedRtfLogH = maxLogH - 160 - n * 28;
+                int cappedRtfLogH = maxLogH - 160 - n * 28 - edgeHLog;
                 if (cappedRtfLogH < 60) cappedRtfLogH = 60;
                 pd->contentFitH = cappedRtfLogH;
             }
@@ -847,9 +851,13 @@ static void AutoFitPreview(HWND hPreview, PreviewData* pd)
             }
         }
         rtfLogH      = std::max(rtfLogH, 100);
-        needsVScroll = (rtfLogH > maxLogH - kChromeLogH);
-        if (needsVScroll) rtfLogH = maxLogH - kChromeLogH;
-        logH = rtfLogH + kChromeLogH;
+        // hContent has WS_EX_CLIENTEDGE which steals 2×SM_CYEDGE px (≈4 px at
+        // 96 dpi) from the viewport height.  Add those pixels back so the window
+        // is tall enough for the content without a scrollbar.
+        int edgeHLog = (int)(2.0 * GetSystemMetrics(SM_CYEDGE) / g_dpiScale + 0.5f);
+        needsVScroll = (rtfLogH > maxLogH - kChromeLogH - edgeHLog);
+        if (needsVScroll) rtfLogH = maxLogH - kChromeLogH - edgeHLog;
+        logH = rtfLogH + kChromeLogH + edgeHLog;
         pd->contentNaturalW    = logW;     // used by H-align in LayoutPreviewControls
         pd->contentNaturalH    = rtfLogH;  // used by V-align in LayoutPreviewControls
     }
@@ -907,6 +915,8 @@ static void NavigateTo(HWND hwnd, PreviewData* pd, InstallerDialogType newType)
 
         const std::wstring& rtf = s_dialogs[(int)newType].content_rtf;
         if (!rtf.empty()) {
+            // Invalidate cached document height so the new content is measured fresh.
+            if (pd->hContentSB) msb_notify_content_changed(pd->hContentSB);
             StreamRtfIn(pd->hContent, rtf);
         } else {
             std::wstring ph = L10n(L"idlg_preview_no_content", L"(No content defined for this dialog yet)");

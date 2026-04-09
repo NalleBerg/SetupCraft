@@ -391,4 +391,5 @@ CMakeFiles/SkeletonApp.dir/dialogs.cpp.obj: \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\dpi.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\button.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\checkbox.h \
+ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\my_scrollbar.h \
  C:/mingw64/x86_64-w64-mingw32/include/richedit.h

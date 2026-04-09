@@ -3598,6 +3598,7 @@ CMakeFiles/SkeletonApp.dir/dialogs.cpp.obj: C:/Users/NalleBerg/Documents/C++/Wor
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/dpi.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/edit_rtf.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/mainwindow.h \
+  C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/my_scrollbar.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/shortcuts.h
 
 CMakeFiles/SkeletonApp.dir/dpi.cpp.obj: C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/dpi.cpp \

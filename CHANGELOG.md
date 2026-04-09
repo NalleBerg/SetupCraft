@@ -2,6 +2,13 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.04.09.09] - 2026-04-09
+
+### Fixed
+- **Preview auto-fit: window 4 px too short (`WS_EX_CLIENTEDGE` height not accounted for)**: `kChromeLogH = 114` did not include the `2×SM_CYEDGE` border that `WS_EX_CLIENTEDGE` subtracts from `hContent`'s viewport. `logH` was therefore `2×SM_CYEDGE` (≈ 4 px at 96 dpi) too small and the content overflowed by that amount. Fixed in both single layout (`logH = rtfLogH + kChromeLogH + edgeHLog`) and split layout (`logH = 160 + rtfLogH + n×28 + edgeHLog`) paths of `AutoFitPreview`. `edgeHLog = round(2×SM_CYEDGE / g_dpiScale)` is computed once per call; the cap path subtracts it symmetrically so split-layout scrolling still triggers at the right threshold.
+- **Preview scrollbar never shown / falsely detached after `EM_SHOWSCROLLBAR(FALSE)`**: `SyncContentScrollbar` re-read `GetScrollInfo` on every layout pass to decide whether to keep or remove the custom bar. After `msb_attach` calls `EM_SHOWSCROLLBAR(FALSE)`, the RichEdit stops maintaining `SCROLLINFO` and `nMax` reads back as 0 — causing a false "no overflow" verdict and immediate detach. Fixed by splitting the branch: when `hContentSB` is already attached, `msb_sync` is called directly (which uses `Msb_ContentOverflows` → direct document-height measurement, bypassing `SCROLLINFO`); the `GetScrollInfo` path is used only for first-attach when no bar exists yet.
+- **`richVertMax` cache stale across content changes and window resizes**: Added `msb_notify_content_changed(pd->hContentSB)` in `NavigateTo` before `StreamRtfIn` so the cached document height is invalidated when RTF content is replaced. Added `ctxV->richVertMax = 0` reset in `my_scrollbar.cpp`'s `WM_SIZE` subclass handler (after `origProc`) so text-reflow on width change always triggers a fresh measurement on the next `Msb_ContentOverflows` call.
+
 ## [2026.04.08.11] - 2026-04-08
 
 ### Added
