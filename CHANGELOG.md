@@ -2,6 +2,11 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.04.10.07] - 2026-04-10
+
+### Fixed
+- **Preview — Finish button unreliable click and hover blink**: `IsDialogMessageW(hPreview, &m)` was called in the preview's outer message loop on a `WS_POPUP | WS_CAPTION` window that was never created via `DialogBox`/`CreateDialog`. `IsDialogMessageW` on non-dialog windows consumes the first `WM_LBUTTONDOWN` on any non-focused child control to set keyboard focus — returning `TRUE` (handled) without forwarding the click — so `BN_CLICKED` was only generated on the second click attempt. It also sent spurious `WM_SETFOCUS`/`WM_KILLFOCUS` messages to track the "default button" state, causing the Finish button to blink on hover. Fixed by removing `IsDialogMessageW(hPreview, &m)` from the preview message loop entirely. `Escape` is now handled via an explicit `WM_KEYDOWN VK_ESCAPE → Cancel` case in `PreviewWndProc`.
+
 ## [2026.04.09.12] - 2026-04-09
 
 ### Fixed

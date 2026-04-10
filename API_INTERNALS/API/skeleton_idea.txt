@@ -71,5 +71,13 @@
     repositions — do NOT read or write lvHPos there.
   - sqlite3 amalgamation version: pin to the version used in SetupCraft
     at publish time and note it here.
+  - IsDialogMessageW gotcha: ONLY call IsDialogMessageW on windows that were
+    actually created via DialogBox/CreateDialog.  On WS_POPUP windows built
+    with CreateWindowExW it consumes the first WM_LBUTTONDOWN on a non-focused
+    child control (to set keyboard focus) and returns TRUE without generating
+    BN_CLICKED — the button appears broken until it already has focus.  It also
+    triggers spurious WM_SETFOCUS/WM_KILLFOCUS messages that cause plain
+    BS_PUSHBUTTON hover states to blink.  For manual message loops on popup
+    windows, handle Tab/Return/Escape explicitly in WM_KEYDOWN instead.
 
 ================================================================================

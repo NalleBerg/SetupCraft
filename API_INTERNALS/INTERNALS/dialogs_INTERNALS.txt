@@ -263,6 +263,18 @@
     re-streams RTF (or sets placeholder text), calls LayoutPreviewControls,
     then calls AutoFitComponentHeight if type == IDLG_COMPONENTS.
 
+  Preview message loop — IsDialogMessageW warning
+    DO NOT call IsDialogMessageW(hPreview, &m) in the preview message loop.
+    The preview is a WS_POPUP | WS_CAPTION window created with CreateWindowExW,
+    not via DialogBox/CreateDialog.  IsDialogMessageW on a non-dialog window
+    consumes the first WM_LBUTTONDOWN on any non-focused child control to set
+    keyboard focus — returning TRUE without forwarding the click — so BN_CLICKED
+    is only generated on the second click attempt.  It also sends spurious
+    WM_SETFOCUS/WM_KILLFOCUS messages that cause plain BS_PUSHBUTTON controls to
+    blink on hover.  The sizer (a separate HWND with spin-edit controls) still
+    uses IsDialogMessageW(hSizer, &m) correctly.  Escape is intercepted manually
+    via WM_KEYDOWN VK_ESCAPE → Cancel in PreviewWndProc.
+
   Foregrounding on close
     WM_DESTROY: re-enables the owner window immediately so Windows does not
     activate a third-party window while tearing down.  ShowPreviewDialog then

@@ -1,6 +1,12 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 9 April 2026 &mdash; v2026.04.09.12 (12:19)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 10 April 2026 &mdash; v2026.04.10.07 (07:21)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.04.10.07</span></h3>
+<p><strong>Preview Finish button: unreliable click and hover blink fixed (10.04.2026, 07:21):</strong></p>
+<ul>
+<li><strong>Preview &mdash; Finish button unreliable click and hover blink:</strong> <code>IsDialogMessageW(hPreview,&thinsp;&amp;m)</code> was called in the preview&rsquo;s outer message loop on a <code>WS_POPUP&thinsp;|&thinsp;WS_CAPTION</code> window that was never created via <code>DialogBox</code>&thinsp;/&thinsp;<code>CreateDialog</code>. <code>IsDialogMessageW</code> on non-dialog windows consumes the first <code>WM_LBUTTONDOWN</code> on any non-focused child control to set keyboard focus &mdash; returning <code>TRUE</code> (handled) without forwarding the click &mdash; so <code>BN_CLICKED</code> was only generated on the <em>second</em> click attempt once focus was already there. It also sent spurious <code>WM_SETFOCUS</code>&thinsp;/&thinsp;<code>WM_KILLFOCUS</code> messages to track the &ldquo;default button&rdquo; state, causing the Finish button to visually blink on hover. Fixed by removing <code>IsDialogMessageW(hPreview,&thinsp;&amp;m)</code> entirely from the preview message loop (the sizer still uses its own <code>IsDialogMessageW(hSizer,&thinsp;&amp;m)</code> correctly). <code>Escape</code> is now handled via an explicit <code>WM_KEYDOWN&thinsp;VK_ESCAPE&thinsp;&rarr;&thinsp;Cancel</code> case in <code>PreviewWndProc</code> so keyboard cancellation still works.</li>
+</ul>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.04.09.12</span></h3>
 <p><strong>Preview scrollbar 1-px tolerance; FOR_ME_ALL spacing fix; Finish feedback dialog (09.04.2026, 12:19):</strong></p>

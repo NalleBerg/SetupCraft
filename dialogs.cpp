@@ -1144,6 +1144,16 @@ static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
         if (pd) { pd->running = false; pd->cancelled = true; }
         return 0;
 
+    case WM_KEYDOWN:
+        // IsDialogMessageW is NOT used for the preview window (it swallows the
+        // first mouse-click on a non-focused button to set keyboard focus, making
+        // the Finish button unreliable — requires 2+ clicks to register).
+        // Handle Escape manually so it still cancels the preview.
+        if (wParam == VK_ESCAPE) {
+            if (pd) { pd->running = false; pd->cancelled = true; }
+        }
+        return 0;
+
     case WM_GETMINMAXINFO: {
         // Enforce a minimum preview size so the split layout is always usable.
         RECT adj = { 0, 0, S(300), S(260) };
@@ -1767,8 +1777,7 @@ static void ShowPreviewDialog(HWND hwndParent, InstallerDialogType type)
             continue;
         }
         bool handled = false;
-        if (hSizer && IsWindow(hSizer) && IsDialogMessageW(hSizer,   &m)) handled = true;
-        if (!handled && IsWindow(hPreview) && IsDialogMessageW(hPreview, &m)) handled = true;
+        if (hSizer && IsWindow(hSizer) && IsDialogMessageW(hSizer, &m)) handled = true;
         if (!handled) { TranslateMessage(&m); DispatchMessageW(&m); }
     }
 
