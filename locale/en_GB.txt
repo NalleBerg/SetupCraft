@@ -414,9 +414,9 @@ idlg_preview_back=Back
 idlg_preview_next=Next
 idlg_preview_finish=Finish
 idlg_preview_cancel=Cancel
-idlg_preview_done_title=End of Preview
-idlg_preview_done_msg=This is the end of the installer preview.
-idlg_preview_done_open=Open <<AppName>>
+idlg_preview_done_title=Installation Complete
+idlg_preview_done_msg=Installation complete.
+idlg_preview_done_open=Run <<AppName>>
 idlg_sizer_title=Dialog Size
 idlg_sizer_w_label=Width (px):
 idlg_sizer_h_label=Height (px):
@@ -428,6 +428,28 @@ idlg_default_welcome_body=This setup program will install <<AppName>> on your co
 idlg_default_deps_bundled=The following components are required by <<AppName>>. They are included in this installer and will be set up automatically.
 idlg_default_deps_download=The following components are required by <<AppName>>. If any are missing, they will be downloaded and installed automatically.
 idlg_default_deps_redirect=The following components are required by <<AppName>>. If any are missing, you will be directed to their download pages.
+
+# Scripts page (page index 8)
+scr_page_title=Run Scripts
+scr_enable=Enable scripts for this project
+scr_enable_hint=When unchecked, no scripts will be packaged or run by the installer.
+scr_pre_section=Before installation
+scr_post_section=After installation
+scr_script_enable_pre=Run a script before installation begins
+scr_script_enable_post=Run a script after installation completes
+scr_type_bat=Batch (.bat)
+scr_type_ps1=PowerShell (.ps1)
+scr_edit_label=Script content (paste or type here):
+scr_load_file=Load from file\u2026
+scr_load_tip=Load script content from a .bat or .ps1 file on disk
+scr_test=Test in terminal
+scr_test_tip=Write the script to a temporary file and run it in a console window to test it
+scr_test_no_content=The script editor is empty. Type or paste a script first.
+scr_test_title=Test Script
+
+# Dialogs-page Scripts preview row
+idlg_scripts_row_label=Scripts
+idlg_scripts_row_link=Edit/View in Scripts page \u00bb
 idlg_default_deps_instructions=The following components are required by <<AppName>>. Please follow the instructions on the next pages to install each required component manually.
 idlg_default_deps_mixed=The following components are required by <<AppName>>. If any are missing, they will be downloaded or set up automatically.
 idlg_default_for_me_all_body=Choose whether to install <<AppName>> for yourself only, or for all users of this computer.

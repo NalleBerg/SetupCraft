@@ -205,14 +205,40 @@ LRESULT CALLBACK ButtonSubclassProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM 
             if (tipText && !IsTooltipVisible()) {
                 RECT rc; GetWindowRect(hwnd, &rc);
                 std::vector<TooltipEntry> entries = {{ L"", std::wstring(tipText) }};
-                ShowMultilingualTooltip(entries, rc.left, rc.bottom + 4, GetParent(hwnd));
+                ShowMultilingualTooltip(entries, rc.left, rc.bottom + 4, GetParent(hwnd), rc.top);
             }
         }
         break;
     }
-    case WM_MOUSELEAVE:
+    case WM_MOUSELEAVE: {
+        // Guard against spurious WM_MOUSELEAVE events.  When a tooltip popup
+        // appears over (or near) this button, Windows posts WM_MOUSELEAVE to the
+        // tracked button even though the cursor never actually left it.  Without
+        // this guard the hover state resets → HideTooltip → next WM_MOUSEMOVE
+        // re-shows the tooltip → another spurious leave → infinite blink loop.
+        POINT ptLeave; GetCursorPos(&ptLeave);
+        RECT  rcLeave; GetWindowRect(hwnd, &rcLeave);
+        if (PtInRect(&rcLeave, ptLeave)) {
+            // Cursor is still inside — spurious leave (tooltip popup appeared).
+            // Re-arm TME_LEAVE so we still get the real leave notification later.
+            TRACKMOUSEEVENT tme = {};
+            tme.cbSize    = sizeof(tme);
+            tme.dwFlags   = TME_LEAVE;
+            tme.hwndTrack = hwnd;
+            TrackMouseEvent(&tme);
+            break;
+        }
         SetPropW(hwnd, L"IsHovering", (HANDLE)0);
         InvalidateRect(hwnd, NULL, FALSE);
+        HideTooltip();
+        break;
+    }
+    case WM_LBUTTONDOWN:
+        // Hide any visible tooltip immediately when the user starts a click.
+        // The tooltip may still be positioned over (or near) the button from
+        // the preceding hover; leaving it alive can cause the first click to
+        // be swallowed or misrouted depending on Z-order and WS_EX_TRANSPARENT
+        // state.  Hiding at mousedown is also the standard Windows UX expectation.
         HideTooltip();
         break;
     case WM_LBUTTONUP:
@@ -237,6 +263,12 @@ LRESULT CALLBACK ButtonSubclassProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM 
         RemovePropW(hwnd, L"IconIndex2");
         
         RemovePropW(hwnd, L"IsHovering");
+
+        // Clean up cached icons
+        HICON hCachedIcon = (HICON)GetPropW(hwnd, L"CachedIcon");
+        if (hCachedIcon) { DestroyIcon(hCachedIcon); RemovePropW(hwnd, L"CachedIcon"); }
+        HICON hCachedIcon2 = (HICON)GetPropW(hwnd, L"CachedIcon2");
+        if (hCachedIcon2) { DestroyIcon(hCachedIcon2); RemovePropW(hwnd, L"CachedIcon2"); }
 
         // Clean up tooltip text if allocated
         wchar_t* tipText = (wchar_t*)GetPropW(hwnd, L"TooltipText");
@@ -327,17 +359,23 @@ BOOL DrawCustomButton(LPDRAWITEMSTRUCT dis, ButtonColor color, HFONT hFont) {
     HICON hIcon = NULL;
     
     if (iconDll && iconIndex >= 0) {
-        // Build full path to system DLL
-        wchar_t dllPath[MAX_PATH];
-        GetSystemDirectoryW(dllPath, MAX_PATH);
-        wcscat(dllPath, L"\\");
-        wcscat(dllPath, iconDll);
-        
-        // Extract icon from DLL using PrivateExtractIconsW for transparent background
-        UINT extracted = PrivateExtractIconsW(dllPath, iconIndex, S(20), S(20), &hIcon, NULL, 1, 0);
-        if (extracted == 0 || !hIcon) {
-            // Fallback to ExtractIconW if PrivateExtractIconsW fails
-            hIcon = ExtractIconW(NULL, dllPath, iconIndex);
+        // Return cached icon if already extracted (avoids PrivateExtractIconsW on every paint).
+        hIcon = (HICON)GetPropW(dis->hwndItem, L"CachedIcon");
+        if (!hIcon) {
+            // Build full path to system DLL
+            wchar_t dllPath[MAX_PATH];
+            GetSystemDirectoryW(dllPath, MAX_PATH);
+            wcscat(dllPath, L"\\");
+            wcscat(dllPath, iconDll);
+
+            // Extract icon from DLL using PrivateExtractIconsW for transparent background
+            UINT extracted = PrivateExtractIconsW(dllPath, iconIndex, S(20), S(20), &hIcon, NULL, 1, 0);
+            if (extracted == 0 || !hIcon) {
+                // Fallback to ExtractIconW if PrivateExtractIconsW fails
+                hIcon = ExtractIconW(NULL, dllPath, iconIndex);
+            }
+            // Cache for subsequent paints
+            if (hIcon) SetPropW(dis->hwndItem, L"CachedIcon", (HANDLE)hIcon);
         }
     }
     
@@ -391,22 +429,26 @@ BOOL DrawCustomButton(LPDRAWITEMSTRUCT dis, ButtonColor color, HFONT hFont) {
         int iconY = rc.top + (rc.bottom - rc.top - iconSize) / 2;
         
         DrawIconEx(hdc, iconX, iconY, hIcon, iconSize, iconSize, 0, NULL, DI_NORMAL);
-        DestroyIcon(hIcon);
+        // hIcon is cached in "CachedIcon" — do NOT DestroyIcon here.
         
         // Check for overlay icon
         wchar_t* iconDll2 = (wchar_t*)GetPropW(dis->hwndItem, L"IconDLL2");
         INT_PTR iconIndex2 = (INT_PTR)GetPropW(dis->hwndItem, L"IconIndex2");
         
         if (iconDll2 && iconIndex2 > 0) {
-            HMODULE hIconDll2 = LoadLibraryExW(iconDll2, NULL, LOAD_LIBRARY_AS_DATAFILE);
-            if (hIconDll2) {
-                HICON hIcon2 = (HICON)LoadImageW(hIconDll2, MAKEINTRESOURCEW(iconIndex2), IMAGE_ICON, S(20), S(20), 0);
-                if (hIcon2) {
-                    // Draw overlay on top of base icon at full size
-                    DrawIconEx(hdc, iconX, iconY, hIcon2, S(20), S(20), 0, NULL, DI_NORMAL);
-                    DestroyIcon(hIcon2);
+            HICON hIcon2 = (HICON)GetPropW(dis->hwndItem, L"CachedIcon2");
+            if (!hIcon2) {
+                HMODULE hIconDll2 = LoadLibraryExW(iconDll2, NULL, LOAD_LIBRARY_AS_DATAFILE);
+                if (hIconDll2) {
+                    hIcon2 = (HICON)LoadImageW(hIconDll2, MAKEINTRESOURCEW(iconIndex2), IMAGE_ICON, S(20), S(20), 0);
+                    FreeLibrary(hIconDll2);
                 }
-                FreeLibrary(hIconDll2);
+                if (hIcon2) SetPropW(dis->hwndItem, L"CachedIcon2", (HANDLE)hIcon2);
+            }
+            if (hIcon2) {
+                // Draw overlay on top of base icon at full size
+                DrawIconEx(hdc, iconX, iconY, hIcon2, S(20), S(20), 0, NULL, DI_NORMAL);
+                // hIcon2 is cached — do NOT DestroyIcon here.
             }
         }
         

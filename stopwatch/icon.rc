@@ -1,0 +1,5 @@
+// icon.rc — embeds app.ico as the application icon resource.
+// app.ico is generated at build time by extract_icon.ps1 from shell32.dll index 249.
+#include <windows.h>
+IDI_APPICON ICON "app.ico"
+1 24 "app.manifest"

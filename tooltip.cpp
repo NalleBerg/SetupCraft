@@ -269,7 +269,7 @@ void CleanupTooltipSystem() {
     g_currentEntries.clear();
 }
 
-void ShowMultilingualTooltip(const std::vector<TooltipEntry>& entries, int x, int y, HWND parentHwnd) {
+void ShowMultilingualTooltip(const std::vector<TooltipEntry>& entries, int x, int y, HWND parentHwnd, int aboveAnchorY) {
     g_currentEntries = entries;
 
     // If caller passed an empty multilingual list, attempt to build a multilingual
@@ -390,9 +390,13 @@ void ShowMultilingualTooltip(const std::vector<TooltipEntry>& entries, int x, in
             if (finalX < monLeft + 10)
                 finalX = monLeft + 10;
 
-            // Prefer below requested y; if it overflows, try above
+            // Prefer below requested y; if it overflows, try above.
+            // aboveAnchorY (when >= 0) is the top of the triggering control:
+            // place the tooltip so its bottom is just above that edge, so the
+            // tooltip never overlaps the control it belongs to.
             if (finalY + tooltipHeight > monBottom - 10) {
-                int aboveY = y - tooltipHeight - 10;
+                int flipFrom = (aboveAnchorY >= 0) ? aboveAnchorY : y;
+                int aboveY = flipFrom - tooltipHeight - 6;
                 if (aboveY >= monTop + 10)
                     finalY = aboveY;
                 else
@@ -420,6 +424,20 @@ void ShowMultilingualTooltip(const std::vector<TooltipEntry>& entries, int x, in
     }
     
     if (g_tooltipWindow) {
+        // Ensure WS_EX_TRANSPARENT is applied/removed on every show, not just at
+        // creation.  The window is shared and was created with or without the flag
+        // depending on the first tooltip shown.  Simple tooltips MUST be transparent
+        // so mouse clicks pass through to the controls behind them (a non-transparent
+        // popup covering a button eats the first click even with WS_EX_NOACTIVATE).
+        LONG_PTR curEx = GetWindowLongPtrW(g_tooltipWindow, GWL_EXSTYLE);
+        LONG_PTR newEx = isSimpleTooltip
+            ? (curEx | WS_EX_TRANSPARENT)
+            : (curEx & ~WS_EX_TRANSPARENT);
+        if (newEx != curEx) {
+            SetWindowLongPtrW(g_tooltipWindow, GWL_EXSTYLE, newEx);
+            SetWindowPos(g_tooltipWindow, NULL, 0, 0, 0, 0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+        }
         SetWindowPos(g_tooltipWindow, HWND_TOPMOST, finalX, finalY, tooltipWidth, tooltipHeight,
                      SWP_SHOWWINDOW | SWP_NOACTIVATE);
         InvalidateRect(g_tooltipWindow, NULL, TRUE);

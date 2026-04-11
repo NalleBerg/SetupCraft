@@ -232,8 +232,9 @@ struct PreviewData {
     HWND                hRadioMe;      // IDLG_FOR_ME_ALL — "Install just for me"
     HWND                hRadioAll;     // IDLG_FOR_ME_ALL — "Install for all users"
     std::vector<HWND>   hCompChecks;   // IDLG_COMPONENTS — one per folder component (dynamic)
-    bool                contentHidden; // true when IDLG_COMPONENTS has no RTF — hide RichEdit
-    HWND                hSizer;        // sizer panel (set by ShowPreviewDialog after creation)
+    bool                contentHidden;   // true when IDLG_COMPONENTS has no RTF — hide RichEdit
+    HWND                hSizer;          // sizer panel (set by ShowPreviewDialog after creation)
+    bool                finishSelected;  // true → show feedback dialog after preview closes
 };
 
 // Sizer panel data; GWLP_USERDATA on the sizer window.
@@ -640,16 +641,10 @@ static int MeasureRichEditLogHeight(HWND hRE)
 {
     if (!hRE || !IsWindow(hRE)) return 0;
 
-    // Read the vertical scroll range.  When the window is 1px tall (as the
-    // measurement RichEdit is created) ALL content overflows and the RichEdit
-    // sets nMax+1 = total content height in physical pixels — including
-    // embedded \pict images, because the scroll range reflects the full
-    // rendered layout, not just the text.
-    //
-    // Requirements for this to work:
-    //   • The RichEdit must be a WS_CHILD of a VISIBLE top-level window
-    //   • WS_VISIBLE must be set (so Windows actually paints the child)
-    //   • UpdateWindow must be called after StreamRtfIn
+    // Read the vertical scroll range.  When the window is 1px tall ALL content
+    // overflows and nMax+1 = total content height in physical pixels.
+    // Requires a paint pass (WS_VISIBLE + UpdateWindow).  Callers that skip
+    // the paint pass will get nMax=0 here and fall through to EM_FORMATRANGE.
     {
         SCROLLINFO si = {};
         si.cbSize = sizeof(si);
@@ -798,16 +793,18 @@ static void AutoFitPreview(HWND hPreview, PreviewData* pd)
         } else {
             int rtfLogH = 60;  // safe minimum
             HWND hM = CreateWindowExW(0, reClassX, L"",
-                WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL,
+                WS_CHILD | ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL,
                 -(measPhysW + 100), 0, measPhysW, 1,
                 hPreview, NULL, s_hInst, NULL);
             if (hM) {
-                SendMessageW(hM, EM_SETTYPOGRAPHYOPTIONS,
-                             TO_ADVANCEDTYPOGRAPHY, TO_ADVANCEDTYPOGRAPHY);
+                // No WS_VISIBLE and no UpdateWindow: we never paint this window.
+                // MeasureRichEditLogHeight's GetScrollInfo path returns 0 (needs a
+                // paint pass), so it falls through to EM_FORMATRANGE (measure-only,
+                // wParam=FALSE) which computes content height without rendering —
+                // fast even for complex RTF with embedded images.
                 if (pd->hGuiFont) SendMessageW(hM, WM_SETFONT, (WPARAM)pd->hGuiFont, FALSE);
                 SendMessageW(hM, EM_SETBKGNDCOLOR, 0, RGB(255, 255, 255));
                 StreamRtfIn(hM, rtf);
-                UpdateWindow(hM);
                 int measured = MeasureRichEditLogHeight(hM);
                 if (measured > 60) rtfLogH = measured;
                 DestroyWindow(hM);
@@ -851,16 +848,14 @@ static void AutoFitPreview(HWND hPreview, PreviewData* pd)
         int rtfLogH = 100;  // safe minimum
         if (!rtf.empty()) {
             HWND hM = CreateWindowExW(0, reClassX, L"",
-                WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL,
+                WS_CHILD | ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL,
                 -(measPhysW + 100), 0, measPhysW, 1,
                 hPreview, NULL, s_hInst, NULL);
             if (hM) {
-                SendMessageW(hM, EM_SETTYPOGRAPHYOPTIONS,
-                             TO_ADVANCEDTYPOGRAPHY, TO_ADVANCEDTYPOGRAPHY);
+                // No WS_VISIBLE / no UpdateWindow — see split layout comment above.
                 if (pd->hGuiFont) SendMessageW(hM, WM_SETFONT, (WPARAM)pd->hGuiFont, FALSE);
                 SendMessageW(hM, EM_SETBKGNDCOLOR, 0, RGB(255, 255, 255));
                 StreamRtfIn(hM, rtf);
-                UpdateWindow(hM);
                 int measured = MeasureRichEditLogHeight(hM);
                 if (measured > 0) rtfLogH = measured;
                 DestroyWindow(hM);
@@ -1093,9 +1088,10 @@ static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
             // Navigate to the next visible dialog type; close when already at last.
             InstallerDialogType next = NextVisibleType(pd->type);
             if (next == pd->type) {
-                // At Finish — show the "end of preview" feedback dialog, then
-                // close the preview committed (do NOT cancel dimension changes).
-                ShowFinishFeedback(hwnd);
+                // At Finish — flag and close.  ShowFinishFeedback is called by
+                // ShowPreviewDialog at the top level after the preview is torn
+                // down, so there is no nested message loop.
+                pd->finishSelected = true;
                 pd->running = false;
             } else {
                 NavigateTo(hwnd, pd, next);
@@ -1386,6 +1382,29 @@ static LRESULT CALLBACK SizerWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         return 0;
     }
 
+    case WM_KEYDOWN: {
+        // Tab cycling between the sizer's editable controls.
+        // IsDialogMessageW is NOT used for this window (it would eat first
+        // WM_LBUTTONDOWN events on unfocused controls — same bug as the preview).
+        if (wParam == VK_TAB) {
+            bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+            HWND order[] = {
+                GetDlgItem(hwnd, IDC_IDLG_SZR_W_EDIT),
+                GetDlgItem(hwnd, IDC_IDLG_SZR_H_EDIT),
+                GetDlgItem(hwnd, IDC_IDLG_SZR_H_ALIGN),
+                GetDlgItem(hwnd, IDC_IDLG_SZR_V_ALIGN),
+            };
+            int n = (int)(sizeof(order) / sizeof(order[0]));
+            HWND hFocus = GetFocus();
+            int cur = -1;
+            for (int i = 0; i < n; i++) if (order[i] == hFocus) { cur = i; break; }
+            int next = (cur < 0) ? 0 : (shift ? (cur - 1 + n) % n : (cur + 1) % n);
+            if (order[next]) SetFocus(order[next]);
+            return 0;
+        }
+        break;
+    }
+
     case WM_CLOSE:
         // Sizer cannot be closed independently; it closes with the preview.
         return 0;
@@ -1489,12 +1508,9 @@ static LRESULT CALLBACK FinishFeedbackWndProc(HWND hwnd, UINT msg, WPARAM wParam
         std::wstring::size_type p;
         while ((p = appLabel.find(L"<<AppName>>")) != std::wstring::npos)
             appLabel.replace(p, 11, s_previewAppName.empty() ? L"app" : s_previewAppName);
-        HWND hChk = CreateWindowExW(0, L"BUTTON", appLabel.c_str(),
-            WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX | WS_DISABLED,
-            S(16), S(56), S(280), S(24),
-            hwnd, (HMENU)(UINT_PTR)IDC_FFBK_OPEN, cs->hInstance, NULL);
-        if (hGuiFont) SendMessageW(hChk, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
-        SendMessageW(hChk, BM_SETCHECK, BST_CHECKED, 0);
+        HWND hChk = CreateCustomCheckbox(hwnd, IDC_FFBK_OPEN, appLabel,
+            true, S(16), S(56), S(280), S(24), cs->hInstance);
+        EnableWindow(hChk, FALSE);
 
         // OK button
         std::wstring okTxt = L10n(L"ok", L"OK");
@@ -1504,6 +1520,12 @@ static LRESULT CALLBACK FinishFeedbackWndProc(HWND hwnd, UINT msg, WPARAM wParam
             hwnd, (HMENU)(UINT_PTR)IDC_FFBK_OK, cs->hInstance, NULL);
         if (hGuiFont) SendMessageW(hOk, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
         return 0;
+    }
+
+    case WM_DRAWITEM: {
+        LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
+        if (DrawCustomCheckbox(dis)) return TRUE;
+        return DefWindowProcW(hwnd, msg, wParam, lParam);
     }
 
     case WM_COMMAND:
@@ -1555,9 +1577,9 @@ static void ShowFinishFeedback(HWND hOwner)
 
     // Caption: installer title or generic fallback
     std::wstring caption = s_installTitle.empty()
-        ? L10n(L"idlg_preview_done_title", L"End of Preview")
+        ? L10n(L"idlg_preview_done_title", L"Installation Complete")
         : s_installTitle + L"  \u2014  "
-          + L10n(L"idlg_preview_done_title", L"End of Preview");
+          + L10n(L"idlg_preview_done_title", L"Installation Complete");
 
     // Window size: fixed, small
     const DWORD style   = WS_POPUP | WS_CAPTION | WS_SYSMENU;
@@ -1587,7 +1609,9 @@ static void ShowFinishFeedback(HWND hOwner)
 
     MSG m;
     while (fd.running && GetMessageW(&m, NULL, 0, 0) > 0) {
-        if (IsDialogMessageW(hFb, &m)) continue;
+        // hFb is a CreateWindowExW popup, not a real dialog — do NOT use
+        // IsDialogMessageW here; it eats first WM_LBUTTONDOWN on non-focused
+        // controls.  WM_KEYDOWN VK_RETURN/VK_ESCAPE handled in FinishFeedbackWndProc.
         TranslateMessage(&m);
         DispatchMessageW(&m);
     }
@@ -1723,7 +1747,12 @@ static void ShowPreviewDialog(HWND hwndParent, InstallerDialogType type)
 
     ShowWindow(hPreview, SW_SHOW);
     UpdateWindow(hPreview);
-    if (hSizer) { ShowWindow(hSizer, SW_SHOW); UpdateWindow(hSizer); }
+    // SW_SHOWNOACTIVATE: show the sizer without stealing activation from the
+    // preview.  SW_SHOW would activate the sizer, moving keyboard focus into its
+    // edit controls so that the first click on a preview button would reactivate
+    // the preview (via WM_MOUSEACTIVATE) rather than being delivered directly to
+    // the button — causing the button to require multiple clicks.
+    if (hSizer) { ShowWindow(hSizer, SW_SHOWNOACTIVATE); UpdateWindow(hSizer); }
 
     // Auto-fit AFTER the window is visible so MeasureRichEditLogHeight
     // gets a genuine paint pass (images and OLE objects need a live DC).
@@ -1753,6 +1782,12 @@ static void ShowPreviewDialog(HWND hwndParent, InstallerDialogType type)
                          SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
         }
     }
+    // Invalidate hPreview and all children so WM_PAINT fires on the first
+    // message-loop pass.  RDW_UPDATENOW must NOT be used here — it would
+    // force a synchronous paint of the RichEdit which can take 9+ seconds
+    // for complex RTF.  Async invalidation is sufficient: the message loop
+    // processes WM_PAINT immediately on its first iteration.
+    RedrawWindow(hPreview, NULL, NULL, RDW_INVALIDATE | RDW_ALLCHILDREN);
 
     EnableWindow(hwndParent, FALSE);
 
@@ -1776,9 +1811,13 @@ static void ShowPreviewDialog(HWND hwndParent, InstallerDialogType type)
             SetScrollPos(pd.hContent, SB_VERT, scrollPt.y, TRUE);
             continue;
         }
-        bool handled = false;
-        if (hSizer && IsWindow(hSizer) && IsDialogMessageW(hSizer, &m)) handled = true;
-        if (!handled) { TranslateMessage(&m); DispatchMessageW(&m); }
+        // Do NOT use IsDialogMessageW here — the sizer is a CreateWindowExW popup,
+        // not a real dialog.  IsDialogMessageW on non-dialog windows eats first
+        // WM_LBUTTONDOWN events on non-focused controls (same class of bug that was
+        // fixed for the preview window itself).  Tab navigation for the sizer's
+        // spinners / edits is handled in SizerWndProc WM_KEYDOWN instead.
+        TranslateMessage(&m);
+        DispatchMessageW(&m);
     }
 
     // Standard Win32 modal pattern: enable owner BEFORE destroying the popup
@@ -1800,6 +1839,15 @@ static void ShowPreviewDialog(HWND hwndParent, InstallerDialogType type)
 
     if (hSmIcon) DestroyIcon(hSmIcon);
     if (hLgIcon) DestroyIcon(hLgIcon);
+
+    // Show the "Installation Complete" feedback dialog AFTER the preview is
+    // fully torn down and hwndParent is re-enabled.  This eliminates the
+    // nested-message-loop problem (ShowFinishFeedback used to be called from
+    // inside DispatchMessageW → PreviewWndProc WM_COMMAND, creating a second
+    // message loop while the outer preview loop was suspended — that caused
+    // the first-click swallowing on the OK button).
+    if (pd.finishSelected && !pd.cancelled)
+        ShowFinishFeedback(hwndParent);
 }
 
 // ── IDLG_Reset ────────────────────────────────────────────────────────────────

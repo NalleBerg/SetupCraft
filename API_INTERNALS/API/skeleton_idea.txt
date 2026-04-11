@@ -79,5 +79,13 @@
     triggers spurious WM_SETFOCUS/WM_KILLFOCUS messages that cause plain
     BS_PUSHBUTTON hover states to blink.  For manual message loops on popup
     windows, handle Tab/Return/Escape explicitly in WM_KEYDOWN instead.
+  - Color emoji / Direct2D: GDI DrawTextW with Segoe UI Emoji renders only
+    the monochrome outline path — GDI does not support OpenType COLR color
+    tables.  For full-color emoji use ID2D1HwndRenderTarget::DrawText with
+    D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT and an IDWriteTextFormat created
+    against "Segoe UI Emoji".  Link d2d1 + dwrite.  Convert physical pixels to
+    DIPs for D2D coords: Dip(physPx) = physPx * 96.0f / dpi.  Follow the
+    CreateDeviceResources / DiscardDeviceResources pattern and handle
+    D2DERR_RECREATE_TARGET in EndDraw.  On WM_SIZE call RT->Resize(SizeU(w,h)).
 
 ================================================================================

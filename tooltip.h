@@ -21,7 +21,12 @@ void CleanupTooltipSystem();
 // entries: vector of (code, text) pairs to display in 2-column grid
 // x, y: screen coordinates where tooltip should appear
 // parentHwnd: parent window handle
-void ShowMultilingualTooltip(const std::vector<TooltipEntry>& entries, int x, int y, HWND parentHwnd);
+// x, belowY  — preferred position: tooltip top-left just below a control.
+// aboveAnchorY — top of the control; when the tooltip doesn't fit below the screen
+//                it is placed at (aboveAnchorY - tooltipHeight - gap) so it sits
+//                cleanly above the control without overlapping it.
+//                Pass -1 (default) to use the old behaviour (flip above belowY).
+void ShowMultilingualTooltip(const std::vector<TooltipEntry>& entries, int x, int belowY, HWND parentHwnd, int aboveAnchorY = -1);
 
 // Hide the tooltip if visible
 void HideTooltip();

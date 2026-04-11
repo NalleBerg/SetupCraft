@@ -2,6 +2,11 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.04.11.10] - 2026-04-11
+
+### Added
+- **GlyphPicker companion tool (`glyphpicker/`)**: Standalone Unicode glyph and emoji picker. Scrollable grid across 30 Unicode blocks (Smileys, Animals, Food, Travel, Symbols, Latin, Greek, Cyrillic, Box Drawing, and more). Click once to select, click again or press Enter/Space to copy to clipboard. U+hex search filters across all blocks. Block dropdown defaults to **— All —** so the full catalogue is visible immediately; individual blocks narrow the view. Rendered with **Direct2D + DirectWrite** (`D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT`) for full-color Segoe UI Emoji — GDI `DrawTextW` only renders the monochrome outline and does not support OpenType COLR color tables. Keyboard navigation (arrows, Page Up/Down). Status bar shows glyph, U+ code, and copy confirmation. Icon from `imageres.dll #81`. Statically linked MinGW binary (~670 KB), DPI-aware, Common Controls v6.
+
 ## [2026.04.10.07] - 2026-04-10
 
 ### Fixed
