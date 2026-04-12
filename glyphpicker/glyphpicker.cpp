@@ -25,42 +25,52 @@ enum {
     IDC_BLOCK_COMBO = 101,
     IDC_SEARCH_EDIT = 102,
     IDC_STATUS      = 104,
-    IDT_SEARCH      = 1
+    IDT_SEARCH      = 1,
+    IDT_CLOCK       = 2
 };
 
 // -- Unicode block table ------------------------------------------------------
-struct Block { const wchar_t* name; UINT32 first; UINT32 last; };
+struct Block { const wchar_t* name; UINT32 first; UINT32 last; const UINT32* prepend; const UINT32* append; };
+
+// Extra codepoints appended to Misc Symbols
+static const UINT32 k_miscExtras[] = {
+    0x3030, // 〰 wavy dash
+    0x303D, // 〽 part alternation mark
+    0
+};
+
+static const UINT32 k_currencyExtras[] = {
+    0x0024, // $
+    0x00A2, // ¢
+    0x00A3, // £
+    0x00A4, // ¤
+    0x00A5, // ¥
+    0
+};
+
 static const Block k_blocks[] = {
-    { L"Smileys & Emotion",           0x1F600, 0x1F64F },
-    { L"People & Body",               0x1F466, 0x1F487 },
-    { L"Animals & Nature",            0x1F400, 0x1F43F },
-    { L"Food & Drink",                0x1F347, 0x1F37F },
-    { L"Travel & Places",             0x1F680, 0x1F6FF },
-    { L"Activities",                  0x1F3A0, 0x1F3FF },
-    { L"Objects",                     0x1F4A0, 0x1F4FF },
-    { L"Symbols",                     0x1F500, 0x1F5FF },
-    { L"Flags",                       0x1F1E0, 0x1F1FF },
-    { L"Supplemental Symbols",        0x1F900, 0x1F9FF },
-    { L"Symbols Extended-A",          0x1FA00, 0x1FA6F },
-    { L"Symbols Extended-B",          0x1FA70, 0x1FAFF },
-    { L"Misc Symbols",                0x2600,  0x26FF  },
-    { L"Dingbats",                    0x2700,  0x27BF  },
-    { L"Arrows",                      0x2190,  0x21FF  },
-    { L"Math Operators",              0x2200,  0x22FF  },
-    { L"Box Drawing",                 0x2500,  0x257F  },
-    { L"Block Elements",              0x2580,  0x259F  },
-    { L"Geometric Shapes",            0x25A0,  0x25FF  },
-    { L"Latin Extended-A",            0x0100,  0x017F  },
-    { L"Latin Extended-B",            0x0180,  0x024F  },
-    { L"Currency Symbols",            0x20A0,  0x20CF  },
-    { L"Letterlike Symbols",          0x2100,  0x214F  },
-    { L"Number Forms",                0x2150,  0x218F  },
-    { L"Enclosed Alphanumerics",      0x2460,  0x24FF  },
-    { L"CJK Symbols & Punctuation",   0x3000,  0x303F  },
-    { L"Hiragana",                    0x3040,  0x309F  },
-    { L"Katakana",                    0x30A0,  0x30FF  },
-    { L"Greek & Coptic",              0x0370,  0x03FF  },
-    { L"Cyrillic",                    0x0400,  0x04FF  },
+    { L"Activities",                  0x1F3A0, 0x1F3FF, nullptr, nullptr },
+    { L"Animals & Nature",            0x1F400, 0x1F43F, nullptr, nullptr },
+    { L"Arrows",                      0x2190,  0x21FF,  nullptr, nullptr },
+    { L"Currency Symbols",            0x20A0,  0x20CF,  k_currencyExtras, nullptr },
+    { L"Cyrillic",                    0x0400,  0x04FF,  nullptr, nullptr },
+    { L"Dingbats",                    0x2700,  0x27BF,  nullptr, nullptr },
+    { L"Enclosed Alphanumerics",      0x2460,  0x24FF,  nullptr, nullptr },
+    { L"Food & Drink",                0x1F347, 0x1F37F, nullptr, nullptr },
+    { L"Geometric Shapes",            0x25A0,  0x25FF,  nullptr, nullptr },
+    { L"Greek & Coptic",              0x0370,  0x03FF,  nullptr, nullptr },
+    { L"Latin Extended",              0x0100,  0x024F,  nullptr, nullptr },
+    { L"Letterlike Symbols",          0x2100,  0x214F,  nullptr, nullptr },
+    { L"Math Operators",              0x2200,  0x22FF,  nullptr, nullptr },
+    { L"Misc Symbols",                0x2600,  0x26FF,  nullptr, k_miscExtras },
+    { L"Number Forms",                0x2150,  0x218F,  nullptr, nullptr },
+    { L"Objects",                     0x1F4A0, 0x1F4FF, nullptr, nullptr },
+    { L"People & Body",               0x1F466, 0x1F487, nullptr, nullptr },
+    { L"Smileys & Emotion",           0x1F600, 0x1F64F, nullptr, nullptr },
+    { L"Supplemental Symbols",        0x1F900, 0x1F9FF, nullptr, nullptr },
+    { L"Symbols",                     0x1F500, 0x1F5FF, nullptr, nullptr },
+    { L"Symbols Extended",            0x1FA70, 0x1FAFF, nullptr, nullptr },
+    { L"Travel & Places",             0x1F680, 0x1F6FF, nullptr, nullptr },
 };
 static const int k_nBlocks = (int)(sizeof(k_blocks) / sizeof(k_blocks[0]));
 
@@ -75,8 +85,11 @@ static HWND      g_hWnd  = NULL;
 static ID2D1Factory*          g_pD2DFac  = nullptr;
 static IDWriteFactory*        g_pDWFac   = nullptr;
 static ID2D1HwndRenderTarget* g_pRT      = nullptr;
-static IDWriteTextFormat*     g_pTFEmoji = nullptr;
-static IDWriteTextFormat*     g_pTFLabel = nullptr;
+static IDWriteTextFormat*     g_pTFEmoji    = nullptr;
+static IDWriteTextFormat*     g_pTFFallback = nullptr;
+static IDWriteTextFormat*     g_pTFLabel    = nullptr;
+static IDWriteFontFace*       g_pEmojiFace    = nullptr;
+static IDWriteFontFace*       g_pFallbackFace = nullptr;
 // Brushes (recreated with render target)
 static ID2D1SolidColorBrush*  g_pBrBg    = nullptr;
 static ID2D1SolidColorBrush*  g_pBrText  = nullptr;
@@ -87,8 +100,10 @@ static ID2D1SolidColorBrush*  g_pBrWhite = nullptr;
 static ID2D1SolidColorBrush*  g_pBrGrid  = nullptr;
 static ID2D1SolidColorBrush*  g_pBrSep   = nullptr;
 
-// Display list
-static std::vector<UINT32> g_codepoints;
+// Display list -- each item is the wstring to render and copy
+static std::vector<std::wstring> g_glyphs;
+static std::vector<std::wstring> g_labels;    // U+XXXX label per item
+static std::vector<bool>         g_useEmoji;  // true = emoji font, false = Segoe UI fallback
 static int   g_curBlock    = -1;   // -1 = All
 static int   g_hoveredIdx  = -1;
 static int   g_selectedIdx = -1;
@@ -107,6 +122,15 @@ static int g_scrollMax = 0;
 static int   D(int px)       { return MulDiv(px, g_dpi, 96); }
 // Physical pixels -> DIPs (D2D uses DIPs at system DPI)
 static float Dip(int physPx) { return (float)physPx * 96.0f / (float)g_dpi; }
+
+// Check glyph coverage against a font face
+static bool FaceHasGlyph(IDWriteFontFace* face, UINT32 cp)
+{
+    if (!face) return false;
+    UINT16 idx = 0;
+    face->GetGlyphIndices(&cp, 1, &idx);
+    return idx != 0;
+}
 
 static HFONT MakeFont(int pt, bool bold, const wchar_t* face)
 {
@@ -182,27 +206,59 @@ static HRESULT CreateDeviceResources(HWND hwnd)
 }
 
 // -- Build display list -------------------------------------------------------
+static void AddBlock(int blkIdx)
+{
+    const Block& blk = k_blocks[blkIdx];
+    auto pushCp = [](UINT32 cp) {
+        bool inEmoji    = FaceHasGlyph(g_pEmojiFace, cp);
+        bool inFallback = !inEmoji && FaceHasGlyph(g_pFallbackFace, cp);
+        if (!inEmoji && !inFallback) return;
+        g_glyphs.push_back(ToWStr(cp));
+        wchar_t lbl[12]; swprintf_s(lbl, L"U+%04X", cp);
+        g_labels.push_back(lbl);
+        g_useEmoji.push_back(inEmoji);
+    };
+    // Prepend extras, main range, append extras
+    if (blk.prepend)
+        for (const UINT32* p = blk.prepend; *p; p++) pushCp(*p);
+    for (UINT32 cp = blk.first; cp <= blk.last; cp++) pushCp(cp);
+    if (blk.append)
+        for (const UINT32* p = blk.append; *p; p++) pushCp(*p);
+}
+
 static void BuildList()
 {
-    g_codepoints.clear(); g_scrollPos = 0;
+    g_glyphs.clear(); g_labels.clear(); g_useEmoji.clear(); g_scrollPos = 0;
     if (g_searchBuf[0] != L'\0') {
+        // Search: only plain codepoint blocks (skip flags block)
         std::wstring needle(g_searchBuf);
         std::transform(needle.begin(), needle.end(), needle.begin(), ::towlower);
-        for (auto& blk : k_blocks) {
-            for (UINT32 cp = blk.first; cp <= blk.last; cp++) {
-                wchar_t hex[12]; swprintf_s(hex, L"%04x", cp);
-                if (std::wstring(hex).find(needle) != std::wstring::npos)
-                    g_codepoints.push_back(cp);
-            }
+        for (int bi = 0; bi < k_nBlocks; bi++) {
+            const Block& blk = k_blocks[bi];
+            auto searchRange = [&](UINT32 f, UINT32 l) {
+                for (UINT32 cp = f; cp <= l; cp++) {
+                    wchar_t hex[12]; swprintf_s(hex, L"%04x", cp);
+                    if (std::wstring(hex).find(needle) != std::wstring::npos) {
+                        bool inEmoji    = FaceHasGlyph(g_pEmojiFace, cp);
+                        bool inFallback = !inEmoji && FaceHasGlyph(g_pFallbackFace, cp);
+                        if (!inEmoji && !inFallback) return;
+                        g_glyphs.push_back(ToWStr(cp));
+                        wchar_t lbl[12]; swprintf_s(lbl, L"U+%04X", cp);
+                        g_labels.push_back(lbl);
+                        g_useEmoji.push_back(inEmoji);
+                    }
+                }
+            };
+            if (blk.prepend)
+                for (const UINT32* p = blk.prepend; *p; p++) searchRange(*p, *p);
+            searchRange(blk.first, blk.last);
+            if (blk.append)
+                for (const UINT32* p = blk.append; *p; p++) searchRange(*p, *p);
         }
     } else if (g_curBlock < 0) {
-        for (auto& blk : k_blocks)
-            for (UINT32 cp = blk.first; cp <= blk.last; cp++)
-                g_codepoints.push_back(cp);
+        for (int bi = 0; bi < k_nBlocks; bi++) AddBlock(bi);
     } else {
-        const Block& blk = k_blocks[g_curBlock];
-        for (UINT32 cp = blk.first; cp <= blk.last; cp++)
-            g_codepoints.push_back(cp);
+        AddBlock(g_curBlock);
     }
     g_hoveredIdx = -1; g_selectedIdx = -1;
 }
@@ -211,7 +267,7 @@ static void BuildList()
 static void UpdateScrollRange(HWND hwnd)
 {
     if (g_cols <= 0 || g_cellSize <= 0) return;
-    int rows   = ((int)g_codepoints.size() + g_cols - 1) / g_cols;
+    int rows   = ((int)g_glyphs.size() + g_cols - 1) / g_cols;
     int totalH = rows * g_cellSize;
     int viewH  = g_clientH - g_gridTop;
     g_scrollMax = max(0, totalH - viewH);
@@ -239,18 +295,42 @@ static void UpdateStatus(HWND hwnd)
 {
     HWND hSt = GetDlgItem(hwnd, IDC_STATUS);
     if (!hSt) return;
-    if (g_selectedIdx >= 0 && g_selectedIdx < (int)g_codepoints.size()) {
-        UINT32 cp = g_codepoints[g_selectedIdx];
+    if (g_selectedIdx >= 0 && g_selectedIdx < (int)g_glyphs.size()) {
+        const std::wstring& glyph = g_glyphs[g_selectedIdx];
+        const std::wstring& lbl   = g_labels[g_selectedIdx];
         wchar_t buf[128];
-        swprintf_s(buf, L"   %s  U+%04X  --  click again or press Enter to copy",
-            ToWStr(cp).c_str(), cp);
-        SetWindowTextW(hSt, buf);
+        swprintf_s(buf, L"   %s  %s  --  click again or press Enter to copy",
+            glyph.c_str(), lbl.c_str());
+        SendMessageW(hSt, SB_SETTEXTW, 0, (LPARAM)buf);
     } else {
         wchar_t buf[64];
         swprintf_s(buf, L"   %d glyphs  --  click to select, click again to copy",
-            (int)g_codepoints.size());
-        SetWindowTextW(hSt, buf);
+            (int)g_glyphs.size());
+        SendMessageW(hSt, SB_SETTEXTW, 0, (LPARAM)buf);
     }
+}
+
+static void SetStatusText(HWND hwnd, const wchar_t* text)
+{
+    HWND hSt = GetDlgItem(hwnd, IDC_STATUS);
+    if (hSt) SendMessageW(hSt, SB_SETTEXTW, 0, (LPARAM)text);
+}
+
+static void UpdateClock(HWND hwnd)
+{
+    HWND hSt = GetDlgItem(hwnd, IDC_STATUS);
+    if (!hSt) return;
+    SYSTEMTIME st; GetLocalTime(&st);
+    wchar_t buf[16];
+    swprintf_s(buf, L"  %02d:%02d:%02d  ", st.wHour, st.wMinute, st.wSecond);
+    SendMessageW(hSt, SB_SETTEXTW, 1, (LPARAM)buf);
+}
+
+static void SetStatusParts(HWND hSt, int totalW)
+{
+    int clockW = D(90);
+    int parts[2] = { totalW - clockW, -1 };
+    SendMessageW(hSt, SB_SETPARTS, 2, (LPARAM)parts);
 }
 
 static int HitTest(int mx, int my)
@@ -260,7 +340,7 @@ static int HitTest(int mx, int my)
     int col = mx / g_cellSize, row = gy / g_cellSize;
     if (col < 0 || col >= g_cols) return -1;
     int idx = row * g_cols + col;
-    return (idx >= 0 && idx < (int)g_codepoints.size()) ? idx : -1;
+    return (idx >= 0 && idx < (int)g_glyphs.size()) ? idx : -1;
 }
 
 // -- D2D rendering ------------------------------------------------------------
@@ -291,7 +371,7 @@ static void RenderFrame(HWND hwnd)
     for (int row = firstRow; row <= lastRow; row++) {
         for (int col = 0; col < g_cols; col++) {
             int idx = row * g_cols + col;
-            if (idx >= (int)g_codepoints.size()) break;
+            if (idx >= (int)g_glyphs.size()) break;
 
             float cx = Dip(col * g_cellSize);
             float cy = Dip(g_gridTop + row * g_cellSize - g_scrollPos);
@@ -306,20 +386,26 @@ static void RenderFrame(HWND hwnd)
             g_pRT->DrawLine({cx + cellF, cy}, {cx + cellF, cy + cellF}, g_pBrGrid, 0.5f);
             g_pRT->DrawLine({cx, cy + cellF}, {cx + cellF, cy + cellF}, g_pBrGrid, 0.5f);
 
-            // Glyph -- color emoji via ENABLE_COLOR_FONT
-            UINT32 cp = g_codepoints[idx];
-            std::wstring glyph = ToWStr(cp);
+            // Glyph -- color emoji via ENABLE_COLOR_FONT, plain text via fallback
+            const std::wstring& glyph = g_glyphs[idx];
             auto* br = (idx == g_selectedIdx) ? g_pBrWhite : g_pBrText;
             D2D1_RECT_F glyphR = { cx, cy, cx + cellF, cy + cellF - lblH };
-            g_pRT->DrawText(glyph.c_str(), (UINT32)glyph.size(),
-                g_pTFEmoji, glyphR, br,
-                D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
+            bool useEmoji = (idx < (int)g_useEmoji.size()) ? g_useEmoji[idx] : true;
+            if (useEmoji) {
+                g_pRT->DrawText(glyph.c_str(), (UINT32)glyph.size(),
+                    g_pTFEmoji, glyphR, br,
+                    D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
+            } else {
+                g_pRT->DrawText(glyph.c_str(), (UINT32)glyph.size(),
+                    g_pTFFallback, glyphR, br,
+                    D2D1_DRAW_TEXT_OPTIONS_NONE);
+            }
 
             // Label
-            wchar_t lbl[12]; swprintf_s(lbl, L"U+%04X", cp);
+            const std::wstring& lbl = g_labels[idx];
             auto* lbr = (idx == g_selectedIdx) ? g_pBrWhite : g_pBrLbl;
             D2D1_RECT_F lblR = { cx, cy + cellF - lblH, cx + cellF, cy + cellF };
-            g_pRT->DrawText(lbl, 6, g_pTFLabel, lblR, lbr,
+            g_pRT->DrawText(lbl.c_str(), (UINT32)lbl.size(), g_pTFLabel, lblR, lbr,
                 D2D1_DRAW_TEXT_OPTIONS_NONE);
         }
     }
@@ -357,6 +443,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
             WS_CHILD|WS_VISIBLE|SBARS_SIZEGRIP,
             0,0,0,0, hwnd, (HMENU)IDC_STATUS, g_hInst, NULL);
         SendMessageW(hSt, WM_SETFONT, (WPARAM)g_hfUI, TRUE);
+        SetTimer(hwnd, IDT_CLOCK, 1000, NULL);
 
         BuildList(); UpdateStatus(hwnd);
         return 0;
@@ -366,6 +453,8 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         HWND hSt = GetDlgItem(hwnd, IDC_STATUS);
         SendMessageW(hSt, WM_SIZE, 0, 0);
         RECT cr; GetClientRect(hwnd, &cr);
+        SetStatusParts(hSt, cr.right);
+        UpdateClock(hwnd);
         SetWindowPos(GetDlgItem(hwnd, IDC_BLOCK_COMBO), NULL,
             D(4), D(5), D(260), D(260), SWP_NOZORDER);
         SetWindowPos(GetDlgItem(hwnd, IDC_SEARCH_EDIT), NULL,
@@ -425,34 +514,37 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         int idx = HitTest(LOWORD(lp), HIWORD(lp));
         if (idx >= 0) {
             if (idx == g_selectedIdx) {
-                UINT32 cp = g_codepoints[idx];
-                CopyToClipboard(hwnd, ToWStr(cp));
-                wchar_t buf[80]; swprintf_s(buf, L"   Copied  %s  U+%04X  to clipboard", ToWStr(cp).c_str(), cp);
-                SetWindowTextW(GetDlgItem(hwnd, IDC_STATUS), buf);
+                CopyToClipboard(hwnd, g_glyphs[idx]);
+                wchar_t buf[80];
+                swprintf_s(buf, L"   Copied  %s  %s  to clipboard",
+                    g_glyphs[idx].c_str(), g_labels[idx].c_str());
+                SetStatusText(hwnd, buf);
             } else {
                 g_selectedIdx = idx; InvalidateRect(hwnd, NULL, FALSE); UpdateStatus(hwnd);
             }
         } else {
-            g_selectedIdx = -1; InvalidateRect(hwnd, NULL, FALSE); UpdateStatus(hwnd);
+            // click on empty space — ignore, keep selection/status as-is
         }
         return 0;
     }
     case WM_KEYDOWN:
     {
-        if (g_selectedIdx < 0 && !g_codepoints.empty()) g_selectedIdx = 0;
+        if (g_selectedIdx < 0 && !g_glyphs.empty()) g_selectedIdx = 0;
         int idx = g_selectedIdx;
         switch (wp) {
         case VK_RIGHT: idx++; break; case VK_LEFT:  idx--; break;
         case VK_DOWN:  idx += g_cols; break; case VK_UP: idx -= g_cols; break;
         case VK_RETURN: case VK_SPACE:
-            if (idx >= 0 && idx < (int)g_codepoints.size()) {
-                UINT32 cp = g_codepoints[idx]; CopyToClipboard(hwnd, ToWStr(cp));
-                wchar_t buf[80]; swprintf_s(buf, L"   Copied  %s  U+%04X  to clipboard", ToWStr(cp).c_str(), cp);
-                SetWindowTextW(GetDlgItem(hwnd, IDC_STATUS), buf);
+            if (idx >= 0 && idx < (int)g_glyphs.size()) {
+                CopyToClipboard(hwnd, g_glyphs[idx]);
+                wchar_t buf[80];
+                swprintf_s(buf, L"   Copied  %s  %s  to clipboard",
+                    g_glyphs[idx].c_str(), g_labels[idx].c_str());
+                SetStatusText(hwnd, buf);
             }
             return 0;
         }
-        idx = max(0, min(idx, (int)g_codepoints.size()-1));
+        idx = max(0, min(idx, (int)g_glyphs.size()-1));
         if (idx != g_selectedIdx) {
             g_selectedIdx = idx;
             int row = idx/g_cols, cellTop = row*g_cellSize, cellBot = cellTop+g_cellSize;
@@ -482,6 +574,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
             GetWindowTextW(GetDlgItem(hwnd,IDC_SEARCH_EDIT), g_searchBuf, 63);
             BuildList(); UpdateScrollRange(hwnd); UpdateStatus(hwnd); InvalidateRect(hwnd,NULL,FALSE);
         }
+        if (wp == IDT_CLOCK) UpdateClock(hwnd);
         return 0;
     case WM_DESTROY:
         DiscardDeviceResources(); PostQuitMessage(0);
@@ -513,6 +606,13 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
             DWRITE_FONT_STRETCH_NORMAL, 28.0f, L"", &g_pTFEmoji);
         g_pDWFac->CreateTextFormat(L"Segoe UI", nullptr,
             DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+            DWRITE_FONT_STRETCH_NORMAL, 28.0f, L"", &g_pTFFallback);
+        if (g_pTFFallback) {
+            g_pTFFallback->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+            g_pTFFallback->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+        }
+        g_pDWFac->CreateTextFormat(L"Segoe UI", nullptr,
+            DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
             DWRITE_FONT_STRETCH_NORMAL, 9.0f, L"", &g_pTFLabel);
         if (g_pTFEmoji) {
             g_pTFEmoji->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
@@ -521,6 +621,50 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
         if (g_pTFLabel) {
             g_pTFLabel->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
             g_pTFLabel->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+        }
+
+        // Acquire a font face for Segoe UI Emoji so we can check glyph coverage
+        IDWriteFontCollection* pColl = nullptr;
+        if (SUCCEEDED(g_pDWFac->GetSystemFontCollection(&pColl, FALSE))) {
+            UINT32 fi = 0; BOOL found = FALSE;
+            pColl->FindFamilyName(L"Segoe UI Emoji", &fi, &found);
+            if (found) {
+                IDWriteFontFamily* pFamily = nullptr;
+                if (SUCCEEDED(pColl->GetFontFamily(fi, &pFamily))) {
+                    IDWriteFont* pFont = nullptr;
+                    if (SUCCEEDED(pFamily->GetFirstMatchingFont(
+                            DWRITE_FONT_WEIGHT_NORMAL,
+                            DWRITE_FONT_STRETCH_NORMAL,
+                            DWRITE_FONT_STYLE_NORMAL, &pFont))) {
+                        pFont->CreateFontFace(&g_pEmojiFace);
+                        pFont->Release();
+                    }
+                    pFamily->Release();
+                }
+            }
+            pColl->Release();
+        }
+
+        // Acquire Segoe UI font face for fallback glyph coverage checks
+        IDWriteFontCollection* pColl2 = nullptr;
+        if (SUCCEEDED(g_pDWFac->GetSystemFontCollection(&pColl2, FALSE))) {
+            UINT32 fi = 0; BOOL found = FALSE;
+            pColl2->FindFamilyName(L"Segoe UI", &fi, &found);
+            if (found) {
+                IDWriteFontFamily* pFamily = nullptr;
+                if (SUCCEEDED(pColl2->GetFontFamily(fi, &pFamily))) {
+                    IDWriteFont* pFont = nullptr;
+                    if (SUCCEEDED(pFamily->GetFirstMatchingFont(
+                            DWRITE_FONT_WEIGHT_NORMAL,
+                            DWRITE_FONT_STRETCH_NORMAL,
+                            DWRITE_FONT_STYLE_NORMAL, &pFont))) {
+                        pFont->CreateFontFace(&g_pFallbackFace);
+                        pFont->Release();
+                    }
+                    pFamily->Release();
+                }
+            }
+            pColl2->Release();
         }
     }
 
@@ -554,7 +698,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
         TranslateMessage(&msg); DispatchMessageW(&msg);
     }
 
-    SafeRelease(&g_pTFEmoji); SafeRelease(&g_pTFLabel);
+    SafeRelease(&g_pTFEmoji); SafeRelease(&g_pTFFallback); SafeRelease(&g_pTFLabel);
+    SafeRelease(&g_pEmojiFace); SafeRelease(&g_pFallbackFace);
     SafeRelease(&g_pDWFac);   SafeRelease(&g_pD2DFac);
     return (int)msg.wParam;
 }

@@ -42,3 +42,11 @@ endif()
 
 add_executable(glyphpicker WIN32 glyphpicker.cpp ${RESOURCE_FILES})
 target_link_libraries(glyphpicker comctl32 shell32 imm32 d2d1 dwrite)
+
+# Always copy the exe next to the source after a successful build
+add_custom_command(TARGET glyphpicker POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:glyphpicker>"
+        "${CMAKE_CURRENT_SOURCE_DIR}/glyphpicker.exe"
+    COMMENT "Copying glyphpicker.exe to source folder"
+)

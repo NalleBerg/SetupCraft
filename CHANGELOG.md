@@ -2,6 +2,18 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.04.12.10] - 2026-04-12
+
+### Changed / Fixed (GlyphPicker)
+- **Glyph coverage filter**: Each codepoint is now checked against `IDWriteFontFace::GetGlyphIndices` before being added to the display list — index 0 (`.notdef`) means no glyph and the slot is silently skipped. Blocks no longer show empty squares for unrenderable codepoints.
+- **Segoe UI fallback font**: A second `IDWriteFontFace` (Segoe UI) is acquired at startup. Codepoints absent from Segoe UI Emoji are tested against the fallback; if found they are rendered with the Segoe UI text format. Currency Symbols, Letterlike Symbols, Latin Extended, and similar blocks are now fully populated.
+- **Flags block removed**: The 258 ISO 3166-1 regional-indicator pairs displayed as bold two-letter codes (Windows Segoe UI Emoji has no flag images). Removed rather than showing misleading placeholders; the codepoints still paste correctly as flag emoji in apps that render them.
+- **Block list pruned and alphabetised**: Blocks rendering zero glyphs after filtering (Box Drawing, Block Elements, Hiragana, Katakana, Symbols Extended-A, CJK Symbols & Punctuation) removed. The two surviving CJK glyphs (U+3030, U+303D) moved as hard-coded extras to Misc Symbols. Remaining blocks sorted A→Z in the dropdown with **— All —** pinned first.
+- **Currency Symbols — prepend extras**: `$` (U+0024), `¢` (U+00A2), `£` (U+00A3), `¤` (U+00A4), `¥` (U+00A5) prepended as hard-coded extras so all common currency signs appear at the top of the block.
+- **Status bar no longer clears on empty-space click**: Clicking outside the glyph grid previously reset the selection and wiped the status text. Empty-space clicks are now ignored.
+- **Clock on status bar**: Live `HH:MM:SS` clock in the right section of the status bar, updated every second via `WM_TIMER`. Parts set in `WM_SIZE` (not `WM_CREATE` where width is 0).
+- **makeit.bat**: New build script in `glyphpicker/` — kills any running instance via `taskkill`, configures CMake if needed, builds. `POST_BUILD` in `CMakeLists.txt` copies the exe to the source folder automatically.
+
 ## [2026.04.11.10] - 2026-04-11
 
 ### Added

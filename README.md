@@ -2,9 +2,21 @@
 
 An installer creation tool for making your developed packages distributable. Designed to be simple to use with a clean, native Windows interface.
 
-**Current Release:** Version 2026.04.11.10 (Published: 11.04.2026 10:58)
+**Current Release:** Version 2026.04.12.10 (Published: 12.04.2026 10:17)
 
 > Note: This project is in active development. Entry screen, Files management, Shortcuts, Dependencies, and Dialogs pages are complete.
+
+## Bundled Freeware Utilities
+
+Two small standalone tools are included in the repository under their own subfolders. Both are public-domain freeware, statically linked single-exe Win32 applications built with MinGW.
+
+### GlyphPicker (`glyphpicker/`)
+
+A Unicode glyph and emoji picker. Opens to a scrollable grid showing every renderable codepoint across a curated set of Unicode blocks — Smileys, People & Body, Animals, Food, Travel, Activities, Objects, Symbols, Currency, Greek, Cyrillic, Arrows, Math, and more. Only codepoints that the installed fonts can actually render are shown; empty squares for missing glyphs are filtered out at startup using `IDWriteFontFace::GetGlyphIndices`. Emoji are drawn in full color via Direct2D + DirectWrite (`D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT`); non-emoji glyphs fall back to Segoe UI. Click a glyph once to select it, click again (or press Enter / Space) to copy it to the clipboard. Search by U+hex prefix to filter across all blocks. A live `HH:MM:SS` clock is displayed in the status bar. DPI-aware, Common Controls v6.
+
+### StopWatch (`stopwatch/`)
+
+An app-launching stopwatch. Screen 1 lets you optionally pick an executable to launch; pressing Start fires the app and immediately switches to Screen 2, which shows a large elapsed-time display (`H:MM:SS.cc`) with four buttons: Reset (zero the elapsed time, keep running), Pause (freeze the display — the clock keeps ticking; un-pausing jumps to live time), Stop/Start (actually halt and resume the clock), and Always-on-top toggle. Settings (app path, always-on-top state) are saved to an INI file next to the exe, or under `%APPDATA%\Stopwatch\` if the exe folder is read-only. Icon from `shell32.dll` index 249. Released to the public domain under The Unlicense.
 
 ## Features
 
