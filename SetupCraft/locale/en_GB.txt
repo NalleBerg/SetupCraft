@@ -491,3 +491,10 @@ rtfe_open_filter_txt=Text files (*.txt)
 rtfe_open_filter_md=Markdown files (*.md)
 rtfe_open_filter_any=All files
 rtfe_open_dlg_title=Open File
+
+# About dialog
+about_title=About SetupCraft
+about_license_btn=View License
+about_close_btn=Close
+about_license_title=GNU General Public License v2
+about_license_ok_btn=OK

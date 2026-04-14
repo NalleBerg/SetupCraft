@@ -79,6 +79,11 @@
     triggers spurious WM_SETFOCUS/WM_KILLFOCUS messages that cause plain
     BS_PUSHBUTTON hover states to blink.  For manual message loops on popup
     windows, handle Tab/Return/Escape explicitly in WM_KEYDOWN instead.
+  - Tooltip hide-before-modal gotcha: always call HideTooltip() BEFORE calling
+    EnableWindow(parent, FALSE) or entering a modal message loop.  The modal
+    loop disables the parent window so WM_MOUSELEAVE is never posted to the
+    hovered control — the tooltip stays visible for the entire modal session.
+    Pattern: WM_LBUTTONDOWN { HideTooltip(); ShowMyDialog(parent, ...); }
   - Color emoji / Direct2D: GDI DrawTextW with Segoe UI Emoji renders only
     the monochrome outline path — GDI does not support OpenType COLR color
     tables.  For full-color emoji use ID2D1HwndRenderTarget::DrawText with

@@ -52,7 +52,11 @@ static LRESULT CALLBACK AboutIcon_SubclassProc(HWND hwnd, UINT msg, WPARAM wPara
         break;
     }
     case WM_LBUTTONDOWN: {
-        if (s_parentWnd) ShowAboutDialog(s_parentWnd);
+        HideTooltip();  // hide before modal dialog disables the parent window
+        s_currentTooltipIcon = NULL;
+        s_mouseTracking = false;
+        if (s_parentWnd && s_localePtr)
+            ShowAboutDialog(s_parentWnd, *s_localePtr);
         break;
     }
     case WM_NCDESTROY: {
@@ -114,7 +118,7 @@ void AboutIcon_OnMouseMove(HWND parent, WPARAM wParam, LPARAM lParam, const std:
 void AboutIcon_OnLButtonDown(HWND parent, WPARAM wParam, LPARAM lParam) {
     UNREFERENCED_PARAMETER(wParam);
     UNREFERENCED_PARAMETER(lParam);
-    if (parent) ShowAboutDialog(parent);
+    if (parent && s_localePtr) ShowAboutDialog(parent, *s_localePtr);
 }
 
 void AboutIcon_Cleanup() {

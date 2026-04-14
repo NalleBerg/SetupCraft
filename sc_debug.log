@@ -2418,3 +2418,52 @@
 [10:39:09.194] WM_DESTROY DONE
 [10:39:17.609] WM_DESTROY START
 [10:39:17.609] WM_DESTROY DONE
+[08:38:33.927] Create() ENTRY
+[08:38:33.942] Create() before CreateWindowExW
+[08:38:33.942] WM_CREATE START
+[08:38:33.947] WM_CREATE before CreateMenuBar
+[08:38:33.947] WM_CREATE before CreateToolbar
+[08:38:33.951] WM_CREATE before CreateStatusBar
+[08:38:33.951] WM_CREATE before SwitchPage(0)
+[08:38:33.951] SwitchPage(0) START
+[08:38:33.968] SwitchPage(0) DONE
+[08:38:33.968] WM_CREATE after SwitchPage(0)
+[08:38:33.968] WM_CREATE DONE
+[08:38:33.968] Create() CreateWindowExW OK
+[08:38:33.968] Create() before ShowWindow
+[08:38:33.985] Create() after ShowWindow
+[08:38:34.026] Create() RETURN
+[08:47:55.789] Create() ENTRY
+[08:47:55.789] Create() before CreateWindowExW
+[08:47:55.795] WM_CREATE START
+[08:47:55.795] WM_CREATE before CreateMenuBar
+[08:47:55.801] WM_CREATE before CreateToolbar
+[08:47:55.808] WM_CREATE before CreateStatusBar
+[08:47:55.809] WM_CREATE before SwitchPage(0)
+[08:47:55.809] SwitchPage(0) START
+[08:47:55.819] SwitchPage(0) DONE
+[08:47:55.819] WM_CREATE after SwitchPage(0)
+[08:47:55.819] WM_CREATE DONE
+[08:47:55.819] Create() CreateWindowExW OK
+[08:47:55.819] Create() before ShowWindow
+[08:47:55.835] Create() after ShowWindow
+[08:47:55.853] Create() RETURN
+[09:09:26.329] MAIN: ENTRY WM_CLOSE -> ShowQuitDialog
+[09:09:27.878] MAIN: ENTRY WM_DESTROY -> PostQuitMessage
+[09:19:11.292] Create() ENTRY
+[09:19:11.307] Create() before CreateWindowExW
+[09:19:11.310] WM_CREATE START
+[09:19:11.310] WM_CREATE before CreateMenuBar
+[09:19:11.310] WM_CREATE before CreateToolbar
+[09:19:11.320] WM_CREATE before CreateStatusBar
+[09:19:11.321] WM_CREATE before SwitchPage(0)
+[09:19:11.321] SwitchPage(0) START
+[09:19:11.333] SwitchPage(0) DONE
+[09:19:11.333] WM_CREATE after SwitchPage(0)
+[09:19:11.333] WM_CREATE DONE
+[09:19:11.333] Create() CreateWindowExW OK
+[09:19:11.333] Create() before ShowWindow
+[09:19:11.354] Create() after ShowWindow
+[09:19:11.377] Create() RETURN
+[09:19:13.650] SwitchPage(4) START
+[09:19:13.697] SwitchPage(4) DONE

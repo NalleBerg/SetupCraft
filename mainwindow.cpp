@@ -10052,7 +10052,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             return 0;
             
         case IDM_HELP_ABOUT:
-            ShowAboutDialog(hwnd);
+            ShowAboutDialog(hwnd, MainWindow::GetLocale());
             return 0;
             
         case IDM_TREEVIEW_ADD_FOLDER: {
@@ -10794,7 +10794,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             ScreenToClient(hwnd, (LPPOINT)&rcIcon.left);
             ScreenToClient(hwnd, (LPPOINT)&rcIcon.right);
             if (PtInRect(&rcIcon, pt)) {
-                ShowAboutDialog(hwnd);
+                ShowAboutDialog(hwnd, MainWindow::GetLocale());
                 return 0;
             }
         }

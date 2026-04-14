@@ -1,8 +1,10 @@
 #pragma once
 #include <windows.h>
+#include <map>
+#include <string>
 
-// Minimal About dialog for Skeleton projects
-// Provides ShowAboutDialog(HWND) and ShowLicenseDialog(HWND)
+// About and License dialogs — fully i18n-compatible.
+// Pass the app locale map so all button labels are translated.
 
-void ShowAboutDialog(HWND parent);
-void ShowLicenseDialog(HWND parent);
+void ShowAboutDialog(HWND parent, const std::map<std::wstring, std::wstring>& locale);
+void ShowLicenseDialog(HWND parent, const std::map<std::wstring, std::wstring>& locale);

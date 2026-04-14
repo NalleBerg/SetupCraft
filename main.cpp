@@ -1183,7 +1183,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             ScreenToClient(hwnd, (LPPOINT)&rcIcon.right);
             
             if (PtInRect(&rcIcon, pt)) {
-                ShowAboutDialog(hwnd);
+                ShowAboutDialog(hwnd, g_locale);
                 return 0;
             }
         }

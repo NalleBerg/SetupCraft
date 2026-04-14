@@ -2,6 +2,17 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.04.14.09] - 2026-04-14
+
+### Changed / Fixed (About dialog overhaul)
+- **About dialog — i18n buttons**: All buttons in About and License dialogs converted to `CreateCustomButtonWithIcon` + `MeasureButtonWidth`. View License: Blue, shell32 #221. Close: Red, shell32 #131. License OK: Green, shell32 #294. Widths measured at runtime by locale string — correct in all 20 languages.
+- **About dialog — custom scrollbars**: `msb_attach(MSB_VERTICAL)` added to both About and License RichEdits. `WM_DRAWITEM` handlers added to both wndprocs; `msb_detach` on `WM_DESTROY`.
+- **About dialog — system font**: Body text now uses `SPI_GETNONCLIENTMETRICS` at ×1.2 scale, matching `g_guiFont` in main.cpp and every other label in the project. Font face name dynamically resolved (no hardcoded "Segoe UI"). `s_richFontDirty` flag ensures the font is re-measured on every dialog open.
+- **About dialog — width**: Both About and License dialogs widened to `S(650)` for a consistent, comfortable reading width.
+- **About dialog — logo spacing**: Blank-line prefix uses `S(15)` (DPI-scaled) instead of hardcoded `15` — eliminates excess white space at high DPI.
+- **About icon tooltip — not hiding on click**: `EnableWindow(parent, FALSE)` (the modal loop) fires before `WM_MOUSELEAVE` reaches the icon control. Fixed by calling `HideTooltip()` explicitly in `WM_LBUTTONDOWN` before `ShowAboutDialog`.
+- **About dialog — locale propagation**: Both `ShowAboutDialog` and `ShowLicenseDialog` accept a `const std::map<std::wstring, std::wstring>& locale` parameter. Five locale keys added to `en_GB.txt` (`about_title`, `about_license_btn`, `about_close_btn`, `about_license_title`, `about_license_ok_btn`). All call sites in `mainwindow.cpp`, `main.cpp`, and `about_icon.cpp` updated.
+
 ## [2026.04.12.10] - 2026-04-12
 
 ### Changed / Fixed (GlyphPicker)

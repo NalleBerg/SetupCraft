@@ -1,8 +1,11 @@
 #include "about.h"
 #include <windows.h>
 #include "dpi.h"
+#include "button.h"         // CreateCustomButtonWithIcon, MeasureButtonWidth, DrawCustomButton
+#include "my_scrollbar.h"   // msb_attach, msb_detach, msb_notify_content_changed
 #include <richedit.h>
 #include <string>
+#include <map>
 #include <sstream>
 #include <gdiplus.h>
 #pragma comment(lib, "gdiplus.lib")
@@ -13,9 +16,24 @@ using namespace Gdiplus;
 static std::wstring g_aboutPublished = L"26.02.2026 12:00";
 static std::wstring g_aboutVersion = L"2026.02.26.08";
 
-// Generic strings
-static const wchar_t* ABOUT_TITLE = L"About SetupCraft";
-static const wchar_t* LICENSE_TITLE = L"GNU General Public License v2";
+// Locale map pointer — set at the start of each ShowAboutDialog / ShowLicenseDialog call.
+static const std::map<std::wstring, std::wstring>* s_pLocale = nullptr;
+
+// Custom scrollbar handles — one per dialog; detached in WM_DESTROY.
+static HMSB s_hSbAboutV   = NULL;
+static HMSB s_hSbLicenseV = NULL;
+
+// AppendRichText font-cache reset flag.  Set to true before each dialog open
+// so s_baseTwips is re-measured against the new RichEdit control's DC.
+static bool s_richFontDirty = true;
+
+// Safe locale lookup with English fallback.
+static std::wstring Loc(const wchar_t* key, const wchar_t* fallback)
+{
+    if (!s_pLocale) return fallback;
+    auto it = s_pLocale->find(key);
+    return (it != s_pLocale->end()) ? it->second : fallback;
+}
 
 // Forward declarations
 static LRESULT CALLBACK AboutWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -95,15 +113,41 @@ void LoadVersionInfo() {
     }
 }
 
-// Helper to append formatted text to RichEdit control
+// Helper to append formatted text to RichEdit control.
+// fontSize is in points; pass 0 to use the system UI font size automatically.
 void AppendRichText(HWND hEdit, const std::wstring& text, bool bold, COLORREF color, int fontSize, bool centered) {
+    // Use the system UI font — same source as all other project controls.
+    static wchar_t s_sysFace[LF_FACESIZE] = {};
+    // Base twip size measured against the RichEdit's own DC so that msftedit.dll
+    // uses the same DPI reference for twip→pixel conversion.  Using GetDC(NULL)
+    // (screen DC) can return a different DPI in PerMonitorV2 apps when the
+    // screen DC and the control's DC are on monitors with different scaling.
+    static int s_baseTwips = 0;
+    if (s_richFontDirty) {
+        s_richFontDirty = false;
+        NONCLIENTMETRICSW ncm = {}; ncm.cbSize = sizeof(ncm);
+        SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+        wcscpy_s(s_sysFace, ncm.lfMessageFont.lfFaceName);
+        // Use the RichEdit control's own DC for DPI — matches msftedit layout DPI.
+        HDC hdcEdit = GetDC(hEdit);
+        int dpiY = GetDeviceCaps(hdcEdit, LOGPIXELSY);
+        ReleaseDC(hEdit, hdcEdit);
+        if (dpiY <= 0) dpiY = 96;
+        // ×1.2 matches g_guiFont in main.cpp / s_scaledFont in mainwindow.cpp —
+        // all app labels use lfHeight * 1.2 so the About body text must too.
+        s_baseTwips = MulDiv((int)(abs(ncm.lfMessageFont.lfHeight) * 1.2f + 0.5f), 1440, dpiY);
+        if (s_baseTwips <= 0) s_baseTwips = 180; // fallback: 9 pt
+    }
+
+    int twips = (fontSize > 0) ? fontSize * 20 : s_baseTwips;
+
     CHARFORMAT2W cf = {};
     cf.cbSize = sizeof(CHARFORMAT2W);
     cf.dwMask = CFM_COLOR | CFM_BOLD | CFM_SIZE | CFM_FACE;
     cf.crTextColor = color;
     cf.dwEffects = bold ? CFE_BOLD : 0;
-    cf.yHeight = fontSize * 20; // twips
-    wcscpy_s(cf.szFaceName, L"Segoe UI");
+    cf.yHeight = twips;
+    wcscpy_s(cf.szFaceName, s_sysFace);
     
     // Get current text length and select end
     GETTEXTLENGTHEX gtl = {};
@@ -168,7 +212,9 @@ static LRESULT CALLBACK EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
     return CallWindowProcW(g_origEditProc, hwnd, msg, wParam, lParam);
 }
 
-void ShowAboutDialog(HWND parent) {
+void ShowAboutDialog(HWND parent, const std::map<std::wstring, std::wstring>& locale) {
+    s_pLocale = &locale;
+    s_richFontDirty = true;   // re-measure font on first AppendRichText call
     LoadLibraryW(L"Riched20.dll");
     
     // Load version info from curver.txt
@@ -190,7 +236,7 @@ void ShowAboutDialog(HWND parent) {
     g_logoImage = Image::FromFile(logoPath);
     
     // Create window
-    const int W = S(420), H = S(560); // Increased height for logo
+    const int W = S(650), H = S(560);
     RECT pr = {0,0,0,0};
     if (parent && IsWindow(parent)) GetWindowRect(parent, &pr);
     int px = (pr.right + pr.left) / 2;
@@ -212,7 +258,7 @@ void ShowAboutDialog(HWND parent) {
     }
 
     HWND dlg = CreateWindowExW(WS_EX_DLGMODALFRAME | WS_EX_WINDOWEDGE, 
-        wc.lpszClassName, ABOUT_TITLE, 
+        wc.lpszClassName, Loc(L"about_title", L"About SetupCraft").c_str(), 
         WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE, 
         x, y, W, H, parent, NULL, hi, NULL);
     
@@ -228,10 +274,19 @@ void ShowAboutDialog(HWND parent) {
         SendMessageW(dlg, WM_SETICON, ICON_BIG, (LPARAM)hIcon);
     }
 
-    // Create RichEdit control - fills entire area, logo will scroll with content
+    // ── Layout from true client rect ─────────────────────────────────────────
+    RECT rcC; GetClientRect(dlg, &rcC);
+    const int cW    = rcC.right;
+    const int cH    = rcC.bottom;
+    const int PAD   = S(10);
+    const int BTN_H = S(34);
+    const int editW = cW - 2 * PAD;
+    const int editH = cH - 3 * PAD - BTN_H;
+
+    // Create RichEdit control — logo subclass draws the image at the top.
     HWND hEdit = CreateWindowExW(0, L"RichEdit20W", NULL,
         WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | WS_VSCROLL,
-        S(10), S(10), W - S(20), H - S(80),
+        PAD, PAD, editW, editH,
         dlg, (HMENU)100, hi, NULL);
     
     if (!hEdit) {
@@ -244,12 +299,17 @@ void ShowAboutDialog(HWND parent) {
     
     SendMessageW(hEdit, EM_SETTARGETDEVICE, 0, 0); // Enable word wrap
     SendMessageW(hEdit, EM_SETEVENTMASK, 0, ENM_LINK);
-    
+
+    // Attach custom vertical scrollbar before content is added so EM_SETRECT
+    // reserves the correct bottom margin from the start.
+    s_hSbAboutV = msb_attach(hEdit, MSB_VERTICAL);
+
     // Add space for logo at top
     int logoH = g_logoImage ? (int)(g_logoImage->GetHeight() * 0.75) : 0;
-    int logoSpaceLines = (logoH + 20) / 15; // Approximate lines needed
+    // S(15) scales the per-line height estimate with DPI — higher DPI = taller lines.
+    int logoSpaceLines = (logoH + 20) / S(15); // Approximate lines needed
     for (int i = 0; i < logoSpaceLines; i++) {
-        AppendRichText(hEdit, L"\r\n", false, RGB(0, 0, 0), 9, false);
+        AppendRichText(hEdit, L"\r\n", false, RGB(0, 0, 0), 0, false);
     }
     
     // Build formatted About content
@@ -257,78 +317,74 @@ void ShowAboutDialog(HWND parent) {
     AppendRichText(hEdit, L"Professional Windows Installer Creation Tool\r\n\r\n", false, RGB(80, 80, 80), 10, true);
     
     // Version info divider
-    AppendRichText(hEdit, L"═════════════════════════════\r\n", false, RGB(100, 140, 180), 9, true);
-    AppendRichText(hEdit, L"Published: ", true, RGB(0, 0, 0), 9, true);
-    AppendRichText(hEdit, g_aboutPublished + L"\r\n", false, RGB(0, 0, 0), 9, true);
-    AppendRichText(hEdit, L"Version: ", true, RGB(0, 0, 0), 9, true);
-    AppendRichText(hEdit, g_aboutVersion + L"\r\n", false, RGB(0, 0, 0), 9, true);
-    AppendRichText(hEdit, L"═════════════════════════════\r\n\r\n", false, RGB(100, 140, 180), 9, true);
+    AppendRichText(hEdit, L"═════════════════════════════\r\n", false, RGB(100, 140, 180), 0, true);
+    AppendRichText(hEdit, L"Published: ", true, RGB(0, 0, 0), 0, true);
+    AppendRichText(hEdit, g_aboutPublished + L"\r\n", false, RGB(0, 0, 0), 0, true);
+    AppendRichText(hEdit, L"Version: ", true, RGB(0, 0, 0), 0, true);
+    AppendRichText(hEdit, g_aboutVersion + L"\r\n", false, RGB(0, 0, 0), 0, true);
+    AppendRichText(hEdit, L"═════════════════════════════\r\n\r\n", false, RGB(100, 140, 180), 0, true);
     
     // Main description
-    AppendRichText(hEdit, L"SetupCraft is a powerful Windows installer creation tool designed for developers and IT professionals. Create professional installation packages with full multilingual support for 20 languages.\r\n\r\n", false, RGB(40, 40, 40), 9, false);
+    AppendRichText(hEdit, L"SetupCraft is a powerful Windows installer creation tool designed for developers and IT professionals. Create professional installation packages with full multilingual support for 20 languages.\r\n\r\n", false, RGB(40, 40, 40), 0, false);
     
     // Key features
-    AppendRichText(hEdit, L"Key Features:\r\n\r\n", true, RGB(0, 70, 140), 10, false);
+    AppendRichText(hEdit, L"Key Features:\r\n\r\n", true, RGB(0, 70, 140), 0, false);
     
-    AppendRichText(hEdit, L"• ", true, RGB(0, 70, 140), 9, false);
-    AppendRichText(hEdit, L"File Management: ", true, RGB(0, 0, 0), 9, false);
-    AppendRichText(hEdit, L"Add files and folders to your installation package with flexible organization.\r\n\r\n", false, RGB(60, 60, 60), 9, false);
+    AppendRichText(hEdit, L"• ", true, RGB(0, 70, 140), 0, false);
+    AppendRichText(hEdit, L"File Management: ", true, RGB(0, 0, 0), 0, false);
+    AppendRichText(hEdit, L"Add files and folders to your installation package with flexible organization.\r\n\r\n", false, RGB(60, 60, 60), 0, false);
     
-    AppendRichText(hEdit, L"• ", true, RGB(0, 70, 140), 9, false);
-    AppendRichText(hEdit, L"Registry Integration: ", true, RGB(0, 0, 0), 9, false);
-    AppendRichText(hEdit, L"Configure Windows registry keys and values for seamless application integration.\r\n\r\n", false, RGB(60, 60, 60), 9, false);
+    AppendRichText(hEdit, L"• ", true, RGB(0, 70, 140), 0, false);
+    AppendRichText(hEdit, L"Registry Integration: ", true, RGB(0, 0, 0), 0, false);
+    AppendRichText(hEdit, L"Configure Windows registry keys and values for seamless application integration.\r\n\r\n", false, RGB(60, 60, 60), 0, false);
     
-    AppendRichText(hEdit, L"• ", true, RGB(0, 70, 140), 9, false);
-    AppendRichText(hEdit, L"Shortcuts & Icons: ", true, RGB(0, 0, 0), 9, false);
-    AppendRichText(hEdit, L"Create desktop and Start Menu shortcuts with custom icons.\r\n\r\n", false, RGB(60, 60, 60), 9, false);
+    AppendRichText(hEdit, L"• ", true, RGB(0, 70, 140), 0, false);
+    AppendRichText(hEdit, L"Shortcuts & Icons: ", true, RGB(0, 0, 0), 0, false);
+    AppendRichText(hEdit, L"Create desktop and Start Menu shortcuts with custom icons.\r\n\r\n", false, RGB(60, 60, 60), 0, false);
     
-    AppendRichText(hEdit, L"• ", true, RGB(0, 70, 140), 9, false);
-    AppendRichText(hEdit, L"Dependencies: ", true, RGB(0, 0, 0), 9, false);
-    AppendRichText(hEdit, L"Manage application dependencies and prerequisites.\r\n\r\n", false, RGB(60, 60, 60), 9, false);
+    AppendRichText(hEdit, L"• ", true, RGB(0, 70, 140), 0, false);
+    AppendRichText(hEdit, L"Dependencies: ", true, RGB(0, 0, 0), 0, false);
+    AppendRichText(hEdit, L"Manage application dependencies and prerequisites.\r\n\r\n", false, RGB(60, 60, 60), 0, false);
     
-    AppendRichText(hEdit, L"• ", true, RGB(0, 70, 140), 9, false);
-    AppendRichText(hEdit, L"Custom Scripts: ", true, RGB(0, 0, 0), 9, false);
-    AppendRichText(hEdit, L"Include pre-install and post-install scripts for advanced setup tasks.\r\n\r\n", false, RGB(60, 60, 60), 9, false);
+    AppendRichText(hEdit, L"• ", true, RGB(0, 70, 140), 0, false);
+    AppendRichText(hEdit, L"Custom Scripts: ", true, RGB(0, 0, 0), 0, false);
+    AppendRichText(hEdit, L"Include pre-install and post-install scripts for advanced setup tasks.\r\n\r\n", false, RGB(60, 60, 60), 0, false);
     
-    AppendRichText(hEdit, L"• ", true, RGB(0, 70, 140), 9, false);
-    AppendRichText(hEdit, L"Multilingual Support: ", true, RGB(0, 0, 0), 9, false);
-    AppendRichText(hEdit, L"Built-in support for 20 languages including English, German, French, Spanish, Italian, Dutch, Norwegian, Danish, Swedish, Polish, Portuguese, Romanian, Ukrainian, Greek, and more.\r\n\r\n", false, RGB(60, 60, 60), 9, false);
+    AppendRichText(hEdit, L"• ", true, RGB(0, 70, 140), 0, false);
+    AppendRichText(hEdit, L"Multilingual Support: ", true, RGB(0, 0, 0), 0, false);
+    AppendRichText(hEdit, L"Built-in support for 20 languages including English, German, French, Spanish, Italian, Dutch, Norwegian, Danish, Swedish, Polish, Portuguese, Romanian, Ukrainian, Greek, and more.\r\n\r\n", false, RGB(60, 60, 60), 0, false);
     
-    AppendRichText(hEdit, L"SetupCraft generates native Windows installation packages ready for distribution. Perfect for software developers, system administrators, and anyone needing professional installer creation.\r\n\r\n", false, RGB(40, 40, 40), 9, false);
+    AppendRichText(hEdit, L"SetupCraft generates native Windows installation packages ready for distribution. Perfect for software developers, system administrators, and anyone needing professional installer creation.\r\n\r\n", false, RGB(40, 40, 40), 0, false);
     
     // License divider
-    AppendRichText(hEdit, L"═════════════════════════════\r\n\r\n", false, RGB(100, 140, 180), 9, true);
-    AppendRichText(hEdit, L"Licensed under GNU General Public License v2\r\n\r\n", true, RGB(0, 70, 140), 9, false);
+    AppendRichText(hEdit, L"═════════════════════════════\r\n\r\n", false, RGB(100, 140, 180), 0, true);
+    AppendRichText(hEdit, L"Licensed under GNU General Public License v2\r\n\r\n", true, RGB(0, 70, 140), 0, false);
     
-    // Scroll to top
+    // Scroll to top and notify scrollbar of final content dimensions.
     SendMessageW(hEdit, EM_SETSEL, 0, 0);
     SendMessageW(hEdit, EM_SCROLLCARET, 0, 0);
-    
-    // Create buttons at bottom (centered with gap)
-    int btnY = H - S(65);  // Account for title bar and borders
-    int btnWidth = S(90);
-    int btnGap = S(10);
-    int totalWidth = btnWidth * 2 + btnGap;
-    int startX = (W - totalWidth) / 2;
-    
-    HWND btnLicense = CreateWindowExW(0, L"Button", L"View License",
-        WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | WS_TABSTOP,
-        startX, btnY, btnWidth, S(30),
-        dlg, (HMENU)1001, hi, NULL);
-    
-    HWND btnClose = CreateWindowExW(0, L"Button", L"Close",
-        WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON | WS_TABSTOP,
-        startX + btnWidth + btnGap, btnY, btnWidth, S(30),
-        dlg, (HMENU)IDOK, hi, NULL);
-    
-    // Set font for buttons
-    HFONT hFont = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
-    SendMessageW(btnLicense, WM_SETFONT, (WPARAM)hFont, TRUE);
-    SendMessageW(btnClose, WM_SETFONT, (WPARAM)hFont, TRUE);
-    
-    // Modal loop
+    if (s_hSbAboutV) msb_notify_content_changed(s_hSbAboutV);
+
+    // ── i18n buttons (MeasureButtonWidth — supports 20+ languages) ───────────
+    std::wstring viewLicTxt = Loc(L"about_license_btn", L"View License");
+    std::wstring closeTxt   = Loc(L"about_close_btn",   L"Close");
+    int wLic   = MeasureButtonWidth(viewLicTxt, true);
+    int wClose = MeasureButtonWidth(closeTxt,   true);
+    int totalBtnW = wLic + PAD + wClose;
+    int btnY      = cH - PAD - BTN_H;
+    int startX    = (cW - totalBtnW) / 2;
+
+    CreateCustomButtonWithIcon(dlg, 1001, viewLicTxt, ButtonColor::Blue,
+        L"shell32.dll", 221,
+        startX,             btnY, wLic,   BTN_H, hi);
+    CreateCustomButtonWithIcon(dlg, IDOK, closeTxt, ButtonColor::Red,
+        L"shell32.dll", 131,
+        startX + wLic + PAD, btnY, wClose, BTN_H, hi);
+
+    // Modal loop — focus the Close button (the IDOK button is the last created).
+    HWND hBtnClose = GetDlgItem(dlg, IDOK);
     if (parent && IsWindow(parent)) EnableWindow(parent, FALSE);
-    SetFocus(btnClose);
+    if (hBtnClose) SetFocus(hBtnClose);
     
     MSG msg;
     while (GetMessageW(&msg, NULL, 0, 0)) {
@@ -355,7 +411,9 @@ void ShowAboutDialog(HWND parent) {
 }
 
 
-void ShowLicenseDialog(HWND parent) {
+void ShowLicenseDialog(HWND parent, const std::map<std::wstring, std::wstring>& locale) {
+    s_pLocale = &locale;
+    s_richFontDirty = true;   // re-measure font on first AppendRichText call
     LoadLibraryW(L"Riched20.dll");
     
     // Create license window - larger to accommodate full GPL text
@@ -378,7 +436,7 @@ void ShowLicenseDialog(HWND parent) {
     }
 
     HWND dlg = CreateWindowExW(WS_EX_DLGMODALFRAME | WS_EX_WINDOWEDGE, 
-        wc.lpszClassName, LICENSE_TITLE, 
+        wc.lpszClassName, Loc(L"about_license_title", L"GNU General Public License v2").c_str(), 
         WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE, 
         x, y, W, H, parent, NULL, hi, NULL);
     
@@ -420,11 +478,19 @@ void ShowLicenseDialog(HWND parent) {
         SendMessageW(hLogoWnd, STM_SETIMAGE, IMAGE_BITMAP, (LPARAM)hLogoBitmap);
     }
 
+    // ── Layout from true client rect ─────────────────────────────────────────
+    RECT rcLic; GetClientRect(dlg, &rcLic);
+    const int licCW    = rcLic.right;
+    const int licCH    = rcLic.bottom;
+    const int licPAD   = S(10);
+    const int licBTN_H = S(34);
+
     // Create RichEdit control for license text - positioned below logo
-    int editTop = logoHeight > 0 ? logoHeight + 20 : 10;
+    int editTop = logoHeight > 0 ? logoHeight + 20 : licPAD;
+    int editH   = licCH - editTop - licPAD - licBTN_H - licPAD;
     HWND hEdit = CreateWindowExW(0, L"RichEdit20W", NULL,
         WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | WS_VSCROLL,
-        S(10), editTop, W - S(20), H - editTop - S(70),
+        licPAD, editTop, licCW - 2 * licPAD, editH,
         dlg, (HMENU)100, hi, NULL);
     
     if (!hEdit) {
@@ -434,7 +500,10 @@ void ShowLicenseDialog(HWND parent) {
     
     SendMessageW(hEdit, EM_SETTARGETDEVICE, 0, 0); // Enable word wrap
     SendMessageW(hEdit, EM_SETEVENTMASK, 0, ENM_LINK);
-    
+
+    // Attach custom vertical scrollbar before content is streamed in.
+    s_hSbLicenseV = msb_attach(hEdit, MSB_VERTICAL);
+
     // Load and parse GPLv2.md file
     std::wstring licensePath = exeDir + L"\\GPLv2.md";
     HANDLE hFile = CreateFileW(licensePath.c_str(), GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
@@ -490,10 +559,10 @@ void ShowLicenseDialog(HWND parent) {
                     } else if (line.length() > 0 && line.length() < 150 && 
                                (line.find(L"a)") == 0 || line.find(L"b)") == 0 || line.find(L"c)") == 0)) {
                         // Sub-sections
-                        AppendRichText(hEdit, line + L"\r\n", true, RGB(0, 0, 0), 9, false);
+                        AppendRichText(hEdit, line + L"\r\n", true, RGB(0, 0, 0), 0, false);
                     } else {
                         // Regular text
-                        AppendRichText(hEdit, line + L"\r\n", false, RGB(40, 40, 40), 9, false);
+                        AppendRichText(hEdit, line + L"\r\n", false, RGB(40, 40, 40), 0, false);
                     }
                 }
             }
@@ -501,27 +570,25 @@ void ShowLicenseDialog(HWND parent) {
         }
         CloseHandle(hFile);
     } else {
-        AppendRichText(hEdit, L"GPLv2.md file not found.\r\n\r\n", true, RGB(139, 0, 0), 10, false);
-        AppendRichText(hEdit, L"Please see the GPLv2.md file in the installation directory.", false, RGB(40, 40, 40), 9, false);
+        AppendRichText(hEdit, L"GPLv2.md file not found.\r\n\r\n", true, RGB(139, 0, 0), 0, false);
+        AppendRichText(hEdit, L"Please see the GPLv2.md file in the installation directory.", false, RGB(40, 40, 40), 0, false);
     }
     
-    // Scroll to top
+    // Scroll to top and notify scrollbar of final content dimensions.
     SendMessageW(hEdit, EM_SETSEL, 0, 0);
     SendMessageW(hEdit, EM_SCROLLCARET, 0, 0);
-    
-    // Create OK button
-    int btnWidth = S(80);
-    int btnX = (W - btnWidth) / 2;
-    int btnY = H - S(61);
-    
-    HWND btnOK = CreateWindowExW(0, L"Button", L"OK",
-        WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON | WS_TABSTOP,
-        btnX, btnY, btnWidth, S(30),
-        dlg, (HMENU)IDOK, hi, NULL);
-    
-    HFONT hFont = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
-    SendMessageW(btnOK, WM_SETFONT, (WPARAM)hFont, TRUE);
-    
+    if (s_hSbLicenseV) msb_notify_content_changed(s_hSbLicenseV);
+
+    // ── i18n OK button (centered) ────────────────────────────────────────────
+    std::wstring okTxt = Loc(L"about_license_ok_btn", L"OK");
+    int wOK    = MeasureButtonWidth(okTxt, true);
+    int licBtnY = licCH - licPAD - licBTN_H;
+    int licBtnX = (licCW - wOK) / 2;
+
+    HWND btnOK = CreateCustomButtonWithIcon(dlg, IDOK, okTxt, ButtonColor::Green,
+        L"shell32.dll", 294,
+        licBtnX, licBtnY, wOK, licBTN_H, hi);
+
     // Modal loop
     if (parent && IsWindow(parent)) EnableWindow(parent, FALSE);
     SetFocus(btnOK);
@@ -550,9 +617,30 @@ static LRESULT CALLBACK AboutWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             return 0;
         }
         if (LOWORD(wParam) == 1001) {
-            ShowLicenseDialog(hwnd);
+            ShowLicenseDialog(hwnd, s_pLocale ? *s_pLocale
+                                              : std::map<std::wstring,std::wstring>{});
             return 0;
         }
+        break;
+    case WM_DRAWITEM: {
+        // Owner-draw: custom button paint.
+        LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
+        NONCLIENTMETRICSW ncm = {}; ncm.cbSize = sizeof(ncm);
+        SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+        if (ncm.lfMessageFont.lfHeight < 0)
+            ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
+        ncm.lfMessageFont.lfWeight  = FW_BOLD;
+        ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+        HFONT hFont = CreateFontIndirectW(&ncm.lfMessageFont);
+        ButtonColor color = (ButtonColor)GetWindowLongPtrW(dis->hwndItem, GWLP_USERDATA);
+        LRESULT r = DrawCustomButton(dis, color, hFont);
+        if (hFont) DeleteObject(hFont);
+        return r;
+    }
+    case WM_DESTROY:
+        // Detach custom scrollbar before child windows are destroyed.
+        msb_detach(s_hSbAboutV);
+        s_hSbAboutV = NULL;
         break;
     case WM_CLOSE:
         PostQuitMessage(0);
@@ -565,6 +653,26 @@ static LRESULT CALLBACK LicenseWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
     switch (msg) {
     case WM_COMMAND:
         if (LOWORD(wParam) == IDOK) { PostQuitMessage(0); return 0; }
+        break;
+    case WM_DRAWITEM: {
+        // Owner-draw: custom button paint.
+        LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
+        NONCLIENTMETRICSW ncm = {}; ncm.cbSize = sizeof(ncm);
+        SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+        if (ncm.lfMessageFont.lfHeight < 0)
+            ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
+        ncm.lfMessageFont.lfWeight  = FW_BOLD;
+        ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+        HFONT hFont = CreateFontIndirectW(&ncm.lfMessageFont);
+        ButtonColor color = (ButtonColor)GetWindowLongPtrW(dis->hwndItem, GWLP_USERDATA);
+        LRESULT r = DrawCustomButton(dis, color, hFont);
+        if (hFont) DeleteObject(hFont);
+        return r;
+    }
+    case WM_DESTROY:
+        // Detach custom scrollbar before child windows are destroyed.
+        msb_detach(s_hSbLicenseV);
+        s_hSbLicenseV = NULL;
         break;
     case WM_CLOSE:
         PostQuitMessage(0);

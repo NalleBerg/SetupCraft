@@ -1,8 +1,18 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 12 April 2026 &mdash; v2026.04.12.10 (10:17)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 14 April 2026 &mdash; v2026.04.14.09 (09:24)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
 
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 12 April 2026 &mdash; v2026.04.12.10 (10:17)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.04.14.09</span></h3>
+<p><strong>About dialog overhaul: i18n buttons, my_scrollbar, system font, tooltip fix (14.04.2026, 09:24):</strong></p>
+<ul>
+<li><strong>About dialog &mdash; i18n buttons:</strong> All buttons in the About and License dialogs converted to <code>CreateCustomButtonWithIcon</code> + <code>MeasureButtonWidth</code> — widths are measured at runtime from the locale string so every language fits without hardcoded pixel values. View License: Blue, shell32&thinsp;#221. Close: Red, shell32&thinsp;#131. License OK: Green, shell32&thinsp;#294.</li>
+<li><strong>About dialog &mdash; custom scrollbars:</strong> <code>msb_attach(MSB_VERTICAL)</code> added to both the About and License RichEdits. <code>WM_DRAWITEM</code> handlers added to both wndprocs; <code>msb_detach</code> called in <code>WM_DESTROY</code>.</li>
+<li><strong>About dialog &mdash; system font:</strong> Body text now uses the system message font from <code>SPI_GETNONCLIENTMETRICS</code> at <code>&times;1.2</code> scale &mdash; matching <code>g_guiFont</code> in main.cpp and every other label in the project. Previously body text was one size smaller than surrounding UI text. Font face name also dynamically resolved (no hardcoded &ldquo;Segoe UI&rdquo;). <code>s_richFontDirty</code> flag ensures the font is re-measured on every dialog open rather than caching stale values across sessions.</li>
+<li><strong>About dialog &mdash; width:</strong> Both About and License dialogs widened to <code>S(650)</code> for a consistent side-by-side visual and more comfortable reading width.</li>
+<li><strong>About dialog &mdash; logo spacing:</strong> Blank-line prefix before body text now uses <code>S(15)</code> (DPI-scaled line height estimate) instead of the hardcoded <code>15</code> &mdash; eliminates excessive white space at higher DPI.</li>
+<li><strong>About icon tooltip &mdash; tooltip not hiding on click:</strong> When the user clicks the About icon the mouse-leave notification is never delivered because <code>EnableWindow(parent, FALSE)</code> (the modal loop) fires before the control receives <code>WM_MOUSELEAVE</code>. Fixed by calling <code>HideTooltip()</code> explicitly in <code>WM_LBUTTONDOWN</code> before <code>ShowAboutDialog</code>.</li>
+<li><strong>About dialog &mdash; locale propagation:</strong> Both <code>ShowAboutDialog</code> and <code>ShowLicenseDialog</code> now accept a <code>const std::map&lt;std::wstring, std::wstring&gt;&amp; locale</code> parameter; five locale keys added to <code>en_GB.txt</code> (<code>about_title</code>, <code>about_license_btn</code>, <code>about_close_btn</code>, <code>about_license_title</code>, <code>about_license_ok_btn</code>). All call sites in <code>mainwindow.cpp</code>, <code>main.cpp</code>, and <code>about_icon.cpp</code> updated.</li>
+</ul>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.04.12.10</span></h3>
 <p><strong>GlyphPicker improvements (12.04.2026, 10:17):</strong></p>

@@ -75,6 +75,7 @@
   131     Red X / close icon                   Close Project button, OK/Cancel
   221     Information / About (i)              About icon button
   258     Floppy disk / Save                   Components page info icon
+  294     Green checkmark / OK icon            License dialog OK button
   300     Can-drop / move cursor icon          Drag-and-drop module
 
   NOTE: button_INTERNALS.txt "Verified shell32.dll icon indices" is the
