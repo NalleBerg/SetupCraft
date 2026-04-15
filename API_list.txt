@@ -25,7 +25,10 @@
   File                                          Description
   ──────────────────────────────────────────────────────────────────────────────
   API_INTERNALS\API\tooltip_API.txt             Custom multilingual tooltip system — creation,
-                                                positioning, subclassing, and locale integration.
+                                                positioning, subclassing, locale integration,
+                                                and aboveAnchorY parameter for placing tooltip
+                                                above a button (prevents blink when near screen
+                                                bottom).
 
   API_INTERNALS\API\spinner_dialog_API.txt      Modal progress/spinner dialog component — API,
                                                 thread usage, and progress callback protocol.
@@ -116,8 +119,12 @@
                                                 enum, CreateCustomButton* variants, icon
                                                 property scheme, ButtonSubclassProc hover/
                                                 tooltip flow, DrawCustomButton WM_DRAWITEM
-                                                path, toolbar row layout, and step-by-step
-                                                guide for adding a new toolbar button.
+                                                path, toolbar row layout, step-by-step
+                                                guide for adding a new toolbar button,
+                                                and §9 critical bug history: NEVER add
+                                                GetCursorPos/GetWindowRect/PtInRect guard
+                                                to WM_MOUSELEAVE (causes 4–12 sec app-wide
+                                                dialog-open delays).
 
   API_INTERNALS\INTERNALS\dialog_INTERNALS.txt  Custom modal dialog system — measure-then-create
                                                 dynamic sizing pattern, layout constants,

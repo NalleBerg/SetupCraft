@@ -1943,6 +1943,8 @@ CMakeFiles/SkeletonApp.dir/ctrlw.cpp.obj
  C:/mingw64/x86_64-w64-mingw32/include/securitybaseapi.h
  C:/mingw64/x86_64-w64-mingw32/include/servprov.h
  C:/mingw64/x86_64-w64-mingw32/include/shellapi.h
+ C:/mingw64/x86_64-w64-mingw32/include/shlwapi.h
+ C:/mingw64/x86_64-w64-mingw32/include/shtypes.h
  C:/mingw64/x86_64-w64-mingw32/include/specstrings.h
  C:/mingw64/x86_64-w64-mingw32/include/stdarg.h
  C:/mingw64/x86_64-w64-mingw32/include/stddef.h

@@ -647,7 +647,7 @@ LRESULT CALLBACK DeleteProjectDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM
                 std::wstring selMsg = (itSelMsg != g_locale.end()) ? itSelMsg->second : L"Please select a project";
                 auto itInfoCap = g_locale.find(L"info");
                 std::wstring infoCap = (itInfoCap != g_locale.end()) ? itInfoCap->second : L"Info";
-                MessageBoxW(hDlg, selMsg.c_str(), infoCap.c_str(), MB_OK | MB_ICONINFORMATION);
+                ShowValidationDialog(hDlg, infoCap, selMsg, g_locale);
             }
             return 0;
         }
@@ -849,7 +849,7 @@ LRESULT CALLBACK OpenProjectDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM l
                 std::wstring selMsg = (itSelMsg != g_locale.end()) ? itSelMsg->second : L"Please select a project";
                 auto itInfoCap = g_locale.find(L"info");
                 std::wstring infoCap = (itInfoCap != g_locale.end()) ? itInfoCap->second : L"Info";
-                MessageBoxW(hDlg, selMsg.c_str(), infoCap.c_str(), MB_OK | MB_ICONINFORMATION);
+                ShowValidationDialog(hDlg, infoCap, selMsg, g_locale);
             }
             return 0;
         }

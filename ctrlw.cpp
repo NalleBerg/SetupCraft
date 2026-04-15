@@ -2,6 +2,11 @@
 #include "button.h"
 #include "dpi.h"
 #include <commctrl.h>
+#include <shlwapi.h>
+
+extern "C" __declspec(dllimport) UINT WINAPI PrivateExtractIconsW(
+    LPCWSTR szFileName, int nIconIndex, int cxIcon, int cyIcon,
+    HICON* phicon, UINT* piconid, UINT nIcons, UINT flags);
 
 // ─── Dialog layout constants (design-time pixels at 96 DPI) ─────────────────
 static const int DLG_PAD_H   = 20;   // left/right padding
@@ -12,6 +17,7 @@ static const int DLG_BTN_H   = 34;   // button height
 static const int DLG_BTN_W   = 120;  // each button width
 static const int DLG_BTN_GAP = 15;   // gap between the two buttons
 static const int DLG_CONT_W  = 380;  // text column wrap width
+static const int VAL_CONT_W  = 260;  // narrower width for validation/info dialogs
 
 // Convert literal \n / \r\n escape sequences (as stored in locale files)
 // into real newline characters so STATIC controls and DrawText display them.
@@ -889,6 +895,7 @@ struct ValidationDlgData {
     std::wstring message;
     std::wstring okText;
     int          textH;
+    int          iconSize;  // scaled icon size (32 design-px)
     HINSTANCE    hInst;
 };
 
@@ -912,9 +919,26 @@ static LRESULT CALLBACK ValidationDialogProc(HWND hDlg, UINT msg, WPARAM wParam,
         int cW = rcC.right;
         int cH = rcC.bottom;
 
+        // ── Info icon (shell32.dll #221 — white-on-blue round "i") ──────────
+        int iconSz = pData->iconSize;
+        {
+            HWND hIconCtrl = CreateWindowExW(0, L"STATIC", NULL,
+                WS_CHILD | WS_VISIBLE | SS_ICON | SS_CENTERIMAGE,
+                (cW - iconSz) / 2, S(DLG_PAD_T),
+                iconSz, iconSz,
+                hDlg, NULL, pData->hInst, NULL);
+            wchar_t dllPath[MAX_PATH];
+            GetSystemDirectoryW(dllPath, MAX_PATH);
+            PathAppendW(dllPath, L"shell32.dll");
+            HICON hIco = NULL;
+            PrivateExtractIconsW(dllPath, 221, iconSz, iconSz, &hIco, NULL, 1, 0);
+            if (hIco) SendMessageW(hIconCtrl, STM_SETICON, (WPARAM)hIco, 0);
+        }
+
+        int textY = S(DLG_PAD_T) + iconSz + S(8);
         HWND hText = CreateWindowExW(0, L"STATIC", pData->message.c_str(),
             WS_CHILD | WS_VISIBLE | SS_CENTER,
-            S(DLG_PAD_H), S(DLG_PAD_T),
+            S(DLG_PAD_H), textY,
             cW - 2 * S(DLG_PAD_H), pData->textH,
             hDlg, NULL, pData->hInst, NULL);
         if (hFont) SendMessageW(hText, WM_SETFONT, (WPARAM)hFont, TRUE);
@@ -950,7 +974,8 @@ static LRESULT CALLBACK ValidationDialogProc(HWND hDlg, UINT msg, WPARAM wParam,
     case WM_CTLCOLORSTATIC: {
         HDC hdcStatic = (HDC)wParam;
         SetBkMode(hdcStatic, TRANSPARENT);
-        return (LRESULT)GetStockObject(NULL_BRUSH);
+        SetBkColor(hdcStatic, RGB(255, 255, 255));
+        return (LRESULT)GetStockObject(WHITE_BRUSH);
     }
     case WM_CLOSE:
         DestroyWindow(hDlg);
@@ -986,14 +1011,15 @@ void ShowValidationDialog(HWND hwndParent, const std::wstring& title,
     }
 
     std::wstring msgExpanded = ExpandEscapes(message);
-    int textH = MeasureDialogTextHeight(msgExpanded, S(DLG_CONT_W));
+    int textH = MeasureDialogTextHeight(msgExpanded, S(VAL_CONT_W));
     if (textH < S(20)) textH = S(20);
 
     auto itOk = locale.find(L"ok");
     std::wstring okText = (itOk != locale.end()) ? itOk->second : L"OK";
 
-    int clientW = S(DLG_CONT_W) + 2 * S(DLG_PAD_H);
-    int clientH = S(DLG_PAD_T) + textH + S(DLG_GAP_TB) + S(DLG_BTN_H) + S(DLG_PAD_B);
+    int iconSize = S(32);
+    int clientW = S(VAL_CONT_W) + 2 * S(DLG_PAD_H);
+    int clientH = S(DLG_PAD_T) + iconSize + S(8) + textH + S(DLG_GAP_TB) + S(DLG_BTN_H) + S(DLG_PAD_B);
 
     RECT wrc = { 0, 0, clientW, clientH };
     AdjustWindowRectEx(&wrc, WS_POPUP | WS_CAPTION | WS_SYSMENU, FALSE, WS_EX_DLGMODALFRAME);
@@ -1011,10 +1037,11 @@ void ShowValidationDialog(HWND hwndParent, const std::wstring& title,
     if (y + height > rcWork.bottom) y = rcWork.bottom - height;
 
     ValidationDlgData* pData = new ValidationDlgData();
-    pData->message = msgExpanded;
-    pData->okText  = okText;
-    pData->textH   = textH;
-    pData->hInst   = GetModuleHandle(NULL);
+    pData->message  = msgExpanded;
+    pData->okText   = okText;
+    pData->textH    = textH;
+    pData->iconSize = iconSize;
+    pData->hInst    = GetModuleHandle(NULL);
 
     HWND hDlg = CreateWindowExW(
         WS_EX_DLGMODALFRAME | WS_EX_TOPMOST,

@@ -311,5 +311,50 @@ FILES:
   DrawIconEx, so no HICON resources accumulate.
 
 ================================================================================
+9. CRITICAL BUG HISTORY — SPURIOUS-LEAVE GUARD IN WM_MOUSELEAVE
+================================================================================
+
+  SYMPTOM: All dialogs show a blank window for 4–12 seconds on open. Second
+  open of the same dialog is even slower (10+ sec). Problem worsens the more
+  custom buttons are visible on screen. Reverts to instant when all custom
+  buttons are hidden.
+
+  ROOT CAUSE: A “spurious-leave guard” was added to WM_MOUSELEAVE inside
+  ButtonSubclassProc:
+
+      case WM_MOUSELEAVE: {
+          POINT pt; GetCursorPos(&pt);
+          RECT rc;  GetWindowRect(hwnd, &rc);
+          if (PtInRect(&rc, pt)) {
+              // cursor still inside — re-arm TrackMouseEvent and bail
+              TrackMouseEvent(&tme);
+              break;
+          }
+          // real leave — clear hover
+          ...
+      }
+
+  This guard fires on EVERY custom button on EVERY mouse leave. When a dialog
+  is opening, dozens of WM_MOUSELEAVE messages are dispatched across all
+  toolbar and dialog buttons simultaneously. Each call to GetCursorPos +
+  GetWindowRect + PtInRect takes ~300–500 µs; multiplied over 20+ buttons
+  re-arming TrackMouseEvent in a tight cascade it starves the message pump
+  entirely, preventing WM_CREATE and WM_SIZE from being processed, keeping the
+  dialog window blank.
+
+  FIX: Remove the guard entirely. WM_MOUSELEAVE is reliable — Windows only
+  delivers it after TrackMouseEvent fires and the cursor has genuinely left
+  the tracked window. No guard is needed.
+
+      case WM_MOUSELEAVE:
+          SetPropW(hwnd, L"IsHovering", (HANDLE)0);
+          InvalidateRect(hwnd, NULL, FALSE);
+          HideTooltip();
+          break;
+
+  NEVER re-add any GetCursorPos / GetWindowRect / PtInRect logic to
+  ButtonSubclassProc WM_MOUSELEAVE under any circumstances.
+
+================================================================================
 END
 ================================================================================

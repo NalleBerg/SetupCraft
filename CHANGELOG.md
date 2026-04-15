@@ -2,6 +2,17 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.04.15.10] - 2026-04-15
+
+### Changed / Fixed
+- **Global dialog delay — spurious-leave guard removed**: `ButtonSubclassProc WM_MOUSELEAVE` had a guard calling `GetCursorPos` + `GetWindowRect` + `PtInRect` on every mouse leave and re-arming `TrackMouseEvent`. Fired on every custom button app-wide, starving the message pump during dialog open (4–12 sec blank-window delays). Guard removed entirely — `WM_MOUSELEAVE` now unconditionally clears hover state, hides tooltip, and exits. See `button_INTERNALS.txt §9`.
+- **Deferred dialog population (`WM_POPULATE_LIST`)**: Open Project and Delete Project dialogs post a custom `WM_POPULATE_LIST` message from `WM_CREATE` instead of populating the ListView synchronously. Window frame appears instantly; project list loads on next dispatch.
+- **Persistent database connection**: `InitDb()` keeps the SQLite connection open. All DB functions use `GetDb()` instead of per-call open/close — eliminates file-open latency on each query.
+- **Tooltip above-anchor (`aboveAnchorY`)**: `ShowMultilingualTooltip` gains `int aboveAnchorY = -1`. When ≥ 0, tooltip is placed above the anchor (`aboveAnchorY − tooltipHeight − 4`) instead of below. Fixes Finish-button hover blink in the preview dialog: tooltip was flipping above the button when near screen bottom, overlapping it, triggering spurious `WM_MOUSELEAVE` → blink loop.
+- **"Please select a project" converted to `ShowValidationDialog`**: Both Open Project and Delete Project procs replaced `MessageBoxW` with `ShowValidationDialog` — custom button, i18n OK label, consistent app style.
+- **ValidationDialog — info icon**: Shell32 #221 (white-on-blue round "i") added centered above message text. `WM_CTLCOLORSTATIC` updated to `WHITE_BRUSH` for clean white icon background.
+- **ValidationDialog — narrower width**: New `VAL_CONT_W = 260` constant (was `DLG_CONT_W = 380`) for a more compact info dialog.
+
 ## [2026.04.14.09] - 2026-04-14
 
 ### Changed / Fixed (About dialog overhaul)

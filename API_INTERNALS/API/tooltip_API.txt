@@ -84,18 +84,28 @@ API REFERENCE:
    void ShowMultilingualTooltip(
        const std::vector<TooltipEntry>& entries,
        int x,
-       int y,
-       HWND parentHwnd)
+       int belowY,
+       HWND parentHwnd,
+       int aboveAnchorY = -1)
 
    Description:
       Displays the tooltip at the specified screen coordinates with the
       provided entries.
 
    Parameters:
-      entries     : Vector of (country code, text) pairs to display
-      x           : Screen X coordinate (left edge of tooltip)
-      y           : Screen Y coordinate (top edge of tooltip)
-      parentHwnd  : Parent window handle
+      entries       : Vector of (country code, text) pairs to display
+      x             : Screen X coordinate (left edge of tooltip)
+      belowY        : Screen Y coordinate used as the top edge when placing
+                      the tooltip below a control (normal case)
+      parentHwnd    : Parent window handle
+      aboveAnchorY  : Optional. When >= 0, the tooltip is placed ABOVE this
+                      Y coordinate: finalY = aboveAnchorY - tooltipHeight - 4.
+                      Pass the screen-space top edge of the triggering control
+                      (e.g. rc.top from GetWindowRect) to guarantee the tooltip
+                      stays above the button and never overlaps it.
+                      Use this for any button near the bottom of the screen to
+                      prevent the tooltip from flipping over the button and
+                      triggering a spurious WM_MOUSELEAVE → blink loop.
 
    Returns:
       void

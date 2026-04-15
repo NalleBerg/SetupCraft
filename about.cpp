@@ -220,11 +220,6 @@ void ShowAboutDialog(HWND parent, const std::map<std::wstring, std::wstring>& lo
     // Load version info from curver.txt
     LoadVersionInfo();
     
-    // Initialize GDI+
-    GdiplusStartupInput gdiplusStartupInput;
-    ULONG_PTR gdiplusToken;
-    GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, NULL);
-    
     // Load logo image with transparency
     wchar_t logoPath[MAX_PATH];
     GetModuleFileNameW(NULL, logoPath, MAX_PATH);
@@ -396,13 +391,11 @@ void ShowAboutDialog(HWND parent, const std::map<std::wstring, std::wstring>& lo
     
     DestroyWindow(dlg);
     
-    // Cleanup GDI+ resources
     if (g_logoImage) {
         delete g_logoImage;
         g_logoImage = nullptr;
     }
-    GdiplusShutdown(gdiplusToken);
-    
+
     if (parent && IsWindow(parent)) {
         EnableWindow(parent, TRUE);
         SetForegroundWindow(parent);

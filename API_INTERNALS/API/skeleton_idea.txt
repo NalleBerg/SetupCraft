@@ -33,6 +33,11 @@
     [ ] edit_rtf            — resizable RTF editor modal
     [ ] notes_editor        — lightweight RTF notes popup
     [ ] vfs_picker          — VFS-backed file/folder picker dialog
+    [ ] ctrlw               — custom modal dialogs: ShowQuitDialog,
+                              ShowCloseProjectDialog, ShowConfirmDeleteDialog,
+                              ShowRenameProjectDialog, ShowValidationDialog
+                              (info/OK dialog with icon, i18n button, narrow
+                              VAL_CONT_W; replaces MessageBoxW app-wide)
 
   Localisation stub
     [ ] languages.h / languages.cpp  — locale loading, key lookup, ExpandEscapes

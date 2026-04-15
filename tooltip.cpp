@@ -353,7 +353,7 @@ void ShowMultilingualTooltip(const std::vector<TooltipEntry>& entries, int x, in
     // For simple tooltips, also clamp X to parent window right edge so the
     // tooltip never overflows the app (e.g. registry warning near the right edge).
     int finalX = x;
-    int finalY = y;
+    int finalY = (aboveAnchorY >= 0) ? (aboveAnchorY - tooltipHeight - 4) : y;
     if (isSimpleTooltip && parentHwnd) {
         RECT rcParent;
         GetClientRect(parentHwnd, &rcParent);

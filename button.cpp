@@ -210,29 +210,11 @@ LRESULT CALLBACK ButtonSubclassProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM 
         }
         break;
     }
-    case WM_MOUSELEAVE: {
-        // Guard against spurious WM_MOUSELEAVE events.  When a tooltip popup
-        // appears over (or near) this button, Windows posts WM_MOUSELEAVE to the
-        // tracked button even though the cursor never actually left it.  Without
-        // this guard the hover state resets → HideTooltip → next WM_MOUSEMOVE
-        // re-shows the tooltip → another spurious leave → infinite blink loop.
-        POINT ptLeave; GetCursorPos(&ptLeave);
-        RECT  rcLeave; GetWindowRect(hwnd, &rcLeave);
-        if (PtInRect(&rcLeave, ptLeave)) {
-            // Cursor is still inside — spurious leave (tooltip popup appeared).
-            // Re-arm TME_LEAVE so we still get the real leave notification later.
-            TRACKMOUSEEVENT tme = {};
-            tme.cbSize    = sizeof(tme);
-            tme.dwFlags   = TME_LEAVE;
-            tme.hwndTrack = hwnd;
-            TrackMouseEvent(&tme);
-            break;
-        }
+    case WM_MOUSELEAVE:
         SetPropW(hwnd, L"IsHovering", (HANDLE)0);
         InvalidateRect(hwnd, NULL, FALSE);
         HideTooltip();
         break;
-    }
     case WM_LBUTTONDOWN:
         // Hide any visible tooltip immediately when the user starts a click.
         // The tooltip may still be positioned over (or near) the button from
