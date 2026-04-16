@@ -85,6 +85,8 @@ struct InstallerDialog {
 #define IDC_IDLG_SZR_H_SPIN  7123   // height up-down spinner
 #define IDC_IDLG_SZR_H_ALIGN 7124   // horizontal alignment combo (Left/Center/Right)
 #define IDC_IDLG_SZR_V_ALIGN 7125   // vertical alignment combo (Top/Middle/Bottom)
+#define IDC_IDLG_SZR_CLOSE   7126   // "Close" button — saves size and closes preview
+#define IDC_IDLG_SZR_RESET   7127   // "Reset" button — clears user-sized flag and auto-fits
 
 // Installer-title section controls (range 7110–7119)
 // Displayed at the top of the Dialogs page, above the dialog-type rows.

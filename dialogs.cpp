@@ -24,6 +24,8 @@
 #include "button.h"       // CreateCustomButtonWithIcon(), MeasureButtonWidth()
 #include "checkbox.h"     // CreateCustomCheckbox, DrawCustomCheckbox
 #include "my_scrollbar.h" // msb_attach / msb_detach / msb_sync
+#include "ctrlw.h"        // ShowConfirmDeleteDialog()
+#include "tooltip.h"      // ShowMultilingualTooltip(), SetButtonTooltip()
 #include <richedit.h>     // EM_STREAMIN, SF_RTF, EDITSTREAM
 
 // PrivateExtractIconsW — undocumented but reliable fixed-size icon loader.
@@ -235,6 +237,10 @@ struct PreviewData {
     bool                contentHidden;   // true when IDLG_COMPONENTS has no RTF — hide RichEdit
     HWND                hSizer;          // sizer panel (set by ShowPreviewDialog after creation)
     bool                finishSelected;  // true → show feedback dialog after preview closes
+    // Snapshot of sizes at open time — used to detect changes on Cancel.
+    int                 openLogW;        // s_previewLogW when preview opened
+    int                 openLogH;        // s_previewLogH when preview opened
+    bool                openUserSized;   // s_previewUserSized[type] when preview opened
 };
 
 // Sizer panel data; GWLP_USERDATA on the sizer window.
@@ -684,7 +690,8 @@ static int MeasureRichEditLogHeight(HWND hRE)
     return MulDiv((int)fr.rc.top, 96, 1440);
 }
 
-// Forward declaration (defined near ShowPreviewDialog, used here).
+// Forward declarations (defined near ShowPreviewDialog, used here).
+static void TryCancelPreview(HWND hwnd, PreviewData* pd);
 static int ScanRtfNaturalWidthTwips(const std::wstring& rtf);
 static void ShowFinishFeedback(HWND hOwner);
 
@@ -747,10 +754,7 @@ static void AutoFitPreview(HWND hPreview, PreviewData* pd)
         int twips = ScanRtfNaturalWidthTwips(rtf);
         if (twips > 0) {
             int contentLogW = twips / 15;
-            // Preview client ← RichEdit (cW - 2×pad(16)) with WS_EX_CLIENTEDGE.
-            // WS_EX_CLIENTEDGE adds 2×SM_CXEDGE border + 2 internal margin px.
-            int edgePx = (int)((GetSystemMetrics(SM_CXEDGE) * 2 + 2) / g_dpiScale + 0.5f);
-            logW = contentLogW + 32 + edgePx + 1;  // +32 = 2×pad; +1 sub-pixel tolerance
+            logW = contentLogW + 32 + 1;  // +32 = 2×pad; +1 sub-pixel tolerance
         }
     }
     // Minimum: 400 logical px so text-only and narrow-image dialogs always have
@@ -773,9 +777,8 @@ static void AutoFitPreview(HWND hPreview, PreviewData* pd)
     const wchar_t* reClassX =
         (s_hReMx && GetClassInfoExW(s_hReMx, L"RICHEDIT50W", &wcex))
         ? L"RICHEDIT50W" : L"RichEdit20W";
-    // Width = live RichEdit interior = (cW - 2×pad) - 2×SM_CXEDGE.
-    // (No WS_EX_CLIENTEDGE on measurement → set its width = that interior value.)
-    int measPhysW = S(logW) - 2 * S(16) - 2 * GetSystemMetrics(SM_CXEDGE);
+    // Width = live RichEdit interior = (cW - 2×pad).
+    int measPhysW = S(logW) - 2 * S(16);
     if (measPhysW < S(100)) measPhysW = S(100);
 
     // ── Height / logH ──────────────────────────────────────────────────────────
@@ -793,26 +796,25 @@ static void AutoFitPreview(HWND hPreview, PreviewData* pd)
         } else {
             int rtfLogH = 60;  // safe minimum
             HWND hM = CreateWindowExW(0, reClassX, L"",
-                WS_CHILD | ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL,
+                WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL,
                 -(measPhysW + 100), 0, measPhysW, 1,
                 hPreview, NULL, s_hInst, NULL);
+            int splitLineH = 18;  // one-line bottom padding (default ~9pt line)
             if (hM) {
-                // No WS_VISIBLE and no UpdateWindow: we never paint this window.
-                // MeasureRichEditLogHeight's GetScrollInfo path returns 0 (needs a
-                // paint pass), so it falls through to EM_FORMATRANGE (measure-only,
-                // wParam=FALSE) which computes content height without rendering —
-                // fast even for complex RTF with embedded images.
                 if (pd->hGuiFont) SendMessageW(hM, WM_SETFONT, (WPARAM)pd->hGuiFont, FALSE);
                 SendMessageW(hM, EM_SETBKGNDCOLOR, 0, RGB(255, 255, 255));
                 StreamRtfIn(hM, rtf);
+                RedrawWindow(hM, NULL, NULL, RDW_ERASE | RDW_INVALIDATE | RDW_UPDATENOW);
                 int measured = MeasureRichEditLogHeight(hM);
-                if (measured > 60) rtfLogH = measured;
+                if (measured > 60) {
+                    rtfLogH = measured;
+                    int nLines = (int)SendMessageW(hM, EM_GETLINECOUNT, 0, 0);
+                    if (nLines > 0) splitLineH = std::min(measured / nLines, 24);
+                }
                 DestroyWindow(hM);
             }
+            rtfLogH += splitLineH;  // one blank line of breathing room at the bottom
             if (rtfLogH < 60) rtfLogH = 60;
-            // hContent has WS_EX_CLIENTEDGE: add 2×SM_CYEDGE so the viewport
-            // has enough room for the measured content without scrolling.
-            int edgeHLog = (int)(2.0 * GetSystemMetrics(SM_CYEDGE) / g_dpiScale + 0.5f);
             // Extras content height (the area below extLbl+extGap, above the
             // breathing+gap+btnH+pad block).
             // • Checkboxes: n×28 design-px (chkH 24 + S(4) spacing per item).
@@ -829,11 +831,11 @@ static void AutoFitPreview(HWND hPreview, PreviewData* pd)
             }
             // editY(60) + rtfLogH + gap(8) + extLbl(22) + extGap(6)
             //   + extrasContentH + gap(8) + btnH(30) + pad(16)  =  160 + rtfLogH + extrasContentH
-            logH = 160 + rtfLogH + extrasContentH + edgeHLog;
+            logH = 160 + rtfLogH + extrasContentH;
             pd->contentFitH = rtfLogH;
             if (logH > maxLogH) {
                 logH = maxLogH;
-                int cappedRtfLogH = maxLogH - 160 - extrasContentH - edgeHLog;
+                int cappedRtfLogH = maxLogH - 160 - extrasContentH;
                 if (cappedRtfLogH < 60) cappedRtfLogH = 60;
                 pd->contentFitH = cappedRtfLogH;
             }
@@ -846,40 +848,38 @@ static void AutoFitPreview(HWND hPreview, PreviewData* pd)
         // Interior chrome: pad(16) + titleH(36) + 2×gap(8) + btnH(30) + pad(16) = 114
         constexpr int kChromeLogH = 114;
         int rtfLogH = 100;  // safe minimum
+        int singleLineH = 18;  // one-line bottom padding (default ~9pt line)
         if (!rtf.empty()) {
             HWND hM = CreateWindowExW(0, reClassX, L"",
-                WS_CHILD | ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL,
+                WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL,
                 -(measPhysW + 100), 0, measPhysW, 1,
                 hPreview, NULL, s_hInst, NULL);
             if (hM) {
-                // No WS_VISIBLE / no UpdateWindow — see split layout comment above.
                 if (pd->hGuiFont) SendMessageW(hM, WM_SETFONT, (WPARAM)pd->hGuiFont, FALSE);
                 SendMessageW(hM, EM_SETBKGNDCOLOR, 0, RGB(255, 255, 255));
                 StreamRtfIn(hM, rtf);
+                RedrawWindow(hM, NULL, NULL, RDW_ERASE | RDW_INVALIDATE | RDW_UPDATENOW);
                 int measured = MeasureRichEditLogHeight(hM);
-                if (measured > 0) rtfLogH = measured;
+                if (measured > 0) {
+                    rtfLogH = measured;
+                    int nLines = (int)SendMessageW(hM, EM_GETLINECOUNT, 0, 0);
+                    if (nLines > 0) singleLineH = std::min(measured / nLines, 24);
+                }
                 DestroyWindow(hM);
             }
         }
         rtfLogH      = std::max(rtfLogH, 100);
-        // hContent has WS_EX_CLIENTEDGE which steals 2×SM_CYEDGE px (≈4 px at
-        // 96 dpi) from the viewport height.  Add those pixels back so the window
-        // is tall enough for the content without a scrollbar.
-        int edgeHLog = (int)(2.0 * GetSystemMetrics(SM_CYEDGE) / g_dpiScale + 0.5f);
-        needsVScroll = (rtfLogH > maxLogH - kChromeLogH - edgeHLog);
+        needsVScroll = (rtfLogH + singleLineH > maxLogH - kChromeLogH);
         if (needsVScroll) {
-            rtfLogH = maxLogH - kChromeLogH - edgeHLog;
+            rtfLogH = maxLogH - kChromeLogH;
         } else {
-            // 1-logical-px tolerance prevents false overflow caused by the tiny
-            // measurement difference between MeasureRichEditLogHeight (GetScrollInfo
-            // nMax on the 1-px window) and Msb_MeasureRichVertMax (EM_POSFROMCHAR
-            // on the live RichEdit).  Without this, a 1-px discrepancy can keep
-            // the custom scrollbar visible on a perfectly auto-fitted window.
-            rtfLogH += 1;
+            // Add one blank line of breathing room at the bottom so the last
+            // line of text is not flush against the navigation buttons.
+            rtfLogH += singleLineH;
         }
-        logH = rtfLogH + kChromeLogH + edgeHLog;
-        pd->contentNaturalW    = logW;               // used by H-align in LayoutPreviewControls
-        pd->contentNaturalH    = rtfLogH + edgeHLog; // outer reH must fit content + both borders
+        logH = rtfLogH + kChromeLogH;
+        pd->contentNaturalW    = logW;      // used by H-align in LayoutPreviewControls
+        pd->contentNaturalH    = rtfLogH;   // outer reH must fit content
     }
 
     logH = std::max(150, logH);
@@ -955,6 +955,33 @@ static void NavigateTo(HWND hwnd, PreviewData* pd, InstallerDialogType newType)
     // has already manually resized via the sizer.
     UpdateWindow(hwnd);
     AutoFitPreview(hwnd, pd);
+
+    // Re-centre on monitor after AutoFitPreview may have changed the window size.
+    {
+        RECT rcP; GetWindowRect(hwnd, &rcP);
+        int newW = rcP.right - rcP.left;
+        int newH = rcP.bottom - rcP.top;
+        int nx = rcP.left, ny = rcP.top;
+        HMONITOR hMN = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        MONITORINFO miN = {}; miN.cbSize = sizeof(miN);
+        if (hMN && GetMonitorInfoW(hMN, &miN)) {
+            RECT& wa = miN.rcWork;
+            nx = wa.left + (wa.right  - wa.left - newW) / 2;
+            ny = wa.top  + (wa.bottom - wa.top  - newH) / 2;
+            if (nx + newW > wa.right)  nx = wa.right  - newW;
+            if (ny + newH > wa.bottom) ny = wa.bottom - newH;
+            if (nx < wa.left)  nx = wa.left;
+            if (ny < wa.top)   ny = wa.top;
+        }
+        SetWindowPos(hwnd, NULL, nx, ny, 0, 0,
+                     SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+        if (pd->hSizer && IsWindow(pd->hSizer)) {
+            RECT rcSz; GetWindowRect(pd->hSizer, &rcSz);
+            int szW = rcSz.right - rcSz.left;
+            SetWindowPos(pd->hSizer, NULL, nx - S(8) - szW, ny, 0, 0,
+                         SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+        }
+    }
 }
 
 // ── Preview window proc ───────────────────────────────────────────────────────
@@ -996,7 +1023,7 @@ static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
         // and replaces it when SyncContentScrollbar (called from LayoutPreviewControls)
         // detects overflow after the window is sized.
         DWORD reStyle = WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL;
-        pd->hContent = CreateWindowExW(WS_EX_CLIENTEDGE, reClass, L"",
+        pd->hContent = CreateWindowExW(0, reClass, L"",
             reStyle, 0, 0, 10, 10,
             hwnd, (HMENU)(UINT_PTR)IDC_IDLG_PRV_CONTENT, cs->hInstance, NULL);
         if (pd->hGuiFont) SendMessageW(pd->hContent, WM_SETFONT, (WPARAM)pd->hGuiFont, TRUE);
@@ -1099,9 +1126,8 @@ static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
             return 0;
         }
         if (id == IDC_IDLG_PRV_CANCEL) {
-            // Mark as cancelled so ShowPreviewDialog can revert dimension changes.
-            pd->running   = false;
-            pd->cancelled = true;
+            // If sizes changed, ask before losing them; otherwise cancel normally.
+            TryCancelPreview(hwnd, pd);
             return 0;
         }
         return 0;
@@ -1137,7 +1163,7 @@ static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
     case WM_CLOSE:
         // No WS_SYSMENU means no × button, but WM_CLOSE can still arrive via
         // Alt+F4 or the taskbar — treat it the same as Cancel.
-        if (pd) { pd->running = false; pd->cancelled = true; }
+        TryCancelPreview(hwnd, pd);
         return 0;
 
     case WM_KEYDOWN:
@@ -1146,7 +1172,7 @@ static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
         // the Finish button unreliable — requires 2+ clicks to register).
         // Handle Escape manually so it still cancels the preview.
         if (wParam == VK_ESCAPE) {
-            if (pd) { pd->running = false; pd->cancelled = true; }
+            TryCancelPreview(hwnd, pd);
         }
         return 0;
 
@@ -1278,29 +1304,13 @@ static LRESULT CALLBACK SizerWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         SendMessageW(hHS, UDM_SETPOS32,   0, (LPARAM)s_previewLogH);
         sd->ignoring = false;
 
-        // Tooltips on the edit fields
-        HWND hTT = CreateWindowExW(0, TOOLTIPS_CLASSW, NULL,
-            WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX,
-            CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
-            hwnd, NULL, hI, NULL);
-        SendMessageW(hTT, TTM_SETMAXTIPWIDTH, 0, S(280));
-
-        TOOLINFOW ti = {}; ti.cbSize = sizeof(ti); ti.uFlags = TTF_IDISHWND | TTF_SUBCLASS;
-        ti.hwnd = hwnd;
-
-        std::wstring wTip = L10n(L"idlg_sizer_w_tip",
+        // Custom tooltips on the Width / Height edit fields.
+        SetButtonTooltip(hWE, L10n(L"idlg_sizer_w_tip",
             L"Installer dialog width in logical pixels (96 dpi / 100% scaling).\n"
-            L"The preview scales automatically to match your current display DPI.");
-        ti.uId = (UINT_PTR)hWE;
-        ti.lpszText = const_cast<wchar_t*>(wTip.c_str());
-        SendMessageW(hTT, TTM_ADDTOOLW, 0, (LPARAM)&ti);
-
-        std::wstring hTip = L10n(L"idlg_sizer_h_tip",
+            L"The preview scales automatically to match your current display DPI.").c_str());
+        SetButtonTooltip(hHE, L10n(L"idlg_sizer_h_tip",
             L"Installer dialog height in logical pixels (96 dpi / 100% scaling).\n"
-            L"The preview scales automatically to match your current display DPI.");
-        ti.uId = (UINT_PTR)hHE;
-        ti.lpszText = const_cast<wchar_t*>(hTip.c_str());
-        SendMessageW(hTT, TTM_ADDTOOLW, 0, (LPARAM)&ti);
+            L"The preview scales automatically to match your current display DPI.").c_str());
 
         y += rowH + gap;
 
@@ -1340,6 +1350,31 @@ static LRESULT CALLBACK SizerWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         SendMessageW(hVAC, CB_ADDSTRING, 0, (LPARAM)L10n(L"idlg_align_bottom", L"Bottom").c_str());
         SendMessageW(hVAC, CB_SETCURSEL, (WPARAM)s_previewVAlign, 0);
 
+        y += rowH + gap;
+
+        // Row 5: Reset button — clears the manual-sizing flag and auto-fits.
+        int btnW = lblW + gap + edW + spW;
+        HWND hRB = CreateWindowExW(0, WC_BUTTONW,
+            L10n(L"idlg_sizer_reset_btn", L"Reset size").c_str(),
+            WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+            pad, y, btnW, rowH,
+            hwnd, (HMENU)(UINT_PTR)IDC_IDLG_SZR_RESET, hI, NULL);
+        if (hF) SendMessageW(hRB, WM_SETFONT, (WPARAM)hF, TRUE);
+
+        y += rowH + gap;
+
+        // Row 6: Close button — saves size and closes the preview.
+        HWND hCB = CreateWindowExW(0, WC_BUTTONW,
+            L10n(L"idlg_sizer_close_btn", L"Close").c_str(),
+            WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+            pad, y, btnW, rowH,
+            hwnd, (HMENU)(UINT_PTR)IDC_IDLG_SZR_CLOSE, hI, NULL);
+        if (hF) SendMessageW(hCB, WM_SETFONT, (WPARAM)hF, TRUE);
+
+        // Custom tooltips on the Reset and Close buttons.
+        SetButtonTooltip(hRB, L10n(L"idlg_sizer_reset_tip", L"Reset size to default").c_str());
+        SetButtonTooltip(hCB, L10n(L"idlg_sizer_close_tip", L"Close preview with current size").c_str());
+
         return 0;
     }
 
@@ -1347,6 +1382,47 @@ static LRESULT CALLBACK SizerWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         if (!sd || sd->ignoring) return 0;
         int id    = LOWORD(wParam);
         int event = HIWORD(wParam);
+        if (id == IDC_IDLG_SZR_RESET && event == BN_CLICKED) {
+            // Reset: clear the user-sized flag and re-run auto-fit.
+            if (sd->pd) {
+                bool wasSized = s_previewUserSized[(int)sd->pd->type];
+                s_previewUserSized[sd->pd->type] = false;
+                if (sd->hPreview && IsWindow(sd->hPreview)) {
+                    AutoFitPreview(sd->hPreview, sd->pd);
+                    // Re-centre on monitor work area after the size change.
+                    RECT rcP; GetWindowRect(sd->hPreview, &rcP);
+                    int newW = rcP.right - rcP.left;
+                    int newH = rcP.bottom - rcP.top;
+                    int nx = rcP.left, ny = rcP.top;
+                    HMONITOR hMR = MonitorFromWindow(sd->hPreview, MONITOR_DEFAULTTONEAREST);
+                    MONITORINFO miR = {}; miR.cbSize = sizeof(miR);
+                    if (hMR && GetMonitorInfoW(hMR, &miR)) {
+                        RECT& wa = miR.rcWork;
+                        nx = wa.left + (wa.right  - wa.left - newW) / 2;
+                        ny = wa.top  + (wa.bottom - wa.top  - newH) / 2;
+                        if (nx + newW > wa.right)  nx = wa.right  - newW;
+                        if (ny + newH > wa.bottom) ny = wa.bottom - newH;
+                        if (nx < wa.left)  nx = wa.left;
+                        if (ny < wa.top)   ny = wa.top;
+                    }
+                    SetWindowPos(sd->hPreview, NULL, nx, ny, 0, 0,
+                        SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+                    // Keep sizer aligned to preview top-left.
+                    RECT rcSz; GetWindowRect(hwnd, &rcSz);
+                    int szW = rcSz.right - rcSz.left;
+                    SetWindowPos(hwnd, NULL, nx - S(8) - szW, ny, 0, 0,
+                        SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+                }
+                // Only mark modified if there was actually a user-set size to reset.
+                if (wasSized) MainWindow::MarkAsModified();
+            }
+            return 0;
+        }
+        if (id == IDC_IDLG_SZR_CLOSE && event == BN_CLICKED) {
+            // Close button: commit sizes and close the preview (non-cancel path).
+            if (sd->pd) { sd->pd->cancelled = false; sd->pd->running = false; }
+            return 0;
+        }
         if ((id == IDC_IDLG_SZR_H_ALIGN || id == IDC_IDLG_SZR_V_ALIGN) && event == CBN_SELCHANGE) {
             HWND hHAC = GetDlgItem(hwnd, IDC_IDLG_SZR_H_ALIGN);
             HWND hVAC = GetDlgItem(hwnd, IDC_IDLG_SZR_V_ALIGN);
@@ -1359,6 +1435,7 @@ static LRESULT CALLBACK SizerWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             return 0;
         }
         if ((id == IDC_IDLG_SZR_W_EDIT || id == IDC_IDLG_SZR_H_EDIT) && event == EN_CHANGE) {
+            if (sd->ignoring) return 0;  // programmatic update (UDM_SETPOS32 during init)
             // Read both values; clamp; update globals; resize preview.
             HWND hWE = GetDlgItem(hwnd, IDC_IDLG_SZR_W_EDIT);
             HWND hHE = GetDlgItem(hwnd, IDC_IDLG_SZR_H_EDIT);
@@ -1393,6 +1470,8 @@ static LRESULT CALLBACK SizerWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 GetDlgItem(hwnd, IDC_IDLG_SZR_H_EDIT),
                 GetDlgItem(hwnd, IDC_IDLG_SZR_H_ALIGN),
                 GetDlgItem(hwnd, IDC_IDLG_SZR_V_ALIGN),
+                GetDlgItem(hwnd, IDC_IDLG_SZR_RESET),
+                GetDlgItem(hwnd, IDC_IDLG_SZR_CLOSE),
             };
             int n = (int)(sizeof(order) / sizeof(order[0]));
             HWND hFocus = GetFocus();
@@ -1622,6 +1701,34 @@ static void ShowFinishFeedback(HWND hOwner)
     SetForegroundWindow(hOwner);
 }
 
+// ── TryCancelPreview ──────────────────────────────────────────────────────────
+// Called from all Cancel / WM_CLOSE / Escape paths in PreviewWndProc.
+// If the sizes have not changed since the preview opened, cancels normally
+// (pd->cancelled = true).  If sizes changed, asks the user first:
+//   • "Yes" (lose changes) → cancelled = true   — ShowPreviewDialog reverts.
+//   • "No"  (keep the preview open) → do nothing, preview keeps running.
+
+static void TryCancelPreview(HWND hwnd, PreviewData* pd)
+{
+    if (!pd) return;
+    if (s_previewLogW != pd->openLogW || s_previewLogH != pd->openLogH
+            || s_previewUserSized[(int)pd->type] != pd->openUserSized) {
+        bool lose = s_pLocale
+            ? ShowConfirmDeleteDialog(hwnd,
+                L10n(L"idlg_preview_lose_size_title", L"Unsaved size changes"),
+                L10n(L"idlg_preview_lose_size_msg",
+                     L"You have manually resized this dialog. Close and lose the sizing changes?"),
+                *s_pLocale)
+            : true;
+        if (!lose) {
+            // "No" — user wants to stay in the preview; do nothing.
+            return;
+        }
+    }
+    pd->running   = false;
+    pd->cancelled = true;
+}
+
 // ── ShowPreviewDialog ─────────────────────────────────────────────────────────
 
 static void ShowPreviewDialog(HWND hwndParent, InstallerDialogType type)
@@ -1659,24 +1766,27 @@ static void ShowPreviewDialog(HWND hwndParent, InstallerDialogType type)
     // the sizer to stay above the preview (achieved by ownership) but NOT
     // float above unrelated apps when the developer switches programs.
     const DWORD sizerExStyle = WS_EX_TOOLWINDOW;
-    RECT rcSz = { 0, 0, S(165), S(134) };
+    RECT rcSz = { 0, 0, S(165), S(194) };
     AdjustWindowRectEx(&rcSz, sizerStyle, FALSE, sizerExStyle);
     int szW = rcSz.right  - rcSz.left;
     int szH = rcSz.bottom - rcSz.top;
 
-    // ── Position both windows (preview centred; sizer to its left) ────────────
-    RECT rcParent; GetWindowRect(hwndParent, &rcParent);
-    int px = rcParent.left + (rcParent.right  - rcParent.left - wndW) / 2;
-    int py = rcParent.top  + (rcParent.bottom - rcParent.top  - wndH) / 2;
-    // Clamp preview to work area
+    // ── Position both windows (preview centred on monitor; sizer to its left) ──
     MONITORINFO mi = {}; mi.cbSize = sizeof(mi);
     HMONITOR hMon = MonitorFromWindow(hwndParent, MONITOR_DEFAULTTONEAREST);
+    int px, py;
     if (hMon && GetMonitorInfoW(hMon, &mi)) {
         RECT& wa = mi.rcWork;
+        px = wa.left + (wa.right  - wa.left - wndW) / 2;
+        py = wa.top  + (wa.bottom - wa.top  - wndH) / 2;
         if (px + wndW > wa.right)  px = wa.right  - wndW;
         if (py + wndH > wa.bottom) py = wa.bottom - wndH;
         if (px < wa.left)  px = wa.left;
         if (py < wa.top)   py = wa.top;
+    } else {
+        RECT rcParent; GetWindowRect(hwndParent, &rcParent);
+        px = rcParent.left + (rcParent.right  - rcParent.left - wndW) / 2;
+        py = rcParent.top  + (rcParent.bottom - rcParent.top  - wndH) / 2;
     }
     int sxX = px - S(8) - szW; // sizer to the left of preview
     int sxY = py;               // aligned to preview top
@@ -1711,7 +1821,6 @@ static void ShowPreviewDialog(HWND hwndParent, InstallerDialogType type)
     pd.hGuiFont   = s_hGuiFont;
     pd.hTitleFont = s_hTitleFont;
     pd.running    = true;
-
     // Window caption: "{Installer title} — Preview — {Dialog name}"
     std::wstring dlgName = L10n(kDialogNameKeys[(int)type], kDialogNameFallbacks[(int)type]);
     std::wstring caption = s_installTitle + L"  \u2014  "
@@ -1758,21 +1867,25 @@ static void ShowPreviewDialog(HWND hwndParent, InstallerDialogType type)
     // gets a genuine paint pass (images and OLE objects need a live DC).
     // AutoFitPreview handles ALL dialog types; skips if developer resized.
     AutoFitPreview(hPreview, &pd);
-    // AutoFitPreview uses SWP_NOMOVE — re-centre on both axes after resize.
+    // AutoFitPreview uses SWP_NOMOVE — re-centre on monitor work area after resize.
     {
         RECT rcW; GetWindowRect(hPreview, &rcW);
         int newW  = rcW.right  - rcW.left;
         int newH  = rcW.bottom - rcW.top;
-        int newPx = rcParent.left + (rcParent.right  - rcParent.left - newW) / 2;
-        int newPy = rcParent.top  + (rcParent.bottom - rcParent.top  - newH) / 2;
+        int newPx, newPy;
         HMONITOR hM2 = MonitorFromWindow(hPreview, MONITOR_DEFAULTTONEAREST);
         MONITORINFO mi2 = {}; mi2.cbSize = sizeof(mi2);
         if (hM2 && GetMonitorInfoW(hM2, &mi2)) {
             RECT& wa2 = mi2.rcWork;
+            newPx = wa2.left + (wa2.right  - wa2.left - newW) / 2;
+            newPy = wa2.top  + (wa2.bottom - wa2.top  - newH) / 2;
             if (newPx + newW > wa2.right)  newPx = wa2.right  - newW;
             if (newPy + newH > wa2.bottom) newPy = wa2.bottom - newH;
             if (newPx < wa2.left)  newPx = wa2.left;
             if (newPy < wa2.top)   newPy = wa2.top;
+        } else {
+            newPx = rcW.left;  // unchanged
+            newPy = rcW.top;
         }
         SetWindowPos(hPreview, NULL, newPx, newPy, 0, 0,
                      SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
@@ -1788,6 +1901,12 @@ static void ShowPreviewDialog(HWND hwndParent, InstallerDialogType type)
     // for complex RTF.  Async invalidation is sufficient: the message loop
     // processes WM_PAINT immediately on its first iteration.
     RedrawWindow(hPreview, NULL, NULL, RDW_INVALIDATE | RDW_ALLCHILDREN);
+
+    // Snapshot AFTER auto-fit so Cancel only prompts if the user manually changed
+    // the size after the preview was already laid out.
+    pd.openLogW      = s_previewLogW;
+    pd.openLogH      = s_previewLogH;
+    pd.openUserSized = s_previewUserSized[(int)type];
 
     EnableWindow(hwndParent, FALSE);
 
@@ -1836,6 +1955,8 @@ static void ShowPreviewDialog(HWND hwndParent, InstallerDialogType type)
         memcpy(s_previewUserSized, savedUserSized, sizeof(s_previewUserSized));
         if (!wasModified) MainWindow::MarkAsSaved();
     }
+    // Non-cancel close: sizes remain in the globals and will be written to DB
+    // when the developer presses the main Save button (IDLG_SaveToDb).
 
     if (hSmIcon) DestroyIcon(hSmIcon);
     if (hLgIcon) DestroyIcon(hLgIcon);
@@ -2305,7 +2426,10 @@ void IDLG_SaveToDb(int projectId)
     DB::SetSetting(L"installer_icon_"  + pid, s_installIconPath);
     DB::SetSetting(L"installer_preview_w_" + pid, std::to_wstring(s_previewLogW));
     DB::SetSetting(L"installer_preview_h_" + pid, std::to_wstring(s_previewLogH));
-    DB::SetSetting(L"installer_preview_user_sized_" + pid, s_previewUserSized[IDLG_COMPONENTS] ? L"1" : L"0");
+    // Save all per-type user-sized flags as a compact string (one '0'/'1' per type).
+    std::wstring userSizedStr(IDLG_COUNT, L'0');
+    for (int i = 0; i < IDLG_COUNT; i++) userSizedStr[i] = s_previewUserSized[i] ? L'1' : L'0';
+    DB::SetSetting(L"installer_preview_user_sized_" + pid, userSizedStr);
 }
 
 // ── IDLG_LoadFromDb ───────────────────────────────────────────────────────────
@@ -2336,7 +2460,15 @@ void IDLG_LoadFromDb(int projectId)
     std::wstring sPrevW, sPrevH, sPrevSized;
     if (DB::GetSetting(L"installer_preview_w_" + pid, sPrevW) && !sPrevW.empty()) s_previewLogW = _wtoi(sPrevW.c_str());
     if (DB::GetSetting(L"installer_preview_h_" + pid, sPrevH) && !sPrevH.empty()) s_previewLogH = _wtoi(sPrevH.c_str());
-    if (DB::GetSetting(L"installer_preview_user_sized_" + pid, sPrevSized)) s_previewUserSized[IDLG_COMPONENTS] = (sPrevSized == L"1");
+    if (DB::GetSetting(L"installer_preview_user_sized_" + pid, sPrevSized) && !sPrevSized.empty()) {
+        if (sPrevSized.size() == 1) {
+            // Legacy: old format only stored IDLG_COMPONENTS.
+            s_previewUserSized[IDLG_COMPONENTS] = (sPrevSized[0] == L'1');
+        } else {
+            for (int i = 0; i < IDLG_COUNT && i < (int)sPrevSized.size(); i++)
+                s_previewUserSized[i] = (sPrevSized[i] == L'1');
+        }
+    }
 }
 
 // ── IDLG_SetInstallerInfo ─────────────────────────────────────────────────────

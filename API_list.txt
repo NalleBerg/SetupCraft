@@ -239,7 +239,8 @@
                                                 (with mistake history), layout constants,
                                                 and full locale key table.
 
-  preview_autofit_INTERNALS.txt                 Preview dialog auto-fit and scrollbar system —
+  preview_autofit_INTERNALS.txt                 Preview dialog auto-fit, positioning, and
+                                                scrollbar system —
                                                 AutoFitPreview (all dialog types, both layouts),
                                                 ScanRtfNaturalWidthTwips (twip→logical-px width),
                                                 SyncContentScrollbar (my_scrollbar attach/detach
@@ -247,6 +248,9 @@
                                                 when hContentSB is non-NULL, msb_sync is used
                                                 directly — GetScrollInfo path bypassed to avoid
                                                 false detach after EM_SHOWSCROLLBAR(FALSE)),
+                                                measurement RichEdit MUST have WS_VISIBLE +
+                                                RedrawWindow(RDW_UPDATENOW) before GetScrollInfo
+                                                or nMax=0 always (images never measured),
                                                 layout constants (kPreviewChromeLogH=114,
                                                 split 160+extrasContentH+rtfLogH, no-RTF 144+n×28;
                                                 extrasContentH=n×28 for checkboxes,
@@ -256,6 +260,13 @@
                                                 from MeasureRichEditLogHeight vs Msb_MeasureRichVertMax
                                                 rounding difference), width formula,
                                                 cap values (95 %/75 %), scrollbar lifecycle,
-                                                s_previewUserSized per-type suppression.
+                                                s_previewUserSized per-type suppression,
+                                                monitor-work-area centring (initial open,
+                                                post-AutoFit, after NavigateTo, after Reset —
+                                                all use MonitorFromWindow→GetMonitorInfoW→rcWork;
+                                                NavigateTo re-centres both preview and sizer
+                                                after each AutoFitPreview call),
+                                                Cancel-guard snapshot (openLogW/H/openUserSized)
+                                                must be taken AFTER AutoFitPreview — not before.
 
 ================================================================================

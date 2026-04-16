@@ -2,6 +2,15 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.04.16.09] - 2026-04-16
+
+### Fixed
+- **Preview — dirty flag on open (two causes)**: (1) `UDM_SETPOS32` fires `EN_CHANGE` on the Height edit during sizer creation; the `EN_CHANGE` handler did not check `sd->ignoring`, so `MarkAsModified()` was called on every preview open. Fixed: early `if (sd->ignoring) return 0;` guard added. (2) The `openLogW/H/openUserSized` Cancel-guard snapshot was captured *before* `AutoFitPreview`, so the saved sizes never matched the actual fitted sizes and `TryCancelPreview` always thought the developer had changed something. Fixed: snapshot moved to *after* `AutoFitPreview` and the re-centre block.
+- **Preview — wrong height after Next/Back navigation (image-heavy dialogs)**: The temporary measurement `RichEdit` in `AutoFitPreview` was created without `WS_VISIBLE` and without a forced paint pass. `GetScrollInfo.nMax` therefore always returned 0 and the code fell back to `EM_FORMATRANGE`, which underestimates height for embedded images/OLE. Fixed: added `WS_VISIBLE` + `RedrawWindow(RDW_ERASE|RDW_INVALIDATE|RDW_UPDATENOW)` after streaming RTF into the measurement window. Both single-layout and split-layout paths updated.
+- **Preview — wrong position after Next/Back navigation**: `AutoFitPreview` uses `SWP_NOMOVE`, so the window was never repositioned after navigation changed its size. Fixed: added monitor-work-area re-centre in `NavigateTo` after `AutoFitPreview`; both the preview window and the sizer panel are moved.
+- **Preview — centre on monitor instead of parent**: Initial preview position and all post-AutoFit re-centre sites now use `MonitorFromWindow → GetMonitorInfoW → rcWork` to place the window at the exact centre of the monitor work area.
+- **Preview — Reset button wrongly marks project modified**: Reset called `MarkAsModified()` unconditionally. If the dialog was already auto-fitted (never manually resized), pressing Reset still dirtied the project. Fixed: `MarkAsModified()` is now only called when `wasSized` (the pre-clear value of `s_previewUserSized[type]`) is true.
+
 ## [2026.04.15.10] - 2026-04-15
 
 ### Changed / Fixed

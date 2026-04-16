@@ -98,4 +98,24 @@
     CreateDeviceResources / DiscardDeviceResources pattern and handle
     D2DERR_RECREATE_TARGET in EndDraw.  On WM_SIZE call RT->Resize(SizeU(w,h)).
 
+  - UpDown spinner (UDM_SETPOS32) dirty-flag trap: UDM_SETPOS32 triggers
+    EN_CHANGE on the buddy edit.  If programmatic updates happen during window
+    creation (e.g. populating spinners from saved values), the EN_CHANGE handler
+    fires with a valid value and calls MarkAsModified() before the user has
+    touched anything.  Guard pattern: set a bool ignoring = true around every
+    programmatic UDM_SETPOS32 / SetWindowText call and check it at the top of
+    the EN_CHANGE handler with an early return.
+
+  - Measure-window dirty-flag trap: If a temporary measurement window (e.g. a
+    off-screen RichEdit for height measurement) triggers EN_CHANGE on ANY shared
+    handler, MarkAsModified() fires unintentionally.  Always create measurement
+    windows without an ID (NULL HMENU) or give them a unique ID range that the
+    EN_CHANGE dispatcher ignores.
+
+  - Cancel-guard snapshot timing: When a preview/modal dialog takes a snapshot of
+    "initial state" to detect user changes (for a "discard changes?" prompt on
+    cancel), the snapshot must be captured AFTER all programmatic layout/auto-fit
+    operations complete — not before them.  Taking it before means every open
+    looks "changed" and the discard prompt fires spuriously.
+
 ================================================================================
