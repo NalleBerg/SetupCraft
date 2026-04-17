@@ -8,8 +8,8 @@ Rules violation:\par
 \par
 \cf1 The ListView column headers "Destination" and "Source Path" are hardcoded English strings \emdash  they are NOT going through the locale system. Keys like files_col_destination and files_col_source need to be added to en_GB.txt and used in the ListView_InsertColumn calls.\par
 \cf0\par
-Missing Inno Setup functionality:\par
-\par
+\b\f0 Missing Inno Setup functionality\b0\f1 :\par
+\cf1\par
 Per-file install flags \emdash  Inno's [Files] section supports a Flags: attribute per entry. None of these are currently exposed for individual files:\par
 \par
 ignoreversion \emdash  don't compare version info, always overwrite\par
@@ -24,8 +24,8 @@ restartreplace \emdash  if the file is locked, queue it for replacement on next 
 sign \emdash  code-sign this specific file after copying\par
 32bit / 64bit \emdash  when installing side-by-side files, force the correct SysWow64 vs System32 path\par
 Per-file architecture override \emdash  related to the 32bit/64bit flags above; no way to mark individual files as 32-bit-only or 64-bit-only.\par
-\par
-Per-file component linkage \emdash  there is no way on the Files page itself to tag a file as belonging to a specific component (this is done on the Components page, which is fine, but a quick-assign shortcut here could save clicks).\par
+\cf0\par
+\cf1 Per-file component linkage \emdash  there is no way on the Files page itself to tag a file as belonging to a specific component (this is done on the Components page, which is fine, but a quick-assign shortcut here could save clicks).\cf0\par
 \par
 Exclude filter when adding a folder \emdash  when the developer uses "Add Folder", everything in the folder is ingested. There is no way to specify wildcards to exclude (e.g. *.pdb, *.log, Thumbs.db). The developer has to manually remove unwanted files afterwards.\par
 \par

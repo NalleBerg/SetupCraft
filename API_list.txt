@@ -147,6 +147,21 @@
                                                 borders; 20 locale keys (files_col_flags,
                                                 files_ctx_flags, fflg_*); control ID range
                                                 9001–9015 (IDC_FFLG_*).
+                                                FileCompDialogProc — per-file component
+                                                assignment modal: scrollable listbox of
+                                                component names + "(Unassigned)" entry;
+                                                edit + Add button row for coining new names
+                                                inline; OK commits to s_components by
+                                                source_path; Cancel discards. Custom scrollbar
+                                                (MSB_VERTICAL), NONCLIENTMETRICS font,
+                                                CreateCustomButtonWithIcon buttons (Blue Add /
+                                                Green OK / Red Cancel), WM_DRAWITEM +
+                                                WM_CTLCOLORSTATIC + WM_DESTROY plumbing.
+                                                Locale keys: files_col_component,
+                                                files_ctx_component, fcomp_title,
+                                                fcomp_unassigned, fcomp_new_label,
+                                                fcomp_add_btn. Control ID range 9020–9024
+                                                (IDC_FCOMP_*).
 
   API_INTERNALS\INTERNALS\button_INTERNALS.txt  Custom button & toolbar system — ButtonColor
                                                 enum, CreateCustomButton* variants, icon

@@ -315,6 +315,7 @@ static bool s_filesPageHasContent = false; // tracks whether Files page has any 
 #define IDM_DEPS_CTX_REMOVE         6210 // dep-list context menu: Remove
 #define IDM_DEPS_CTX_SHOWFILES      6211 // dep-list context menu: Show files…
 #define IDM_FILES_FLAGS             6220 // files context menu: File Flags…
+#define IDM_FILES_COMPONENT         6221 // files context menu: Component…
 
 // File Flags dialog control IDs (9001-9015)
 #define IDC_FFLG_IGNOREVERSION      9001
@@ -332,6 +333,13 @@ static bool s_filesPageHasContent = false; // tracks whether Files page has any 
 #define IDC_FFLG_ARCH_64BIT         9013
 #define IDC_FFLG_OK                 9014
 #define IDC_FFLG_CANCEL             9015
+
+// File Component dialog control IDs (9020-9025)
+#define IDC_FCOMP_LIST              9020
+#define IDC_FCOMP_EDIT              9021
+#define IDC_FCOMP_ADD_BTN           9022
+#define IDC_FCOMP_OK                9023
+#define IDC_FCOMP_CANCEL            9024
 
 // Notes button inside folder edit and component edit dialogs
 #define IDC_FOLDER_DLG_NOTES       340
@@ -1370,6 +1378,13 @@ static HTREEITEM CloneTreeSubtree(HWND hTree, HTREEITEM hSrc, HTREEITEM hNewPare
     return hNew;
 }
 
+// Returns the component display_name for a file's source path, or L"" if none assigned.
+static std::wstring GetCompNameForFile(const std::wstring& sourcePath) {
+    for (const auto& c : s_components)
+        if (c.source_path == sourcePath) return c.display_name;
+    return L"";
+}
+
 // Force-refresh the ListView to show the files belonging to hItem.
 // Only reads from s_virtualFolderFiles — skips the disk-scan path because
 // after a merge/move the result data is always in s_virtualFolderFiles,
@@ -1393,11 +1408,14 @@ static void ForceRefreshListView(HWND hwndListView, HTREEITEM hItem) {
             int idx = ListView_InsertItem(hwndListView, &lvi);
             ListView_SetItemText(hwndListView, idx, 1, (LPWSTR)fileInfo.sourcePath.c_str());
             ListView_SetItemText(hwndListView, idx, 2, (LPWSTR)fileInfo.inno_flags.c_str());
+            std::wstring compName3 = GetCompNameForFile(fileInfo.sourcePath);
+            ListView_SetItemText(hwndListView, idx, 3, (LPWSTR)compName3.c_str());
         }
     }
     ListView_SetColumnWidth(hwndListView, 0, LVSCW_AUTOSIZE_USEHEADER);
     ListView_SetColumnWidth(hwndListView, 1, LVSCW_AUTOSIZE);
     ListView_SetColumnWidth(hwndListView, 2, LVSCW_AUTOSIZE_USEHEADER);
+    ListView_SetColumnWidth(hwndListView, 3, LVSCW_AUTOSIZE_USEHEADER);
     InvalidateRect(hwndListView, NULL, TRUE);
     UpdateWindow(hwndListView);
 }
@@ -2118,6 +2136,8 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         std::wstring colSrcText = (itColSrc != s_locale.end()) ? itColSrc->second : L"Source Path";
         auto itColFlg = s_locale.find(L"files_col_flags");
         std::wstring colFlagsText = (itColFlg != s_locale.end()) ? itColFlg->second : L"Flags";
+        auto itColComp = s_locale.find(L"files_col_component");
+        std::wstring colCompText = (itColComp != s_locale.end()) ? itColComp->second : L"Component";
         LVCOLUMNW col = {};
         col.mask = LVCF_TEXT | LVCF_WIDTH;
         { col.cx = S(180);
@@ -2128,7 +2148,10 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
           ListView_InsertColumn(s_hListView, 1, &col);
           col.cx = S(150);
           col.pszText = (LPWSTR)colFlagsText.c_str();
-          ListView_InsertColumn(s_hListView, 2, &col); }
+          ListView_InsertColumn(s_hListView, 2, &col);
+          col.cx = S(130);
+          col.pszText = (LPWSTR)colCompText.c_str();
+          ListView_InsertColumn(s_hListView, 3, &col); }
         // Attach custom hidden scrollbars to the ListView.
         s_hMsbFilesListV = msb_attach(s_hListView, MSB_VERTICAL);
         s_hMsbFilesListH = msb_attach(s_hListView, MSB_HORIZONTAL);
@@ -4812,6 +4835,222 @@ LRESULT CALLBACK AddKeyDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
         return 0;
     }
     
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+// ─── File Component Dialog ───────────────────────────────────────────────────
+// Quick-assign a file to a named component from the Files-page context menu.
+
+struct FileCompDialogData {
+    std::wstring fileName;          // display name for title bar
+    std::wstring currentCompName;   // in: current component name, L"" = unassigned
+    std::wstring resultCompName;    // out: chosen name, L"" = unassigned
+    bool confirmed = false;
+    std::vector<std::wstring> compNames;  // all unique component names in project
+    // Locale strings
+    std::wstring unassignedText;    // "(Unassigned)"
+    std::wstring addBtnText;        // "Add"
+    std::wstring okText;
+    std::wstring cancelText;
+    std::wstring cueBanner;         // placeholder text in edit control
+};
+
+// Layout constants for File Component dialog (design px at 96 DPI)
+static const int FC_PAD_H  = 16;   // left/right padding
+static const int FC_PAD_T  = 12;   // top/bottom padding
+static const int FC_LIST_H = 160;  // listbox height
+static const int FC_ROW_H  = 26;   // edit / button row height
+static const int FC_BTN_H  = 32;   // OK/Cancel button height
+static const int FC_GAP    = 8;    // vertical gap between rows
+static const int FC_DLG_W  = 440;  // dialog client width
+static const int FC_ADD_W  = 60;   // "Add" button width
+
+LRESULT CALLBACK FileCompDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+    case WM_CREATE: {
+        CREATESTRUCTW* cs  = (CREATESTRUCTW*)lParam;
+        HINSTANCE hInst    = cs->hInstance;
+        FileCompDialogData* pData = (FileCompDialogData*)cs->lpCreateParams;
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)pData);
+
+        RECT rc; GetClientRect(hwnd, &rc);
+        int cw = rc.right - rc.left;
+
+        int padH = S(FC_PAD_H), padT = S(FC_PAD_T);
+        int listH = S(FC_LIST_H), rowH = S(FC_ROW_H), btnH = S(FC_BTN_H), gap = S(FC_GAP);
+
+        int y = padT;
+
+        // Listbox — shows (Unassigned) + all known component names
+        HWND hList = CreateWindowExW(WS_EX_CLIENTEDGE, L"ListBox", NULL,
+            WS_CHILD | WS_VISIBLE | WS_VSCROLL | LBS_NOTIFY | LBS_NOINTEGRALHEIGHT,
+            padH, y, cw - 2*padH, listH, hwnd, (HMENU)IDC_FCOMP_LIST, hInst, NULL);
+
+        // Populate: (Unassigned) first, then deduplicated project component names
+        // (Attach scrollbar BEFORE populating — avoids WM_NCPAINT blink)
+        HMSB hMsbList = msb_attach(hList, MSB_VERTICAL);
+        SetPropW(hwnd, L"hMsbListV", (HANDLE)hMsbList);
+
+        SendMessageW(hList, LB_ADDSTRING, 0, (LPARAM)pData->unassignedText.c_str());
+        std::set<std::wstring> added;
+        added.insert(pData->unassignedText);
+        for (const auto& name : pData->compNames) {
+            if (added.find(name) == added.end()) {
+                SendMessageW(hList, LB_ADDSTRING, 0, (LPARAM)name.c_str());
+                added.insert(name);
+            }
+        }
+        ShowScrollBar(hList, SB_VERT, FALSE);
+        if (hMsbList) msb_sync(hMsbList);
+
+        // Pre-select current assignment
+        if (pData->currentCompName.empty()) {
+            SendMessageW(hList, LB_SETCURSEL, 0, 0);
+        } else {
+            LRESULT idx = SendMessageW(hList, LB_FINDSTRINGEXACT,
+                                       (WPARAM)-1, (LPARAM)pData->currentCompName.c_str());
+            SendMessageW(hList, LB_SETCURSEL, (idx != LB_ERR) ? idx : 0, 0);
+        }
+
+        y += listH + gap;
+
+        // Edit for entering a new component name (measured to leave room for Add button)
+        int wAdd  = MeasureButtonWidth(pData->addBtnText, true);
+        int editW = cw - 2*padH - gap - wAdd;
+        CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", NULL,
+            WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL,
+            padH, y, editW, rowH,
+            hwnd, (HMENU)IDC_FCOMP_EDIT, hInst, NULL);
+        HWND hEditCtrl = GetDlgItem(hwnd, IDC_FCOMP_EDIT);
+        if (hEditCtrl) SendMessageW(hEditCtrl, EM_SETCUEBANNER, TRUE, (LPARAM)pData->cueBanner.c_str());
+
+        // Add button (right of edit)
+        CreateCustomButtonWithIcon(hwnd, IDC_FCOMP_ADD_BTN, pData->addBtnText.c_str(),
+            ButtonColor::Blue, L"shell32.dll", 264,
+            padH + editW + gap, y, wAdd, rowH, hInst);
+
+        y += rowH + gap * 2;
+
+        // OK / Cancel — centred, i18n-sized
+        int wOK  = MeasureButtonWidth(pData->okText, true);
+        int wCnl = MeasureButtonWidth(pData->cancelText, true);
+        int totalBtnW = wOK + S(FF_BTN_GAP) + wCnl;
+        int startX    = (cw - totalBtnW) / 2;
+        CreateCustomButtonWithIcon(hwnd, IDC_FCOMP_OK, pData->okText.c_str(), ButtonColor::Green,
+            L"imageres.dll", 89, startX, y, wOK, btnH, hInst);
+        CreateCustomButtonWithIcon(hwnd, IDC_FCOMP_CANCEL, pData->cancelText.c_str(), ButtonColor::Red,
+            L"shell32.dll", 131, startX + wOK + S(FF_BTN_GAP), y, wCnl, btnH, hInst);
+
+        // Apply system message font to all controls
+        {
+            NONCLIENTMETRICSW ncm = {};
+            ncm.cbSize = sizeof(ncm);
+            SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+            if (ncm.lfMessageFont.lfHeight < 0)
+                ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
+            ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+            HFONT hCtrlFont = CreateFontIndirectW(&ncm.lfMessageFont);
+            if (hCtrlFont) {
+                EnumChildWindows(hwnd, [](HWND hChild, LPARAM lp) -> BOOL {
+                    SendMessageW(hChild, WM_SETFONT, (WPARAM)(HFONT)lp, TRUE);
+                    return TRUE;
+                }, (LPARAM)hCtrlFont);
+                SetPropW(hwnd, L"hCtrlFont", (HANDLE)hCtrlFont);
+            }
+        }
+
+        return 0;
+    }
+
+    case WM_COMMAND: {
+        int id    = LOWORD(wParam);
+        int notif = HIWORD(wParam);
+        FileCompDialogData* pData = (FileCompDialogData*)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+        if (!pData) return 0;
+
+        if (id == IDC_FCOMP_ADD_BTN) {
+            // Add the typed name to the listbox and select it
+            HWND hEdit = GetDlgItem(hwnd, IDC_FCOMP_EDIT);
+            HWND hList = GetDlgItem(hwnd, IDC_FCOMP_LIST);
+            if (!hEdit || !hList) return 0;
+            wchar_t buf[256] = {};
+            GetWindowTextW(hEdit, buf, _countof(buf));
+            std::wstring name(buf);
+            while (!name.empty() && name.front() == L' ') name.erase(name.begin());
+            while (!name.empty() && name.back()  == L' ') name.pop_back();
+            if (name.empty() || name == pData->unassignedText) return 0;
+            LRESULT existing = SendMessageW(hList, LB_FINDSTRINGEXACT, (WPARAM)-1, (LPARAM)name.c_str());
+            if (existing == LB_ERR)
+                existing = SendMessageW(hList, LB_ADDSTRING, 0, (LPARAM)name.c_str());
+            SendMessageW(hList, LB_SETCURSEL, existing, 0);
+            SetWindowTextW(hEdit, L"");
+            // Sync the custom scrollbar after adding a new item
+            HMSB hMsb = (HMSB)GetPropW(hwnd, L"hMsbListV");
+            if (hMsb) msb_sync(hMsb);
+            return 0;
+        }
+
+        if (id == IDC_FCOMP_OK ||
+            (id == IDC_FCOMP_LIST && notif == LBN_DBLCLK)) {
+            HWND hList = GetDlgItem(hwnd, IDC_FCOMP_LIST);
+            if (!hList) { DestroyWindow(hwnd); return 0; }
+            LRESULT sel = SendMessageW(hList, LB_GETCURSEL, 0, 0);
+            if (sel == LB_ERR) sel = 0;
+            wchar_t buf[256] = {};
+            SendMessageW(hList, LB_GETTEXT, sel, (LPARAM)buf);
+            pData->resultCompName = (wcscmp(buf, pData->unassignedText.c_str()) == 0)
+                                    ? L"" : std::wstring(buf);
+            pData->confirmed = true;
+            DestroyWindow(hwnd);
+            return 0;
+        }
+
+        if (id == IDC_FCOMP_CANCEL) {
+            DestroyWindow(hwnd);
+            return 0;
+        }
+        return 0;
+    }
+
+    case WM_DRAWITEM: {
+        LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
+        if (dis->CtlID == IDC_FCOMP_OK || dis->CtlID == IDC_FCOMP_CANCEL ||
+            dis->CtlID == IDC_FCOMP_ADD_BTN) {
+            ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
+            NONCLIENTMETRICSW ncm = {};
+            ncm.cbSize = sizeof(ncm);
+            SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+            if (ncm.lfMessageFont.lfHeight < 0)
+                ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
+            ncm.lfMessageFont.lfWeight = FW_BOLD;
+            ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+            HFONT hFont = CreateFontIndirectW(&ncm.lfMessageFont);
+            LRESULT result = DrawCustomButton(dis, color, hFont);
+            if (hFont) DeleteObject(hFont);
+            return result;
+        }
+        break;
+    }
+
+    case WM_CTLCOLORSTATIC: {
+        HDC hdc = (HDC)wParam;
+        SetBkMode(hdc, TRANSPARENT);
+        return (LRESULT)GetStockObject(WHITE_BRUSH);
+    }
+
+    case WM_DESTROY: {
+        HFONT hCtrlFont = (HFONT)GetPropW(hwnd, L"hCtrlFont");
+        if (hCtrlFont) { DeleteObject(hCtrlFont); RemovePropW(hwnd, L"hCtrlFont"); }
+        HMSB hMsb = (HMSB)GetPropW(hwnd, L"hMsbListV");
+        if (hMsb) { msb_detach(hMsb); RemovePropW(hwnd, L"hMsbListV"); }
+        break;
+    }
+
+    case WM_CLOSE:
+        DestroyWindow(hwnd);
+        return 0;
+    }
+
     return DefWindowProcW(hwnd, msg, wParam, lParam);
 }
 
@@ -7951,11 +8190,14 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                         int idx = ListView_InsertItem(s_hListView, &lvi);
                         ListView_SetItemText(s_hListView, idx, 1, (LPWSTR)fileInfo.sourcePath.c_str());
                         ListView_SetItemText(s_hListView, idx, 2, (LPWSTR)fileInfo.inno_flags.c_str());
+                        std::wstring compName4 = GetCompNameForFile(fileInfo.sourcePath);
+                        ListView_SetItemText(s_hListView, idx, 3, (LPWSTR)compName4.c_str());
                     }
                 }
                 ListView_SetColumnWidth(s_hListView, 0, LVSCW_AUTOSIZE_USEHEADER);
                 ListView_SetColumnWidth(s_hListView, 1, LVSCW_AUTOSIZE);
                 ListView_SetColumnWidth(s_hListView, 2, LVSCW_AUTOSIZE_USEHEADER);
+                ListView_SetColumnWidth(s_hListView, 3, LVSCW_AUTOSIZE_USEHEADER);
 
                 // Force ListView to redraw
                 InvalidateRect(s_hListView, NULL, TRUE);
@@ -8890,6 +9132,141 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             if (dlgData.confirmed) {
                 pVff->inno_flags = dlgData.inno_flags;
                 ListView_SetItemText(s_hListView, selIdx, 2, (LPWSTR)pVff->inno_flags.c_str());
+                MarkAsModified();
+            }
+            return 0;
+        }
+
+        case IDM_FILES_COMPONENT: {
+            if (!s_hListView || !IsWindow(s_hListView)) return 0;
+            if (!s_currentProject.use_components) return 0;
+            int selIdx = ListView_GetNextItem(s_hListView, -1, LVNI_SELECTED);
+            if (selIdx < 0) return 0;
+
+            // Retrieve source path stored in LPARAM
+            LVITEMW lvGet = {};
+            lvGet.mask  = LVIF_PARAM;
+            lvGet.iItem = selIdx;
+            if (!ListView_GetItem(s_hListView, &lvGet) || !lvGet.lParam) return 0;
+            std::wstring sourcePath = (const wchar_t*)lvGet.lParam;
+
+            // Display name for title bar (strip leading backslash from col 0)
+            wchar_t destBuf[MAX_PATH] = {};
+            ListView_GetItemText(s_hListView, selIdx, 0, destBuf, _countof(destBuf));
+            std::wstring dispName = destBuf;
+            if (!dispName.empty() && (dispName[0] == L'\\' || dispName[0] == L'/'))
+                dispName = dispName.substr(1);
+
+            // Find current component assignment and collect all unique names
+            std::wstring currentComp = GetCompNameForFile(sourcePath);
+            std::vector<std::wstring> allNames;
+            {
+                std::set<std::wstring> seen;
+                for (const auto& c : s_components) {
+                    if (!c.display_name.empty() && seen.find(c.display_name) == seen.end()) {
+                        allNames.push_back(c.display_name);
+                        seen.insert(c.display_name);
+                    }
+                }
+            }
+
+            // Build dialog data
+            auto locFC = [&](const wchar_t* k, const wchar_t* fb) -> std::wstring {
+                auto it = s_locale.find(k);
+                return (it != s_locale.end()) ? it->second : fb;
+            };
+            FileCompDialogData dlgDataFC;
+            dlgDataFC.fileName        = dispName;
+            dlgDataFC.currentCompName = currentComp;
+            dlgDataFC.confirmed       = false;
+            dlgDataFC.compNames       = allNames;
+            dlgDataFC.unassignedText  = locFC(L"fcomp_unassigned", L"(Unassigned)");
+            dlgDataFC.addBtnText      = locFC(L"fcomp_add_btn",    L"Add");
+            dlgDataFC.okText          = locFC(L"ok",               L"OK");
+            dlgDataFC.cancelText      = locFC(L"cancel",           L"Cancel");
+            dlgDataFC.cueBanner       = locFC(L"fcomp_new_label",  L"New component name\u2026");
+
+            // Register window class (idempotent)
+            WNDCLASSEXW wcFC = {};
+            wcFC.cbSize = sizeof(WNDCLASSEXW);
+            if (!GetClassInfoExW(GetModuleHandleW(NULL), L"FileCompDialog", &wcFC)) {
+                wcFC.lpfnWndProc   = FileCompDialogProc;
+                wcFC.hInstance     = GetModuleHandleW(NULL);
+                wcFC.lpszClassName = L"FileCompDialog";
+                wcFC.hbrBackground = (HBRUSH)GetStockObject(WHITE_BRUSH);
+                wcFC.hCursor       = LoadCursor(NULL, IDC_ARROW);
+                RegisterClassExW(&wcFC);
+            }
+
+            // Compute client and window size
+            int fcClientH = S(FC_PAD_T) + S(FC_LIST_H) + S(FC_GAP)
+                          + S(FC_ROW_H) + S(FC_GAP)*2 + S(FC_BTN_H) + S(FC_PAD_T);
+            RECT wrcFC = {0, 0, S(FC_DLG_W), fcClientH};
+            AdjustWindowRectEx(&wrcFC, WS_POPUP|WS_CAPTION|WS_SYSMENU, FALSE,
+                               WS_EX_TOOLWINDOW);
+            int dlgW = wrcFC.right - wrcFC.left;
+            int dlgH = wrcFC.bottom - wrcFC.top;
+            RECT rcMain; GetWindowRect(hwnd, &rcMain);
+            int dlgX = rcMain.left + (rcMain.right  - rcMain.left  - dlgW) / 2;
+            int dlgY = rcMain.top  + (rcMain.bottom - rcMain.top   - dlgH) / 2;
+            RECT rcWk; SystemParametersInfoW(SPI_GETWORKAREA, 0, &rcWk, 0);
+            if (dlgX < rcWk.left)  dlgX = rcWk.left;
+            if (dlgY < rcWk.top)   dlgY = rcWk.top;
+            if (dlgX + dlgW > rcWk.right)  dlgX = rcWk.right  - dlgW;
+            if (dlgY + dlgH > rcWk.bottom) dlgY = rcWk.bottom - dlgH;
+
+            std::wstring dlgTitle = locFC(L"fcomp_title", L"Component Assignment");
+            if (!dispName.empty()) dlgTitle += L" \u2014 " + dispName;
+
+            HWND hDlgFC = CreateWindowExW(
+                WS_EX_TOOLWINDOW,
+                L"FileCompDialog", dlgTitle.c_str(),
+                WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
+                dlgX, dlgY, dlgW, dlgH,
+                hwnd, NULL, GetModuleHandleW(NULL), &dlgDataFC);
+
+            // Modal message loop
+            MSG msgFC;
+            while (GetMessageW(&msgFC, NULL, 0, 0) > 0) {
+                if (!IsWindow(hDlgFC)) break;
+                TranslateMessage(&msgFC);
+                DispatchMessageW(&msgFC);
+            }
+
+            if (dlgDataFC.confirmed) {
+                // Find existing ComponentRow for this sourcePath
+                int existingIdx = -1;
+                for (int ci = 0; ci < (int)s_components.size(); ++ci) {
+                    if (s_components[ci].source_path == sourcePath) { existingIdx = ci; break; }
+                }
+                if (dlgDataFC.resultCompName.empty()) {
+                    // Unassign: remove all ComponentRows for this sourcePath
+                    s_components.erase(
+                        std::remove_if(s_components.begin(), s_components.end(),
+                            [&sourcePath](const ComponentRow& c) {
+                                return c.source_path == sourcePath;
+                            }),
+                        s_components.end());
+                } else if (existingIdx >= 0) {
+                    // Update display_name in place
+                    s_components[existingIdx].display_name = dlgDataFC.resultCompName;
+                } else {
+                    // Create new ComponentRow for this file
+                    ComponentRow newComp;
+                    newComp.id             = 0;
+                    newComp.project_id     = s_currentProject.id;
+                    newComp.display_name   = dlgDataFC.resultCompName;
+                    newComp.description    = L"";
+                    newComp.is_required    = 0;
+                    newComp.is_preselected = 0;
+                    newComp.source_type    = L"file";
+                    newComp.source_path    = sourcePath;
+                    newComp.dest_path      = L"";
+                    s_components.push_back(newComp);
+                }
+                // Update ListView col 3
+                ListView_SetItemText(s_hListView, selIdx, 3,
+                                     (LPWSTR)dlgDataFC.resultCompName.c_str());
                 MarkAsModified();
             }
             return 0;
@@ -11016,6 +11393,11 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 auto itFf = s_locale.find(L"files_ctx_flags");
                 std::wstring flagsText = (itFf != s_locale.end()) ? itFf->second : L"File Flags\u2026";
                 AppendMenuW(hMenu, MF_STRING, IDM_FILES_FLAGS, flagsText.c_str());
+                if (s_currentProject.use_components) {
+                    auto itFc = s_locale.find(L"files_ctx_component");
+                    std::wstring compText = (itFc != s_locale.end()) ? itFc->second : L"Component\u2026";
+                    AppendMenuW(hMenu, MF_STRING, IDM_FILES_COMPONENT, compText.c_str());
+                }
             }
             TrackPopupMenu(hMenu, TPM_RIGHTBUTTON, xPos, yPos, 0, hwnd, NULL);
             DestroyMenu(hMenu);

@@ -2,6 +2,12 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.04.17.17] - 2026-04-17
+
+### Added / Fixed (Files page — per-file component assignment; FileCompDialogProc visual polish)
+- **Files page — per-file component assignment**: "Component…" context menu item in the Files-page ListView right-click menu (shown only when exactly one file is selected and components are enabled). Opens `FileCompDialogProc` — a modal listing all known component names from `s_components` in a scrollable listbox, with "(Unassigned)" at the top. An edit + Add button row lets the developer coin new names inline. OK commits to `s_components` (finding an existing `ComponentRow` by `source_path` or creating one); Cancel discards. Choosing "(Unassigned)" removes all `ComponentRow` entries for that file. Persisted to DB on Save. New "Component" ListView column (col 3, `files_col_component`, 130 px) via `GetCompNameForFile()`. New locale keys: `files_col_component`, `files_ctx_component`, `fcomp_title`, `fcomp_unassigned`, `fcomp_new_label`, `fcomp_add_btn`. Control ID range 9020–9024 (`IDC_FCOMP_*`).
+- **FileCompDialogProc — app-style visual polish**: `my_scrollbar` (`MSB_VERTICAL`) on the listbox; `ShowScrollBar` + `msb_sync` after population; `msb_detach` in `WM_DESTROY`. NONCLIENTMETRICS font (×1.2, `CLEARTYPE_QUALITY`) via `EnumChildWindows`; stored as `"hCtrlFont"` prop, deleted in `WM_DESTROY`. Add button: `CreateCustomButtonWithIcon` (Blue, shell32 #264, `MeasureButtonWidth`). OK / Cancel: `CreateCustomButtonWithIcon` (Green imageres #89 / Red shell32 #131), centred. `WM_DRAWITEM` → `DrawCustomButton` for all three. `WM_CTLCOLORSTATIC` returns `WHITE_BRUSH`. `WS_EX_TOPMOST` removed — ownership provides Z-order.
+
 ## [2026.04.17.14] - 2026-04-17
 
 ### Added / Fixed (Files page — per-file Inno Setup flags)
