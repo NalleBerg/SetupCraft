@@ -2,6 +2,14 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.04.17.14] - 2026-04-17
+
+### Added / Fixed (Files page — per-file Inno Setup flags)
+- **Files page — per-file Inno Setup flags**: All eleven Inno Setup `[Files]` `Flags:` attributes exposed per file. Right-click a single file in the Files-page ListView → "File Flags…" opens `FileFlagsDialogProc` — a modal with four sections: *Overwrite behaviour* (`ignoreversion`, `onlyifdoesntexist`, `confirmoverwrite`), *Post-install actions* (`isreadme`, `deleteafterinstall`, `restartreplace`, `sign`), *Registration* (`regserver`, `regtypelib`, `sharedfile`), and *Architecture* (three mutually-exclusive radio buttons: Default / 32-bit only / 64-bit only). White background with 1 px `COLOR_BTNSHADOW` border lines around each section group. OK commits to `VirtualFolderFile.inno_flags` and refreshes ListView column 2; Cancel discards. Persisted to DB on Save.
+- **Files page — "Flags" ListView column**: Third column (`files_col_flags`, default "Flags", 150 px) added to the Files-page ListView. `TVN_SELCHANGED` and `ForceRefreshListView` both populate column 2 from `inno_flags`.
+- **DB migration — `inno_flags` column**: `ALTER TABLE files ADD COLUMN inno_flags TEXT DEFAULT ''` added to `InitDb` (idempotent). `InsertFile` extended with optional `innoFlags` param (defaults to `L""`). `GetFilesForProject` SELECT and bindings updated. `sql/setupcraft_schema.sql` updated.
+- **Locale fixes — raw `\u` sequences**: `LoadLocaleFile` is a raw UTF-8 reader; it does not expand `\u` escapes. Three entries containing literal `\u2026`, `\u201c`/`\u201d`, and `\u00bb` corrected to actual UTF-8 characters.
+
 ## [2026.04.17.10] - 2026-04-17
 
 ### Added / Fixed (About Credits dialog; entry-page tooltip fix; Settings checkbox font)

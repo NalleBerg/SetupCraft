@@ -1,0 +1,228 @@
+{\rtf1\ansi\ansicpg1252\deff0\nouicompat\deflang1044{\fonttbl{\f0\fnil\fcharset0 Segoe UI;}{\f1\fnil Segoe UI;}{\f2\fnil\fcharset1 Cambria Math;}{\f3\fnil\fcharset0 Cambria Math;}}
+{\colortbl ;\red0\green0\blue255;}
+{\*\generator Riched20 10.0.26100}{\*\mmathPr\mmathFont2\mwrapIndent1440 }\viewkind4\uc1 
+\pard\b\f0\fs24 Page 0 \f1\emdash\f0  Files\b0\f1\par
+Here is everything I found that may be missing or worth considering:\par
+\par
+Rules violation:\par
+\par
+\cf1 The ListView column headers "Destination" and "Source Path" are hardcoded English strings \emdash  they are NOT going through the locale system. Keys like files_col_destination and files_col_source need to be added to en_GB.txt and used in the ListView_InsertColumn calls.\par
+\cf0\par
+Missing Inno Setup functionality:\par
+\par
+Per-file install flags \emdash  Inno's [Files] section supports a Flags: attribute per entry. None of these are currently exposed for individual files:\par
+\par
+ignoreversion \emdash  don't compare version info, always overwrite\par
+onlyifdoesntexist \emdash  skip if file already exists at destination\par
+confirmoverwrite \emdash  prompt user if file already exists\par
+isreadme \emdash  marks a file to be shown in a README viewer post-install\par
+deleteafterinstall \emdash  install to temp, auto-delete when installer exits (useful for bundled tools)\par
+regserver \emdash  register a COM DLL after copying (regsvr32)\par
+regtypelib \emdash  register a type library\par
+sharedfile \emdash  increment Windows shared-file reference count (for shared DLLs)\par
+restartreplace \emdash  if the file is locked, queue it for replacement on next reboot\par
+sign \emdash  code-sign this specific file after copying\par
+32bit / 64bit \emdash  when installing side-by-side files, force the correct SysWow64 vs System32 path\par
+Per-file architecture override \emdash  related to the 32bit/64bit flags above; no way to mark individual files as 32-bit-only or 64-bit-only.\par
+\par
+Per-file component linkage \emdash  there is no way on the Files page itself to tag a file as belonging to a specific component (this is done on the Components page, which is fine, but a quick-assign shortcut here could save clicks).\par
+\par
+Exclude filter when adding a folder \emdash  when the developer uses "Add Folder", everything in the folder is ingested. There is no way to specify wildcards to exclude (e.g. *.pdb, *.log, Thumbs.db). The developer has to manually remove unwanted files afterwards.\par
+\par
+Per-file DestDir override \emdash  all files in a tree node go to the same destination folder. There is no per-file destination override (e.g. "this one specific file should land in \{sys\} instead of \{app\}").\par
+\par
+\par
+\b\f0\par
+Page 1 \f1\emdash\f0  Registry\par
+\b0\f1 Rules violation:\par
+\par
+The "Register in Windows Installed Programs" checkbox is created with BS_AUTOCHECKBOX (native Win32 button) \emdash  it should use CreateCustomCheckbox like every other checkbox in the app.\par
+Missing Inno Setup functionality:\par
+\par
+AppId / uninstall GUID \emdash  The most critical missing field. Inno uses AppId to identify the application for upgrades/reinstalls. Without a stable GUID, every reinstall creates a duplicate entry in "Add/Remove Programs". Should be auto-generated (e.g. a UUID) on project creation, stored in the DB, and shown here as a read-only field the developer can override. Without this, the generated .iss will be broken for upgrades.\par
+\par
+Per-entry "delete on uninstall" flags \emdash  Inno supports per-entry flags on [Registry] entries for uninstall behaviour. None are currently exposed:\par
+\par
+deletevalue \emdash  delete this value at uninstall\par
+uninsdeletevalue \emdash  delete the value only if it was created by this installer\par
+deletekey \emdash  delete the entire key at uninstall\par
+uninsdeletekey \emdash  delete the key at uninstall only if it was created by this installer\par
+uninsdeletekeyifempty \emdash  delete key at uninstall only if it is empty by then\par
+dontcreatekey \emdash  add values to an existing key without creating it if absent\par
+preservestringtype \emdash  when updating a string value, don't change its existing type\par
+32-bit vs 64-bit registry view \emdash  Inno supports a Flags: 32bit or 64bit per [Registry] entry to explicitly target the 32-bit (HKLM\\SOFTWARE\\WOW6432Node\\...) or 64-bit view. No selector currently exists.\par
+\par
+Value types \emdash  the Add Value dialog shows a type combo. Need to verify all of these are available: REG_SZ, REG_EXPAND_SZ, REG_MULTI_SZ, REG_DWORD, REG_QWORD, REG_BINARY. If any are missing, the developer cannot create entries of that type.\par
+\par
+Per-key/value component linkage \emdash  no way to say "only write this registry entry if component X was installed". Inno supports a Components: field on every [Registry] row.\par
+\par
+Per-key/value "only if doesn't exist" \emdash  related to dontcreatekey above, but also for values: write the value only if it does not already exist (common for first-run defaults).\par
+\par
+root: HKA shorthand \emdash  Inno has a special HKA pseudo-root that resolves to HKCU for per-user installs and HKLM for all-users installs. Without this, the developer has to manually duplicate entries for both UAC modes. No equivalent is exposed.\par
+\par
+\b\f0\par
+Page 2 \f1\emdash\f0  Shortcuts\par
+\b0\f1 What's already there: Desktop shortcut + opt-out, Start Menu tree with subfolders + "Add Shortcut Here", Pin to Start + opt-out, Pin to Taskbar + opt-out. The ShortcutDef struct has: name, exePath, workingDir, iconPath, iconIndex, runAsAdmin.\par
+\par
+Missing Inno Setup functionality:\par
+\par
+Arguments / Parameters \emdash  Inno's [Icons] section has a Parameters: field. There is no way to set command-line arguments for a shortcut (e.g. --portable, --no-splash). ShortcutDef has no arguments field.\par
+\par
+Comment / Description \emdash  Inno's Comment: field sets the tooltip that appears when hovering the shortcut in Explorer/Start Menu. No field exists for this. ShortcutDef has no comment field.\par
+\par
+Hot key \emdash  Inno's HotKey: field assigns a global keyboard shortcut to launch the app. Not exposed anywhere. ShortcutDef has no hotkey field.\par
+\par
+Window style \emdash  Inno's WindowStyle: supports normal, minimized, maximized. Not exposed. ShortcutDef has no windowStyle field.\par
+\par
+Exclude shortcut from uninstall \emdash  Inno supports Tasks: on [Icons] entries, and Flags: uninsneveruninstall on a shortcut so the uninstaller leaves it behind. No per-shortcut "keep at uninstall" toggle exists.\par
+\par
+Component linkage per shortcut \emdash  Like files and registry, Inno supports Components: on [Icons] rows. No way to say "only create this shortcut if component X was installed".\par
+\par
+AppUserModelID \emdash  Inno supports AppUserModelID: on shortcuts, which is required for proper taskbar grouping and Jump Lists on Windows 10/11. Increasingly important for modern apps. Not in ShortcutDef.\par
+\par
+"Also create if already exists" vs "only if doesn't exist" \emdash  Inno Flags: createonlyiffileexists creates a shortcut only when the target exe actually exists after install. Useful for optional features. Not exposed.\par
+\par
+Start Menu folder "Programs" vs custom path \emdash  currently the developer builds a tree, but there is no explicit way to mark which node maps to \{group\} (the DefaultGroupName) vs a deeper subfolder. The distinction matters for the generated .iss.\par
+\par
+\par
+\b\f0 Page 3 \f1\emdash\f0  Dependencies\b0\f1\par
+What's already there: ExternalDep struct covers: display_name, is_required, delivery (bundled/auto-download/redirect-url/instructions-only), install_order (before/after welcome, before/after install, custom dialog), detect_reg_key, detect_file_path, min_version, architecture (any/x64/arm64), url, silent_args, sha256, license_path, license_text, credits_text, instructions_list, offline_behavior (abort/warn/continue/skip).\par
+\par
+This is the most complete page in the app. The list is short:\par
+\par
+Missing or worth adding:\par
+\par
+Download timeout \emdash  no field for how long the auto-download should wait before giving up. Without this, a slow or dead server hangs the installer indefinitely. A simple integer field in seconds (default e.g. 30) would cover it.\par
+\par
+"Extract to temp then run" vs "run directly" \emdash  for DD_BUNDLED deps, the file is embedded in the installer. There is no toggle for whether it should be extracted to a temp folder and run from there, or streamed/run directly. Some installers (e.g. large MSIs) require a physical file on disk before they can be launched.\par
+\par
+Expected exit codes \emdash  by default, a silent installer returning non-zero is treated as failure. Some legitimate installers return e.g. 3010 (reboot required) or 1641 (reboot initiated). No field exists for "these exit codes are also acceptable". Without this, the dep install step may incorrectly abort.\par
+\par
+Max version \emdash  min_version exists but there is no max_version. Needed when a dep is incompatible with versions that are too new (rare but real \emdash  e.g. targeting a specific runtime version range).\par
+\par
+Per-dep component linkage \emdash  no way to say "only install this dependency if component X was selected". All deps are currently unconditional once included.\par
+\par
+Custom detection logic type \emdash  currently detection is either a registry key or a file path. There is no option for a version check on the detected file (e.g. "detect msvcp140.dll in \{sys\} AND version \f2\u8805?\f0  14.0"). The min_version field exists but it is unclear whether it is checked against the registry value or the file version.\par
+\par
+\b\par
+Page\f3  \f0 4\f3  \emdash  \f0 Dialogs\par
+\b0 What's\f3  \f0 already\f3  \f0 there\f3 : \f0 9\f3  \f0 dialog\f3  \f0 types\f3  (\f0 Welcome\f3 , \f0 License\f3 , \f0 Dependencies\f3 , \f0 For\f3  \f0 Me\f3 /\f0 All\f3 , \f0 Components\f3 , \f0 Shortcuts\f3 , \f0 Ready\f3 , \f0 Install\f3 , \f0 Finish\f3 ). \f0 Conditional\f3  \f0 rows\f3 , \f0 installer\f3  \f0 title\f3  + \f0 icon\f3 , \f0 inline\f3  \f0 preview\f3  \f0 with\f3  \f0 sizer\f3  (\f0 W\f3 /\f0 H\f3  \f0 spinners\f3 , \f0 H\f3 /\f0 V\f3  \f0 alignment\f3 , \f0 navigation\f3 ), \f0 Finish\f3  \f0 feedback\f3  \f0 dialog\f3 , \f0 RTF\f3  \f0 editor\f3  \f0 per\f3  \f0 dialog\f3 . \f0 The\f3  \f0 RTF\f3  \f0 content\f3  \f0 covers\f3  \f0 the\f3  \f0 text\f3 /\f0 body\f3  \f0 of\f3  \f0 each\f3  \f0 wizard\f3  \f0 page\f3 .\f0\par
+\par
+Missing\f3  \f0 or\f3  \f0 worth\f3  \f0 adding\f3 :\f0\par
+\par
+License\f3  \f0 dialog\f3  \f2\emdash\f3  \f0 "must\f3  \f0 accept"\f3  \f0 checkbox\f3  \f0 toggle\f3  \f2\emdash\f3  \f0 Inno\f3  \f0 supports\f3  \f0 a\f3  \f0 mandatory\f3  \f0 acceptance\f3  \f0 checkbox\f3  \f0 on\f3  \f0 the\f3  \f0 License\f3  \f0 page\f3  (\f0 LicenseAccepted\f3  \f0 style\f3 ). \f0 Currently\f3  \f0 there\f3  \f0 is\f3  \f0 no\f3  \f0 toggle\f3  \f0 for\f3  \f0 whether\f3  \f0 the\f3  \f0 end\f3  \f0 user\f3  \f0 must\f3  \f0 tick\f3  \f0 a\f3  \f0 checkbox\f3  \f0 before\f3  \f0 Next\f3  \f0 is\f3  \f0 enabled\f3 , \f0 vs\f3  \f0 the\f3  \f0 license\f3  \f0 page\f3  \f0 being\f3  \f0 purely\f3  \f0 informational\f3 . \f0 This\f3  \f0 is\f3  \f0 a\f3  \f0 very\f3  \f0 common\f3  \f0 requirement\f3 .\f0\par
+\par
+License\f3  \f0 file\f3  \f0 type\f3  \f0 selector\f3  (\f0 RTF\f3  \f0 vs\f3  \f0 plain\f3  \f0 text\f3  \f0 vs\f3  \f0 file\f3  \f0 path\f3 ) \f2\emdash\f3  \f0 Inno's\f3  [\f0 Files\f3 ] \f0 can\f3  \f0 point\f3  \f0 LicenseFile\f3 = \f0 to\f3  \f0 either\f3  \f0 an\f3  \f0 RTF\f3  \f0 or\f3  \f0 a\f3  \f0 plain\f3  .\f0 txt\f3  \f0 file\f3 . \f0 Currently\f3  \f0 the\f3  \f0 editor\f3  \f0 is\f3  \f0 RTF\f3 -\f0 only\f3 . \f0 Some\f3  \f0 developers\f3  \f0 have\f3  \f0 a\f3  \f0 pre\f3 -\f0 existing\f3  \f0 plain\f3 -\f0 text\f3  \f0 LICENSE\f3  \f0 file\f3  \f0 and\f3  \f0 just\f3  \f0 want\f3  \f0 to\f3  \f0 point\f3  \f0 at\f3  \f0 it\f3  \f0 rather\f3  \f0 than\f3  \f0 re\f3 -\f0 paste\f3  \f0 and\f3  \f0 format\f3 . \f0 A\f3  \f0 "use\f3  \f0 external\f3  \f0 file"\f3  \f0 option\f3  \f0 alongside\f3  \f0 the\f3  \f0 editor\f3  \f0 would\f3  \f0 cover\f3  \f0 this\f3 .\f0\par
+\par
+Per\f3 -\f0 dialog\f3  \f0 "enabled"\f3  \f0 toggle\f3  \f2\emdash\f3  \f0 right\f3  \f0 now\f3  \f0 some\f3  \f0 rows\f3  \f0 are\f3  \f0 conditionally\f3  \f0 hidden\f3  \f0 based\f3  \f0 on\f3  \f0 project\f3  \f0 state\f3  (\f0 Dependencies\f3 , \f0 Components\f3 , \f0 etc\f3 .), \f0 but\f3  \f0 there\f3  \f0 is\f3  \f0 no\f3  \f0 developer\f3 -\f0 facing\f3  \f0 on\f3 /\f0 off\f3  \f0 switch\f3  \f0 for\f3  \f0 the\f3  \f0 always\f3 -\f0 visible\f3  \f0 ones\f3  (\f0 Welcome\f3 , \f0 Ready\f3 , \f0 License\f3 , \f0 Finish\f3 ). \f0 Inno\f3  \f0 supports\f3  \f0 DisableWelcomePage\f3 =\f0 yes\f3  \f0 and\f3  \f0 DisableReadyPage\f3 =\f0 yes\f3 . \f0 A\f3  \f0 developer\f3  \f0 may\f3  \f0 want\f3  \f0 a\f3  \f0 stripped\f3 -\f0 down\f3  \f0 single\f3 -\f0 page\f3  \f0 installer\f3 .\f0\par
+\par
+Finish\f3  \f0 page\f3  \f2\emdash\f3  \f0 "launch\f3  \f0 app"\f3  \f0 checkbox\f3  \f2\emdash\f3  \f0 Inno's\f3  \f0 Finish\f3  \f0 page\f3  \f0 has\f3  \f0 a\f3  \f0 built\f3 -\f0 in\f3  \f0 "Launch\f3  \f0 AppName\f3  \f0 now"\f3  \f0 checkbox\f3  ([\f0 Run\f3 ] \f0 with\f3  \f0 Flags\f3 : \f0 postinstall\f3  \f0 shellexec\f3  \f0 skipifsilent\f3 ). \f0 This\f3  \f0 is\f3  \f0 separate\f3  \f0 from\f3  \f0 the\f3  \f0 Scripts\f3  \f0 page\f3  \f0 opt\f3 -\f0 out\f3  \f0 scripts\f3 . \f0 There\f3  \f0 is\f3  \f0 no\f3  \f0 dedicated\f3  \f0 row\f3  \f0 or\f3  \f0 toggle\f3  \f0 for\f3  \f0 this\f3  \f0 on\f3  \f0 the\f3  \f0 Dialogs\f3  \f0 page\f3  \f2\emdash\f3  \f0 the\f3  \f0 developer\f3  \f0 would\f3  \f0 have\f3  \f0 to\f3  \f0 know\f3  \f0 to\f3  \f0 go\f3  \f0 to\f3  \f0 Scripts\f3  \f0 page\f3  \f0 and\f3  \f0 set\f3  \f0 SWR\f3 _\f0 FINISH\f3 _\f0 OPTOUT\f3  \f0 there\f3 . \f0 A\f3  \f0 Finish\f3 -\f0 page\f3  \f0 section\f3  \f0 with\f3  \f0 a\f3  \f0 "Launch\f3  \f0 app\f3  \f0 when\f3  \f0 done"\f3  \f0 checkbox\f3  + \f0 label\f3  \f0 edit\f3  + \f0 default\f3 -\f0 checked\f3  \f0 toggle\f3  \f0 would\f3  \f0 be\f3  \f0 much\f3  \f0 more\f3  \f0 discoverable\f3 .\f0\par
+\par
+Ready\f3  \f0 page\f3  \f2\emdash\f3  \f0 "show\f3  \f0 summary\f3  \f0 of\f3  \f0 choices"\f3  \f2\emdash\f3  \f0 Inno's\f3  \f0 Ready\f3  \f0 page\f3  \f0 can\f3  \f0 optionally\f3  \f0 show\f3  \f0 a\f3  \f0 summary\f3  \f0 list\f3  \f0 of\f3  \f0 what\f3  \f0 will\f3  \f0 be\f3  \f0 installed\f3  (\f0 dir\f3 , \f0 components\f3 , \f0 tasks\f3 ). \f0 Toggles\f3  \f0 AlwaysShowDirOnReadyPage\f3  \f0 and\f3  \f0 AlwaysShowGroupOnReadyPage\f3  \f0 control\f3  \f0 this\f3 . \f0 Not\f3  \f0 exposed\f3  \f0 anywhere\f3 .\f0\par
+\par
+Installer\f3  \f0 title\f3  \f0 font\f3  / \f0 color\f3  \f2\emdash\f3  \f0 Inno's\f3  [\f0 WizardImages\f3 ] \f0 and\f3  \f0 bitmaps\f3  \f0 aside\f3 , \f0 the\f3  \f0 header\f3  \f0 title\f3  \f0 area\f3  \f0 font\f3  \f0 and\f3  \f0 color\f3  \f0 can\f3  \f0 be\f3  \f0 customised\f3  \f0 via\f3  \f0 WizardStyle\f3  \f0 and\f3  \f0 SetupIconFile\f3 . \f0 No\f3  \f0 visual\f3  \f0 customisation\f3  \f0 controls\f3  \f0 exist\f3  \f0 on\f3  \f0 this\f3  \f0 page\f3  \f0 beyond\f3  \f0 the\f3  \f0 title\f3  \f0 text\f3  \f0 and\f3  \f0 icon\f3 .\par
+\b\par
+Page 5 \emdash  Settings\par
+\b0 What's already there: App name, version, publisher, publisher URL, support URL, app icon. Output folder, output filename, compression type/level, solid compression. UAC (Admin/Invoker/Highest), minimum OS (None/Win7\endash Win11). Allow uninstall, close apps before install.\par
+\par
+Missing \emdash  I've grouped by priority:\par
+\par
+Critical (broken without these)\par
+AppId / GUID \emdash  The most important missing field in the entire app. Inno uses this to detect existing installations for upgrades. Without it every reinstall creates a second entry in Add/Remove Programs. Should be auto-generated on project creation, stored in the DB, shown as an editable field here with a "Regenerate" button. Goes in the Application section.\par
+\par
+DefaultDirName base path selector \emdash  currently always \{pf\}\\AppName. Developer must be able to choose the base: \{pf\} / \{pf64\} / \{pf32\} / \{localappdata\} / \{commonappdata\} / \{userdocs\} / custom. A combo + optional override edit field.\par
+\par
+Multi-language support \emdash  currently generates a single-language installer (english only). Need ability to add multiple [Languages] entries (each with a MessagesFile). Even just "English + one more" is very common. No language list or add/remove UI exists at all.\par
+\par
+Important (professional quality)\par
+Installer .exe version resource \emdash  what you see when you right-click the installer .exe \u8594? Properties \u8594? Details. Inno keys: VersionInfoVersion, VersionInfoTextVersion, VersionInfoDescription, VersionInfoProductName, VersionInfoProductVersion, VersionInfoCompany, VersionInfoCopyright. Without these the installer's own file properties are blank, which looks unprofessional and breaks some enterprise deployment tools.\par
+\par
+AppCopyright \emdash  shown in the installer's about box and feeds into VersionInfoCopyright above.\par
+\par
+PrivilegesRequiredOverridesAllowed \emdash  works together with the existing UAC radio buttons. Controls whether the end user can switch between per-user and all-users install at runtime. Values: none, commandline, dialog. Without dialog, the For Me/All Users wizard page (which already exists on the Dialogs page) has no effect.\par
+\par
+WizardStyle \emdash  modern (Windows 10-style sidebar bitmap, default in Inno 6) vs classic (old Inno 5 style with top banner). A simple combo. Developers distributing to enterprise environments sometimes need classic.\par
+\par
+Code signing (SignTool) \emdash  path to signtool.exe, certificate thumbprint or PFX path, timestamp URL. Without this, the generated .exe triggers SmartScreen on every install. A "Sign installer" section with enable checkbox + fields.\par
+\par
+Useful (developer convenience)\par
+DisableDirPage \emdash  toggle to hide the "Where to install?" wizard page. Common for apps that must always go in a fixed location.\par
+\par
+DisableProgramGroupPage \emdash  toggle to hide the Start Menu group selection page.\par
+\par
+UsePreviousAppDir / UsePreviousGroup \emdash  remember last chosen install path across upgrades. Currently would always reset to DefaultDirName.\par
+\par
+DirExistsWarning \emdash  warn the user if the destination folder already exists (yes / no / auto). Currently Inno defaults to auto; developer may want to force it off for upgrade scenarios.\par
+\par
+SetupMutex \emdash  a named mutex to prevent two copies of the installer running simultaneously. No field for this.\par
+\par
+ChangesEnvironment \emdash  flag that broadcasts a WM_SETTINGCHANGE after install, needed when the installer adds to the system PATH.\par
+\par
+ChangesAssociations \emdash  same broadcast for file associations. Needed for any app that registers file types.\par
+\par
+SetupLogging / LogMode \emdash  enable Inno's built-in setup log and control whether it appends or overwrites. Useful for enterprise deployments and support.\par
+\par
+UninstallDisplayName \emdash  override the name shown in Windows "Add/Remove Programs" (defaults to AppName, but some publishers prefer e.g. AppName 2.0 (64-bit)).\par
+\par
+UninstallFilesDir \emdash  where the uninstaller .exe is placed (default \{app\}; some developers put it in \{commonappdata\} for shared installs).\par
+\par
+LanguageDetectionMethod \emdash  uilanguage / locale / none. Controls how Inno picks the default language when the installer starts.\par
+\par
+WizardResizable \emdash  whether the installer window can be resized by the end user. Defaults to no in Inno 6.\par
+\par
+\par
+\b Page 8 \emdash  Scripts\b0\par
+What's already there: Master enable checkbox, tile-grid ListView, Add/Load/Edit/Delete buttons. Script types: batch and PowerShell. When-to-run: Before Files, After Files, Finish opt-out, Uninstall. Editor has: name, type radios, when combo, run hidden, wait for completion, also-run-at-uninstall, finish-page label, script content editor (Scintilla + syntax highlighting), load from file, test in terminal. sort_order field exists in ScriptRow.\par
+\par
+Missing or worth adding:\par
+\par
+"Fail silently" vs "abort install on error" per script \emdash  if a script exits with a non-zero code, there is no per-script toggle for whether the install should abort or continue. Currently there is no on_error field in ScriptRow. Very important for optional post-install steps.\par
+\par
+Working directory \emdash  Inno's [Run] section has a WorkingDir: field. There is no field in ScriptRow or the editor for setting the working directory of the script process. Without this, relative paths inside scripts may break.\par
+\par
+Parameters / arguments \emdash  Inno's [Run] has a Parameters: field. The script content itself is the script body, but for "run an external exe" scenarios a parameters field is needed. Less critical for bat/ps1 but still applicable.\par
+\par
+Finish opt-out "checked by default" toggle \emdash  for SWR_FINISH_OPTOUT scripts, Inno's [Run] Flags: postinstall defaults the checkbox to unchecked. There is no toggle to make it checked by default (checked flag in Inno). The description field is already there for the label text, but the default-checked state is missing.\par
+\par
+Drag-to-reorder within a when-to-run group \emdash  sort_order exists in ScriptRow but there is no drag-and-drop or up/down button UI to let the developer change execution order. Order matters \emdash  script 1 may need to run before script 2.\par
+\par
+Component linkage per script \emdash  no way to say "only run this script if component X was installed". No component_id field in ScriptRow.\par
+\par
+"Run elevated" toggle per script \emdash  some scripts need admin privileges regardless of the installer's UAC level. Inno's [Run] supports Flags: runascurrentuser vs runasoriginaluser. No per-script elevation override exists.\par
+\par
+Description visible in the tile \emdash  the ListView shows tiles but only the script name is displayed. The description field (finish-page label text) is not visible in the tile grid, so there is no at-a-glance summary of what each script does. A separate notes/description field for the tile label (distinct from the finish-page label) would help.\par
+\par
+\par
+\par
+Good \emdash  ComponentRow is confirmed. Here is the report:\par
+\par
+\b Page 9 \emdash  Components\b0\par
+What's already there: Enable checkbox, split-pane (folder tree left, component list right), Edit button. ComponentRow has: display_name, description, notes_rtf, is_required, is_preselected, source_type (file/folder), source_path, dest_path, dependencies (inter-component).\par
+\par
+Missing or worth adding:\par
+\par
+Install types ("Full / Compact / Custom") \emdash  Inno's [Types] section defines named install presets. Each type pre-selects a different set of components. The end user picks a type from a dropdown on the Components wizard page and the checkboxes update accordingly. There is no concept of install types at all \emdash  no types list, no per-component type membership. Without this, the Components wizard page in the generated installer will have no presets dropdown, which Inno shows by default.\par
+\par
+Component groups (GroupDescription) \emdash  Inno supports visually grouping components under a collapsible heading in the wizard. Currently the list is flat. A group or parent_id field in ComponentRow would enable this, and the edit dialog would need a group picker.\par
+\par
+Fixed flag (always installed, shown greyed-out) \emdash  distinct from is_required. Inno's Flags: fixed shows the component in the wizard UI but locks it (checked and greyed, cannot be deselected). The current is_required hides the component from the UI entirely (installs silently). Both behaviours are valid and serve different purposes. No is_fixed field exists in ComponentRow.\par
+\par
+Exclusive flag (radio-button style) \emdash  Inno's Flags: exclusive makes a group of components behave like radio buttons \emdash  selecting one deselects all others in the group. Useful for "Edition: Standard / Professional / Enterprise" scenarios. No is_exclusive field exists.\par
+\par
+Disk space / size display \emdash  Inno's [Components] section has a ExtraDiskSpaceRequired: field (in bytes). The wizard page shows a running total of disk space needed as the user ticks/unticks components. No size field exists in ComponentRow and there is no auto-calculation.\par
+\par
+Restart flag per component \emdash  Inno supports Flags: restart on a component to signal that a reboot is required after installing that specific component. No per-component restart flag exists.\par
+\par
+Inter-component dependency display \emdash  ComponentRow.dependencies exists and is persisted, but it is unclear whether the generated .iss uses it to enforce Inno's [Components] Flags: dontinheritcheck or similar. Inno does not natively enforce component dependencies in its UI; this would need [Code] script logic. Worth documenting or surfacing a warning to the developer.\par
+\par
+\par
+\par
+\f0\par
+\par
+\par
+\f1\lang1044\par
+\par
+\par
+\par
+}
+ 

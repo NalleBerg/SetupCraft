@@ -137,6 +137,16 @@
                                                 between the TreeView, s_virtualFolderFiles,
                                                 SaveTreeToDb, the DB files table, DB-rebuild
                                                 load path, and fixed-bug history.
+                                                VirtualFolderFile.inno_flags — space-separated
+                                                Inno [Files] flags string; persisted in the
+                                                files.inno_flags DB column (migration in InitDb).
+                                                FileFlagsDialogProc — per-file modal: four
+                                                sections (Overwrite behaviour, Post-install
+                                                actions, Registration, Architecture radio group);
+                                                white background + 1 px COLOR_BTNSHADOW section
+                                                borders; 20 locale keys (files_col_flags,
+                                                files_ctx_flags, fflg_*); control ID range
+                                                9001–9015 (IDC_FFLG_*).
 
   API_INTERNALS\INTERNALS\button_INTERNALS.txt  Custom button & toolbar system — ButtonColor
                                                 enum, CreateCustomButton* variants, icon

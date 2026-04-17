@@ -30,7 +30,7 @@ no=No
 
 # Duplicate project dialog
 dup_proj_title=Project Already Exists
-dup_proj_message=A project named \u201c{0}\u201d already exists.\n\nWhat do you want to do?
+dup_proj_message=A project named “{0}” already exists.\n\nWhat do you want to do?
 dup_proj_overwrite=Overwrite
 dup_proj_rename=Rename this one
 
@@ -85,6 +85,28 @@ files_add_folder=Add Folder
 files_add_files=Add Files
 files_remove=Remove
 files_remove_hint=Tick items to select for removal. Multiple items can be ticked at once.
+files_col_destination=Destination
+files_col_source=Source Path
+files_col_flags=Flags
+files_ctx_flags=File Flags…
+fflg_title=File Flags
+fflg_overwrite_section=Overwrite behaviour
+fflg_after_section=Post-install actions
+fflg_registration_section=Registration
+fflg_architecture_section=Architecture
+fflg_ignoreversion=Ignore version info (always overwrite)
+fflg_onlyifdoesntexist=Skip if file already exists
+fflg_confirmoverwrite=Prompt user if file already exists
+fflg_isreadme=Mark as README (shown in README viewer)
+fflg_deleteafterinstall=Delete after install (temporary copy)
+fflg_restartreplace=Queue for replacement on next reboot
+fflg_sign=Code-sign file after copying
+fflg_regserver=Register COM server (regsvr32)
+fflg_regtypelib=Register type library
+fflg_sharedfile=Shared file (increment reference count)
+fflg_arch_default=Default
+fflg_arch_32bit=32-bit only
+fflg_arch_64bit=64-bit only
 files_project_name=Project name:
 files_install_folder=Install folder:
 files_ask_user_install=Ask end user at install (Per-user / All-users)
@@ -488,7 +510,7 @@ scr_test_title=Test Script
 
 # Dialogs-page Scripts preview row
 idlg_scripts_row_label=Scripts
-idlg_scripts_row_link=Edit/View in Scripts page \u00bb
+idlg_scripts_row_link=Edit/View in Scripts page »
 idlg_default_deps_instructions=The following components are required by <<AppName>>. Please follow the instructions on the next pages to install each required component manually.
 idlg_default_deps_mixed=The following components are required by <<AppName>>. If any are missing, they will be downloaded or set up automatically.
 idlg_default_for_me_all_body=Choose whether to install <<AppName>> for yourself only, or for all users of this computer.

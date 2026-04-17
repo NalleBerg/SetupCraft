@@ -314,6 +314,24 @@ static bool s_filesPageHasContent = false; // tracks whether Files page has any 
 #define IDC_FOLDER_DLG_REMOVE_DEPS  327  // "Remove" button in fold-edit dep list
 #define IDM_DEPS_CTX_REMOVE         6210 // dep-list context menu: Remove
 #define IDM_DEPS_CTX_SHOWFILES      6211 // dep-list context menu: Show files…
+#define IDM_FILES_FLAGS             6220 // files context menu: File Flags…
+
+// File Flags dialog control IDs (9001-9015)
+#define IDC_FFLG_IGNOREVERSION      9001
+#define IDC_FFLG_ONLYIFDOESNTEXIST  9002
+#define IDC_FFLG_CONFIRMOVERWRITE   9003
+#define IDC_FFLG_ISREADME           9004
+#define IDC_FFLG_DELETEAFTERINSTALL 9005
+#define IDC_FFLG_RESTARTREPLACE     9006
+#define IDC_FFLG_SIGN               9007
+#define IDC_FFLG_REGSERVER          9008
+#define IDC_FFLG_REGTYPELIB         9009
+#define IDC_FFLG_SHAREDFILE         9010
+#define IDC_FFLG_ARCH_DEFAULT       9011
+#define IDC_FFLG_ARCH_32BIT         9012
+#define IDC_FFLG_ARCH_64BIT         9013
+#define IDC_FFLG_OK                 9014
+#define IDC_FFLG_CANCEL             9015
 
 // Notes button inside folder edit and component edit dialogs
 #define IDC_FOLDER_DLG_NOTES       340
@@ -1374,10 +1392,12 @@ static void ForceRefreshListView(HWND hwndListView, HTREEITEM hItem) {
             if (copy) { wcscpy(copy, fileInfo.sourcePath.c_str()); lvi.lParam = (LPARAM)copy; }
             int idx = ListView_InsertItem(hwndListView, &lvi);
             ListView_SetItemText(hwndListView, idx, 1, (LPWSTR)fileInfo.sourcePath.c_str());
+            ListView_SetItemText(hwndListView, idx, 2, (LPWSTR)fileInfo.inno_flags.c_str());
         }
     }
     ListView_SetColumnWidth(hwndListView, 0, LVSCW_AUTOSIZE_USEHEADER);
     ListView_SetColumnWidth(hwndListView, 1, LVSCW_AUTOSIZE);
+    ListView_SetColumnWidth(hwndListView, 2, LVSCW_AUTOSIZE_USEHEADER);
     InvalidateRect(hwndListView, NULL, TRUE);
     UpdateWindow(hwndListView);
 }
@@ -1405,7 +1425,8 @@ static void SaveTreeToDb(int projectId,
         for (const auto &f : snap.virtualFiles) {
             // f.destination is like L"\filename.exe" (leading backslash)
             DB::InsertFile(projectId, f.sourcePath, myPath + f.destination,
-                           f.install_scope.empty() ? L"" : f.install_scope);
+                           f.install_scope.empty() ? L"" : f.install_scope,
+                           f.inno_flags);
         }
         // Recurse into children
         SaveTreeToDb(projectId, snap.children, myPath);
@@ -2091,14 +2112,23 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         
         ListView_SetExtendedListViewStyle(s_hListView, LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
         
+        auto itColDest = s_locale.find(L"files_col_destination");
+        std::wstring colDestText = (itColDest != s_locale.end()) ? itColDest->second : L"Destination";
+        auto itColSrc = s_locale.find(L"files_col_source");
+        std::wstring colSrcText = (itColSrc != s_locale.end()) ? itColSrc->second : L"Source Path";
+        auto itColFlg = s_locale.find(L"files_col_flags");
+        std::wstring colFlagsText = (itColFlg != s_locale.end()) ? itColFlg->second : L"Flags";
         LVCOLUMNW col = {};
         col.mask = LVCF_TEXT | LVCF_WIDTH;
         { col.cx = S(180);
-          col.pszText = (LPWSTR)L"Destination";
+          col.pszText = (LPWSTR)colDestText.c_str();
           ListView_InsertColumn(s_hListView, 0, &col);
           col.cx = S(350);
-          col.pszText = (LPWSTR)L"Source Path";
-          ListView_InsertColumn(s_hListView, 1, &col); }
+          col.pszText = (LPWSTR)colSrcText.c_str();
+          ListView_InsertColumn(s_hListView, 1, &col);
+          col.cx = S(150);
+          col.pszText = (LPWSTR)colFlagsText.c_str();
+          ListView_InsertColumn(s_hListView, 2, &col); }
         // Attach custom hidden scrollbars to the ListView.
         s_hMsbFilesListV = msb_attach(s_hListView, MSB_VERTICAL);
         s_hMsbFilesListH = msb_attach(s_hListView, MSB_HORIZONTAL);
@@ -2210,6 +2240,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
                                 vf.sourcePath    = row.source_path;
                                 vf.destination   = fileName;
                                 vf.install_scope = row.install_scope;
+                                vf.inno_flags    = row.inno_flags;
                                 s_virtualFolderFiles[it->second].push_back(vf);
                             }
                         }
@@ -4079,6 +4110,299 @@ bool ValidateRegistryData(const std::wstring& type, const std::wstring& data, st
     // REG_SZ, REG_EXPAND_SZ, REG_MULTI_SZ accept any text
     
     return true;
+}
+
+// ─── File Flags Dialog ──────────────────────────────────────────────────────
+
+struct FileFlagsDialogData {
+    std::wstring fileName;    // display name for title bar
+    std::wstring inno_flags;  // space-separated Inno [Files] flags (in: initial value, out: result)
+    bool confirmed = false;
+    std::vector<RECT> sectionRects; // computed in WM_CREATE, drawn in WM_PAINT
+    // Locale strings (populated before dialog creation)
+    std::wstring okText;
+    std::wstring cancelText;
+    std::wstring secOverwrite;
+    std::wstring secAfter;
+    std::wstring secReg;
+    std::wstring secArch;
+    std::wstring lbl_ignoreversion;
+    std::wstring lbl_onlyifdoesntexist;
+    std::wstring lbl_confirmoverwrite;
+    std::wstring lbl_isreadme;
+    std::wstring lbl_deleteafterinstall;
+    std::wstring lbl_restartreplace;
+    std::wstring lbl_sign;
+    std::wstring lbl_regserver;
+    std::wstring lbl_regtypelib;
+    std::wstring lbl_sharedfile;
+    std::wstring lbl_arch_default;
+    std::wstring lbl_arch_32bit;
+    std::wstring lbl_arch_64bit;
+};
+
+// Returns true if space-delimited token is present in a flags string
+static bool FlagsHas(const std::wstring& flags, const wchar_t* token) {
+    std::wstring tok(token);
+    size_t pos = 0;
+    while ((pos = flags.find(tok, pos)) != std::wstring::npos) {
+        bool atStart = (pos == 0 || flags[pos-1] == L' ');
+        bool atEnd   = (pos + tok.size() == flags.size() || flags[pos + tok.size()] == L' ');
+        if (atStart && atEnd) return true;
+        pos++;
+    }
+    return false;
+}
+
+// Layout constants for File Flags dialog (design px at 96 DPI)
+static const int FF_PAD_H   = 20; // left/right padding
+static const int FF_PAD_T   = 15; // top padding
+static const int FF_CHK_H   = 24; // checkbox/radio row height
+static const int FF_SEC_H   = 20; // section header height
+static const int FF_GAP_SEC = 4;  // gap between section header and first checkbox
+static const int FF_GAP_BTW = 12; // gap between sections
+static const int FF_BTN_H   = 36; // button height
+static const int FF_BTN_GAP = 12; // gap between OK and Cancel
+static const int FF_BTN_PAD = 16; // gap before/after buttons row
+static const int FF_DLG_W   = 520; // client width
+
+LRESULT CALLBACK FileFlagsDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+    case WM_CREATE: {
+        CREATESTRUCTW* cs = (CREATESTRUCTW*)lParam;
+        HINSTANCE hInst   = cs->hInstance;
+        FileFlagsDialogData* pData = (FileFlagsDialogData*)cs->lpCreateParams;
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)pData);
+
+        RECT rcC; GetClientRect(hwnd, &rcC);
+        int cW = rcC.right;
+        int x  = S(FF_PAD_H);
+        int w  = cW - 2*S(FF_PAD_H);
+        int y  = S(FF_PAD_T);
+        const std::wstring& flags = pData->inno_flags;
+
+        // Subtitle (filename)
+        CreateWindowExW(0, L"STATIC", pData->fileName.c_str(),
+            WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX,
+            x, y, w, S(20), hwnd, NULL, hInst, NULL);
+        y += S(20) + S(10);
+
+        // Helper: record a 1px border rect around the last N checkbox rows
+        const int bdrPad = S(3);
+        auto pushBorder = [&](int top) {
+            RECT r = { x - bdrPad, top - bdrPad, x + w + bdrPad, y + bdrPad };
+            pData->sectionRects.push_back(r);
+        };
+
+        // Section 1: Overwrite behaviour
+        CreateWindowExW(0, L"STATIC", pData->secOverwrite.c_str(),
+            WS_CHILD | WS_VISIBLE | SS_LEFT,
+            x, y, w, S(FF_SEC_H), hwnd, (HMENU)(UINT_PTR)9100, hInst, NULL);
+        y += S(FF_SEC_H) + S(FF_GAP_SEC);
+        { int sTop = y;
+        CreateCustomCheckbox(hwnd, IDC_FFLG_IGNOREVERSION,     pData->lbl_ignoreversion,     FlagsHas(flags, L"ignoreversion"),     x, y, w, S(FF_CHK_H), hInst); y += S(FF_CHK_H);
+        CreateCustomCheckbox(hwnd, IDC_FFLG_ONLYIFDOESNTEXIST, pData->lbl_onlyifdoesntexist, FlagsHas(flags, L"onlyifdoesntexist"), x, y, w, S(FF_CHK_H), hInst); y += S(FF_CHK_H);
+        CreateCustomCheckbox(hwnd, IDC_FFLG_CONFIRMOVERWRITE,   pData->lbl_confirmoverwrite,  FlagsHas(flags, L"confirmoverwrite"),  x, y, w, S(FF_CHK_H), hInst); y += S(FF_CHK_H);
+        pushBorder(sTop); }
+        y += S(FF_GAP_BTW);
+
+        // Section 2: Post-install actions
+        CreateWindowExW(0, L"STATIC", pData->secAfter.c_str(),
+            WS_CHILD | WS_VISIBLE | SS_LEFT,
+            x, y, w, S(FF_SEC_H), hwnd, (HMENU)(UINT_PTR)9101, hInst, NULL);
+        y += S(FF_SEC_H) + S(FF_GAP_SEC);
+        { int sTop = y;
+        CreateCustomCheckbox(hwnd, IDC_FFLG_ISREADME,           pData->lbl_isreadme,           FlagsHas(flags, L"isreadme"),           x, y, w, S(FF_CHK_H), hInst); y += S(FF_CHK_H);
+        CreateCustomCheckbox(hwnd, IDC_FFLG_DELETEAFTERINSTALL, pData->lbl_deleteafterinstall, FlagsHas(flags, L"deleteafterinstall"), x, y, w, S(FF_CHK_H), hInst); y += S(FF_CHK_H);
+        CreateCustomCheckbox(hwnd, IDC_FFLG_RESTARTREPLACE,     pData->lbl_restartreplace,     FlagsHas(flags, L"restartreplace"),     x, y, w, S(FF_CHK_H), hInst); y += S(FF_CHK_H);
+        CreateCustomCheckbox(hwnd, IDC_FFLG_SIGN,               pData->lbl_sign,               FlagsHas(flags, L"sign"),               x, y, w, S(FF_CHK_H), hInst); y += S(FF_CHK_H);
+        pushBorder(sTop); }
+        y += S(FF_GAP_BTW);
+
+        // Section 3: Registration
+        CreateWindowExW(0, L"STATIC", pData->secReg.c_str(),
+            WS_CHILD | WS_VISIBLE | SS_LEFT,
+            x, y, w, S(FF_SEC_H), hwnd, (HMENU)(UINT_PTR)9102, hInst, NULL);
+        y += S(FF_SEC_H) + S(FF_GAP_SEC);
+        { int sTop = y;
+        CreateCustomCheckbox(hwnd, IDC_FFLG_REGSERVER,  pData->lbl_regserver,  FlagsHas(flags, L"regserver"),  x, y, w, S(FF_CHK_H), hInst); y += S(FF_CHK_H);
+        CreateCustomCheckbox(hwnd, IDC_FFLG_REGTYPELIB, pData->lbl_regtypelib, FlagsHas(flags, L"regtypelib"), x, y, w, S(FF_CHK_H), hInst); y += S(FF_CHK_H);
+        CreateCustomCheckbox(hwnd, IDC_FFLG_SHAREDFILE, pData->lbl_sharedfile, FlagsHas(flags, L"sharedfile"), x, y, w, S(FF_CHK_H), hInst); y += S(FF_CHK_H);
+        pushBorder(sTop); }
+        y += S(FF_GAP_BTW);
+
+        // Section 4: Architecture
+        CreateWindowExW(0, L"STATIC", pData->secArch.c_str(),
+            WS_CHILD | WS_VISIBLE | SS_LEFT,
+            x, y, w, S(FF_SEC_H), hwnd, (HMENU)(UINT_PTR)9103, hInst, NULL);
+        y += S(FF_SEC_H) + S(FF_GAP_SEC);
+        { int sTop = y;
+            bool has32 = FlagsHas(flags, L"32bit");
+            bool has64 = FlagsHas(flags, L"64bit");
+            int  radW  = w / 3;
+            CreateWindowExW(0, L"BUTTON", pData->lbl_arch_default.c_str(),
+                WS_CHILD | WS_VISIBLE | BS_AUTORADIOBUTTON | WS_GROUP,
+                x, y, radW, S(FF_CHK_H), hwnd, (HMENU)(UINT_PTR)IDC_FFLG_ARCH_DEFAULT, hInst, NULL);
+            CreateWindowExW(0, L"BUTTON", pData->lbl_arch_32bit.c_str(),
+                WS_CHILD | WS_VISIBLE | BS_AUTORADIOBUTTON,
+                x + radW, y, radW, S(FF_CHK_H), hwnd, (HMENU)(UINT_PTR)IDC_FFLG_ARCH_32BIT, hInst, NULL);
+            CreateWindowExW(0, L"BUTTON", pData->lbl_arch_64bit.c_str(),
+                WS_CHILD | WS_VISIBLE | BS_AUTORADIOBUTTON,
+                x + 2*radW, y, radW, S(FF_CHK_H), hwnd, (HMENU)(UINT_PTR)IDC_FFLG_ARCH_64BIT, hInst, NULL);
+            int initRadio = has32 ? IDC_FFLG_ARCH_32BIT : (has64 ? IDC_FFLG_ARCH_64BIT : IDC_FFLG_ARCH_DEFAULT);
+            SendMessageW(GetDlgItem(hwnd, initRadio), BM_SETCHECK, BST_CHECKED, 0);
+        y += S(FF_CHK_H);
+        pushBorder(sTop); }
+        y += S(FF_BTN_PAD);
+
+        // Buttons — centred
+        int wOK  = MeasureButtonWidth(pData->okText, true);
+        int wCnl = MeasureButtonWidth(pData->cancelText, true);
+        int totalBtnW = wOK + S(FF_BTN_GAP) + wCnl;
+        int startX    = (cW - totalBtnW) / 2;
+        CreateCustomButtonWithIcon(hwnd, IDC_FFLG_OK, pData->okText.c_str(), ButtonColor::Green,
+            L"imageres.dll", 89, startX, y, wOK, S(FF_BTN_H), hInst);
+        CreateCustomButtonWithIcon(hwnd, IDC_FFLG_CANCEL, pData->cancelText.c_str(), ButtonColor::Red,
+            L"shell32.dll", 131, startX + wOK + S(FF_BTN_GAP), y, wCnl, S(FF_BTN_H), hInst);
+
+        // Apply system message font to all controls
+        {
+            NONCLIENTMETRICSW ncm = {};
+            ncm.cbSize = sizeof(ncm);
+            SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+            if (ncm.lfMessageFont.lfHeight < 0)
+                ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
+            ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+            HFONT hCtrlFont = CreateFontIndirectW(&ncm.lfMessageFont);
+            if (hCtrlFont) {
+                EnumChildWindows(hwnd, [](HWND hChild, LPARAM lp) -> BOOL {
+                    SendMessageW(hChild, WM_SETFONT, (WPARAM)(HFONT)lp, TRUE);
+                    return TRUE;
+                }, (LPARAM)hCtrlFont);
+                SetPropW(hwnd, L"hCtrlFont", (HANDLE)hCtrlFont);
+            }
+            // Bold font for section headers
+            ncm.lfMessageFont.lfWeight = FW_BOLD;
+            HFONT hHdrFont = CreateFontIndirectW(&ncm.lfMessageFont);
+            if (hHdrFont) {
+                for (int secId = 9100; secId <= 9103; secId++) {
+                    HWND h = GetDlgItem(hwnd, secId);
+                    if (h) SendMessageW(h, WM_SETFONT, (WPARAM)hHdrFont, TRUE);
+                }
+                SetPropW(hwnd, L"hHdrFont", (HANDLE)hHdrFont);
+            }
+        }
+        return 0;
+    }
+
+    case WM_COMMAND: {
+        FileFlagsDialogData* pData = (FileFlagsDialogData*)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+        switch (LOWORD(wParam)) {
+        case IDC_FFLG_OK: {
+            if (pData) {
+                std::wstring out;
+                auto addFlag = [&](int id, const wchar_t* flag) {
+                    HWND hChk = GetDlgItem(hwnd, id);
+                    if (hChk && SendMessageW(hChk, BM_GETCHECK, 0, 0) == BST_CHECKED) {
+                        if (!out.empty()) out += L' ';
+                        out += flag;
+                    }
+                };
+                addFlag(IDC_FFLG_IGNOREVERSION,     L"ignoreversion");
+                addFlag(IDC_FFLG_ONLYIFDOESNTEXIST, L"onlyifdoesntexist");
+                addFlag(IDC_FFLG_CONFIRMOVERWRITE,   L"confirmoverwrite");
+                addFlag(IDC_FFLG_ISREADME,           L"isreadme");
+                addFlag(IDC_FFLG_DELETEAFTERINSTALL, L"deleteafterinstall");
+                addFlag(IDC_FFLG_RESTARTREPLACE,     L"restartreplace");
+                addFlag(IDC_FFLG_SIGN,               L"sign");
+                addFlag(IDC_FFLG_REGSERVER,          L"regserver");
+                addFlag(IDC_FFLG_REGTYPELIB,         L"regtypelib");
+                addFlag(IDC_FFLG_SHAREDFILE,         L"sharedfile");
+                // Architecture radios
+                if (SendMessageW(GetDlgItem(hwnd, IDC_FFLG_ARCH_32BIT), BM_GETCHECK, 0, 0) == BST_CHECKED) {
+                    if (!out.empty()) out += L' ';
+                    out += L"32bit";
+                } else if (SendMessageW(GetDlgItem(hwnd, IDC_FFLG_ARCH_64BIT), BM_GETCHECK, 0, 0) == BST_CHECKED) {
+                    if (!out.empty()) out += L' ';
+                    out += L"64bit";
+                }
+                pData->inno_flags = out;
+                pData->confirmed  = true;
+            }
+            DestroyWindow(hwnd);
+            return 0;
+        }
+        case IDC_FFLG_CANCEL:
+            DestroyWindow(hwnd);
+            return 0;
+        }
+        break;
+    }
+
+    case WM_DRAWITEM: {
+        LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
+        if (DrawCustomCheckbox(dis)) return TRUE;
+        if (dis->CtlID == IDC_FFLG_OK || dis->CtlID == IDC_FFLG_CANCEL) {
+            ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
+            NONCLIENTMETRICSW ncm = {};
+            ncm.cbSize = sizeof(ncm);
+            SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+            if (ncm.lfMessageFont.lfHeight < 0)
+                ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
+            ncm.lfMessageFont.lfWeight = FW_BOLD;
+            ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+            HFONT hFont = CreateFontIndirectW(&ncm.lfMessageFont);
+            LRESULT result = DrawCustomButton(dis, color, hFont);
+            if (hFont) DeleteObject(hFont);
+            return result;
+        }
+        break;
+    }
+
+    case WM_PAINT: {
+        PAINTSTRUCT ps;
+        HDC hdc = BeginPaint(hwnd, &ps);
+        FileFlagsDialogData* pDataP = (FileFlagsDialogData*)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+        if (pDataP) {
+            HPEN hPen = CreatePen(PS_SOLID, 1, GetSysColor(COLOR_BTNSHADOW));
+            HPEN hOldPen = (HPEN)SelectObject(hdc, hPen);
+            HBRUSH hOldBrush = (HBRUSH)SelectObject(hdc, GetStockObject(NULL_BRUSH));
+            for (const auto& r : pDataP->sectionRects)
+                Rectangle(hdc, r.left, r.top, r.right, r.bottom);
+            SelectObject(hdc, hOldPen);
+            SelectObject(hdc, hOldBrush);
+            DeleteObject(hPen);
+        }
+        EndPaint(hwnd, &ps);
+        return 0;
+    }
+
+    case WM_CTLCOLORSTATIC: {
+        HDC hdc = (HDC)wParam;
+        SetBkMode(hdc, TRANSPARENT);
+        return (LRESULT)GetStockObject(WHITE_BRUSH);
+    }
+
+    case WM_CTLCOLORBTN: {
+        // Radio buttons need explicit white background
+        HDC hdc = (HDC)wParam;
+        SetBkMode(hdc, TRANSPARENT);
+        return (LRESULT)GetStockObject(WHITE_BRUSH);
+    }
+
+    case WM_DESTROY: {
+        HFONT hCtrlFont = (HFONT)GetPropW(hwnd, L"hCtrlFont");
+        if (hCtrlFont) { DeleteObject(hCtrlFont); RemovePropW(hwnd, L"hCtrlFont"); }
+        HFONT hHdrFont = (HFONT)GetPropW(hwnd, L"hHdrFont");
+        if (hHdrFont) { DeleteObject(hHdrFont); RemovePropW(hwnd, L"hHdrFont"); }
+        break;
+    }
+
+    case WM_CLOSE:
+        DestroyWindow(hwnd);
+        return 0;
+    }
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
 }
 
 // Add Value dialog data
@@ -6469,6 +6793,7 @@ void MainWindow::EnsureTreeSnapshotsFromDb()
         vf.sourcePath    = row.source_path;
         vf.destination   = row.destination_path.substr(sep); // includes leading '\'
         vf.install_scope = row.install_scope;
+        vf.inno_flags    = row.inno_flags;
         it->second.virtualFiles.push_back(std::move(vf));
     }
 
@@ -7625,10 +7950,12 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                         }
                         int idx = ListView_InsertItem(s_hListView, &lvi);
                         ListView_SetItemText(s_hListView, idx, 1, (LPWSTR)fileInfo.sourcePath.c_str());
+                        ListView_SetItemText(s_hListView, idx, 2, (LPWSTR)fileInfo.inno_flags.c_str());
                     }
                 }
                 ListView_SetColumnWidth(s_hListView, 0, LVSCW_AUTOSIZE_USEHEADER);
                 ListView_SetColumnWidth(s_hListView, 1, LVSCW_AUTOSIZE);
+                ListView_SetColumnWidth(s_hListView, 2, LVSCW_AUTOSIZE_USEHEADER);
 
                 // Force ListView to redraw
                 InvalidateRect(s_hListView, NULL, TRUE);
@@ -8446,6 +8773,125 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 
             MessageBoxW(hwnd, L"Select a folder or file to remove first.",
                         L"Remove", MB_OK | MB_ICONINFORMATION);
+            return 0;
+        }
+
+        case IDM_FILES_FLAGS: {
+            if (!s_hListView || !IsWindow(s_hListView)) return 0;
+            int selIdx = ListView_GetNextItem(s_hListView, -1, LVNI_SELECTED);
+            if (selIdx < 0) return 0;
+
+            // Retrieve source path stored in LPARAM
+            LVITEMW lvGet = {};
+            lvGet.mask  = LVIF_PARAM;
+            lvGet.iItem = selIdx;
+            if (!ListView_GetItem(s_hListView, &lvGet) || !lvGet.lParam) return 0;
+            std::wstring sourcePath = (const wchar_t*)lvGet.lParam;
+
+            // Destination text for display (strip leading backslash)
+            wchar_t destBuf[MAX_PATH] = {};
+            ListView_GetItemText(s_hListView, selIdx, 0, destBuf, _countof(destBuf));
+            std::wstring dispName = destBuf;
+            if (!dispName.empty() && (dispName[0] == L'\\' || dispName[0] == L'/'))
+                dispName = dispName.substr(1);
+
+            // Find the matching VirtualFolderFile in the current folder
+            HTREEITEM hFolder = s_hTreeView ? TreeView_GetSelection(s_hTreeView) : NULL;
+            if (!hFolder) return 0;
+            auto vit = s_virtualFolderFiles.find(hFolder);
+            if (vit == s_virtualFolderFiles.end()) return 0;
+            VirtualFolderFile* pVff = nullptr;
+            for (auto& vf : vit->second) {
+                if (vf.sourcePath == sourcePath) { pVff = &vf; break; }
+            }
+            if (!pVff) return 0;
+
+            // Build dialog data from locale
+            auto locFF = [&](const wchar_t* k, const wchar_t* fb) -> std::wstring {
+                auto it = s_locale.find(k);
+                return (it != s_locale.end()) ? it->second : fb;
+            };
+            FileFlagsDialogData dlgData;
+            dlgData.fileName             = dispName;
+            dlgData.inno_flags           = pVff->inno_flags;
+            dlgData.confirmed            = false;
+            dlgData.okText               = locFF(L"ok",     L"OK");
+            dlgData.cancelText           = locFF(L"cancel", L"Cancel");
+            dlgData.secOverwrite         = locFF(L"fflg_overwrite_section",    L"Overwrite behaviour");
+            dlgData.secAfter             = locFF(L"fflg_after_section",        L"Post-install actions");
+            dlgData.secReg               = locFF(L"fflg_registration_section", L"Registration");
+            dlgData.secArch              = locFF(L"fflg_architecture_section", L"Architecture");
+            dlgData.lbl_ignoreversion    = locFF(L"fflg_ignoreversion",     L"Ignore version info (always overwrite)");
+            dlgData.lbl_onlyifdoesntexist= locFF(L"fflg_onlyifdoesntexist",L"Skip if file already exists");
+            dlgData.lbl_confirmoverwrite = locFF(L"fflg_confirmoverwrite",  L"Prompt user if file already exists");
+            dlgData.lbl_isreadme         = locFF(L"fflg_isreadme",          L"Mark as README (shown in README viewer)");
+            dlgData.lbl_deleteafterinstall= locFF(L"fflg_deleteafterinstall",L"Delete after install (temporary copy)");
+            dlgData.lbl_restartreplace   = locFF(L"fflg_restartreplace",    L"Queue for replacement on next reboot");
+            dlgData.lbl_sign             = locFF(L"fflg_sign",              L"Code-sign file after copying");
+            dlgData.lbl_regserver        = locFF(L"fflg_regserver",         L"Register COM server (regsvr32)");
+            dlgData.lbl_regtypelib       = locFF(L"fflg_regtypelib",        L"Register type library");
+            dlgData.lbl_sharedfile       = locFF(L"fflg_sharedfile",        L"Shared file (increment reference count)");
+            dlgData.lbl_arch_default     = locFF(L"fflg_arch_default",      L"Default");
+            dlgData.lbl_arch_32bit       = locFF(L"fflg_arch_32bit",        L"32-bit only");
+            dlgData.lbl_arch_64bit       = locFF(L"fflg_arch_64bit",        L"64-bit only");
+
+            // Register window class (idempotent)
+            WNDCLASSEXW wcFF = {};
+            wcFF.cbSize = sizeof(WNDCLASSEXW);
+            if (!GetClassInfoExW(GetModuleHandleW(NULL), L"FileFlagsDialog", &wcFF)) {
+                wcFF.lpfnWndProc   = FileFlagsDialogProc;
+                wcFF.hInstance     = GetModuleHandleW(NULL);
+                wcFF.lpszClassName = L"FileFlagsDialog";
+                wcFF.hbrBackground = (HBRUSH)GetStockObject(WHITE_BRUSH);
+                wcFF.hCursor       = LoadCursor(NULL, IDC_ARROW);
+                RegisterClassExW(&wcFF);
+            }
+
+            // Compute client and window size
+            int ffClientH = S(FF_PAD_T)
+                          + S(20) + S(10)
+                          + S(FF_SEC_H)+S(FF_GAP_SEC)+3*S(FF_CHK_H)+S(FF_GAP_BTW)
+                          + S(FF_SEC_H)+S(FF_GAP_SEC)+4*S(FF_CHK_H)+S(FF_GAP_BTW)
+                          + S(FF_SEC_H)+S(FF_GAP_SEC)+3*S(FF_CHK_H)+S(FF_GAP_BTW)
+                          + S(FF_SEC_H)+S(FF_GAP_SEC)+S(FF_CHK_H)+S(FF_BTN_PAD)
+                          + S(FF_BTN_H) + S(FF_BTN_PAD);
+            RECT wrcFF = {0, 0, S(FF_DLG_W), ffClientH};
+            AdjustWindowRectEx(&wrcFF, WS_POPUP|WS_CAPTION|WS_SYSMENU, FALSE,
+                               WS_EX_TOPMOST|WS_EX_TOOLWINDOW);
+            int dlgW = wrcFF.right - wrcFF.left;
+            int dlgH = wrcFF.bottom - wrcFF.top;
+            RECT rcMain; GetWindowRect(hwnd, &rcMain);
+            int dlgX = rcMain.left + (rcMain.right  - rcMain.left  - dlgW) / 2;
+            int dlgY = rcMain.top  + (rcMain.bottom - rcMain.top   - dlgH) / 2;
+            RECT rcWk; SystemParametersInfoW(SPI_GETWORKAREA, 0, &rcWk, 0);
+            if (dlgX < rcWk.left)  dlgX = rcWk.left;
+            if (dlgY < rcWk.top)   dlgY = rcWk.top;
+            if (dlgX + dlgW > rcWk.right)  dlgX = rcWk.right  - dlgW;
+            if (dlgY + dlgH > rcWk.bottom) dlgY = rcWk.bottom - dlgH;
+
+            std::wstring dlgTitle = locFF(L"fflg_title", L"File Flags");
+            if (!dispName.empty()) dlgTitle += L" \u2014 " + dispName;
+
+            HWND hDlgFF = CreateWindowExW(
+                WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+                L"FileFlagsDialog", dlgTitle.c_str(),
+                WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
+                dlgX, dlgY, dlgW, dlgH,
+                hwnd, NULL, GetModuleHandleW(NULL), &dlgData);
+
+            // Modal message loop
+            MSG msgFF;
+            while (GetMessageW(&msgFF, NULL, 0, 0) > 0) {
+                if (!IsWindow(hDlgFF)) break;
+                TranslateMessage(&msgFF);
+                DispatchMessageW(&msgFF);
+            }
+
+            if (dlgData.confirmed) {
+                pVff->inno_flags = dlgData.inno_flags;
+                ListView_SetItemText(s_hListView, selIdx, 2, (LPWSTR)pVff->inno_flags.c_str());
+                MarkAsModified();
+            }
             return 0;
         }
             
@@ -10565,6 +11011,11 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             if (selCount > 0) {
                 AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
                 AppendMenuW(hMenu, MF_STRING, IDC_FILES_REMOVE, removeText.c_str());
+            }
+            if (selCount == 1) {
+                auto itFf = s_locale.find(L"files_ctx_flags");
+                std::wstring flagsText = (itFf != s_locale.end()) ? itFf->second : L"File Flags\u2026";
+                AppendMenuW(hMenu, MF_STRING, IDM_FILES_FLAGS, flagsText.c_str());
             }
             TrackPopupMenu(hMenu, TPM_RIGHTBUTTON, xPos, yPos, 0, hwnd, NULL);
             DestroyMenu(hMenu);

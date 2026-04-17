@@ -136,6 +136,8 @@ bool DB::InitDb() {
     p_exec(db, "ALTER TABLE projects ADD COLUMN app_publisher TEXT;", NULL, NULL, &errmsg);
     // Add install_scope column to files table to store per-file or per-folder install scope (PerUser/AllUsers/AskAtInstall)
     p_exec(db, "ALTER TABLE files ADD COLUMN install_scope TEXT DEFAULT '';", NULL, NULL, &errmsg);
+    // Add inno_flags column to files table for Inno Setup [Files] flags (e.g. ignoreversion, 32bit)
+    p_exec(db, "ALTER TABLE files ADD COLUMN inno_flags TEXT DEFAULT '';", NULL, NULL, &errmsg);
     // Add use_components column to projects table
     p_exec(db, "ALTER TABLE projects ADD COLUMN use_components INTEGER DEFAULT 0;", NULL, NULL, &errmsg);
     // Ensure component_dependencies table exists for older DBs
@@ -398,14 +400,14 @@ bool DB::DeleteFilesForProject(int projectId) {
     return true;
 }
 
-bool DB::InsertFile(int projectId, const std::wstring &sourcePath, const std::wstring &destPath, const std::wstring &installScope) {
+bool DB::InsertFile(int projectId, const std::wstring &sourcePath, const std::wstring &destPath, const std::wstring &installScope, const std::wstring &innoFlags) {
     std::wstring dbPath = GetAppDataDbPath();
     std::string dbPathUtf8 = WToUtf8(dbPath);
     void *db = NULL;
     int flags = 0x00000002 /*SQLITE_OPEN_READWRITE*/ | 0x00000004 /*SQLITE_OPEN_CREATE*/;
     if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return false;
 
-    const char *sql = "INSERT INTO files (project_id, source_path, destination_path, install_scope) VALUES (?, ?, ?, ?);";
+    const char *sql = "INSERT INTO files (project_id, source_path, destination_path, install_scope, inno_flags) VALUES (?, ?, ?, ?, ?);";
     void *stmt = NULL;
     if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return false; }
 
@@ -413,11 +415,13 @@ bool DB::InsertFile(int projectId, const std::wstring &sourcePath, const std::ws
     std::string sSource = WToUtf8(sourcePath);
     std::string sDest = WToUtf8(destPath);
     std::string sScope = WToUtf8(installScope);
+    std::string sFlags = WToUtf8(innoFlags);
 
     if (p_bind_text) p_bind_text(stmt, 1, sProject.c_str(), -1, NULL);
     if (p_bind_text) p_bind_text(stmt, 2, sSource.c_str(), -1, NULL);
     if (p_bind_text) p_bind_text(stmt, 3, sDest.c_str(), -1, NULL);
     if (p_bind_text) p_bind_text(stmt, 4, sScope.c_str(), -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 5, sFlags.c_str(), -1, NULL);
 
     p_step(stmt);
     if (p_finalize) p_finalize(stmt);
@@ -433,7 +437,7 @@ std::vector<FileRow> DB::GetFilesForProject(int projectId) {
     int flags = 0x00000002 | 0x00000004;
     if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return out;
 
-    const char *sql = "SELECT id, source_path, destination_path, install_scope FROM files WHERE project_id = ? ORDER BY id ASC;";
+    const char *sql = "SELECT id, source_path, destination_path, install_scope, inno_flags FROM files WHERE project_id = ? ORDER BY id ASC;";;
     void *stmt = NULL;
     if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return out; }
     std::string sId = std::to_string(projectId);
@@ -449,6 +453,8 @@ std::vector<FileRow> DB::GetFilesForProject(int projectId) {
         r.source_path      = Utf8ToW(c1 ? (const char*)c1 : "");
         r.destination_path = Utf8ToW(c2 ? (const char*)c2 : "");
         r.install_scope    = Utf8ToW(c3 ? (const char*)c3 : "");
+        const unsigned char *c4 = p_col_text(stmt, 4);
+        r.inno_flags       = Utf8ToW(c4 ? (const char*)c4 : "");
         out.push_back(r);
     }
     if (p_finalize) p_finalize(stmt);

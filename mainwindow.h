@@ -11,6 +11,7 @@ struct VirtualFolderFile {
     std::wstring sourcePath;
     std::wstring destination;
     std::wstring install_scope;
+    std::wstring inno_flags;  // space-separated Inno [Files] flags, e.g. "ignoreversion sharedfile"
 };
 
 // Recursive snapshot of a single TreeView node (used to persist the Files page tree)

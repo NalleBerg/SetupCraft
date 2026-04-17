@@ -12,6 +12,13 @@ VirtualFolderFile  (mainwindow.h)
     std::wstring destination     – relative file name with leading backslash,
                                    e.g. "\MyApp.exe"
     std::wstring install_scope   – "" | "AskAtInstall"
+    std::wstring inno_flags      – space-separated Inno Setup [Files] Flags:
+                                   tokens, e.g. "ignoreversion sign 64bit".
+                                   Empty string = no special flags.
+                                   Persisted to files.inno_flags DB column.
+                                   Displayed in Files-page ListView column 2
+                                   ("Flags").  Edited via FileFlagsDialogProc
+                                   (IDM_FILES_FLAGS right-click context menu).
 
 TreeNodeSnapshot  (mainwindow.h)
     std::wstring text            – display label of the tree node
@@ -35,6 +42,9 @@ FileRow  (db.h)
                                      e.g. "Program Files\MyApp\sub"
     std::wstring install_scope     – "" | "AskAtInstall" | "__folder__"
                                      "__folder__" marks a folder node row (not a file)
+    std::wstring inno_flags        – space-separated Inno [Files] Flags: tokens
+                                     (empty string for folder rows and files with
+                                     no special flags)
 
 Static globals in mainwindow.cpp
     s_virtualFolderFiles : map<HTREEITEM, vector<VirtualFolderFile>>
@@ -47,10 +57,12 @@ Static globals in mainwindow.cpp
           Survives tab switches. CLEARED on MainWindow::Create() (project open).
 
 DB tables  (db.h / db.cpp)
-    files(id, project_id, source_path, destination_path, install_scope)
+    files(id, project_id, source_path, destination_path, install_scope, inno_flags)
         ↳ On-disk persistent store for the full tree (folder nodes + files).
           install_scope = "__folder__" → folder node row.
           install_scope = "" or "AskAtInstall" → file row.
+          inno_flags = space-separated Inno [Files] flag tokens (empty string
+          when no flags set).  Column added via ALTER TABLE migration in InitDb.
     projects(id, …, directory, …)
         ↳ "directory" = last known install path, synced on every Save.
 
