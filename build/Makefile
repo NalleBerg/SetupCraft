@@ -640,6 +640,30 @@ scrollbar.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/scrollbar.cpp.s
 .PHONY : scrollbar.cpp.s
 
+settings.obj: settings.cpp.obj
+.PHONY : settings.obj
+
+# target to build an object file
+settings.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/settings.cpp.obj
+.PHONY : settings.cpp.obj
+
+settings.i: settings.cpp.i
+.PHONY : settings.i
+
+# target to preprocess a source file
+settings.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/settings.cpp.i
+.PHONY : settings.cpp.i
+
+settings.s: settings.cpp.s
+.PHONY : settings.s
+
+# target to generate assembly for a file
+settings.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/settings.cpp.s
+.PHONY : settings.cpp.s
+
 shortcuts.obj: shortcuts.cpp.obj
 .PHONY : shortcuts.obj
 
@@ -809,6 +833,9 @@ help:
 	@echo ... scrollbar.obj
 	@echo ... scrollbar.i
 	@echo ... scrollbar.s
+	@echo ... settings.obj
+	@echo ... settings.i
+	@echo ... settings.s
 	@echo ... shortcuts.obj
 	@echo ... shortcuts.i
 	@echo ... shortcuts.s

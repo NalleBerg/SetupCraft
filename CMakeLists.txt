@@ -34,6 +34,7 @@ add_executable(SkeletonApp WIN32
     dep_edit_dialog.cpp
     scripts.cpp
     script_edit_dialog.cpp
+    settings.cpp
     dialogs.cpp
     scrollbar.cpp
     my_scrollbar.cpp

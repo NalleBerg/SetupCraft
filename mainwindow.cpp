@@ -24,6 +24,7 @@
 #include "deps.h"
 #include "dialogs.h"
 #include "scripts.h"
+#include "settings.h"
 #include "my_scrollbar.h"
 #include <richedit.h>
 #include <commdlg.h>
@@ -78,10 +79,12 @@ int MainWindow::s_toolbarHeight = 50;
 int MainWindow::s_currentPageIndex = 0;
 static int  s_scPageContentH   = 0;  // absolute Y of first pixel below Shortcuts page content
 static int  s_idlgPageContentH = 0;  // absolute Y of first pixel below Dialogs page content
+static int  s_settPageContentH = 0;  // absolute Y of first pixel below Settings page content
 static HMSB s_hMsbSc           = NULL; // custom scrollbar for the Shortcuts page
 static HMSB s_hMsbScSmTreeV    = NULL; // Shortcuts page - Start Menu TreeView vertical bar
 static HMSB s_hMsbScSmTreeH    = NULL; // Shortcuts page - Start Menu TreeView horizontal bar
 static HMSB s_hMsbIdlg         = NULL; // custom scrollbar for the Dialogs page
+static HMSB s_hMsbSett         = NULL; // custom scrollbar for the Settings page
 static HMSB s_hMsbFilesTreeV   = NULL; // Files page - TreeView vertical bar
 static HMSB s_hMsbFilesTreeH   = NULL; // Files page - TreeView horizontal bar
 static HMSB s_hMsbFilesListV   = NULL; // Files page - ListView vertical bar
@@ -529,6 +532,7 @@ HWND MainWindow::Create(HINSTANCE hInstance, const ProjectRow &project, const st
     s_hMsbScSmTreeV  = NULL;
     s_hMsbScSmTreeH  = NULL;
     s_hMsbIdlg       = NULL;
+    s_hMsbSett       = NULL;
     DEP_Reset();           // nullifies s_hMsbDepListV/H (WM_DESTROY already freed ctx)
     SCR_Reset();
     // Null stale HWND handles so IsWindow guards work correctly on second open.
@@ -560,6 +564,7 @@ HWND MainWindow::Create(HINSTANCE hInstance, const ProjectRow &project, const st
     DEP_Reset();
     IDLG_Reset();
     SCR_Reset();
+    SETT_Reset();
     s_components.clear();   // load once here, never on page switch
     s_currentProject = project;
     s_locale = locale;
@@ -581,6 +586,7 @@ HWND MainWindow::Create(HINSTANCE hInstance, const ProjectRow &project, const st
         DEP_LoadFromDb(project.id);   // load external dependencies
         SCR_LoadFromDb(project.id);   // load scripts
         IDLG_LoadFromDb(project.id);  // load installer dialog RTF content
+        SETT_LoadFromDb(project.id);  // load installer settings
     }
     // Fill any empty dialog slots with default RTF (with project name/version substituted).
     // Works for both new projects (all slots empty) and older projects that lack some dialogs.
@@ -1724,7 +1730,11 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         IDC_SC_SM_TREE, IDC_SC_SM_ADD, IDC_SC_SM_REMOVE, IDC_SC_SM_ADDSC,
         IDC_SC_SM_PIN_LABEL, IDC_SC_TB_PIN_LABEL,
         IDC_SC_SM_PIN_OPT, IDC_SC_TB_PIN_OPT,
-        5100, 5101, 5102, 5103, 5104, 5105, 5106, 5107, 5108, 5109, 5110, 5300, 5301, 5302, 5303, 5304 // Labels and other static controls
+        5100, 5101, 5102, 5103, 5104, 5105, 5106, 5107, 5108, 5109, 5110, 5300, 5301, 5302, 5303, 5304, // Labels and other static controls
+        IDC_SETT_APP_NAME, IDC_SETT_APP_VERSION, IDC_SETT_PUBLISHER, IDC_SETT_PUBLISHER_URL, IDC_SETT_SUPPORT_URL,
+        IDC_SETT_ICON_PREVIEW, IDC_SETT_CHANGE_ICON, IDC_SETT_OUTPUT_FOLDER, IDC_SETT_OUTPUT_FOLDER_BTN, IDC_SETT_OUTPUT_FILE, IDC_SETT_COMPRESSION, IDC_SETT_COMP_LEVEL,
+        IDC_SETT_SOLID, IDC_SETT_UAC_REQADMIN, IDC_SETT_UAC_INVOKER, IDC_SETT_UAC_HIGHEST, IDC_SETT_MIN_OS,
+        IDC_SETT_ALLOW_UNINSTALL, IDC_SETT_CLOSE_APPS, IDC_SETT_PAGE_TITLE
     };
     
     for (int id : controlIds) {
@@ -1827,8 +1837,10 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
 
     if (s_hMsbSc)   { msb_detach(s_hMsbSc);   s_hMsbSc   = NULL; }
     if (s_hMsbIdlg) { msb_detach(s_hMsbIdlg); s_hMsbIdlg = NULL; }
+    if (s_hMsbSett) { msb_detach(s_hMsbSett); s_hMsbSett = NULL; }
     IDLG_TearDown(hwnd);
     SC_TearDown(hwnd);
+    SETT_TearDown(hwnd);
 
     // Clear registry values map
     s_registryValues.clear();
@@ -2881,23 +2893,53 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
     }
     case 5: // Settings page
     {
-        // Create container for page content
-        s_hCurrentPage = CreateWindowExW(
-            0, L"STATIC", L"",
-            WS_CHILD | WS_VISIBLE,
-            0, pageY, rc.right, pageHeight,
-            hwnd, NULL, hInst, NULL);
-        
-        HWND hTitle = CreateWindowExW(0, L"STATIC", L"Installer Settings",
-            WS_CHILD | WS_VISIBLE | SS_LEFT,
-            S(20), S(20), rc.right - S(40), S(38),
-            s_hCurrentPage, NULL, hInst, NULL);
-        if (s_hPageTitleFont) SendMessageW(hTitle, WM_SETFONT, (WPARAM)s_hPageTitleFont, TRUE);
-        
-        CreateWindowExW(0, L"STATIC", L"Settings (License, OS requirements, etc.) to be implemented",
-            WS_CHILD | WS_VISIBLE | SS_LEFT,
-            S(20), S(60), rc.right - S(40), S(20),
-            s_hCurrentPage, NULL, hInst, NULL);
+        s_settPageContentH = SETT_BuildPage(hwnd, hInst, pageY, rc.right,
+                               s_hPageTitleFont, s_hGuiFont, s_locale,
+                               s_currentProject.name, s_currentProject.version,
+                               s_appPublisher, s_appIconPath);
+        {
+            int statusH = 25;
+            if (s_hStatus && IsWindow(s_hStatus)) {
+                RECT rcSB; GetWindowRect(s_hStatus, &rcSB);
+                statusH = rcSB.bottom - rcSB.top;
+            }
+            int viewH    = rc.bottom - pageY - statusH;
+            int contentH = s_settPageContentH - pageY + S(15);
+            SCROLLINFO si = {};
+            si.cbSize = sizeof(si);
+            si.fMask  = SIF_RANGE | SIF_PAGE | SIF_POS | SIF_DISABLENOSCROLL;
+            si.nMin   = 0;
+            si.nMax   = std::max(contentH - 1, viewH);
+            si.nPage  = (UINT)viewH;
+            si.nPos   = 0;
+            SetScrollInfo(hwnd, SB_VERT, &si, FALSE);
+            if (!s_hMsbSett)
+                s_hMsbSett = msb_attach(hwnd, MSB_VERTICAL);
+            else
+                msb_sync(s_hMsbSett);
+            msb_set_insets(s_hMsbSett, pageY, statusH);
+            msb_set_edge_gap(s_hMsbSett, 4);
+        }
+        // WS_CLIPSIBLINGS on every page control so scrolled controls can't
+        // overdraw the status bar (kept at HWND_TOP).
+        {
+            HWND hC = GetWindow(hwnd, GW_CHILD);
+            while (hC) {
+                HWND hN = GetWindow(hC, GW_HWNDNEXT);
+                if (hC != s_hStatus && hC != s_hAboutButton) {
+                    int cid = GetDlgCtrlID(hC);
+                    bool isTB = (cid >= IDC_TB_FILES && cid <= IDC_TB_ABOUT) ||
+                                 cid == IDC_TB_DIALOGS || cid == IDC_TB_COMPONENTS ||
+                                 cid == IDC_TB_EXIT    || cid == IDC_TB_CLOSE_PROJECT;
+                    if (!isTB) {
+                        LONG_PTR st = GetWindowLongPtrW(hC, GWL_STYLE);
+                        if (!(st & WS_CLIPSIBLINGS))
+                            SetWindowLongPtrW(hC, GWL_STYLE, st | WS_CLIPSIBLINGS);
+                    }
+                }
+                hC = hN;
+            }
+        }
         break;
     }
     case 6: // Build page
@@ -7720,6 +7762,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         if (DEP_OnCommand(hwnd, wmId, wmEvent, (HWND)lParam)) return 0;
         if (SCR_OnCommand(hwnd, wmId, wmEvent, (HWND)lParam)) return 0;
         if (IDLG_OnCommand(hwnd, wmId, wmEvent, (HWND)lParam)) return 0;
+        if (SETT_OnCommand(hwnd, wmId, wmEvent, (HWND)lParam)) return 0;
 
         // Handle registry page field changes — persist values in statics so they
         // survive page switches (pages are destroyed/recreated on switch)
@@ -7760,6 +7803,54 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 + L" | Version: " + s_currentProject.version
                 + L" | Directory: " + s_currentProject.directory;
             SetWindowTextW(s_hStatus, sb.c_str());
+            // Mirror to Settings page if live
+            HWND hSettVer = GetDlgItem(hwnd, IDC_SETT_APP_VERSION);
+            if (hSettVer && GetWindowTextLengthW(hSettVer) != (int)s_currentProject.version.size())
+                SetWindowTextW(hSettVer, s_currentProject.version.c_str());
+            MarkAsModified();
+            return 0;
+        }
+
+        if (wmId == IDC_SETT_APP_VERSION && wmEvent == EN_CHANGE) {
+            wchar_t buf[128] = {};
+            GetDlgItemTextW(hwnd, IDC_SETT_APP_VERSION, buf, 128);
+            s_currentProject.version = buf;
+            std::wstring sb = L"Project: " + s_currentProject.name
+                + L" | Version: " + s_currentProject.version
+                + L" | Directory: " + s_currentProject.directory;
+            SetWindowTextW(s_hStatus, sb.c_str());
+            // Mirror to Registry page if live
+            HWND hRegVer = GetDlgItem(hwnd, IDC_REG_VERSION);
+            if (hRegVer && GetWindowTextLengthW(hRegVer) != (int)s_currentProject.version.size())
+                SetWindowTextW(hRegVer, s_currentProject.version.c_str());
+            MarkAsModified();
+            return 0;
+        }
+
+        if (wmId == IDC_SETT_PUBLISHER && wmEvent == EN_CHANGE) {
+            wchar_t buf[512] = {};
+            GetDlgItemTextW(hwnd, IDC_SETT_PUBLISHER, buf, 512);
+            s_appPublisher = buf;
+            // Mirror to Registry page if live
+            HWND hRegPub = GetDlgItem(hwnd, IDC_REG_PUBLISHER);
+            if (hRegPub) SetWindowTextW(hRegPub, s_appPublisher.c_str());
+            MarkAsModified();
+            return 0;
+        }
+
+        if (wmId == IDC_SETT_APP_NAME && wmEvent == EN_CHANGE) {
+            wchar_t buf[256] = {};
+            GetDlgItemTextW(hwnd, IDC_SETT_APP_NAME, buf, 256);
+            s_currentProject.name = buf;
+            std::wstring title = L"SetupCraft - " + s_currentProject.name;
+            SetWindowTextW(hwnd, title.c_str());
+            // Mirror to Files page if live
+            HWND hProjName = GetDlgItem(hwnd, IDC_PROJECT_NAME);
+            if (hProjName) {
+                s_updatingProjectNameProgrammatically = true;
+                SetWindowTextW(hProjName, s_currentProject.name.c_str());
+                s_updatingProjectNameProgrammatically = false;
+            }
             MarkAsModified();
             return 0;
         }
@@ -8413,6 +8504,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             return 0;
         }
         
+        case IDC_SETT_CHANGE_ICON:
         case IDC_REG_ADD_ICON: {
             // Open file dialog to select .ico file
             OPENFILENAMEW ofn = {};
@@ -8434,14 +8526,16 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             
             if (GetOpenFileNameW(&ofn)) {
                 s_appIconPath = szFile;
-                
-                // Update icon preview
+                HICON hIcon = (HICON)LoadImageW(NULL, s_appIconPath.c_str(), IMAGE_ICON, 48, 48, LR_LOADFROMFILE);
+                // Update Registry page icon preview if live
                 HWND hIconPreview = GetDlgItem(hwnd, IDC_REG_ICON_PREVIEW);
-                if (hIconPreview) {
-                    HICON hIcon = (HICON)LoadImageW(NULL, s_appIconPath.c_str(), IMAGE_ICON, 48, 48, LR_LOADFROMFILE);
-                    if (hIcon) {
-                        SendMessageW(hIconPreview, STM_SETICON, (WPARAM)hIcon, 0);
-                    }
+                if (hIconPreview && hIcon) {
+                    SendMessageW(hIconPreview, STM_SETICON, (WPARAM)hIcon, 0);
+                }
+                // Update Settings page icon preview if live
+                HWND hSettPrev = GetDlgItem(hwnd, IDC_SETT_ICON_PREVIEW);
+                if (hSettPrev && hIcon) {
+                    SendMessageW(hSettPrev, STM_SETICON, (WPARAM)hIcon, 0);
                 }
             }
             return 0;
@@ -9995,6 +10089,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             SCR_LoadFromDb(s_currentProject.id);  // refresh script IDs from DB
             IDLG_SaveToDb(s_currentProject.id);   // persist installer dialog content
             IDLG_LoadFromDb(s_currentProject.id); // refresh from DB
+            SETT_SaveToDb(s_currentProject.id);   // persist installer settings
+            SETT_LoadFromDb(s_currentProject.id); // refresh from DB
             // Persist custom registry entries and keys
             DB::DeleteRegistryEntriesForProject(s_currentProject.id);
             for (const auto& ck : s_customRegistryKeys)
@@ -10591,7 +10687,9 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             (dis->CtlID >= IDC_DEP_ADD && dis->CtlID <= IDC_DEP_REMOVE) ||
             (dis->CtlID >= IDC_SCR_TOOLBAR_ADD && dis->CtlID <= IDC_SCR_TOOLBAR_DELETE) ||
             (dis->CtlID >= IDC_IDLG_ROW_BASE && dis->CtlID < IDC_IDLG_ROW_BASE + IDLG_COUNT * 4) ||
-             dis->CtlID == IDC_IDLG_INST_CHANGE_ICON) {
+             dis->CtlID == IDC_IDLG_INST_CHANGE_ICON ||
+             dis->CtlID == IDC_SETT_CHANGE_ICON ||
+             dis->CtlID == IDC_SETT_OUTPUT_FOLDER_BTN) {
             ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
             // Create bold font for buttons (scaled for DPI)
             HFONT hFont = CreateFontW(-S(12), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
@@ -10975,6 +11073,55 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             }
             return 0;
         }
+        else if (s_currentPageIndex == 5) {
+            RECT rcMW; GetClientRect(hwnd, &rcMW);
+            int statusH = 25;
+            if (s_hStatus && IsWindow(s_hStatus)) {
+                RECT rcSB; GetWindowRect(s_hStatus, &rcSB);
+                statusH = rcSB.bottom - rcSB.top;
+            }
+            int spY   = s_toolbarHeight;
+            int svH   = rcMW.bottom - spY - statusH;
+            int scH   = s_settPageContentH + S(15) - spY;
+            int maxSc = scH - svH;
+            if (maxSc <= 0) break;
+            int wdelta    = GET_WHEEL_DELTA_WPARAM(wParam);
+            int scrollAmt = -wdelta * 3 * S(20) / WHEEL_DELTA;
+            SCROLLINFO si = {}; si.cbSize = sizeof(si); si.fMask = SIF_POS;
+            GetScrollInfo(hwnd, SB_VERT, &si);
+            int newPos = std::max(0, std::min(si.nPos + scrollAmt, maxSc));
+            if (newPos != si.nPos) {
+                int dy = newPos - si.nPos;
+                si.nPos = newPos;
+                SetScrollInfo(hwnd, SB_VERT, &si, TRUE);
+                HWND hMsbBar = s_hMsbSett ? msb_get_bar_hwnd(s_hMsbSett) : NULL;
+                HWND hC = GetWindow(hwnd, GW_CHILD);
+                while (hC) {
+                    HWND hN = GetWindow(hC, GW_HWNDNEXT);
+                    if (hC != s_hStatus && hC != s_hAboutButton && hC != hMsbBar) {
+                        int cid = GetDlgCtrlID(hC);
+                        bool isTB = (cid >= IDC_TB_FILES && cid <= IDC_TB_ABOUT) ||
+                                     cid == IDC_TB_DIALOGS || cid == IDC_TB_COMPONENTS ||
+                                     cid == IDC_TB_EXIT    || cid == IDC_TB_CLOSE_PROJECT;
+                        if (!isTB) {
+                            RECT rcC; GetWindowRect(hC, &rcC);
+                            MapWindowPoints(HWND_DESKTOP, hwnd, (POINT*)&rcC, 2);
+                            SetWindowPos(hC, NULL, rcC.left, rcC.top - dy, 0, 0,
+                                SWP_NOZORDER | SWP_NOSIZE | SWP_NOACTIVATE);
+                        }
+                    }
+                    hC = hN;
+                }
+                SetWindowPos(s_hStatus, HWND_TOP,
+                    0, rcMW.bottom - statusH, rcMW.right, statusH,
+                    SWP_NOACTIVATE);
+                RECT pageRect = { 0, spY, rcMW.right, rcMW.bottom - statusH };
+                InvalidateRect(hwnd, &pageRect, TRUE);
+                UpdateWindow(s_hStatus);
+                SETT_SetScrollOffset(newPos);
+            }
+            return 0;
+        }
         break;
     }
 
@@ -11099,6 +11246,64 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 InvalidateRect(hwnd, &pageRect, TRUE);
                 UpdateWindow(s_hStatus);
                 IDLG_SetScrollOffset(newPos);
+            }
+        }
+        else if (s_currentPageIndex == 5) {
+            RECT rcVS; GetClientRect(hwnd, &rcVS);
+            int statusH = 25;
+            if (s_hStatus && IsWindow(s_hStatus)) {
+                RECT rcSB; GetWindowRect(s_hStatus, &rcSB);
+                statusH = rcSB.bottom - rcSB.top;
+            }
+            int spY   = s_toolbarHeight;
+            int svH   = rcVS.bottom - spY - statusH;
+            int scH   = s_settPageContentH + S(15) - spY;
+            int maxSc = scH - svH;
+            if (maxSc <= 0) break;
+            SCROLLINFO si = {}; si.cbSize = sizeof(si); si.fMask = SIF_ALL;
+            GetScrollInfo(hwnd, SB_VERT, &si);
+            int oldPos = SETT_GetScrollOffset();
+            int newPos = oldPos;
+            switch (LOWORD(wParam)) {
+            case SB_LINEUP:        newPos -= S(20); break;
+            case SB_LINEDOWN:      newPos += S(20); break;
+            case SB_PAGEUP:        newPos -= svH;   break;
+            case SB_PAGEDOWN:      newPos += svH;   break;
+            case SB_TOP:           newPos  = 0;     break;
+            case SB_BOTTOM:        newPos  = maxSc; break;
+            case SB_THUMBTRACK:
+            case SB_THUMBPOSITION: newPos  = (int)(short)HIWORD(wParam); break;
+            }
+            newPos = std::max(0, std::min(newPos, maxSc));
+            if (newPos != oldPos) {
+                int dy   = newPos - oldPos;
+                si.fMask = SIF_POS; si.nPos = newPos;
+                SetScrollInfo(hwnd, SB_VERT, &si, TRUE);
+                HWND hMsbBar = s_hMsbSett ? msb_get_bar_hwnd(s_hMsbSett) : NULL;
+                HWND hC = GetWindow(hwnd, GW_CHILD);
+                while (hC) {
+                    HWND hN = GetWindow(hC, GW_HWNDNEXT);
+                    if (hC != s_hStatus && hC != s_hAboutButton && hC != hMsbBar) {
+                        int cid = GetDlgCtrlID(hC);
+                        bool isTB = (cid >= IDC_TB_FILES && cid <= IDC_TB_ABOUT) ||
+                                     cid == IDC_TB_DIALOGS || cid == IDC_TB_COMPONENTS ||
+                                     cid == IDC_TB_EXIT    || cid == IDC_TB_CLOSE_PROJECT;
+                        if (!isTB) {
+                            RECT rcC; GetWindowRect(hC, &rcC);
+                            MapWindowPoints(HWND_DESKTOP, hwnd, (POINT*)&rcC, 2);
+                            SetWindowPos(hC, NULL, rcC.left, rcC.top - dy, 0, 0,
+                                SWP_NOZORDER | SWP_NOSIZE | SWP_NOACTIVATE);
+                        }
+                    }
+                    hC = hN;
+                }
+                SetWindowPos(s_hStatus, HWND_TOP,
+                    0, rcVS.bottom - statusH, rcVS.right, statusH,
+                    SWP_NOACTIVATE);
+                RECT pageRect = { 0, spY, rcVS.right, rcVS.bottom - statusH };
+                InvalidateRect(hwnd, &pageRect, TRUE);
+                UpdateWindow(s_hStatus);
+                SETT_SetScrollOffset(newPos);
             }
         }
         break;

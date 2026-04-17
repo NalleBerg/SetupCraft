@@ -42,6 +42,8 @@ file(REMOVE_RECURSE
   "CMakeFiles/SkeletonApp.dir/scripts.cpp.obj.d"
   "CMakeFiles/SkeletonApp.dir/scrollbar.cpp.obj"
   "CMakeFiles/SkeletonApp.dir/scrollbar.cpp.obj.d"
+  "CMakeFiles/SkeletonApp.dir/settings.cpp.obj"
+  "CMakeFiles/SkeletonApp.dir/settings.cpp.obj.d"
   "CMakeFiles/SkeletonApp.dir/shortcuts.cpp.obj"
   "CMakeFiles/SkeletonApp.dir/shortcuts.cpp.obj.d"
   "CMakeFiles/SkeletonApp.dir/spinner_dialog.cpp.obj"

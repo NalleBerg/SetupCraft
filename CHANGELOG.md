@@ -2,6 +2,14 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.04.17.10] - 2026-04-17
+
+### Added / Fixed (About Credits dialog; entry-page tooltip fix; Settings checkbox font)
+- **About — Credits dialog**: New `ShowCreditsDialog` modal, opened by a third button "Credits" (Green, shell32 #294) placed between *View License* and *Close*. Two sections: **Inno Setup** (orange heading, description, clickable URL `https://jrsoftware.org/isinfo.php`) and **Scintilla** (teal heading, description, clickable URL `https://www.scintilla.org/`), separated by a double-line rule. Custom scrollbar via `msb_attach`. 100% i18n — all strings via `Loc()`; seven new locale keys in both `en_GB.txt` files (`about_credits_btn`, `about_credits_title`, `credits_inno_heading`, `credits_inno_desc`, `credits_scintilla_heading`, `credits_scintilla_desc`). URLs hardcoded (not translatable). `ShowCreditsDialog` added to `about.h`; wired in `AboutWndProc` as command 1002.
+- **About Credits — clickable URLs with hand cursor**: `EM_AUTOURLDETECT TRUE` auto-styles URLs with `CFE_LINK`. `EN_LINK` handles `WM_LBUTTONDOWN`/`WM_LBUTTONUP` — extracts URL via `EM_GETTEXTRANGE`, opens via `ShellExecuteW`. Hand cursor via `CreditsEditSubclassProc` intercepting `WM_SETCURSOR`: `EM_CHARFROMPOS` finds the char under cursor, `EM_GETCHARFORMAT` reads `CFE_LINK`, `IDC_HAND` set before Windows can override. `s_origCreditsEditProc` stored for clean fallthrough.
+- **About tooltip (entry page) — not hiding on click**: Entry-page `WM_LBUTTONDOWN` in `main.cpp` now calls `HideTooltip()` and clears `g_currentTooltipIcon` / `g_mouseTracking` before `ShowAboutDialog`. Same fix as `about_icon.cpp` (v2026.04.14.09) applied to the entry screen's own hit-test path.
+- **Settings — checkbox font uniformity**: `FieldCheckbox()` in `settings.cpp` gained `HFONT hFont` parameter; sends `WM_SETFONT` to the checkbox HWND after creation. All three call sites pass `hGuiFont`: *Solid compression*, *Allow users to uninstall*, *Close running applications before installing*. Previously rendered at the system default (smaller) font while all adjacent controls used the project's 120% scaled font.
+
 ## [2026.04.17.08] - 2026-04-17
 
 ### Added / Fixed (Scripts page complete)

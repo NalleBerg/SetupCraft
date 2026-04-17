@@ -8,3 +8,4 @@
 
 void ShowAboutDialog(HWND parent, const std::map<std::wstring, std::wstring>& locale);
 void ShowLicenseDialog(HWND parent, const std::map<std::wstring, std::wstring>& locale);
+void ShowCreditsDialog(HWND parent, const std::map<std::wstring, std::wstring>& locale);

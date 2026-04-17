@@ -28,7 +28,11 @@
                                                 positioning, subclassing, locale integration,
                                                 and aboveAnchorY parameter for placing tooltip
                                                 above a button (prevents blink when near screen
-                                                bottom).
+                                                bottom). Critical pattern: always call
+                                                HideTooltip() + clear icon/tracking state in
+                                                WM_LBUTTONDOWN before any ShowXxxDialog() that
+                                                calls EnableWindow(parent, FALSE) — WM_MOUSELEAVE
+                                                is never delivered after the parent is disabled.
 
   API_INTERNALS\API\spinner_dialog_API.txt      Modal progress/spinner dialog component — API,
                                                 thread usage, and progress callback protocol.
@@ -106,6 +110,25 @@
                                                 LVM_SCROLL. Scroll dispatch via LVM_SCROLL(delta).
                                                 All Deps page H-bar interactions working: arrows,
                                                 track-click, tilt-wheel, and thumb drag.
+
+  about.h / about.cpp                           About dialog module — three public functions:
+                                                ShowAboutDialog, ShowLicenseDialog,
+                                                ShowCreditsDialog. Each is a fully modal
+                                                WS_POPUP window with custom scrollbar, i18n
+                                                buttons sized via MeasureButtonWidth, and all
+                                                strings via Loc(). Credits dialog has two
+                                                sections (Inno Setup / Scintilla) with colored
+                                                headings, decorative underlines, and clickable
+                                                URLs opened via ShellExecuteW. Hand cursor on
+                                                URL hover: CreditsEditSubclassProc intercepts
+                                                WM_SETCURSOR, calls EM_CHARFROMPOS +
+                                                EM_GETCHARFORMAT, sets IDC_HAND when CFE_LINK
+                                                is present. Locale keys: about_title,
+                                                about_license_btn, about_credits_btn,
+                                                about_credits_title, about_close_btn,
+                                                about_license_title, about_license_ok_btn,
+                                                credits_inno_heading, credits_inno_desc,
+                                                credits_scintilla_heading, credits_scintilla_desc.
 
   ── INTERNALS (project-internal architecture) ────────────────────────────────
 

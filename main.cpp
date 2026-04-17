@@ -2,6 +2,8 @@
 #include <windowsx.h>
 #include <commctrl.h>
 #include <shlobj.h>
+#include <gdiplus.h>
+#pragma comment(lib, "gdiplus.lib")
 #include <string>
 #include <map>
 #include <vector>
@@ -1183,6 +1185,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             ScreenToClient(hwnd, (LPPOINT)&rcIcon.right);
             
             if (PtInRect(&rcIcon, pt)) {
+                HideTooltip();
+                g_currentTooltipIcon = NULL;
+                g_mouseTracking = false;
                 ShowAboutDialog(hwnd, g_locale);
                 return 0;
             }
@@ -1521,6 +1526,14 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR pCmdLine, int nCmdShow
     { UINT sysDpi = GetDpiForSystem(); g_dpiScale = (sysDpi > 0) ? sysDpi / 96.0f : 1.0f; }
 
     CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+
+    // GDI+ is used by about.cpp to display the SetupCraft logo image.
+    // Initialise once at startup — no per-dialog Start/Shutdown needed.
+    // NOTE: do NOT use '= {}' here; that zero-inits GdiplusVersion=0 and bypasses
+    // the struct constructor, causing GDI+ to silently fail to initialise.
+    { Gdiplus::GdiplusStartupInput gsi;
+      ULONG_PTR gdiplusToken = 0;
+      Gdiplus::GdiplusStartup(&gdiplusToken, &gsi, NULL); }
 
     { INITCOMMONCONTROLSEX icc = {}; icc.dwSize = sizeof(icc);
       icc.dwICC = ICC_WIN95_CLASSES | ICC_TREEVIEW_CLASSES | ICC_LISTVIEW_CLASSES | ICC_TAB_CLASSES;

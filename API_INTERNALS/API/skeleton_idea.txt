@@ -78,6 +78,18 @@
     at publish time and note it here.
   - IsDialogMessageW gotcha: ONLY call IsDialogMessageW on windows that were
     actually created via DialogBox/CreateDialog.  On WS_POPUP windows built
+    manually, IsDialogMessageW consumes the first WM_LBUTTONDOWN on any
+    non-focused child to set keyboard focus (returns TRUE without forwarding
+    the click) — button only fires on second click.  Handle Escape via an
+    explicit WM_KEYDOWN VK_ESCAPE case in the wndproc instead.
+  - RichEdit clickable URL pattern: send EM_AUTOURLDETECT TRUE to auto-style
+    URLs with CFE_LINK.  In EN_LINK handle WM_LBUTTONDOWN — extract text via
+    EM_GETTEXTRANGE on pLink->chrg, open with ShellExecuteW(hwnd, L"open", ...).
+    Hand cursor on hover: subclass the RichEdit, intercept WM_SETCURSOR, call
+    EM_CHARFROMPOS to get the char index under the cursor, then EM_GETCHARFORMAT
+    (SCF_SELECTION after EM_EXSETSEL to that char) to read CHARFORMAT2W.
+    If dwEffects & CFE_LINK, SetCursor(IDC_HAND) and return TRUE — before
+    DefWindowProc can override it.  Restore selection after the check.
     with CreateWindowExW it consumes the first WM_LBUTTONDOWN on a non-focused
     child control (to set keyboard focus) and returns TRUE without generating
     BN_CLICKED — the button appears broken until it already has focus.  It also

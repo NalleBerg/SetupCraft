@@ -2,7 +2,7 @@
 
 An installer creation tool for making your developed packages distributable. Designed to be simple to use with a clean, native Windows interface.
 
-**Current Release:** Version 2026.04.17.08 (Published: 17.04.2026 08:06)
+**Current Release:** Version 2026.04.17.10 (Published: 17.04.2026 10:17)
 
 > Note: This project is in active development. Entry screen, Files management, Shortcuts, Dependencies, Dialogs, and Scripts pages are complete.
 
@@ -51,7 +51,7 @@ An app-launching stopwatch. Screen 1 lets you optionally pick an executable to l
 - **Registry Tree Structure**: Clean registry hierarchy showing only keys with actual values - Uninstall key displays DisplayName, DisplayVersion, Publisher, InstallLocation, DisplayIcon, UninstallString
 - **Registry Templates**: All 5 HKEY hives (HKCR, HKCU, HKLM, HKU, HKCC) with common paths pre-expanded for easy navigation
 - **Show Regkey Dialog**: Professional dialog displaying full uninstall registry path with Copy button, Ctrl+C support, and right-click context menu
-- **About Dialog System**: Full About and License dialogs — SetupCraft logo (PNG with transparency), formatted RichEdit content with colored sections. All buttons use `CreateCustomButtonWithIcon` + `MeasureButtonWidth` for i18n-correct sizing in all 20 languages (View License: Blue, shell32 #221; Close: Red, shell32 #131; License OK: Green, shell32 #294). Custom `my_scrollbar` on both RichEdits. Body font uses `SPI_GETNONCLIENTMETRICS` at ×1.2 scale — matching every other label in the project. Locale keys for all dialog strings. Both dialog functions accept a `const std::map<std::wstring,std::wstring>& locale` parameter. Tooltip on the About icon hides reliably before the modal loop disables the parent.
+- **About Dialog System**: Full About, License, and Credits dialogs — SetupCraft logo (PNG with transparency), formatted RichEdit content with colored sections. About page has three buttons: View License (Blue, shell32 #221), Credits (Green, shell32 #294), Close (Red, shell32 #131) — all sized via `MeasureButtonWidth` for i18n correctness in all 20 languages. Credits dialog has two sections (Inno Setup in orange, Scintilla in teal) with decorative underlines, descriptive text, and clickable URLs (`ShellExecuteW` + hand cursor via `CreditsEditSubclassProc` `WM_SETCURSOR`/`CFE_LINK` detection). License OK: Green, shell32 #294. Custom `my_scrollbar` on all three RichEdits. Body font uses `SPI_GETNONCLIENTMETRICS` at ×1.2 scale — matching every other label in the project. All strings i18n via `Loc()`. Both dialog functions accept a `const std::map<std::wstring,std::wstring>& locale` parameter. Tooltip on the About icon hides reliably before the modal loop disables the parent — both on the main window and the entry screen.
 - **Icon-Only About Button**: Compact About button (40px) with shell32.dll icon #221 and tooltip support matching globe icon pattern
 - **License Dialog**: Enhanced GPL v2 license display with GnuLogo.bmp, formatted sections, colored headers (blue/red), and proper parsing
 - **Multi-Size ICO Generation**: `make_ico.ps1` PowerShell script uses ImageMagick to repack any source `.ico` into a multi-frame icon (16, 24, 32, 40, 48, 64, 96, 128 px). `icons/trashcan_empty.ico` embedded as resource ID 2 (`IDI_TRASHCAN`)  

@@ -515,6 +515,8 @@ LRESULT SCR_OnNotify(HWND hwnd, LPNMHDR nmhdr, bool* handled)
 // ── SCR_SaveToDb ──────────────────────────────────────────────────────────────
 void SCR_SaveToDb(int projectId)
 {
+    DB::SetSetting(L"scr_enabled_" + std::to_wstring(projectId),
+                   s_scrEnabled ? L"1" : L"0");
     DB::DeleteScriptsForProject(projectId);
     for (DB::ScriptRow& s : s_scripts) {
         s.project_id = projectId;
@@ -526,6 +528,9 @@ void SCR_SaveToDb(int projectId)
 // ── SCR_LoadFromDb ────────────────────────────────────────────────────────────
 void SCR_LoadFromDb(int projectId)
 {
+    std::wstring val;
+    if (DB::GetSetting(L"scr_enabled_" + std::to_wstring(projectId), val))
+        s_scrEnabled = (val == L"1");
     s_scripts = DB::GetScriptsForProject(projectId);
     s_nextScrId = 1;
     for (const auto& s : s_scripts)

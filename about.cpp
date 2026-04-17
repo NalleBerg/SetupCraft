@@ -1,9 +1,21 @@
 #include "about.h"
 #include <windows.h>
+#include <cstdio>
 #include "dpi.h"
+
+static void ABLog(const wchar_t* msg) {
+    FILE* f = fopen("C:\\Users\\NalleBerg\\Documents\\C++\\Workspace\\SetupCraft\\sc_debug.log", "a");
+    if (!f) return;
+    SYSTEMTIME st; GetLocalTime(&st);
+    fprintf(f, "[%02d:%02d:%02d.%03d] ABOUT: %ls\n",
+            st.wHour, st.wMinute, st.wSecond, st.wMilliseconds, msg);
+    fclose(f);
+}
 #include "button.h"         // CreateCustomButtonWithIcon, MeasureButtonWidth, DrawCustomButton
 #include "my_scrollbar.h"   // msb_attach, msb_detach, msb_notify_content_changed
 #include <richedit.h>
+#include <shellapi.h>
+#include <vector>
 #include <string>
 #include <map>
 #include <sstream>
@@ -22,6 +34,11 @@ static const std::map<std::wstring, std::wstring>* s_pLocale = nullptr;
 // Custom scrollbar handles — one per dialog; detached in WM_DESTROY.
 static HMSB s_hSbAboutV   = NULL;
 static HMSB s_hSbLicenseV = NULL;
+static HMSB s_hSbCreditsV = NULL;
+
+// RichEdit handle for Credits dialog (used for link-click URL extraction)
+static HWND   s_hCreditsEdit      = NULL;
+static WNDPROC s_origCreditsEditProc = NULL;
 
 // AppendRichText font-cache reset flag.  Set to true before each dialog open
 // so s_baseTwips is re-measured against the new RichEdit control's DC.
@@ -38,6 +55,8 @@ static std::wstring Loc(const wchar_t* key, const wchar_t* fallback)
 // Forward declarations
 static LRESULT CALLBACK AboutWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 static LRESULT CALLBACK LicenseWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+static LRESULT CALLBACK CreditsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+static LRESULT CALLBACK CreditsEditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 void AppendRichText(HWND hEdit, const std::wstring& text, bool bold, COLORREF color, int fontSize = 9, bool centered = false);
 
 // Global for logo image
@@ -213,12 +232,15 @@ static LRESULT CALLBACK EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
 }
 
 void ShowAboutDialog(HWND parent, const std::map<std::wstring, std::wstring>& locale) {
+    ABLog(L"ShowAboutDialog ENTER");
     s_pLocale = &locale;
     s_richFontDirty = true;   // re-measure font on first AppendRichText call
     LoadLibraryW(L"Riched20.dll");
+    ABLog(L"after LoadLibrary");
     
     // Load version info from curver.txt
     LoadVersionInfo();
+    ABLog(L"after LoadVersionInfo");
     
     // Load logo image with transparency
     wchar_t logoPath[MAX_PATH];
@@ -228,7 +250,9 @@ void ShowAboutDialog(HWND parent, const std::map<std::wstring, std::wstring>& lo
         *(lastSlash + 1) = 0;
         wcscat_s(logoPath, L"SetupCraft.png");
     }
+    ABLog(L"before Image::FromFile");
     g_logoImage = Image::FromFile(logoPath);
+    ABLog(L"after Image::FromFile");
     
     // Create window
     const int W = S(650), H = S(560);
@@ -256,6 +280,7 @@ void ShowAboutDialog(HWND parent, const std::map<std::wstring, std::wstring>& lo
         wc.lpszClassName, Loc(L"about_title", L"About SetupCraft").c_str(), 
         WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE, 
         x, y, W, H, parent, NULL, hi, NULL);
+    ABLog(L"after CreateWindowExW");
     
     if (!dlg) {
         MessageBoxW(parent, L"Unable to create About window.", L"Error", MB_OK | MB_ICONERROR);
@@ -361,26 +386,31 @@ void ShowAboutDialog(HWND parent, const std::map<std::wstring, std::wstring>& lo
     if (s_hSbAboutV) msb_notify_content_changed(s_hSbAboutV);
 
     // ── i18n buttons (MeasureButtonWidth — supports 20+ languages) ───────────
-    std::wstring viewLicTxt = Loc(L"about_license_btn", L"View License");
-    std::wstring closeTxt   = Loc(L"about_close_btn",   L"Close");
-    int wLic   = MeasureButtonWidth(viewLicTxt, true);
-    int wClose = MeasureButtonWidth(closeTxt,   true);
-    int totalBtnW = wLic + PAD + wClose;
+    std::wstring viewLicTxt  = Loc(L"about_license_btn",  L"View License");
+    std::wstring creditsTxt  = Loc(L"about_credits_btn",  L"Credits");
+    std::wstring closeTxt    = Loc(L"about_close_btn",    L"Close");
+    int wLic     = MeasureButtonWidth(viewLicTxt,  true);
+    int wCredits = MeasureButtonWidth(creditsTxt,  true);
+    int wClose   = MeasureButtonWidth(closeTxt,    true);
+    int totalBtnW = wLic + PAD + wCredits + PAD + wClose;
     int btnY      = cH - PAD - BTN_H;
     int startX    = (cW - totalBtnW) / 2;
 
     CreateCustomButtonWithIcon(dlg, 1001, viewLicTxt, ButtonColor::Blue,
         L"shell32.dll", 221,
-        startX,             btnY, wLic,   BTN_H, hi);
+        startX,                          btnY, wLic,     BTN_H, hi);
+    CreateCustomButtonWithIcon(dlg, 1002, creditsTxt, ButtonColor::Green,
+        L"shell32.dll", 294,
+        startX + wLic + PAD,             btnY, wCredits, BTN_H, hi);
     CreateCustomButtonWithIcon(dlg, IDOK, closeTxt, ButtonColor::Red,
         L"shell32.dll", 131,
-        startX + wLic + PAD, btnY, wClose, BTN_H, hi);
+        startX + wLic + PAD + wCredits + PAD, btnY, wClose, BTN_H, hi);
 
     // Modal loop — focus the Close button (the IDOK button is the last created).
     HWND hBtnClose = GetDlgItem(dlg, IDOK);
     if (parent && IsWindow(parent)) EnableWindow(parent, FALSE);
     if (hBtnClose) SetFocus(hBtnClose);
-    
+    ABLog(L"entering modal loop");
     MSG msg;
     while (GetMessageW(&msg, NULL, 0, 0)) {
         if (!IsDialogMessageW(dlg, &msg)) {
@@ -388,8 +418,10 @@ void ShowAboutDialog(HWND parent, const std::map<std::wstring, std::wstring>& lo
             DispatchMessageW(&msg);
         }
     }
+    ABLog(L"modal loop exited");
     
     DestroyWindow(dlg);
+    ABLog(L"after DestroyWindow");
     
     if (g_logoImage) {
         delete g_logoImage;
@@ -401,6 +433,7 @@ void ShowAboutDialog(HWND parent, const std::map<std::wstring, std::wstring>& lo
         SetForegroundWindow(parent);
         BringWindowToTop(parent);
     }
+    ABLog(L"ShowAboutDialog EXIT");
 }
 
 
@@ -614,6 +647,11 @@ static LRESULT CALLBACK AboutWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                                               : std::map<std::wstring,std::wstring>{});
             return 0;
         }
+        if (LOWORD(wParam) == 1002) {
+            ShowCreditsDialog(hwnd, s_pLocale ? *s_pLocale
+                                             : std::map<std::wstring,std::wstring>{});
+            return 0;
+        }
         break;
     case WM_DRAWITEM: {
         // Owner-draw: custom button paint.
@@ -666,6 +704,211 @@ static LRESULT CALLBACK LicenseWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
         // Detach custom scrollbar before child windows are destroyed.
         msb_detach(s_hSbLicenseV);
         s_hSbLicenseV = NULL;
+        break;
+    case WM_CLOSE:
+        PostQuitMessage(0);
+        return 0;
+    }
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Credits dialog
+// ─────────────────────────────────────────────────────────────────────────────
+
+void ShowCreditsDialog(HWND parent, const std::map<std::wstring, std::wstring>& locale) {
+    s_pLocale = &locale;
+    s_richFontDirty = true;
+    LoadLibraryW(L"Riched20.dll");
+
+    const int W = S(520), H = S(390);
+    RECT pr = {0,0,0,0};
+    if (parent && IsWindow(parent)) GetWindowRect(parent, &pr);
+    int px = (pr.right + pr.left) / 2;
+    int py = (pr.bottom + pr.top) / 2;
+    int x = (px == 0) ? CW_USEDEFAULT : (px - W / 2);
+    int y = (py == 0) ? CW_USEDEFAULT : (py - H / 2);
+    if (y < 30) y = 30;
+
+    HINSTANCE hi = GetModuleHandleW(NULL);
+    WNDCLASSW wc = {};
+    wc.lpfnWndProc   = CreditsWndProc;
+    wc.hInstance     = hi;
+    wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+    wc.lpszClassName = L"SetupCraftCreditsClass";
+    if (!GetClassInfoW(hi, wc.lpszClassName, &wc)) RegisterClassW(&wc);
+
+    HWND dlg = CreateWindowExW(WS_EX_DLGMODALFRAME | WS_EX_WINDOWEDGE,
+        wc.lpszClassName,
+        Loc(L"about_credits_title", L"Credits").c_str(),
+        WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
+        x, y, W, H, parent, NULL, hi, NULL);
+
+    if (!dlg) return;
+
+    HICON hIcon = LoadIcon(NULL, IDI_APPLICATION);
+    if (hIcon) {
+        SendMessageW(dlg, WM_SETICON, ICON_SMALL, (LPARAM)hIcon);
+        SendMessageW(dlg, WM_SETICON, ICON_BIG,   (LPARAM)hIcon);
+    }
+
+    RECT rcC; GetClientRect(dlg, &rcC);
+    const int cW    = rcC.right;
+    const int cH    = rcC.bottom;
+    const int PAD   = S(10);
+    const int BTN_H = S(34);
+    const int editH = cH - 2 * PAD - BTN_H;
+
+    HWND hEdit = CreateWindowExW(0, L"RichEdit20W", NULL,
+        WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | WS_VSCROLL,
+        PAD, PAD, cW - 3 * PAD, editH,
+        dlg, (HMENU)100, hi, NULL);
+
+    if (!hEdit) { DestroyWindow(dlg); return; }
+    s_hCreditsEdit = hEdit;
+    s_origCreditsEditProc = (WNDPROC)SetWindowLongPtrW(hEdit, GWLP_WNDPROC, (LONG_PTR)CreditsEditSubclassProc);
+
+    SendMessageW(hEdit, EM_SETTARGETDEVICE,  0, 0);
+    SendMessageW(hEdit, EM_AUTOURLDETECT,  TRUE, 0);
+    SendMessageW(hEdit, EM_SETEVENTMASK,     0, ENM_LINK);
+
+    s_hSbCreditsV = msb_attach(hEdit, MSB_VERTICAL);
+
+    // ── Inno Setup section ────────────────────────────────────────────────────
+    AppendRichText(hEdit, L"\r\n", false, RGB(0,0,0), 0, false);
+
+    AppendRichText(hEdit, Loc(L"credits_inno_heading", L"INNO SETUP") + L"\r\n",
+        true, RGB(180, 90, 0), 14, true);
+    AppendRichText(hEdit, L"\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\r\n",
+        false, RGB(200, 120, 40), 0, true);
+    AppendRichText(hEdit, L"\r\n", false, RGB(0,0,0), 0, false);
+    AppendRichText(hEdit, Loc(L"credits_inno_desc",
+        L"Inno Setup is a free installer for Windows programs, created by "
+        L"Jordan Russell and maintained by Martijn Laan. "
+        L"SetupCraft uses Inno Setup to compile finished installation packages.") + L"\r\n\r\n",
+        false, RGB(40, 40, 40), 0, false);
+    AppendRichText(hEdit, L"https://jrsoftware.org/isinfo.php\r\n",
+        false, RGB(0, 80, 200), 0, false);
+
+    // ── Separator ─────────────────────────────────────────────────────────────
+    AppendRichText(hEdit, L"\r\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\r\n\r\n",
+        false, RGB(150, 150, 180), 0, true);
+
+    // ── Scintilla section ─────────────────────────────────────────────────────
+    AppendRichText(hEdit, Loc(L"credits_scintilla_heading", L"SCINTILLA") + L"\r\n",
+        true, RGB(0, 120, 90), 14, true);
+    AppendRichText(hEdit, L"\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\r\n",
+        false, RGB(0, 160, 100), 0, true);
+    AppendRichText(hEdit, L"\r\n", false, RGB(0,0,0), 0, false);
+    AppendRichText(hEdit, Loc(L"credits_scintilla_desc",
+        L"Scintilla is a free, open-source source code editing component by Neil Hodgson. "
+        L"SetupCraft uses Scintilla for syntax-highlighted script editing.") + L"\r\n\r\n",
+        false, RGB(40, 40, 40), 0, false);
+    AppendRichText(hEdit, L"https://www.scintilla.org/\r\n",
+        false, RGB(0, 80, 200), 0, false);
+
+    AppendRichText(hEdit, L"\r\n", false, RGB(0,0,0), 0, false);
+
+    SendMessageW(hEdit, EM_SETSEL, 0, 0);
+    SendMessageW(hEdit, EM_SCROLLCARET, 0, 0);
+    if (s_hSbCreditsV) msb_notify_content_changed(s_hSbCreditsV);
+
+    std::wstring okTxt = Loc(L"about_close_btn", L"Close");
+    int wOK    = MeasureButtonWidth(okTxt, true);
+    int btnY   = cH - PAD - BTN_H;
+    int btnX   = (cW - wOK) / 2;
+    HWND btnOK = CreateCustomButtonWithIcon(dlg, IDOK, okTxt, ButtonColor::Red,
+        L"shell32.dll", 131,
+        btnX, btnY, wOK, BTN_H, hi);
+
+    if (parent && IsWindow(parent)) EnableWindow(parent, FALSE);
+    SetFocus(btnOK);
+
+    MSG msg;
+    while (GetMessageW(&msg, NULL, 0, 0)) {
+        if (!IsDialogMessageW(dlg, &msg)) {
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+    }
+
+    DestroyWindow(dlg);
+    s_hCreditsEdit       = NULL;
+    s_origCreditsEditProc = NULL;
+
+    if (parent && IsWindow(parent)) {
+        EnableWindow(parent, TRUE);
+        SetForegroundWindow(parent);
+        BringWindowToTop(parent);
+    }
+}
+
+static LRESULT CALLBACK CreditsEditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    if (msg == WM_SETCURSOR) {
+        POINT pt;
+        GetCursorPos(&pt);
+        ScreenToClient(hwnd, &pt);
+        POINTL ptl = { pt.x, pt.y };
+        LONG charIdx = (LONG)SendMessageW(hwnd, EM_CHARFROMPOS, 0, (LPARAM)&ptl);
+        if (charIdx >= 0) {
+            CHARRANGE crSave;
+            SendMessageW(hwnd, EM_EXGETSEL, 0, (LPARAM)&crSave);
+            CHARRANGE crCheck = { charIdx, charIdx + 1 };
+            SendMessageW(hwnd, EM_EXSETSEL, 0, (LPARAM)&crCheck);
+            CHARFORMAT2W cf = {};
+            cf.cbSize = sizeof(cf);
+            SendMessageW(hwnd, EM_GETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf);
+            SendMessageW(hwnd, EM_EXSETSEL, 0, (LPARAM)&crSave);
+            if (cf.dwEffects & CFE_LINK) {
+                SetCursor(LoadCursor(NULL, IDC_HAND));
+                return TRUE;
+            }
+        }
+    }
+    return CallWindowProcW(s_origCreditsEditProc, hwnd, msg, wParam, lParam);
+}
+
+static LRESULT CALLBACK CreditsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+    case WM_COMMAND:
+        if (LOWORD(wParam) == IDOK) { PostQuitMessage(0); return 0; }
+        break;
+    case WM_NOTIFY: {
+        NMHDR* pNmh = (NMHDR*)lParam;
+        if (pNmh->idFrom == 100 && pNmh->code == EN_LINK) {
+            ENLINK* pLink = (ENLINK*)lParam;
+            if ((pLink->msg == WM_LBUTTONDOWN || pLink->msg == WM_LBUTTONUP) && s_hCreditsEdit) {
+                int len = pLink->chrg.cpMax - pLink->chrg.cpMin;
+                if (len > 0 && len < 512) {
+                    std::vector<wchar_t> buf(len + 1, L'\0');
+                    TEXTRANGEW tr = {};
+                    tr.chrg       = pLink->chrg;
+                    tr.lpstrText  = buf.data();
+                    SendMessageW(s_hCreditsEdit, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
+                    ShellExecuteW(hwnd, L"open", buf.data(), NULL, NULL, SW_SHOWNORMAL);
+                }
+            }
+            return 1;
+        }
+        break;
+    }
+    case WM_DRAWITEM: {
+        LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
+        NONCLIENTMETRICSW ncm = {}; ncm.cbSize = sizeof(ncm);
+        SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+        if (ncm.lfMessageFont.lfHeight < 0)
+            ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
+        ncm.lfMessageFont.lfWeight  = FW_BOLD;
+        ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+        HFONT hFont = CreateFontIndirectW(&ncm.lfMessageFont);
+        ButtonColor color = (ButtonColor)GetWindowLongPtrW(dis->hwndItem, GWLP_USERDATA);
+        LRESULT r = DrawCustomButton(dis, color, hFont);
+        if (hFont) DeleteObject(hFont);
+        return r;
+    }
+    case WM_DESTROY:
+        msb_detach(s_hSbCreditsV);
+        s_hSbCreditsV = NULL;
         break;
     case WM_CLOSE:
         PostQuitMessage(0);

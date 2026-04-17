@@ -45,6 +45,7 @@ set(CMAKE_DEPENDS_DEPENDENCY_FILES
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/script_edit_dialog.cpp" "CMakeFiles/SkeletonApp.dir/script_edit_dialog.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/script_edit_dialog.cpp.obj.d"
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/scripts.cpp" "CMakeFiles/SkeletonApp.dir/scripts.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/scripts.cpp.obj.d"
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/scrollbar.cpp" "CMakeFiles/SkeletonApp.dir/scrollbar.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/scrollbar.cpp.obj.d"
+  "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/settings.cpp" "CMakeFiles/SkeletonApp.dir/settings.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/settings.cpp.obj.d"
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/shortcuts.cpp" "CMakeFiles/SkeletonApp.dir/shortcuts.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/shortcuts.cpp.obj.d"
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/spinner_dialog.cpp" "CMakeFiles/SkeletonApp.dir/spinner_dialog.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/spinner_dialog.cpp.obj.d"
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/tooltip.cpp" "CMakeFiles/SkeletonApp.dir/tooltip.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/tooltip.cpp.obj.d"
