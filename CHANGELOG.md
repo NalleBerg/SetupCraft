@@ -2,6 +2,14 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.04.17.08] - 2026-04-17
+
+### Added / Fixed (Scripts page complete)
+- **Scripts — checkbox font uniformity**: All three custom checkboxes in the Add/Edit Script dialog (`IDC_SCRDLG_RUN_HIDDEN`, `IDC_SCRDLG_WAIT`, `IDC_SCRDLG_ALSO_UNINSTALL`) were missing `WM_SETFONT`, causing text to render smaller than adjacent radio buttons. Fixed: `HWND` returned by `CreateCustomCheckbox` captured for each control; `WM_SETFONT` sent with the same `hFont` as the radio buttons.
+- **Scripts — editor layout**: Removed the "Script content:" static label row and the reserved finish-label height block. Finish-label controls (`IDC_SCRDLG_FINISH_LABEL_LBL` / `IDC_SCRDLG_FINISH_LABEL`) now overlay the top of the Scintilla editor, only visible for `SWR_FINISH_OPTOUT`. Editor starts directly below the "When to run" combo.
+- **Scripts — duplicate-name rename sub-dialog**: `IsDupName()` helper added to detect conflicts against `pExisting`. On conflict, `ShowRenameDialog()` opens a compact sub-dialog (conflict message, pre-filled all-selected name edit, Rename / Cancel). Empty-name and still-taken validations both use `ShowValidationDialog`. `ScriptDlgData` gains `pExisting` field; new control IDs 7365–7368 (`IDC_SCRDLG_RENAME_MSG` through `IDC_SCRDLG_RENAME_CANCEL`).
+- **Scripts — i18n audit**: `\u201c`/`\u201d` escape sequences in `en_GB.txt` replaced with real Unicode curly-quote characters (`LoadLocaleFile` does not expand `\u` escapes). Two `MessageBoxW` calls in `RenameDlgProc` replaced with `ShowValidationDialog` (handles `\n` expansion via `ExpandEscapes`). Scripts page is now fully i18n-clean.
+
 ## [2026.04.16.09] - 2026-04-16
 
 ### Fixed

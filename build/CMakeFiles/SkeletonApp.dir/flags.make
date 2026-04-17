@@ -5,13 +5,13 @@
 # compile RC with C:/mingw64/bin/windres.exe
 CXX_DEFINES = -DUNICODE -D_UNICODE
 
-CXX_INCLUDES = 
+CXX_INCLUDES = @CMakeFiles/SkeletonApp.dir/includes_CXX.rsp
 
 CXX_FLAGS = -O3 -DNDEBUG -std=gnu++17
 
 RC_DEFINES = -DUNICODE -D_UNICODE
 
-RC_INCLUDES = 
+RC_INCLUDES = -I C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\scintilla
 
 RC_FLAGS = 
 

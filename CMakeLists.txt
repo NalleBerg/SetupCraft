@@ -32,6 +32,8 @@ add_executable(SkeletonApp WIN32
     sc_shortcut_dialog.cpp
     deps.cpp
     dep_edit_dialog.cpp
+    scripts.cpp
+    script_edit_dialog.cpp
     dialogs.cpp
     scrollbar.cpp
     my_scrollbar.cpp
@@ -55,6 +57,8 @@ target_link_libraries(SkeletonApp
 )
 
 target_compile_definitions(SkeletonApp PRIVATE UNICODE _UNICODE)
+
+target_include_directories(SkeletonApp PRIVATE scintilla)
 
 if(MINGW)
     target_link_options(SkeletonApp PRIVATE -municode -mwindows)

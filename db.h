@@ -115,4 +115,21 @@ namespace DB {
     std::vector<std::pair<int,std::wstring>> GetInstallerDialogsForProject(int projectId);
     // Returns all (dialog_type, content_rtf) default templates from dialog_defaults table.
     std::vector<std::pair<int,std::wstring>> GetAllDialogDefaults();
+    // Script persistence
+    struct ScriptRow {
+        int          id                  = 0;
+        int          project_id          = 0;
+        std::wstring name;
+        int          type                = 1;   // 0=bat 1=ps1
+        std::wstring content;
+        int          when_to_run         = 1;   // ScrWhenToRun integer
+        int          run_hidden          = 0;
+        int          wait_for_completion = 1;
+        std::wstring description;               // Finish-page opt-out checkbox label
+        int          also_uninstall      = 0;
+        int          sort_order          = 0;
+    };
+    int  InsertScript(int projectId, const ScriptRow& s);
+    bool DeleteScriptsForProject(int projectId);
+    std::vector<ScriptRow> GetScriptsForProject(int projectId);
 }

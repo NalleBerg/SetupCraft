@@ -1,0 +1,241 @@
+================================================================================
+  scripts_INTERNALS.txt — Implementation notes for scripts.cpp / scripts.h
+                          and script_edit_dialog.cpp / script_edit_dialog.h
+================================================================================
+
+── Module overview ─────────────────────────────────────────────────────────────
+
+The Scripts page (SwitchPage index 8) is fully self-contained in:
+
+    scripts.h                — public API, ScrWhenToRun enum, control IDs
+    scripts.cpp              — page implementation, ListView tile grid, toolbar
+    script_edit_dialog.h     — SCR_EditDialog() signature + editor control IDs
+    script_edit_dialog.cpp   — Add/Edit Script modal dialog, Scintilla integration
+
+mainwindow.cpp knows nothing about the page internals.  It only:
+  1. Calls SCR_Reset()        from Create()
+  2. Calls SCR_BuildPage()    from SwitchPage case 8
+  3. Calls SCR_TearDown()     from SwitchPage teardown block
+  4. Routes WM_COMMAND        → SCR_OnCommand()
+  5. Routes WM_NOTIFY         → SCR_OnNotify()
+  6. Calls SCR_SaveToDb()     from IDM_FILE_SAVE handler
+  7. Calls SCR_LoadFromDb()   from project-open handler (after SCR_Reset())
+
+── ScrWhenToRun enum → Inno Setup section mapping ──────────────────────────────
+
+  SWR_BEFORE_FILES  (0) → [Code]        CurStepChanged(ssInstall), runs before file copy
+  SWR_AFTER_FILES   (1) → [Run]         Unconditional; no postinstall flag
+  SWR_FINISH_OPTOUT (2) → [Run]         Flags: postinstall skipifsilent
+                                         Adds an opt-out checkbox to the Finish page
+  SWR_UNINSTALL     (3) → [UninstallRun]
+
+── Script type constants ────────────────────────────────────────────────────────
+
+  SCR_TYPE_BAT (0) → .bat / .cmd — Lexilla "batch" lexer
+  SCR_TYPE_PS1 (1) → .ps1        — Lexilla "powershell" lexer
+
+── DB layer ─────────────────────────────────────────────────────────────────────
+
+  Table: scripts
+  Columns: id, project_id, name, script_type, when_to_run, run_hidden,
+           wait, also_uninstall, finish_label, content
+
+  CRUD in db.cpp / db.h:
+    DB::InsertScript()              — insert one ScriptRow
+    DB::DeleteScriptsForProject()   — wipe all rows for a project on save
+    DB::GetScriptsForProject()      — reload on project open
+
+  Scripts are stored in memory as s_scripts (vector<DB::ScriptRow>) until the
+  user saves.  SCR_Reset() is the only function that clears in-memory state.
+
+── Page layout and ListView tile grid ──────────────────────────────────────────
+
+  The page shows a ListView in large-icon (LVS_ICON) mode — one tile per script.
+  Each tile displays the script name and a "when to run" subtitle.
+  The ImageList is created by SCR_BuildPage() and freed in SCR_TearDown().
+
+  IDC_SCR_ENABLE_HINT is a label shown in place of the ListView when the master
+  enable checkbox (IDC_SCR_MASTER_ENABLE) is off, prompting the user to enable
+  the feature.
+
+  IDC_SCR_EMPTY_HINT is an overlay label visible when the master is on but the
+  list is empty ("No scripts yet — click [+ Add Script] to get started").
+
+── SCR_EditDialog — Add/Edit Script modal ───────────────────────────────────────
+
+  Signature:
+    bool SCR_EditDialog(HWND hwndParent, HINSTANCE hInst,
+                        const map<wstring,wstring>& locale,
+                        const vector<DB::ScriptRow>& existing,
+                        DB::ScriptRow& scr);
+
+  Returns true on OK, false on Cancel.
+  'scr' is read for initial values and written back on OK.
+  'existing' is passed so the dialog can detect duplicate names.
+
+  The dialog uses the measure-then-create pattern:
+    1. Measure label widths and compute layout constants.
+    2. CreateWindowExW the dialog with the calculated size.
+    3. WM_CREATE populates all controls.
+
+  ScriptDlgData (heap struct):
+    scr          DB::ScriptRow      — working copy of the edited row
+    pExisting    const vector<DB::ScriptRow>*  — caller's live list for dup check
+    locale       const map<wstring,wstring>&   — locale reference
+    hFont        HFONT              — body font
+    hSci         HWND               — Scintilla editor window (NULL if DLLs unavailable)
+    finishLblY   int                — Y offset of finish-label controls within the dialog
+
+── Duplicate-name detection and rename sub-dialog ───────────────────────────────
+
+  IsDupName(name, pExisting, excludeId):
+    Returns true if any row in *pExisting has the same name (case-insensitive)
+    and a different id than excludeId.  Used by the OK handler.
+
+  On duplicate detection the OK handler calls ShowRenameDialog() instead of
+  a plain validation error.  ShowRenameDialog() opens a compact separate modal
+  (RenameDlgProc) with:
+    • IDC_SCRDLG_RENAME_MSG    (7365) — static conflict message (locale: scr_dlg_dup_msg,
+                                        <<Name>> placeholder expanded inline)
+    • IDC_SCRDLG_RENAME_EDIT   (7366) — edit pre-filled with the conflicting name, all-selected
+    • IDC_SCRDLG_RENAME_OK     (7367) — "Rename" button (locale: scr_dlg_dup_ok)
+    • IDC_SCRDLG_RENAME_CANCEL (7368) — "Cancel" button (locale: scr_dlg_dup_cancel)
+
+  Two further validations inside RenameDlgProc both use ShowValidationDialog():
+    • Empty name                        → scr_dlg_dup_err_empty
+    • Still-taken name (another dup)    → scr_dlg_dup_err_taken
+
+  If the user completes the rename, ShowRenameDialog() writes the new name back
+  to scr->name and returns true; the outer OK handler then proceeds to save.
+
+── Finish-label overlay pattern ─────────────────────────────────────────────────
+
+  When SWR_FINISH_OPTOUT is selected, the Inno Setup [Run] entry gets
+  Flags: postinstall skipifsilent.  This means a checkbox appears on the Setup
+  Finish page whose label is configurable.
+
+  The "Finish page label" controls (IDC_SCRDLG_FINISH_LABEL_LBL / IDC_SCRDLG_FINISH_LABEL)
+  overlay the top of the Scintilla editor window.  They are hidden by default and
+  shown/hidden by the WM_COMBO_WHEN_CHANGE handler (a private message posted by the
+  combo's EN_CHANGE / CBN_SELCHANGE path) whenever the selection changes.
+
+  The controls float above the editor — the editor itself is not resized.  The label's
+  Y position (finishLblY) is fixed to the top of the editor area minus one row.
+
+── Scintilla runtime integration ────────────────────────────────────────────────
+
+  Scintilla.dll and Lexilla.dll are loaded at runtime by SciLoad(hInst).
+  No Scintilla import library is linked.
+
+  SciLoad() steps:
+    1. LoadLibraryW(L"Scintilla.dll")
+    2. LoadLibraryW(L"Lexilla.dll")
+    3. GetProcAddress(hSciDll, "Scintilla_RegisterClasses") — registers the
+       "Scintilla" window class with HINSTANCE hInst.
+    4. GetProcAddress(hLexDll, "CreateLexer") → s_pfnCreateLexer
+
+  If either DLL is unavailable, SciLoad() returns false and the editor falls
+  back to a plain multiline EDIT control (IDC_SCRDLG_CONTENT, WS_EX_CLIENTEDGE).
+
+  Lexer selection:
+    SCR_TYPE_BAT  → s_pfnCreateLexer("batch")
+    SCR_TYPE_PS1  → s_pfnCreateLexer("powershell")
+
+  The lexer is set via SCI_SETILEXER after creating the Scintilla window.
+  Syntax colours are configured inline via SCI_STYLESETFORE / SCI_STYLESETBACK.
+  The editor uses the Courier New font at 10 pt with tab width 4.
+
+── Control ID ranges ─────────────────────────────────────────────────────────────
+
+  Page controls        7300–7349  (scripts.h)
+  Editor controls      7350–7399  (script_edit_dialog.h)
+
+  Page IDs:
+    IDC_SCR_PAGE_TITLE      7300   — page heading label
+    IDC_SCR_MASTER_ENABLE   7301   — master enable custom checkbox
+    IDC_SCR_ENABLE_HINT     7302   — "Scripts are disabled" hint label
+    IDC_SCR_TOOLBAR_ADD     7303   — [+ Add Script] button
+    IDC_SCR_TOOLBAR_LOAD    7304   — [Load from file…] button
+    IDC_SCR_TOOLBAR_EDIT    7305   — [Edit] button
+    IDC_SCR_TOOLBAR_DELETE  7306   — [Delete] button
+    IDC_SCR_LIST            7307   — ListView (LVS_ICON large-icon mode)
+    IDC_SCR_EMPTY_HINT      7308   — "No scripts yet" overlay label
+
+  Editor IDs:
+    IDC_SCRDLG_NAME             7350   Name edit
+    IDC_SCRDLG_TYPE_BAT         7351   "Batch (.bat / .cmd)" radio
+    IDC_SCRDLG_TYPE_PS1         7352   "PowerShell (.ps1)" radio
+    IDC_SCRDLG_WHEN_COMBO       7353   "When to run" dropdown
+    IDC_SCRDLG_RUN_HIDDEN       7354   "Run hidden" custom checkbox
+    IDC_SCRDLG_WAIT             7355   "Wait for completion" custom checkbox
+    IDC_SCRDLG_ALSO_UNINSTALL   7356   "Also run at uninstall" custom checkbox
+    IDC_SCRDLG_FINISH_LABEL_LBL 7357   Static label for finish-page text field
+    IDC_SCRDLG_FINISH_LABEL     7358   Edit: label shown on Finish page checkbox
+    IDC_SCRDLG_CONTENT_LBL      7359   Static "Script content:" label (unused/removed)
+    IDC_SCRDLG_CONTENT          7360   Fallback plain multiline EDIT
+    IDC_SCRDLG_LOAD             7361   "Load from file…" button
+    IDC_SCRDLG_TEST             7362   "Test in terminal" button (reserved)
+    IDC_SCRDLG_OK               7363   OK / Save
+    IDC_SCRDLG_CANCEL           7364   Cancel
+    IDC_SCRDLG_RENAME_MSG       7365   Rename sub-dialog: conflict message static
+    IDC_SCRDLG_RENAME_EDIT      7366   Rename sub-dialog: new name edit
+    IDC_SCRDLG_RENAME_OK        7367   Rename sub-dialog: "Rename" button
+    IDC_SCRDLG_RENAME_CANCEL    7368   Rename sub-dialog: Cancel button
+
+── Locale key table ──────────────────────────────────────────────────────────────
+
+  Page keys:
+    scr_page_title         Page heading
+    scr_enable_chk         Master enable checkbox label
+    scr_enable_hint        Hint when master is off
+    scr_empty_hint         "No scripts yet" overlay label
+    scr_btn_add            Toolbar: [+ Add Script]
+    scr_btn_load           Toolbar: [Load from file…]
+    scr_btn_edit           Toolbar: [Edit]
+    scr_btn_delete         Toolbar: [Delete]
+
+  Editor keys:
+    scr_dlg_add_title      Dialog title for Add mode
+    scr_dlg_edit_title     Dialog title for Edit mode
+    scr_dlg_name_lbl       "Name:" label
+    scr_dlg_type_lbl       "Script type:" label
+    scr_dlg_type_bat       "Batch (.bat / .cmd)" radio label
+    scr_dlg_type_ps1       "PowerShell (.ps1)" radio label
+    scr_dlg_when_lbl       "When to run:" label
+    scr_dlg_when_before    Combo item: "Before files are installed"
+    scr_dlg_when_after     Combo item: "After files are installed"
+    scr_dlg_when_finish    Combo item: "On the Finish page (user opt-out)"
+    scr_dlg_when_uninstall Combo item: "At uninstall"
+    scr_dlg_hidden_chk     "Run hidden (no console window)" checkbox
+    scr_dlg_wait_chk       "Wait for completion" checkbox
+    scr_dlg_uninstall_chk  "Also run at uninstall" checkbox
+    scr_dlg_finish_lbl     "Finish page checkbox label:" static
+    scr_dlg_load_btn       "Load from file…" button
+    scr_dlg_test_btn       "Test in terminal" button
+    scr_dlg_ok_btn         "Save" / OK button
+    scr_dlg_cancel_btn     "Cancel" button
+    scr_dlg_val_empty_name Validation: name must not be empty
+    scr_dlg_val_empty_script Validation: script content must not be empty
+
+  Rename sub-dialog keys:
+    scr_dlg_dup_title      Dialog title: "Name already in use"
+    scr_dlg_dup_msg        Conflict message (<<Name>> placeholder for the taken name)
+    scr_dlg_dup_lbl        "New name:" label
+    scr_dlg_dup_ok         "Rename" button
+    scr_dlg_dup_cancel     "Cancel" button
+    scr_dlg_dup_err_empty  Validation: new name must not be empty
+    scr_dlg_dup_err_taken  Validation: new name is still taken (\n expands in ShowValidationDialog)
+
+── mainwindow.cpp wiring checklist ──────────────────────────────────────────────
+
+  1. #include "scripts.h"
+  2. Call SCR_Reset()       in Create() (before any project open)
+  3. In SwitchPage(8):     call SCR_BuildPage(...)
+  4. In SwitchPage teardown: call SCR_TearDown(hwnd)
+  5. WM_COMMAND:           if (SCR_OnCommand(...)) return 0;
+  6. WM_NOTIFY:            result = SCR_OnNotify(...); if (handled) return result;
+  7. IDM_FILE_SAVE:        SCR_SaveToDb(projectId)
+  8. Project open:         SCR_Reset(); SCR_LoadFromDb(projectId)
+  9. Project close/new:    SCR_Reset()
+
+================================================================================

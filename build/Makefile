@@ -568,6 +568,54 @@ sc_shortcut_dialog.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/sc_shortcut_dialog.cpp.s
 .PHONY : sc_shortcut_dialog.cpp.s
 
+script_edit_dialog.obj: script_edit_dialog.cpp.obj
+.PHONY : script_edit_dialog.obj
+
+# target to build an object file
+script_edit_dialog.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/script_edit_dialog.cpp.obj
+.PHONY : script_edit_dialog.cpp.obj
+
+script_edit_dialog.i: script_edit_dialog.cpp.i
+.PHONY : script_edit_dialog.i
+
+# target to preprocess a source file
+script_edit_dialog.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/script_edit_dialog.cpp.i
+.PHONY : script_edit_dialog.cpp.i
+
+script_edit_dialog.s: script_edit_dialog.cpp.s
+.PHONY : script_edit_dialog.s
+
+# target to generate assembly for a file
+script_edit_dialog.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/script_edit_dialog.cpp.s
+.PHONY : script_edit_dialog.cpp.s
+
+scripts.obj: scripts.cpp.obj
+.PHONY : scripts.obj
+
+# target to build an object file
+scripts.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/scripts.cpp.obj
+.PHONY : scripts.cpp.obj
+
+scripts.i: scripts.cpp.i
+.PHONY : scripts.i
+
+# target to preprocess a source file
+scripts.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/scripts.cpp.i
+.PHONY : scripts.cpp.i
+
+scripts.s: scripts.cpp.s
+.PHONY : scripts.s
+
+# target to generate assembly for a file
+scripts.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/scripts.cpp.s
+.PHONY : scripts.cpp.s
+
 scrollbar.obj: scrollbar.cpp.obj
 .PHONY : scrollbar.obj
 
@@ -752,6 +800,12 @@ help:
 	@echo ... sc_shortcut_dialog.obj
 	@echo ... sc_shortcut_dialog.i
 	@echo ... sc_shortcut_dialog.s
+	@echo ... script_edit_dialog.obj
+	@echo ... script_edit_dialog.i
+	@echo ... script_edit_dialog.s
+	@echo ... scripts.obj
+	@echo ... scripts.i
+	@echo ... scripts.s
 	@echo ... scrollbar.obj
 	@echo ... scrollbar.i
 	@echo ... scrollbar.s

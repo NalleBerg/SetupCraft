@@ -186,6 +186,20 @@ bool DB::InitDb() {
         "content_rtf TEXT DEFAULT '', "
         "UNIQUE(project_id, dialog_type));",
         NULL, NULL, &errmsg);
+    p_exec(db, "CREATE TABLE IF NOT EXISTS scripts ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "project_id INTEGER NOT NULL, "
+        "name TEXT DEFAULT '', "
+        "type INTEGER DEFAULT 1, "
+        "content TEXT DEFAULT '', "
+        "when_to_run INTEGER DEFAULT 1, "
+        "run_hidden INTEGER DEFAULT 0, "
+        "wait_for_completion INTEGER DEFAULT 1, "
+        "description TEXT DEFAULT '', "
+        "also_uninstall INTEGER DEFAULT 0, "
+        "sort_order INTEGER DEFAULT 0, "
+        "FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);",
+        NULL, NULL, &errmsg);
 
     // Default RTF content for each installer dialog type (placeholders: <<AppName>>,
     // <<AppVersion>>, <<AppNameAndVersion>>). INSERT OR IGNORE — never overwrites
@@ -1297,6 +1311,118 @@ std::vector<std::pair<int,std::wstring>> DB::GetAllDialogDefaults()
         int type = (int)p_col_int64(stmt, 0);
         const unsigned char* c = p_col_text(stmt, 1);
         out.push_back({ type, Utf8ToW(c ? (const char*)c : "") });
+    }
+    if (p_finalize) p_finalize(stmt);
+    p_close(db);
+    return out;
+}
+
+// ── Script CRUD ───────────────────────────────────────────────────────────────
+
+int DB::InsertScript(int projectId, const ScriptRow& s)
+{
+    std::wstring dbPath = GetAppDataDbPath();
+    std::string dbPathUtf8 = WToUtf8(dbPath);
+    void* db = NULL;
+    int flags = 0x00000002 | 0x00000004;
+    if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return -1;
+
+    const char* sql =
+        "INSERT INTO scripts (project_id, name, type, content, when_to_run, "
+        "run_hidden, wait_for_completion, description, also_uninstall, sort_order) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?);";
+    void* stmt = NULL;
+    if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return -1; }
+
+    std::string sPid   = std::to_string(projectId);
+    std::string sName  = WToUtf8(s.name);
+    std::string sType  = std::to_string(s.type);
+    std::string sCont  = WToUtf8(s.content);
+    std::string sWhen  = std::to_string(s.when_to_run);
+    std::string sHid   = std::to_string(s.run_hidden);
+    std::string sWait  = std::to_string(s.wait_for_completion);
+    std::string sDesc  = WToUtf8(s.description);
+    std::string sAlso  = std::to_string(s.also_uninstall);
+    std::string sSort  = std::to_string(s.sort_order);
+
+    p_bind_text(stmt,  1, sPid.c_str(),  -1, NULL);
+    p_bind_text(stmt,  2, sName.c_str(), -1, NULL);
+    p_bind_text(stmt,  3, sType.c_str(), -1, NULL);
+    p_bind_text(stmt,  4, sCont.c_str(), -1, NULL);
+    p_bind_text(stmt,  5, sWhen.c_str(), -1, NULL);
+    p_bind_text(stmt,  6, sHid.c_str(),  -1, NULL);
+    p_bind_text(stmt,  7, sWait.c_str(), -1, NULL);
+    p_bind_text(stmt,  8, sDesc.c_str(), -1, NULL);
+    p_bind_text(stmt,  9, sAlso.c_str(), -1, NULL);
+    p_bind_text(stmt, 10, sSort.c_str(), -1, NULL);
+    p_step(stmt);
+    if (p_finalize) p_finalize(stmt);
+
+    int newId = -1;
+    const char* idSql = "SELECT last_insert_rowid();";
+    void* idStmt = NULL;
+    if (p_prepare(db, idSql, -1, &idStmt, NULL) == 0) {
+        if (p_step(idStmt) == 100) newId = (int)p_col_int64(idStmt, 0);
+        if (p_finalize) p_finalize(idStmt);
+    }
+    p_close(db);
+    return newId;
+}
+
+bool DB::DeleteScriptsForProject(int projectId)
+{
+    std::wstring dbPath = GetAppDataDbPath();
+    std::string dbPathUtf8 = WToUtf8(dbPath);
+    void* db = NULL;
+    int flags = 0x00000002 | 0x00000004;
+    if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return false;
+    const char* sql = "DELETE FROM scripts WHERE project_id=?;";
+    void* stmt = NULL;
+    if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return false; }
+    std::string sPid = std::to_string(projectId);
+    p_bind_text(stmt, 1, sPid.c_str(), -1, NULL);
+    p_step(stmt);
+    if (p_finalize) p_finalize(stmt);
+    p_close(db);
+    return true;
+}
+
+std::vector<DB::ScriptRow> DB::GetScriptsForProject(int projectId)
+{
+    std::vector<ScriptRow> out;
+    std::wstring dbPath = GetAppDataDbPath();
+    std::string dbPathUtf8 = WToUtf8(dbPath);
+    void* db = NULL;
+    int flags = 0x00000002 | 0x00000004;
+    if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return out;
+
+    const char* sql =
+        "SELECT id, name, type, content, when_to_run, run_hidden, "
+        "wait_for_completion, description, also_uninstall, sort_order "
+        "FROM scripts WHERE project_id=? ORDER BY sort_order ASC, id ASC;";
+    void* stmt = NULL;
+    if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return out; }
+    std::string sPid = std::to_string(projectId);
+    p_bind_text(stmt, 1, sPid.c_str(), -1, NULL);
+
+    while (p_step(stmt) == 100 /*SQLITE_ROW*/) {
+        ScriptRow r;
+        r.project_id          = projectId;
+        r.id                  = (int)p_col_int64(stmt, 0);
+        auto T = [&](int col) -> std::wstring {
+            const unsigned char* c = p_col_text(stmt, col);
+            return Utf8ToW(c ? (const char*)c : "");
+        };
+        r.name                = T(1);
+        r.type                = (int)p_col_int64(stmt, 2);
+        r.content             = T(3);
+        r.when_to_run         = (int)p_col_int64(stmt, 4);
+        r.run_hidden          = (int)p_col_int64(stmt, 5);
+        r.wait_for_completion = (int)p_col_int64(stmt, 6);
+        r.description         = T(7);
+        r.also_uninstall      = (int)p_col_int64(stmt, 8);
+        r.sort_order          = (int)p_col_int64(stmt, 9);
+        out.push_back(r);
     }
     if (p_finalize) p_finalize(stmt);
     p_close(db);

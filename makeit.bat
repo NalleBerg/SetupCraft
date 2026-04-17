@@ -36,6 +36,8 @@ copy /y "%~dp0SetupCraft.png" "%~dp0build\" >nul 2>&1
 copy /y "%~dp0GPLv2.md" "%~dp0build\" >nul 2>&1
 copy /y "%~dp0GnuLogo.bmp" "%~dp0build\" >nul 2>&1
 copy /y "%~dp0curver.txt" "%~dp0build\" >nul 2>&1
+copy /y "%~dp0scintilla\Scintilla.dll" "%~dp0build\" >nul 2>&1
+copy /y "%~dp0scintilla\Lexilla.dll" "%~dp0build\" >nul 2>&1
 
 REM --- Package the build into .\SetupCraft\ ---
 set "PKG_DIR=%~dp0SetupCraft"
@@ -93,6 +95,10 @@ REM Copy inno installer template if present
 if exist "%~dp0inno\" (
   xcopy /e /i /y "%~dp0inno" "%PKG_DIR%\inno\" >nul 2>&1
 )
+
+REM Copy Scintilla/Lexilla DLLs for syntax highlighting
+copy /y "%~dp0scintilla\Scintilla.dll" "%PKG_DIR%\" >nul
+copy /y "%~dp0scintilla\Lexilla.dll" "%PKG_DIR%\" >nul
 
 REM Copy helper scripts and assets
 copy /y "%~dp0install_gnulogo.bat" "%PKG_DIR%\" >nul 2>&1

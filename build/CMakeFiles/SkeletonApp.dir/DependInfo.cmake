@@ -19,6 +19,7 @@ set(CMAKE_TARGET_DEFINITIONS_RC
 
 # The include file search paths:
 set(CMAKE_RC_TARGET_INCLUDE_PATH
+  "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/scintilla"
   )
 
 # The set of dependency files which are needed:
@@ -41,6 +42,8 @@ set(CMAKE_DEPENDS_DEPENDENCY_FILES
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/my_scrollbar.cpp" "CMakeFiles/SkeletonApp.dir/my_scrollbar.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/my_scrollbar.cpp.obj.d"
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/notes_editor.cpp" "CMakeFiles/SkeletonApp.dir/notes_editor.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/notes_editor.cpp.obj.d"
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/sc_shortcut_dialog.cpp" "CMakeFiles/SkeletonApp.dir/sc_shortcut_dialog.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/sc_shortcut_dialog.cpp.obj.d"
+  "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/script_edit_dialog.cpp" "CMakeFiles/SkeletonApp.dir/script_edit_dialog.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/script_edit_dialog.cpp.obj.d"
+  "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/scripts.cpp" "CMakeFiles/SkeletonApp.dir/scripts.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/scripts.cpp.obj.d"
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/scrollbar.cpp" "CMakeFiles/SkeletonApp.dir/scrollbar.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/scrollbar.cpp.obj.d"
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/shortcuts.cpp" "CMakeFiles/SkeletonApp.dir/shortcuts.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/shortcuts.cpp.obj.d"
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/spinner_dialog.cpp" "CMakeFiles/SkeletonApp.dir/spinner_dialog.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/spinner_dialog.cpp.obj.d"

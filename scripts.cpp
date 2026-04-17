@@ -1,58 +1,47 @@
 /*
  * scripts.cpp — Scripts page implementation for SetupCraft (page index 8).
  *
- * Two script slots: pre-install (slot 0) and post-install (slot 1).
- * Each slot has: enabled flag, type (bat/ps1), free-text content.
- * A master checkbox gates the whole feature.
+ * Variable-length list of scripts, each with type (.bat/.ps1), when-to-run,
+ * and a full content body.  Displayed as a large-icon ListView tile grid
+ * (shell32.dll-1 at 64×64).  A pop-up editor (script_edit_dialog.cpp) is
+ * opened for add/edit via toolbar buttons or double-click.
  *
  * Layout (top → bottom):
  *   Page title
  *   Master enable checkbox  +  hint label
  *   [separator]
- *   Section label "Before installation"
- *     Per-slot enable checkbox
- *     bat / ps1 radio pair
- *     "Script content:" label
- *     Multiline edit
- *     [Load from file…]  [Test in terminal]  row
- *   [separator]
- *   Section label "After installation"
- *     (same structure)
- *
- * Persistence: settings table, project-scoped keys.
- * Test button writes a temp file and opens it in cmd.exe or powershell.exe.
+ *   Toolbar: [+ Add Script]  [Load from file…]  |  [Edit]  [Delete]
+ *   ListView: large-icon tiles (icon + name)
+ *   Empty-hint label (hidden when ListView has items)
  */
 
 #include "scripts.h"
-#include "mainwindow.h"   // MarkAsModified()
+#include "script_edit_dialog.h"
+#include "mainwindow.h"         // MarkAsModified()
 #include "db.h"
-#include "dpi.h"          // S()
-#include "button.h"       // CreateCustomButtonWithIcon(), MeasureButtonWidth()
-#include "checkbox.h"     // CreateCustomCheckbox()
-#include <shellapi.h>     // ShellExecuteW()
-#include <commdlg.h>      // GetOpenFileNameW()
+#include "dpi.h"                // S()
+#include "button.h"             // CreateCustomButtonWithIcon(), MeasureButtonWidth()
+#include "checkbox.h"           // CreateCustomCheckbox()
+#include <shellapi.h>           // ShellExecuteW()
+#include <commdlg.h>            // GetOpenFileNameW()
 #include <fstream>
-#include <sstream>
+#include <vector>
+
+// Declare PrivateExtractIconsW (same as button.cpp — undocumented but widely available)
+extern "C" __declspec(dllimport) UINT WINAPI PrivateExtractIconsW(
+    LPCWSTR lpszFile, int nIconIndex, int cxIcon, int cyIcon,
+    HICON *phicon, UINT *piconid, UINT nIcons, UINT flags);
 
 // ── Module-private state ──────────────────────────────────────────────────────
-
-// Master enable
 static bool s_scrEnabled = false;
+static std::vector<DB::ScriptRow> s_scripts;
+static int  s_nextScrId  = 1;
 
-// Per-slot state
-struct ScrSlot {
-    bool         enabled = false;
-    int          type    = SCR_TYPE_PS1;  // default PowerShell
-    std::wstring content;
-};
-static ScrSlot s_slots[SCR_SLOT_COUNT];
+static HIMAGELIST s_hImgList  = NULL;   // 64×64 icon list for the ListView
+static HWND       s_hScrList  = NULL;   // the ListView itself
 
-// Scroll offset for the page
-static int s_scrScrollOffset = 0;
-
-// Saved font / locale pointers (valid between BuildPage and TearDown)
-static HFONT       s_hGuiFont   = NULL;
-static HINSTANCE   s_hInst      = NULL;
+static HFONT      s_hGuiFont  = NULL;
+static HINSTANCE  s_hInst     = NULL;
 static const std::map<std::wstring, std::wstring>* s_pLocale = NULL;
 
 // ── Locale helper ─────────────────────────────────────────────────────────────
@@ -63,79 +52,106 @@ static std::wstring loc(const wchar_t* key, const wchar_t* fallback)
     return (it != s_pLocale->end()) ? it->second : fallback;
 }
 
-// ── Enable/disable helper ─────────────────────────────────────────────────────
-// Enable or disable all controls for one slot.
-static void ApplySlotEnable(HWND hwnd, int slot)
+// ── RefreshList — rebuild ListView items from s_scripts ───────────────────────
+static void RefreshList(HWND hwnd)
 {
-    bool masterOn = s_scrEnabled;
-    bool slotOn   = masterOn && s_slots[slot].enabled;
+    if (!s_hScrList) return;
+    ListView_DeleteAllItems(s_hScrList);
 
-    int baseEnable = (slot == SCR_SLOT_PRE) ? IDC_SCR_PRE_ENABLE : IDC_SCR_POST_ENABLE;
-    int baseBat    = (slot == SCR_SLOT_PRE) ? IDC_SCR_PRE_BAT    : IDC_SCR_POST_BAT;
-    int basePs1    = (slot == SCR_SLOT_PRE) ? IDC_SCR_PRE_PS1    : IDC_SCR_POST_PS1;
-    int baseLabel  = (slot == SCR_SLOT_PRE) ? IDC_SCR_PRE_EDIT_LABEL : IDC_SCR_POST_EDIT_LABEL;
-    int baseEdit   = (slot == SCR_SLOT_PRE) ? IDC_SCR_PRE_EDIT   : IDC_SCR_POST_EDIT;
-    int baseLoad   = (slot == SCR_SLOT_PRE) ? IDC_SCR_PRE_LOAD   : IDC_SCR_POST_LOAD;
-    int baseTest   = (slot == SCR_SLOT_PRE) ? IDC_SCR_PRE_TEST   : IDC_SCR_POST_TEST;
+    for (int i = 0; i < (int)s_scripts.size(); i++) {
+        LVITEMW lvi = {};
+        lvi.mask    = LVIF_TEXT | LVIF_IMAGE | LVIF_PARAM;
+        lvi.iItem   = i;
+        lvi.iImage  = 0;          // single icon in the list; image 0 for all
+        lvi.lParam  = (LPARAM)i;
+        lvi.pszText = const_cast<wchar_t*>(s_scripts[i].name.c_str());
+        ListView_InsertItem(s_hScrList, &lvi);
+    }
 
-    HWND hSlotEn = GetDlgItem(hwnd, baseEnable);
-    if (hSlotEn) EnableWindow(hSlotEn, masterOn ? TRUE : FALSE);
-
-    HWND hBat   = GetDlgItem(hwnd, baseBat);
-    HWND hPs1   = GetDlgItem(hwnd, basePs1);
-    HWND hLabel = GetDlgItem(hwnd, baseLabel);
-    HWND hEdit  = GetDlgItem(hwnd, baseEdit);
-    HWND hLoad  = GetDlgItem(hwnd, baseLoad);
-    HWND hTest  = GetDlgItem(hwnd, baseTest);
-
-    BOOL en = slotOn ? TRUE : FALSE;
-    if (hBat)   EnableWindow(hBat,   en);
-    if (hPs1)   EnableWindow(hPs1,   en);
-    if (hLabel) EnableWindow(hLabel, en);
-    if (hEdit)  EnableWindow(hEdit,  en);
-    if (hLoad)  EnableWindow(hLoad,  en);
-    if (hTest)  EnableWindow(hTest,  en);
+    // Show/hide the empty hint
+    HWND hHint = GetDlgItem(hwnd, IDC_SCR_EMPTY_HINT);
+    if (hHint)
+        ShowWindow(hHint, s_scripts.empty() ? SW_SHOW : SW_HIDE);
 }
 
-static void ApplyMasterEnable(HWND hwnd)
+// ── UpdateToolbar — enable/disable Edit+Delete based on selection ──────────────
+static void UpdateToolbar(HWND hwnd)
 {
-    for (int s = 0; s < SCR_SLOT_COUNT; s++)
-        ApplySlotEnable(hwnd, s);
+    bool masterOn = s_scrEnabled;
+    HWND hAdd    = GetDlgItem(hwnd, IDC_SCR_TOOLBAR_ADD);
+    HWND hLoad   = GetDlgItem(hwnd, IDC_SCR_TOOLBAR_LOAD);
+    HWND hEdit   = GetDlgItem(hwnd, IDC_SCR_TOOLBAR_EDIT);
+    HWND hDelete = GetDlgItem(hwnd, IDC_SCR_TOOLBAR_DELETE);
 
-    // Hint label: show when master is off
-    HWND hHint = GetDlgItem(hwnd, IDC_SCR_ENABLE_HINT);
-    if (hHint) ShowWindow(hHint, s_scrEnabled ? SW_HIDE : SW_SHOW);
+    if (hAdd)  EnableWindow(hAdd,  masterOn ? TRUE : FALSE);
+    if (hLoad) EnableWindow(hLoad, masterOn ? TRUE : FALSE);
+
+    bool hasSel = s_hScrList
+               && (ListView_GetNextItem(s_hScrList, -1, LVNI_SELECTED) >= 0);
+    if (hEdit)   EnableWindow(hEdit,   (masterOn && hasSel) ? TRUE : FALSE);
+    if (hDelete) EnableWindow(hDelete, (masterOn && hasSel) ? TRUE : FALSE);
+}
+
+// ── Helper: read a script file from disk into a wstring ───────────────────────
+static bool ReadScriptFile(const wchar_t* path, std::wstring& outContent)
+{
+    std::ifstream ifs(path, std::ios::binary);
+    if (!ifs) return false;
+    std::string bytes((std::istreambuf_iterator<char>(ifs)),
+                       std::istreambuf_iterator<char>());
+    // Try UTF-8 first, fall back to system code page
+    int wlen = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
+                                   bytes.c_str(), (int)bytes.size(), NULL, 0);
+    std::wstring wtext;
+    if (wlen > 0) {
+        wtext.resize(wlen);
+        MultiByteToWideChar(CP_UTF8, 0, bytes.c_str(), (int)bytes.size(), &wtext[0], wlen);
+    } else {
+        int alen = MultiByteToWideChar(CP_ACP, 0,
+                                       bytes.c_str(), (int)bytes.size(), NULL, 0);
+        wtext.resize(alen);
+        MultiByteToWideChar(CP_ACP, 0, bytes.c_str(), (int)bytes.size(), &wtext[0], alen);
+    }
+    // Normalise line endings to CRLF
+    std::wstring norm;
+    norm.reserve(wtext.size() + 64);
+    for (size_t i = 0; i < wtext.size(); ++i) {
+        if (wtext[i] == L'\n' && (i == 0 || wtext[i-1] != L'\r'))
+            norm += L'\r';
+        norm += wtext[i];
+    }
+    outContent = std::move(norm);
+    return true;
 }
 
 // ── SCR_Reset ─────────────────────────────────────────────────────────────────
 void SCR_Reset()
 {
     s_scrEnabled = false;
-    for (int s = 0; s < SCR_SLOT_COUNT; s++) {
-        s_slots[s].enabled = false;
-        s_slots[s].type    = SCR_TYPE_PS1;
-        s_slots[s].content.clear();
-    }
-    s_scrScrollOffset = 0;
+    s_scripts.clear();
+    s_nextScrId  = 1;
+    if (s_hImgList) { ImageList_Destroy(s_hImgList); s_hImgList = NULL; }
+    s_hScrList  = NULL;
     s_hGuiFont  = NULL;
     s_hInst     = NULL;
     s_pLocale   = NULL;
 }
 
 // ── SCR_BuildPage ─────────────────────────────────────────────────────────────
-int SCR_BuildPage(HWND hwnd, HINSTANCE hInst,
-                  int pageY, int clientWidth,
-                  HFONT hPageTitleFont, HFONT hGuiFont,
-                  const std::map<std::wstring, std::wstring>& locale)
+void SCR_BuildPage(HWND hwnd, HINSTANCE hInst,
+                   int pageY, int clientWidth,
+                   HFONT hPageTitleFont, HFONT hGuiFont,
+                   const std::map<std::wstring, std::wstring>& locale)
 {
     s_hInst   = hInst;
     s_hGuiFont = hGuiFont;
     s_pLocale  = &locale;
 
-    const int padH  = S(20);
-    const int gap   = S(10);
+    const int padH   = S(20);
+    const int gap    = S(10);
     const int titleH = S(38);
-    const int cbH   = S(22);
+    const int cbH    = S(22);
+    const int btnH   = S(30);
 
     int y = pageY + S(20);
 
@@ -154,9 +170,10 @@ int SCR_BuildPage(HWND hwnd, HINSTANCE hInst,
         s_scrEnabled, padH, y, clientWidth - padH * 2, cbH, hInst);
     y += cbH + S(4);
 
-    // Hint label (visible when master is off)
+    // Hint label shown when master is off
     HWND hHint = CreateWindowExW(0, L"STATIC",
-        loc(L"scr_enable_hint", L"When unchecked, no scripts will be packaged or run by the installer.").c_str(),
+        loc(L"scr_enable_hint",
+            L"When unchecked, no scripts will be packaged or run by the installer.").c_str(),
         WS_CHILD | SS_LEFT,
         padH + S(24), y, clientWidth - padH * 2 - S(24), cbH,
         hwnd, (HMENU)(UINT_PTR)IDC_SCR_ENABLE_HINT, hInst, NULL);
@@ -171,367 +188,353 @@ int SCR_BuildPage(HWND hwnd, HINSTANCE hInst,
         hwnd, NULL, hInst, NULL);
     y += S(2) + gap;
 
-    // ── Build one section for each slot ──────────────────────────────────────
-    const wchar_t* kSectionKeys[SCR_SLOT_COUNT]    = { L"scr_pre_section",         L"scr_post_section" };
-    const wchar_t* kSectionFalls[SCR_SLOT_COUNT]   = { L"Before installation",     L"After installation" };
-    const wchar_t* kEnableKeys[SCR_SLOT_COUNT]     = { L"scr_script_enable_pre",   L"scr_script_enable_post" };
-    const wchar_t* kEnableFalls[SCR_SLOT_COUNT]    = { L"Run a script before installation begins",
-                                                        L"Run a script after installation completes" };
-    const int kEnableIds[SCR_SLOT_COUNT]   = { IDC_SCR_PRE_ENABLE,  IDC_SCR_POST_ENABLE };
-    const int kBatIds[SCR_SLOT_COUNT]      = { IDC_SCR_PRE_BAT,     IDC_SCR_POST_BAT    };
-    const int kPs1Ids[SCR_SLOT_COUNT]      = { IDC_SCR_PRE_PS1,     IDC_SCR_POST_PS1    };
-    const int kLabelIds[SCR_SLOT_COUNT]    = { IDC_SCR_PRE_EDIT_LABEL, IDC_SCR_POST_EDIT_LABEL };
-    const int kEditIds[SCR_SLOT_COUNT]     = { IDC_SCR_PRE_EDIT,    IDC_SCR_POST_EDIT   };
-    const int kLoadIds[SCR_SLOT_COUNT]     = { IDC_SCR_PRE_LOAD,    IDC_SCR_POST_LOAD   };
-    const int kTestIds[SCR_SLOT_COUNT]     = { IDC_SCR_PRE_TEST,    IDC_SCR_POST_TEST   };
+    // ── Toolbar row ───────────────────────────────────────────────────────────
+    std::wstring addTxt  = loc(L"scr_toolbar_add",    L"Add Script");
+    std::wstring loadTxt = loc(L"scr_toolbar_load",   L"Load from file\u2026");
+    std::wstring editTxt = loc(L"scr_toolbar_edit",   L"Edit");
+    std::wstring delTxt  = loc(L"scr_toolbar_delete", L"Delete");
 
-    for (int slot = 0; slot < SCR_SLOT_COUNT; slot++) {
-        bool masterOn = s_scrEnabled;
-        bool slotOn   = masterOn && s_slots[slot].enabled;
+    int wAdd  = MeasureButtonWidth(addTxt,  true);
+    int wLoad = MeasureButtonWidth(loadTxt, true);
+    int wEdit = MeasureButtonWidth(editTxt, true);
+    int wDel  = MeasureButtonWidth(delTxt,  true);
 
-        // Section label
-        HWND hSection = CreateWindowExW(0, L"STATIC",
-            loc(kSectionKeys[slot], kSectionFalls[slot]).c_str(),
-            WS_CHILD | WS_VISIBLE | SS_LEFT,
-            padH, y, clientWidth - padH * 2, S(24),
-            hwnd, NULL, hInst, NULL);
-        if (hPageTitleFont) SendMessageW(hSection, WM_SETFONT, (WPARAM)hPageTitleFont, TRUE);
-        y += S(24) + S(6);
+    int bx = padH;
+    HWND hAdd = CreateCustomButtonWithIcon(
+        hwnd, IDC_SCR_TOOLBAR_ADD, addTxt.c_str(), ButtonColor::Blue,
+        L"shell32.dll", 149,   // "new document" / plus-style icon
+        bx, y, wAdd, btnH, hInst);
+    SetButtonTooltip(hAdd, loc(L"scr_toolbar_add_tip", L"Create a new script entry").c_str());
+    EnableWindow(hAdd, s_scrEnabled ? TRUE : FALSE);
+    bx += wAdd + gap;
 
-        // Per-slot enable checkbox
-        HWND hSlotEn = CreateCustomCheckbox(hwnd, kEnableIds[slot],
-            loc(kEnableKeys[slot], kEnableFalls[slot]),
-            s_slots[slot].enabled,
-            padH, y, clientWidth - padH * 2, cbH, hInst);
-        EnableWindow(hSlotEn, masterOn ? TRUE : FALSE);
-        y += cbH + S(6);
+    HWND hLoad = CreateCustomButtonWithIcon(
+        hwnd, IDC_SCR_TOOLBAR_LOAD, loadTxt.c_str(), ButtonColor::Blue,
+        L"shell32.dll", 3,     // folder/open icon
+        bx, y, wLoad, btnH, hInst);
+    SetButtonTooltip(hLoad,
+        loc(L"scr_toolbar_load_tip",
+            L"Load a .bat or .ps1 file from disk and add it as a new script").c_str());
+    EnableWindow(hLoad, s_scrEnabled ? TRUE : FALSE);
+    bx += wLoad + S(20);   // visual gap before action buttons
 
-        // Radio buttons: bat (WS_GROUP) then ps1
-        std::wstring batTxt = loc(L"scr_type_bat", L"Batch (.bat)");
-        std::wstring ps1Txt = loc(L"scr_type_ps1", L"PowerShell (.ps1)");
+    HWND hEdit = CreateCustomButtonWithIcon(
+        hwnd, IDC_SCR_TOOLBAR_EDIT, editTxt.c_str(), ButtonColor::Blue,
+        L"shell32.dll", 269,   // pencil/edit icon
+        bx, y, wEdit, btnH, hInst);
+    SetButtonTooltip(hEdit,
+        loc(L"scr_toolbar_edit_tip", L"Open the selected script in the editor").c_str());
+    EnableWindow(hEdit, FALSE);
+    bx += wEdit + gap;
 
-        HWND hBat = CreateWindowExW(0, L"BUTTON", batTxt.c_str(),
-            WS_CHILD | WS_VISIBLE | BS_AUTORADIOBUTTON | WS_GROUP,
-            padH, y, S(140), cbH,
-            hwnd, (HMENU)(UINT_PTR)kBatIds[slot], hInst, NULL);
-        if (hGuiFont) SendMessageW(hBat, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
-        SendMessageW(hBat, BM_SETCHECK,
-            (s_slots[slot].type == SCR_TYPE_BAT) ? BST_CHECKED : BST_UNCHECKED, 0);
-        EnableWindow(hBat, slotOn ? TRUE : FALSE);
+    HWND hDel = CreateCustomButtonWithIcon(
+        hwnd, IDC_SCR_TOOLBAR_DELETE, delTxt.c_str(), ButtonColor::Red,
+        L"shell32.dll", 131,   // delete/trash icon
+        bx, y, wDel, btnH, hInst);
+    SetButtonTooltip(hDel,
+        loc(L"scr_toolbar_delete_tip",
+            L"Remove the selected script from this project").c_str());
+    EnableWindow(hDel, FALSE);
+    y += btnH + gap;
 
-        HWND hPs1 = CreateWindowExW(0, L"BUTTON", ps1Txt.c_str(),
-            WS_CHILD | WS_VISIBLE | BS_AUTORADIOBUTTON,
-            padH + S(150), y, S(180), cbH,
-            hwnd, (HMENU)(UINT_PTR)kPs1Ids[slot], hInst, NULL);
-        if (hGuiFont) SendMessageW(hPs1, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
-        SendMessageW(hPs1, BM_SETCHECK,
-            (s_slots[slot].type == SCR_TYPE_PS1) ? BST_CHECKED : BST_UNCHECKED, 0);
-        EnableWindow(hPs1, slotOn ? TRUE : FALSE);
-        y += cbH + S(6);
-
-        // "Script content:" label
-        HWND hLabel = CreateWindowExW(0, L"STATIC",
-            loc(L"scr_edit_label", L"Script content (paste or type here):").c_str(),
-            WS_CHILD | WS_VISIBLE | SS_LEFT,
-            padH, y, clientWidth - padH * 2, S(18),
-            hwnd, (HMENU)(UINT_PTR)kLabelIds[slot], hInst, NULL);
-        if (hGuiFont) SendMessageW(hLabel, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
-        EnableWindow(hLabel, slotOn ? TRUE : FALSE);
-        y += S(18) + S(4);
-
-        // Multiline edit — fixed height
-        const int editH = S(120);
-        HWND hEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT",
-            s_slots[slot].content.c_str(),
-            WS_CHILD | WS_VISIBLE | WS_VSCROLL |
-            ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN | ES_LEFT,
-            padH, y, clientWidth - padH * 2, editH,
-            hwnd, (HMENU)(UINT_PTR)kEditIds[slot], hInst, NULL);
-        if (hGuiFont) SendMessageW(hEdit, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
-        EnableWindow(hEdit, slotOn ? TRUE : FALSE);
-        // Use a monospace font for scripts if available
-        HFONT hMono = (HFONT)GetStockObject(SYSTEM_FIXED_FONT);
-        if (hMono) SendMessageW(hEdit, WM_SETFONT, (WPARAM)hMono, TRUE);
-        y += editH + gap;
-
-        // "Load from file…" and "Test in terminal" buttons
-        std::wstring loadTxt = loc(L"scr_load_file", L"Load from file\u2026");
-        std::wstring testTxt = loc(L"scr_test",      L"Test in terminal");
-        int wLoad = MeasureButtonWidth(loadTxt, true);
-        int wTest = MeasureButtonWidth(testTxt, true);
-        const int btnH = S(30);
-
-        HWND hLoad = CreateCustomButtonWithIcon(
-            hwnd, kLoadIds[slot], loadTxt.c_str(), ButtonColor::Blue,
-            L"shell32.dll", 3,   // folder icon
-            padH, y, wLoad, btnH, hInst);
-        SetButtonTooltip(hLoad, loc(L"scr_load_tip",
-            L"Load script content from a .bat or .ps1 file on disk").c_str());
-        EnableWindow(hLoad, slotOn ? TRUE : FALSE);
-
-        HWND hTest = CreateCustomButtonWithIcon(
-            hwnd, kTestIds[slot], testTxt.c_str(), ButtonColor::Green,
-            L"shell32.dll", 137,   // run / execute icon
-            padH + wLoad + gap, y, wTest, btnH, hInst);
-        SetButtonTooltip(hTest, loc(L"scr_test_tip",
-            L"Write the script to a temporary file and run it in a console window to test it").c_str());
-        EnableWindow(hTest, slotOn ? TRUE : FALSE);
-        y += btnH + gap;
-
-        // Separator between sections (only after slot 0)
-        if (slot == SCR_SLOT_PRE) {
-            y += gap;
-            CreateWindowExW(0, L"STATIC", L"",
-                WS_CHILD | WS_VISIBLE | SS_ETCHEDHORZ,
-                padH, y, clientWidth - padH * 2, S(2),
-                hwnd, NULL, hInst, NULL);
-            y += S(2) + gap;
+    // ── Build the 64×64 ImageList ─────────────────────────────────────────────
+    if (s_hImgList) { ImageList_Destroy(s_hImgList); s_hImgList = NULL; }
+    int iconPx = S(64);
+    s_hImgList = ImageList_Create(iconPx, iconPx,
+                                  ILC_COLOR32 | ILC_MASK, 1, 0);
+    if (s_hImgList) {
+        HICON hIco = NULL;
+        UINT ex = PrivateExtractIconsW(L"shell32.dll", 1,
+                                       iconPx, iconPx, &hIco, NULL, 1, 0);
+        if (ex == 0 || !hIco)
+            ExtractIconExW(L"shell32.dll", 1, &hIco, NULL, 1);
+        if (hIco) {
+            ImageList_AddIcon(s_hImgList, hIco);
+            DestroyIcon(hIco);
         }
     }
 
-    y += S(15);  // bottom breathing room
-    return y;
+    // ── ListView (LargeIcon) ──────────────────────────────────────────────────
+    RECT rcClient; GetClientRect(hwnd, &rcClient);
+    int listH = rcClient.bottom - y - S(10);
+    if (listH < S(120)) listH = S(120);
+
+    s_hScrList = CreateWindowExW(
+        WS_EX_CLIENTEDGE, WC_LISTVIEW, L"",
+        WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS |
+        LVS_ICON | LVS_SINGLESEL | LVS_AUTOARRANGE | LVS_SHOWSELALWAYS,
+        padH, y, clientWidth - padH * 2, listH,
+        hwnd, (HMENU)(UINT_PTR)IDC_SCR_LIST, hInst, NULL);
+
+    if (s_hScrList) {
+        ListView_SetExtendedListViewStyle(s_hScrList,
+            LVS_EX_DOUBLEBUFFER | LVS_EX_UNDERLINEHOT);
+        if (s_hImgList)
+            ListView_SetImageList(s_hScrList, s_hImgList, LVSIL_NORMAL);
+    }
+    y += listH + gap;
+
+    // ── "No scripts yet" label (shown when list is empty) ─────────────────────
+    HWND hEmptyHint = CreateWindowExW(0, L"STATIC",
+        loc(L"scr_no_scripts",
+            L"No scripts added yet. Click \u201cAdd Script\u201d to create one.").c_str(),
+        WS_CHILD | SS_CENTER | SS_CENTERIMAGE,
+        padH, y - listH - gap + S(10),    // centred inside the list area
+        clientWidth - padH * 2, S(24),
+        hwnd, (HMENU)(UINT_PTR)IDC_SCR_EMPTY_HINT, hInst, NULL);
+    if (hGuiFont) SendMessageW(hEmptyHint, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+    ShowWindow(hEmptyHint, s_scripts.empty() ? SW_SHOW : SW_HIDE);
+
+    // Populate from in-memory state (either loaded by SCR_LoadFromDb or empty)
+    RefreshList(hwnd);
+    UpdateToolbar(hwnd);
 }
 
 // ── SCR_TearDown ──────────────────────────────────────────────────────────────
 void SCR_TearDown(HWND /*hwnd*/)
 {
-    // All controls are direct children of hwnd and are destroyed by the
-    // generic SwitchPage child-enumeration loop in mainwindow.cpp.
-    // We only need to reset the scroll offset here.
-    s_scrScrollOffset = 0;
+    // Controls are destroyed by the generic SwitchPage enumeration loop.
+    // Free the ImageList here; it's not a child window.
+    if (s_hImgList) { ImageList_Destroy(s_hImgList); s_hImgList = NULL; }
+    s_hScrList  = NULL;
     s_hGuiFont  = NULL;
     s_hInst     = NULL;
     s_pLocale   = NULL;
 }
 
+// ── OpenEditorForItem — shared by toolbar Edit + double-click ─────────────────
+static void OpenEditorForItem(HWND hwnd, int idx)
+{
+    if (idx < 0 || idx >= (int)s_scripts.size()) return;
+    DB::ScriptRow copy = s_scripts[idx];
+    if (SCR_EditDialog(hwnd, s_hInst, *s_pLocale, s_scripts, copy)) {
+        copy.sort_order = idx;
+        s_scripts[idx]  = copy;
+        RefreshList(hwnd);
+        // Restore selection
+        if (s_hScrList)
+            ListView_SetItemState(s_hScrList, idx,
+                LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+        MainWindow::MarkAsModified();
+    }
+}
+
 // ── SCR_OnCommand ─────────────────────────────────────────────────────────────
 bool SCR_OnCommand(HWND hwnd, int wmId, int wmEvent, HWND /*hCtrl*/)
 {
-    // ── Master enable checkbox ────────────────────────────────────────────────
+    // Master enable checkbox
     if (wmId == IDC_SCR_MASTER_ENABLE && wmEvent == BN_CLICKED) {
         HWND hCb = GetDlgItem(hwnd, IDC_SCR_MASTER_ENABLE);
         s_scrEnabled = (hCb && SendMessageW(hCb, BM_GETCHECK, 0, 0) == BST_CHECKED);
-        ApplyMasterEnable(hwnd);
+        HWND hHint = GetDlgItem(hwnd, IDC_SCR_ENABLE_HINT);
+        if (hHint) ShowWindow(hHint, s_scrEnabled ? SW_HIDE : SW_SHOW);
+        UpdateToolbar(hwnd);
         MainWindow::MarkAsModified();
         return true;
     }
 
-    // ── Per-slot enable checkboxes ────────────────────────────────────────────
-    for (int slot = 0; slot < SCR_SLOT_COUNT; slot++) {
-        int enId = (slot == SCR_SLOT_PRE) ? IDC_SCR_PRE_ENABLE : IDC_SCR_POST_ENABLE;
-        if (wmId == enId && wmEvent == BN_CLICKED) {
-            HWND hCb = GetDlgItem(hwnd, enId);
-            s_slots[slot].enabled = (hCb && SendMessageW(hCb, BM_GETCHECK, 0, 0) == BST_CHECKED);
-            ApplySlotEnable(hwnd, slot);
-            MainWindow::MarkAsModified();
-            return true;
-        }
-    }
-
-    // ── Type radio buttons ────────────────────────────────────────────────────
-    for (int slot = 0; slot < SCR_SLOT_COUNT; slot++) {
-        int batId = (slot == SCR_SLOT_PRE) ? IDC_SCR_PRE_BAT : IDC_SCR_POST_BAT;
-        int ps1Id = (slot == SCR_SLOT_PRE) ? IDC_SCR_PRE_PS1 : IDC_SCR_POST_PS1;
-        if (wmId == batId && wmEvent == BN_CLICKED) {
-            s_slots[slot].type = SCR_TYPE_BAT;
-            MainWindow::MarkAsModified();
-            return true;
-        }
-        if (wmId == ps1Id && wmEvent == BN_CLICKED) {
-            s_slots[slot].type = SCR_TYPE_PS1;
-            MainWindow::MarkAsModified();
-            return true;
-        }
-    }
-
-    // ── Edit change notification — mirror to in-memory state ─────────────────
-    for (int slot = 0; slot < SCR_SLOT_COUNT; slot++) {
-        int editId = (slot == SCR_SLOT_PRE) ? IDC_SCR_PRE_EDIT : IDC_SCR_POST_EDIT;
-        if (wmId == editId && wmEvent == EN_CHANGE) {
-            HWND hEdit = GetDlgItem(hwnd, editId);
-            if (hEdit) {
-                int len = GetWindowTextLengthW(hEdit);
-                if (len > 0) {
-                    std::wstring buf(len + 1, L'\0');
-                    GetWindowTextW(hEdit, &buf[0], len + 1);
-                    buf.resize(len);
-                    s_slots[slot].content = buf;
-                } else {
-                    s_slots[slot].content.clear();
-                }
+    // Add Script
+    if (wmId == IDC_SCR_TOOLBAR_ADD && wmEvent == BN_CLICKED) {
+        DB::ScriptRow newScr;
+        newScr.id           = s_nextScrId;
+        newScr.when_to_run  = (int)SWR_AFTER_FILES;
+        newScr.type         = SCR_TYPE_PS1;
+        newScr.wait_for_completion = 1;
+        if (SCR_EditDialog(hwnd, s_hInst, *s_pLocale, s_scripts, newScr)) {
+            newScr.sort_order = (int)s_scripts.size();
+            s_scripts.push_back(newScr);
+            s_nextScrId++;
+            RefreshList(hwnd);
+            // Select the new item
+            if (s_hScrList) {
+                int ni = (int)s_scripts.size() - 1;
+                ListView_SetItemState(s_hScrList, ni,
+                    LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
             }
+            UpdateToolbar(hwnd);
             MainWindow::MarkAsModified();
-            return true;
         }
+        return true;
     }
 
-    // ── Load from file buttons ────────────────────────────────────────────────
-    for (int slot = 0; slot < SCR_SLOT_COUNT; slot++) {
-        int loadId = (slot == SCR_SLOT_PRE) ? IDC_SCR_PRE_LOAD : IDC_SCR_POST_LOAD;
-        if (wmId == loadId && wmEvent == BN_CLICKED) {
-            OPENFILENAMEW ofn = {};
-            wchar_t szFile[MAX_PATH] = {};
-            ofn.lStructSize  = sizeof(OPENFILENAMEW);
-            ofn.hwndOwner    = hwnd;
-            ofn.lpstrFile    = szFile;
-            ofn.nMaxFile     = MAX_PATH;
-            ofn.lpstrFilter  = L"Script Files (*.bat;*.cmd;*.ps1)\0*.bat;*.cmd;*.ps1\0All Files (*.*)\0*.*\0";
-            ofn.nFilterIndex = 1;
-            ofn.Flags = OFN_EXPLORER | OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
+    // Load from file — opens file dialog, pre-fills content, then edit dialog
+    if (wmId == IDC_SCR_TOOLBAR_LOAD && wmEvent == BN_CLICKED) {
+        OPENFILENAMEW ofn = {};
+        wchar_t szFile[MAX_PATH] = {};
+        ofn.lStructSize  = sizeof(OPENFILENAMEW);
+        ofn.hwndOwner    = hwnd;
+        ofn.lpstrFile    = szFile;
+        ofn.nMaxFile     = MAX_PATH;
+        ofn.lpstrFilter  = L"Script Files (*.bat;*.cmd;*.ps1)\0*.bat;*.cmd;*.ps1\0All Files (*.*)\0*.*\0";
+        ofn.nFilterIndex = 1;
+        ofn.Flags = OFN_EXPLORER | OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
 
-            if (GetOpenFileNameW(&ofn)) {
-                // Read file as UTF-8 or Latin-1; display in edit box
-                std::ifstream ifs(szFile, std::ios::binary);
-                if (ifs) {
-                    std::string bytes((std::istreambuf_iterator<char>(ifs)),
-                                       std::istreambuf_iterator<char>());
-                    // Try UTF-8 conversion first; fallback to Latin-1
-                    int wlen = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
-                        bytes.c_str(), (int)bytes.size(), NULL, 0);
-                    std::wstring wtext;
-                    if (wlen > 0) {
-                        wtext.resize(wlen);
-                        MultiByteToWideChar(CP_UTF8, 0,
-                            bytes.c_str(), (int)bytes.size(), &wtext[0], wlen);
-                    } else {
-                        // Fallback: ANSI / system code page
-                        int alen = MultiByteToWideChar(CP_ACP, 0,
-                            bytes.c_str(), (int)bytes.size(), NULL, 0);
-                        wtext.resize(alen);
-                        MultiByteToWideChar(CP_ACP, 0,
-                            bytes.c_str(), (int)bytes.size(), &wtext[0], alen);
+        if (GetOpenFileNameW(&ofn)) {
+            std::wstring content;
+            if (ReadScriptFile(szFile, content)) {
+                // Derive defaults from the file
+                DB::ScriptRow newScr;
+                newScr.id     = s_nextScrId;
+                newScr.content = content;
+                // Guess type from extension
+                std::wstring path(szFile);
+                auto ext = path.rfind(L'.');
+                if (ext != std::wstring::npos) {
+                    std::wstring e = path.substr(ext);
+                    for (auto& c : e) c = (wchar_t)towlower(c);
+                    newScr.type = (e == L".bat" || e == L".cmd") ? SCR_TYPE_BAT : SCR_TYPE_PS1;
+                }
+                // Use the filename (without extension) as default name
+                auto sep = path.find_last_of(L"\\/");
+                std::wstring fname = (sep != std::wstring::npos) ? path.substr(sep + 1) : path;
+                auto dot = fname.rfind(L'.');
+                if (dot != std::wstring::npos) fname = fname.substr(0, dot);
+                newScr.name          = fname;
+                newScr.when_to_run   = (int)SWR_AFTER_FILES;
+                newScr.wait_for_completion = 1;
+
+                if (SCR_EditDialog(hwnd, s_hInst, *s_pLocale, s_scripts, newScr)) {
+                    newScr.sort_order = (int)s_scripts.size();
+                    s_scripts.push_back(newScr);
+                    s_nextScrId++;
+                    RefreshList(hwnd);
+                    if (s_hScrList) {
+                        int ni = (int)s_scripts.size() - 1;
+                        ListView_SetItemState(s_hScrList, ni,
+                            LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
                     }
-                    // Normalise line endings to CR+LF for the Edit control
-                    std::wstring normalised;
-                    normalised.reserve(wtext.size() + 64);
-                    for (size_t i = 0; i < wtext.size(); ++i) {
-                        if (wtext[i] == L'\n' &&
-                            (i == 0 || wtext[i - 1] != L'\r'))
-                            normalised += L'\r';
-                        normalised += wtext[i];
-                    }
-                    s_slots[slot].content = normalised;
-                    int editId = (slot == SCR_SLOT_PRE) ? IDC_SCR_PRE_EDIT : IDC_SCR_POST_EDIT;
-                    HWND hEd = GetDlgItem(hwnd, editId);
-                    if (hEd) SetWindowTextW(hEd, normalised.c_str());
+                    UpdateToolbar(hwnd);
                     MainWindow::MarkAsModified();
                 }
             }
-            return true;
         }
+        return true;
     }
 
-    // ── Test in terminal buttons ──────────────────────────────────────────────
-    for (int slot = 0; slot < SCR_SLOT_COUNT; slot++) {
-        int testId = (slot == SCR_SLOT_PRE) ? IDC_SCR_PRE_TEST : IDC_SCR_POST_TEST;
-        if (wmId == testId && wmEvent == BN_CLICKED) {
-            if (s_slots[slot].content.empty()) {
-                MessageBoxW(hwnd,
-                    loc(L"scr_test_no_content",
-                        L"The script editor is empty. Type or paste a script first.").c_str(),
-                    loc(L"scr_test_title", L"Test Script").c_str(),
-                    MB_OK | MB_ICONINFORMATION);
-                return true;
-            }
+    // Edit selected script
+    if (wmId == IDC_SCR_TOOLBAR_EDIT && wmEvent == BN_CLICKED) {
+        if (!s_hScrList) return true;
+        int sel = ListView_GetNextItem(s_hScrList, -1, LVNI_SELECTED);
+        OpenEditorForItem(hwnd, sel);
+        UpdateToolbar(hwnd);
+        return true;
+    }
 
-            // Build a temp file path
-            wchar_t tmpDir[MAX_PATH] = {};
-            GetTempPathW(MAX_PATH, tmpDir);
-            wchar_t tmpFile[MAX_PATH] = {};
-            UINT ret = GetTempFileNameW(tmpDir,
-                L"sc_",   // prefix
-                0,        // unique = auto
-                tmpFile);
-            if (ret == 0) return true;  // could not create temp file path
+    // Delete selected script
+    if (wmId == IDC_SCR_TOOLBAR_DELETE && wmEvent == BN_CLICKED) {
+        if (!s_hScrList) return true;
+        int sel = ListView_GetNextItem(s_hScrList, -1, LVNI_SELECTED);
+        if (sel < 0 || sel >= (int)s_scripts.size()) return true;
 
-            bool isPs1 = (s_slots[slot].type == SCR_TYPE_PS1);
-            // Rename to correct extension
-            std::wstring scriptPath(tmpFile);
-            scriptPath += isPs1 ? L".ps1" : L".bat";
-
-            // Write content as UTF-8 with BOM for PowerShell compatibility
-            {
-                std::ofstream ofs(scriptPath, std::ios::binary);
-                if (!ofs) return true;
-                if (isPs1) {
-                    // UTF-8 BOM so PowerShell respects the encoding
-                    const unsigned char bom[] = { 0xEF, 0xBB, 0xBF };
-                    ofs.write(reinterpret_cast<const char*>(bom), 3);
-                }
-                // Convert wstring → UTF-8
-                int utf8len = WideCharToMultiByte(CP_UTF8, 0,
-                    s_slots[slot].content.c_str(), -1, NULL, 0, NULL, NULL);
-                if (utf8len > 1) {
-                    std::string utf8(utf8len - 1, '\0');
-                    WideCharToMultiByte(CP_UTF8, 0,
-                        s_slots[slot].content.c_str(), -1,
-                        &utf8[0], utf8len, NULL, NULL);
-                    ofs.write(utf8.c_str(), utf8.size());
-                }
-            }
-
-            // Delete the placeholder file created by GetTempFileName
-            DeleteFileW(tmpFile);
-
-            if (isPs1) {
-                // powershell.exe -NoExit -ExecutionPolicy Bypass -File "<path>"
-                std::wstring args = L"-NoExit -ExecutionPolicy Bypass -File \"" + scriptPath + L"\"";
-                ShellExecuteW(hwnd, L"open", L"powershell.exe",
-                              args.c_str(), NULL, SW_SHOW);
-            } else {
-                // cmd.exe /K ""<path>""
-                std::wstring args = L"/K \"\"" + scriptPath + L"\"\"";
-                ShellExecuteW(hwnd, L"open", L"cmd.exe",
-                              args.c_str(), NULL, SW_SHOW);
-            }
-            return true;
+        // Confirmation
+        wchar_t fmt[256];
+        std::wstring msg;
+        {
+            std::wstring tmpl = loc(L"scr_delete_confirm",
+                L"Remove the script \u201c%s\u201d?\nThis cannot be undone.");
+            msg.resize(tmpl.size() + s_scripts[sel].name.size() + 4);
+            _snwprintf_s(&msg[0], msg.size(), _TRUNCATE,
+                         tmpl.c_str(), s_scripts[sel].name.c_str());
         }
+        int r = MessageBoxW(hwnd, msg.c_str(),
+                            loc(L"scr_delete_title", L"Remove Script").c_str(),
+                            MB_YESNO | MB_ICONQUESTION);
+        if (r == IDYES) {
+            s_scripts.erase(s_scripts.begin() + sel);
+            // Recalculate sort_order
+            for (int i = 0; i < (int)s_scripts.size(); i++)
+                s_scripts[i].sort_order = i;
+            RefreshList(hwnd);
+            UpdateToolbar(hwnd);
+            MainWindow::MarkAsModified();
+        }
+        return true;
     }
 
     return false;
 }
 
+// ── SCR_OnNotify ──────────────────────────────────────────────────────────────
+LRESULT SCR_OnNotify(HWND hwnd, LPNMHDR nmhdr, bool* handled)
+{
+    *handled = false;
+    if (!nmhdr || nmhdr->idFrom != IDC_SCR_LIST) return 0;
+
+    // Selection changed — update toolbar button states
+    if (nmhdr->code == LVN_ITEMCHANGED) {
+        LPNMLISTVIEW pnmv = (LPNMLISTVIEW)nmhdr;
+        if (pnmv->uChanged & LVIF_STATE) {
+            UpdateToolbar(hwnd);
+            *handled = true;
+            return 0;
+        }
+    }
+
+    // Double-click — open editor
+    if (nmhdr->code == NM_DBLCLK) {
+        if (s_hScrList) {
+            int sel = ListView_GetNextItem(s_hScrList, -1, LVNI_SELECTED);
+            OpenEditorForItem(hwnd, sel);
+            UpdateToolbar(hwnd);
+        }
+        *handled = true;
+        return 0;
+    }
+
+    // Right-click — context menu: Edit / Delete
+    if (nmhdr->code == NM_RCLICK) {
+        if (!s_hScrList) return 0;
+        int sel = ListView_GetNextItem(s_hScrList, -1, LVNI_SELECTED);
+        if (sel < 0) return 0;
+
+        HMENU hMenu = CreatePopupMenu();
+        AppendMenuW(hMenu, MF_STRING, 1,
+                    loc(L"scr_ctx_edit",   L"Edit\u2026").c_str());
+        AppendMenuW(hMenu, MF_STRING, 2,
+                    loc(L"scr_ctx_delete", L"Remove").c_str());
+        POINT pt; GetCursorPos(&pt);
+        int cmd = TrackPopupMenu(hMenu,
+            TPM_RETURNCMD | TPM_RIGHTBUTTON, pt.x, pt.y, 0, hwnd, NULL);
+        DestroyMenu(hMenu);
+
+        if (cmd == 1) {
+            OpenEditorForItem(hwnd, sel);
+            UpdateToolbar(hwnd);
+        } else if (cmd == 2) {
+            // Delegate to the Delete button handler
+            SendMessageW(hwnd, WM_COMMAND,
+                MAKEWPARAM(IDC_SCR_TOOLBAR_DELETE, BN_CLICKED), 0);
+        }
+        *handled = true;
+        return 0;
+    }
+
+    return 0;
+}
+
 // ── SCR_SaveToDb ──────────────────────────────────────────────────────────────
 void SCR_SaveToDb(int projectId)
 {
-    std::wstring pid = std::to_wstring(projectId);
-
-    DB::SetSetting(L"scr_enabled_"      + pid, s_scrEnabled       ? L"1" : L"0");
-
-    // Pre slot
-    DB::SetSetting(L"scr_pre_enabled_"  + pid, s_slots[SCR_SLOT_PRE].enabled ? L"1" : L"0");
-    DB::SetSetting(L"scr_pre_type_"     + pid, s_slots[SCR_SLOT_PRE].type == SCR_TYPE_BAT ? L"bat" : L"ps1");
-    DB::SetSetting(L"scr_pre_content_"  + pid, s_slots[SCR_SLOT_PRE].content);
-
-    // Post slot
-    DB::SetSetting(L"scr_post_enabled_" + pid, s_slots[SCR_SLOT_POST].enabled ? L"1" : L"0");
-    DB::SetSetting(L"scr_post_type_"    + pid, s_slots[SCR_SLOT_POST].type == SCR_TYPE_BAT ? L"bat" : L"ps1");
-    DB::SetSetting(L"scr_post_content_" + pid, s_slots[SCR_SLOT_POST].content);
+    DB::DeleteScriptsForProject(projectId);
+    for (DB::ScriptRow& s : s_scripts) {
+        s.project_id = projectId;
+        int newId = DB::InsertScript(projectId, s);
+        if (newId > 0) s.id = newId;
+    }
 }
 
 // ── SCR_LoadFromDb ────────────────────────────────────────────────────────────
 void SCR_LoadFromDb(int projectId)
 {
-    std::wstring pid = std::to_wstring(projectId);
-    std::wstring val;
-
-    if (DB::GetSetting(L"scr_enabled_" + pid, val))
-        s_scrEnabled = (val == L"1");
-
-    // Pre slot
-    if (DB::GetSetting(L"scr_pre_enabled_" + pid, val))
-        s_slots[SCR_SLOT_PRE].enabled = (val == L"1");
-    if (DB::GetSetting(L"scr_pre_type_" + pid, val))
-        s_slots[SCR_SLOT_PRE].type = (val == L"bat") ? SCR_TYPE_BAT : SCR_TYPE_PS1;
-    if (DB::GetSetting(L"scr_pre_content_" + pid, val))
-        s_slots[SCR_SLOT_PRE].content = val;
-
-    // Post slot
-    if (DB::GetSetting(L"scr_post_enabled_" + pid, val))
-        s_slots[SCR_SLOT_POST].enabled = (val == L"1");
-    if (DB::GetSetting(L"scr_post_type_" + pid, val))
-        s_slots[SCR_SLOT_POST].type = (val == L"bat") ? SCR_TYPE_BAT : SCR_TYPE_PS1;
-    if (DB::GetSetting(L"scr_post_content_" + pid, val))
-        s_slots[SCR_SLOT_POST].content = val;
+    s_scripts = DB::GetScriptsForProject(projectId);
+    s_nextScrId = 1;
+    for (const auto& s : s_scripts)
+        if (s.id >= s_nextScrId) s_nextScrId = s.id + 1;
+    // If the page is open, refresh the ListView now
+    if (s_hScrList) {
+        HWND hwnd = GetParent(s_hScrList);
+        RefreshList(hwnd);
+        UpdateToolbar(hwnd);
+    }
 }
+

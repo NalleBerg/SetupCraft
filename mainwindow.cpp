@@ -23,6 +23,7 @@
 #include "shortcuts.h"
 #include "deps.h"
 #include "dialogs.h"
+#include "scripts.h"
 #include "my_scrollbar.h"
 #include <richedit.h>
 #include <commdlg.h>
@@ -529,6 +530,7 @@ HWND MainWindow::Create(HINSTANCE hInstance, const ProjectRow &project, const st
     s_hMsbScSmTreeH  = NULL;
     s_hMsbIdlg       = NULL;
     DEP_Reset();           // nullifies s_hMsbDepListV/H (WM_DESTROY already freed ctx)
+    SCR_Reset();
     // Null stale HWND handles so IsWindow guards work correctly on second open.
     s_hTreeView     = NULL;
     s_hListView     = NULL;
@@ -557,6 +559,7 @@ HWND MainWindow::Create(HINSTANCE hInstance, const ProjectRow &project, const st
     SC_Reset();
     DEP_Reset();
     IDLG_Reset();
+    SCR_Reset();
     s_components.clear();   // load once here, never on page switch
     s_currentProject = project;
     s_locale = locale;
@@ -576,6 +579,7 @@ HWND MainWindow::Create(HINSTANCE hInstance, const ProjectRow &project, const st
                 comp.dependencies = DB::GetDependenciesForComponent(comp.id);
         SC_LoadFromDb(project.id);   // load shortcuts + menu nodes + opt-out flags
         DEP_LoadFromDb(project.id);   // load external dependencies
+        SCR_LoadFromDb(project.id);   // load scripts
         IDLG_LoadFromDb(project.id);  // load installer dialog RTF content
     }
     // Fill any empty dialog slots with default RTF (with project name/version substituted).
@@ -2940,23 +2944,8 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
     }
     case 8: // Scripts page
     {
-        // Create container for page content
-        s_hCurrentPage = CreateWindowExW(
-            0, L"STATIC", L"",
-            WS_CHILD | WS_VISIBLE,
-            0, pageY, rc.right, pageHeight,
-            hwnd, NULL, hInst, NULL);
-        
-        HWND hTitle = CreateWindowExW(0, L"STATIC", L"Run Scripts",
-            WS_CHILD | WS_VISIBLE | SS_LEFT,
-            S(20), S(20), rc.right - S(40), S(38),
-            s_hCurrentPage, NULL, hInst, NULL);
-        if (s_hPageTitleFont) SendMessageW(hTitle, WM_SETFONT, (WPARAM)s_hPageTitleFont, TRUE);
-        
-        CreateWindowExW(0, L"STATIC", L"Configure scripts and executables to run before/after installation",
-            WS_CHILD | WS_VISIBLE | SS_LEFT,
-            S(20), S(60), rc.right - S(40), S(20),
-            s_hCurrentPage, NULL, hInst, NULL);
+        SCR_BuildPage(hwnd, hInst, pageY, rc.right,
+                      s_hPageTitleFont, s_hGuiFont, s_locale);
         break;
     }
     case 9: // Components page - direct children of hwnd (no container)
@@ -7430,6 +7419,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         if (DragDrop_OnBeginDrag(nmhdr)) return 0;
         { bool scH = false; LRESULT scR = SC_OnNotify(hwnd, nmhdr, &scH); if (scH) return scR; }
         { bool depH = false; LRESULT depR = DEP_OnNotify(hwnd, nmhdr, &depH); if (depH) return depR; }
+        { bool scrH = false; LRESULT scrR = SCR_OnNotify(hwnd, nmhdr, &scrH); if (scrH) return scrR; }
         // Refresh Start-Menu tree MSBs after expand/collapse.
         // GUARD: only act when MSBs are actually attached.  TreeView_Expand
         // in SC_RebuildSmTree fires TVN_ITEMEXPANDED synchronously BEFORE the
@@ -7728,6 +7718,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         int wmEvent = HIWORD(wParam);
         if (SC_OnCommand(hwnd, wmId, wmEvent, (HWND)lParam)) return 0;
         if (DEP_OnCommand(hwnd, wmId, wmEvent, (HWND)lParam)) return 0;
+        if (SCR_OnCommand(hwnd, wmId, wmEvent, (HWND)lParam)) return 0;
         if (IDLG_OnCommand(hwnd, wmId, wmEvent, (HWND)lParam)) return 0;
 
         // Handle registry page field changes — persist values in statics so they
@@ -10000,6 +9991,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             SC_SaveToDb(s_currentProject.id);    // persist shortcuts + menu nodes
             DEP_SaveToDb(s_currentProject.id);    // persist external dependencies
             DEP_LoadFromDb(s_currentProject.id);  // refresh IDs from DB
+            SCR_SaveToDb(s_currentProject.id);    // persist scripts
+            SCR_LoadFromDb(s_currentProject.id);  // refresh script IDs from DB
             IDLG_SaveToDb(s_currentProject.id);   // persist installer dialog content
             IDLG_LoadFromDb(s_currentProject.id); // refresh from DB
             // Persist custom registry entries and keys
@@ -10596,6 +10589,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             (dis->CtlID >= IDC_SC_DESKTOP_BTN && dis->CtlID <= IDC_SC_SM_REMOVE) ||
              dis->CtlID == IDC_SC_SM_ADDSC ||
             (dis->CtlID >= IDC_DEP_ADD && dis->CtlID <= IDC_DEP_REMOVE) ||
+            (dis->CtlID >= IDC_SCR_TOOLBAR_ADD && dis->CtlID <= IDC_SCR_TOOLBAR_DELETE) ||
             (dis->CtlID >= IDC_IDLG_ROW_BASE && dis->CtlID < IDC_IDLG_ROW_BASE + IDLG_COUNT * 4) ||
              dis->CtlID == IDC_IDLG_INST_CHANGE_ICON) {
             ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);

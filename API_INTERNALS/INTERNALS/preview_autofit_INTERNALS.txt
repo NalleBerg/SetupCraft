@@ -1,0 +1,293 @@
+================================================================================
+  preview_autofit_INTERNALS.txt
+  Preview Dialog — Auto-fit, Positioning, Scrollbar, and Dirty-Flag Reference
+================================================================================
+
+  Relevant source: dialogs.cpp
+  Key functions  : AutoFitPreview, MeasureRichEditLogHeight,
+                   ScanRtfNaturalWidthTwips, SyncContentScrollbar,
+                   NavigateTo, ShowPreviewDialog, TryCancelPreview
+
+--------------------------------------------------------------------------------
+1. OVERVIEW
+--------------------------------------------------------------------------------
+
+  AutoFitPreview measures the RTF content of the current dialog type and sizes
+  the preview window to exactly fit the content — no scrollbar for text that
+  fits, scrollbar only when the 75 % screen-height cap kicks in.
+
+  It is called:
+    • Once from ShowPreviewDialog after the window is visible (initial open).
+    • Once from NavigateTo on every Back/Next navigation.
+    • Once from SizerWndProc when the developer presses Reset Size.
+
+  It is suppressed silently when s_previewUserSized[pd->type] is true
+  (developer has manually resized that dialog type via the sizer panel).
+
+--------------------------------------------------------------------------------
+2. WIDTH MEASUREMENT  — ScanRtfNaturalWidthTwips
+--------------------------------------------------------------------------------
+
+  1. ScanRtfNaturalWidthTwips(rtf) scans the RTF string for \picwgoal<N> tags
+     and returns the largest value found, in twips (1 twip = 1/1440 inch).
+  2. If a twip value > 0 is found:
+       logW = twips / 15   (15 twips per logical px at 96 dpi)
+       logW += 32 + 1      (+32 = 2 × 16 px side padding, +1 sub-pixel tolerance)
+  3. logW is then clamped:
+       logW = max(logW, 400)            // 400 px floor — prevents word-wrap
+                                        // breakdown for text-only and narrow-
+                                        // image content (GNU logo triggered this)
+       logW = min(logW, maxLogW)        // maxLogW = work-area * 0.95 (95 % cap)
+
+--------------------------------------------------------------------------------
+3. HEIGHT MEASUREMENT — measurement RichEdit
+--------------------------------------------------------------------------------
+
+  CRITICAL REQUIREMENTS for the measurement window:
+    • WS_CHILD of the live, visible hPreview (NOT GetDesktopWindow — no paint
+      pass runs on an invisible parent → GetScrollInfo returns 0 always).
+    • WS_VISIBLE — must be set, otherwise no WM_PAINT fires and the RichEdit
+      never lays out its content.
+    • NO WS_EX_CLIENTEDGE — the 2 px border makes the client area negative
+      for a 1 px tall window → RichEdit never lays out → GetScrollInfo returns 0.
+    • Height = 1 px so all content always overflows vertically.
+    • Width  = measPhysW = S(logW) - 2*S(16)   (the live RichEdit interior width)
+    • Positioned at -(measPhysW + 100) so it is off-screen left (invisible to user).
+
+  After StreamRtfIn:
+    RedrawWindow(hM, NULL, NULL, RDW_ERASE | RDW_INVALIDATE | RDW_UPDATENOW)
+  This forces a synchronous paint so the RichEdit fully lays out content,
+  including embedded images and OLE objects, before GetScrollInfo is read.
+
+  HISTORY: Omitting WS_VISIBLE or the RedrawWindow call caused GetScrollInfo.nMax
+  to always return 0, silently falling back to EM_FORMATRANGE.  EM_FORMATRANGE
+  is reliable for pure text but underestimates height for image-heavy RTF
+  (images are sized by the OLE engine during paint, not during EM_FORMATRANGE).
+  This caused wrong heights on navigation (e.g. Welcome showing at License height
+  after pressing Back).
+
+--------------------------------------------------------------------------------
+4. MeasureRichEditLogHeight
+--------------------------------------------------------------------------------
+
+  Primary path — GetScrollInfo(SB_VERT):
+    si.fMask  = SIF_RANGE | SIF_PAGE
+    if (si.nMax > 0)
+        return (int)((si.nMax + 1) / g_dpiScale + 0.5f)
+    nMax + 1 = total content height in physical pixels.
+
+  Fallback path — EM_FORMATRANGE (wParam=FALSE = measure only):
+    Used when GetScrollInfo returns nMax=0 (e.g. text-only content with no
+    paint pass yet, or window not yet attached to a live parent).
+    fr.rc = { 0, 0, widthTwips, 0x0FFFFFFF }
+    After send: fr.rc.top = content extent in twips.
+    Returns MulDiv((int)fr.rc.top, 96, 1440) as logical px.
+    EM_FORMATRANGE, 0 must always be called after to free cached data.
+
+  NOTE: EM_FORMATRANGE reliably measures pure text but misses embedded images
+  (images contribute to nMax via the OLE paint path, not the text layout path).
+  Always prefer the GetScrollInfo path by ensuring WS_VISIBLE + RedrawWindow
+  is called before MeasureRichEditLogHeight on the measurement window.
+
+--------------------------------------------------------------------------------
+5. ONE BLANK LINE OF BREATHING ROOM (singleLineH / splitLineH)
+--------------------------------------------------------------------------------
+
+  After measuring the content height, AutoFitPreview adds one estimated
+  line height as breathing room so the last line of text is never flush
+  against the navigation buttons.
+
+  singleLineH / splitLineH represent the height of one text line in logical px.
+  Computed as:
+      nLines = (int)SendMessageW(hM, EM_GETLINECOUNT, 0, 0)
+      lineH  = std::min(measured / nLines, 24)   if nLines > 0
+
+  The cap at 24 px is critical.  If the RTF contains a large image and almost
+  no text lines (e.g. nLines = 1), measured/nLines would be the full image
+  height (potentially 400-500 px).  Capping at 24 limits breathing room to
+  approximately one text line regardless of image content.
+
+  Applied:
+    Single layout (non-capped path):  rtfLogH += singleLineH
+    Split layout  (non-capped path):  rtfLogH += splitLineH
+    Capped paths: the cap overrides; singleLineH/splitLineH are not added.
+
+  HISTORY: The cap was added because a single-line RTF containing a large
+  image gave singleLineH = measured/1 = ~500 px, making the preview
+  nearly 600 px tall with almost all whitespace below the image.
+
+  SCROLLBAR TOLERANCE (+1 px):
+    In the single-layout non-capped path, rtfLogH += 1 is also applied
+    (in addition to singleLineH) before the final logH calculation.
+    This prevents a false "content overflows" verdict from SyncContentScrollbar:
+    MeasureRichEditLogHeight (GetScrollInfo path) and Msb_MeasureRichVertMax
+    (EM_POSFROMCHAR path) differ by ≤ 1 physical px due to integer rounding.
+    Without the +1, the window might be exactly nMax+1 px tall and
+    Msb_ContentOverflows would still see a 1 px theoretical overflow and keep
+    the custom scrollbar visible even though content fits perfectly.
+
+--------------------------------------------------------------------------------
+6. LAYOUT HEIGHT FORMULAS
+--------------------------------------------------------------------------------
+
+  Single layout (all types except IDLG_FOR_ME_ALL and IDLG_COMPONENTS):
+    kChromeLogH = 114   // pad(16) + titleH(36) + 2×gap(8) + btnH(30) + pad(16)
+    logH = kChromeLogH + rtfLogH + singleLineH + 1   (non-capped)
+    logH = kChromeLogH + (maxLogH - kChromeLogH)     (capped, scrollbar appears)
+
+  Split layout — with RTF (IDLG_COMPONENTS, IDLG_FOR_ME_ALL):
+    logH = 160 + rtfLogH + splitLineH + extrasContentH   (non-capped)
+    logH = maxLogH                                        (capped)
+    where extrasContentH:
+      checkboxes (IDLG_COMPONENTS)  : n × 28
+      radio buttons (IDLG_FOR_ME_ALL): 62
+          = rH(24) + S(6) + rH(24) + breathing(8)
+      fallback                       : n × 28
+
+  Split layout — no RTF (IDLG_COMPONENTS with empty content):
+    logH = 144 + max(nItems, 1) × 28
+
+  All paths:
+    logH = max(logH, 150)   // absolute floor
+
+  Caps:
+    maxLogW = work-area width  × kPreviewMaxWidthPct  (0.95)
+    maxLogH = work-area height × kPreviewMaxHeightPct (0.75)
+
+--------------------------------------------------------------------------------
+7. RESIZING THE WINDOW
+--------------------------------------------------------------------------------
+
+  SetWindowPos(hPreview, NULL, 0, 0, adjW, adjH,
+               SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE)
+
+  SWP_NOMOVE: AutoFitPreview never repositions the window.
+  Repositioning is the caller's responsibility (see §8).
+
+  AdjustWindowRectEx(&adj, kPreviewStyle, FALSE, kPreviewExStyle) is used to
+  inflate the logical client size to the correct outer window size including
+  title bar, borders, and non-client chrome.
+
+  After SetWindowPos, WM_SIZE fires → LayoutPreviewControls → SyncContentScrollbar.
+
+  Sizer spinners are updated atomically:
+    sd->ignoring = true
+    UDM_SETPOS32(hWS, s_previewLogW)
+    UDM_SETPOS32(hHS, s_previewLogH)
+    sd->ignoring = false
+  The ignoring flag prevents the EN_CHANGE handler from calling MarkAsModified()
+  during the programmatic spinner update.
+
+--------------------------------------------------------------------------------
+8. MONITOR-CENTRED REPOSITIONING
+--------------------------------------------------------------------------------
+
+  AutoFitPreview uses SWP_NOMOVE.  Every call site that may change the window
+  size MUST re-centre the preview (and sizer) on the monitor work area afterwards.
+
+  Pattern used in all three sites:
+    HMONITOR hM = MonitorFromWindow(hPreview, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO mi = {}; mi.cbSize = sizeof(mi);
+    if (hM && GetMonitorInfoW(hM, &mi)) {
+        RECT& wa = mi.rcWork;
+        nx = wa.left + (wa.right  - wa.left - newW) / 2;
+        ny = wa.top  + (wa.bottom - wa.top  - newH) / 2;
+        // clamp to work area...
+    }
+    SetWindowPos(hPreview, NULL, nx, ny, 0, 0,
+                 SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    // Then move the sizer to nx - S(8) - sizerW, ny.
+
+  The three sites that do this:
+    1. ShowPreviewDialog  — initial position before CreateWindowExW + post-AutoFit.
+    2. NavigateTo         — after AutoFitPreview on every Back/Next.
+    3. SizerWndProc       — after AutoFitPreview on Reset button click.
+
+  HISTORY: NavigateTo originally only called AutoFitPreview with SWP_NOMOVE and
+  never re-centred.  After navigating from a narrow dialog (Welcome) to a taller
+  one (License) and back, the window position was always at the initial centre
+  for the first type and never updated.  Fixed by adding the re-centre block
+  inside NavigateTo.
+
+--------------------------------------------------------------------------------
+9. CANCEL GUARD — TryCancelPreview
+--------------------------------------------------------------------------------
+
+  TryCancelPreview compares current s_previewLogW/H/s_previewUserSized against
+  snapshots in PreviewData (openLogW, openLogH, openUserSized) and shows a
+  "discard sizing changes?" dialog if they differ.
+
+  CRITICAL: the snapshot MUST be taken AFTER AutoFitPreview and the post-fit
+  re-centre block in ShowPreviewDialog — not before.
+
+  If the snapshot is taken before AutoFitPreview:
+    • s_previewLogW/H are the values from the previous session (loaded from DB).
+    • AutoFitPreview overwrites them with the fitted values.
+    • TryCancelPreview then always sees a difference and shows the discard
+      dialog on Cancel even though the developer never touched anything.
+
+  Show-preview sequence (correct order):
+    pd.openLogW = pd.openLogH = ...  // DO NOT take snapshot here
+    CreateWindowExW(...)
+    ShowWindow(hPreview, SW_SHOW)
+    AutoFitPreview(hPreview, &pd)    // updates s_previewLogW/H
+    // ... re-centre block ...
+    RedrawWindow(...)
+    pd.openLogW      = s_previewLogW  // snapshot HERE, after auto-fit
+    pd.openLogH      = s_previewLogH
+    pd.openUserSized = s_previewUserSized[(int)type]
+    // message loop begins
+
+--------------------------------------------------------------------------------
+10. DIRTY-FLAG RULES FOR THE SIZER
+--------------------------------------------------------------------------------
+
+  MarkAsModified() is called only when the developer makes a meaningful change:
+
+  EN_CHANGE on W/H edit (user manually typed a new value):
+    Guard: if (sd->ignoring) return 0;   // skip programmatic updates
+    Then:  MarkAsModified() only when newW >= 200 && newH >= 150.
+
+  Reset button (SizerWndProc IDC_IDLG_SZR_RESET):
+    bool wasSized = s_previewUserSized[(int)sd->pd->type];
+    s_previewUserSized[sd->pd->type] = false;
+    // ... AutoFitPreview + re-centre ...
+    if (wasSized) MarkAsModified();
+    // If the dialog was never user-sized, pressing Reset does nothing
+    // meaningful and must NOT dirty the project.
+
+  Close button (IDC_IDLG_SZR_CLOSE):
+    pd->cancelled = false; pd->running = false;
+    No MarkAsModified() here — if sizes changed, they were already marked
+    when the EN_CHANGE fired.
+
+  The ignoring guard (sd->ignoring) exists because:
+    UDM_SETPOS32 triggers EN_CHANGE on the buddy edit.
+    During sizer WM_CREATE, both spinners are initialised via UDM_SETPOS32.
+    Without the guard, EN_CHANGE fires with valid values and MarkAsModified()
+    is called on every preview open — before the developer has touched anything.
+
+--------------------------------------------------------------------------------
+11. SYNC CONTENT SCROLLBAR — SyncContentScrollbar
+--------------------------------------------------------------------------------
+
+  Called at the end of LayoutPreviewControls (triggered by WM_SIZE on the
+  preview window after AutoFitPreview resizes it).
+
+  Decision logic:
+    If hContentSB is NULL (no scrollbar attached yet):
+        Read GetScrollInfo(hContent, SB_VERT)
+        If nMax > 0 (content overflows): msb_attach(hContent, MSB_VERTICAL)
+        Else: nothing.
+    If hContentSB is non-NULL (scrollbar already attached):
+        Call msb_sync(hContentSB) directly.
+        DO NOT re-read GetScrollInfo here — after msb_attach calls
+        EM_SHOWSCROLLBAR(FALSE), the RichEdit stops maintaining SCROLLINFO
+        and nMax reads back as 0 on every subsequent call, causing a false
+        "no overflow" verdict and immediate detachment.
+
+  msb_sync internally calls Msb_ContentOverflows (via EM_POSFROMCHAR document
+  height) to decide whether to keep or remove the scrollbar — this bypasses
+  the stale SCROLLINFO problem entirely.
+
+================================================================================

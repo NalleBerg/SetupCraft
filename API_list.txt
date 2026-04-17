@@ -239,6 +239,23 @@
                                                 (with mistake history), layout constants,
                                                 and full locale key table.
 
+  API_INTERNALS\INTERNALS\scripts_INTERNALS.txt  Scripts page module architecture —
+                                                SCR_BuildPage / SCR_Reset / SCR_TearDown
+                                                lifecycle, ScrWhenToRun enum → Inno Setup
+                                                section mapping (BEFORE_FILES→[Code],
+                                                AFTER_FILES→[Run], FINISH_OPTOUT→[Run]
+                                                postinstall skipifsilent, UNINSTALL→
+                                                [UninstallRun]), SCR_EditDialog modal pattern
+                                                (measure-then-create, ScriptDlgData struct,
+                                                pExisting duplicate check, IsDupName helper,
+                                                ShowRenameDialog sub-dialog with RenameDlgProc,
+                                                finish-label overlay), Scintilla runtime load
+                                                (SciLoad: LoadLibraryW Scintilla.dll+Lexilla.dll,
+                                                Scintilla_RegisterClasses, CreateLexer;
+                                                plain EDIT fallback), DB table (scripts),
+                                                control ID ranges (page 7300–7349,
+                                                dialog 7350–7399), and full locale key table.
+
   preview_autofit_INTERNALS.txt                 Preview dialog auto-fit, positioning, and
                                                 scrollbar system —
                                                 AutoFitPreview (all dialog types, both layouts),

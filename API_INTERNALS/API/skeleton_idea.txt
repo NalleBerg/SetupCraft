@@ -118,4 +118,24 @@
     operations complete — not before them.  Taking it before means every open
     looks "changed" and the discard prompt fires spuriously.
 
+  - Duplicate-name rename sub-dialog pattern (Scripts / any list-with-names page):
+    Instead of blocking the user with a plain validation error on a name conflict,
+    open a compact sub-dialog (ShowRenameDialog / RenameDlgProc) with a conflict
+    message, a pre-filled all-selected name edit, and Rename/Cancel buttons.
+    Validate the new name for empty AND still-taken inside RenameDlgProc; both
+    errors use ShowValidationDialog.  On success write the new name back into the
+    working row struct and let the outer OK handler proceed.  See scripts_INTERNALS.txt
+    §Duplicate-name detection and rename sub-dialog for the reference implementation.
+
+  - Scintilla runtime-load pattern (no import lib required):
+    1. LoadLibraryW(L"Scintilla.dll") + LoadLibraryW(L"Lexilla.dll")
+    2. GetProcAddress(hSciDll, "Scintilla_RegisterClasses")(hInst) — registers the
+       "Scintilla" WndClass.
+    3. GetProcAddress(hLexDll, "CreateLexer") — store as (void*(*)(const char*)).
+    4. CreateWindowExW(WS_EX_CLIENTEDGE, L"Scintilla", ...) to create the editor.
+    5. SendMessage(hSci, SCI_SETILEXER, 0, (LPARAM)pfnCreateLexer("batch"|"powershell"))
+       to attach the lexer.
+    If either DLL is unavailable (SciLoad returns false), fall back to a plain
+    multiline WS_BORDER EDIT control so the feature degrades gracefully.
+
 ================================================================================
