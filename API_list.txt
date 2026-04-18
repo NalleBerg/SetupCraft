@@ -162,6 +162,36 @@
                                                 fcomp_unassigned, fcomp_new_label,
                                                 fcomp_add_btn. Control ID range 9020–9024
                                                 (IDC_FCOMP_*).
+                                                FolderFilterDialogProc — Add Folder exclude
+                                                filter modal: wildcard-pattern listbox (msb,
+                                                NONCLIENTMETRICS font), edit + Add/Remove row,
+                                                Add Folder OK / Cancel. PathMatchSpecW used
+                                                for MatchExcludePattern (files + dirs).
+                                                IngestRealPathFiles accepts optional
+                                                excludePatterns param; AddTreeNodeRecursive
+                                                accepts optional excludePatterns param and
+                                                eagerly ingests each subfolder when patterns
+                                                are present so TVN_SELCHANGED lazy path never
+                                                re-reads disk without filter. Root node must
+                                                also be eagerly ingested by the caller before
+                                                AddTreeNodeRecursive. ListView refreshed via
+                                                ForceRefreshListView (not PopulateListView)
+                                                when patterns are active. Patterns persisted
+                                                via DB::GetSetting/SetSetting with key
+                                                folder_exclude_patterns_<id> (newline-sep).
+                                                Locale keys: ffilter_title, ffilter_label,
+                                                ffilter_hint, ffilter_add_btn,
+                                                ffilter_remove_btn, ffilter_ok,
+                                                ffilter_cancel. Control ID range 9030–9035
+                                                (IDC_FFILTER_*).
+                                                Modal message loop pattern: ALWAYS guard with
+                                                IsWindow(hDlg) in the while condition —
+                                                while (IsWindow(hDlg) && GetMessageW(...) > 0).
+                                                Never drain with PeekMessage(PM_REMOVE) after
+                                                the loop — it consumes WM_PAINT messages that
+                                                TreeView_Expand / TreeView_SelectItem queue.
+                                                Call InvalidateRect(tree, NULL, TRUE) +
+                                                UpdateWindow after all tree modifications.
 
   API_INTERNALS\INTERNALS\button_INTERNALS.txt  Custom button & toolbar system — ButtonColor
                                                 enum, CreateCustomButton* variants, icon

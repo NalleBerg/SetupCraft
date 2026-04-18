@@ -118,6 +118,16 @@
     programmatic UDM_SETPOS32 / SetWindowText call and check it at the top of
     the EN_CHANGE handler with an early return.
 
+  - Modal message loop + TreeView repaint trap: the modal loop for a WS_POPUP
+    dialog must guard with IsWindow in the while condition:
+        while (IsWindow(hDlg) && GetMessageW(&msg, NULL, 0, 0) > 0) { ... }
+    NEVER follow the loop with a PeekMessage(PM_REMOVE) drain — it consumes
+    WM_PAINT messages queued by TreeView_Expand / TreeView_SelectItem, leaving
+    the tree blank until the user clicks on it.  To force a synchronous repaint
+    after all tree modifications, call:
+        InvalidateRect(hTreeView, NULL, TRUE);
+        UpdateWindow(hTreeView);
+
   - Measure-window dirty-flag trap: If a temporary measurement window (e.g. a
     off-screen RichEdit for height measurement) triggers EN_CHANGE on ANY shared
     handler, MarkAsModified() fires unintentionally.  Always create measurement

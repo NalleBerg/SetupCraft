@@ -2,6 +2,12 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.04.18.07] - 2026-04-18
+
+### Added / Fixed (Files page — exclude filter for Add Folder; tree redraw fix)
+- **Files page — Add Folder exclude filter**: New `FolderFilterDialogProc` modal appears before the folder is ingested. Presents a wildcard-pattern editor (listbox + edit + Add/Remove) pre-loaded with patterns saved for the current project. Patterns matched against file and subfolder names via `PathMatchSpecW` (`*` and `?` supported). Matching files skipped in `IngestRealPathFiles`; matching subdirs skipped in `AddTreeNodeRecursive`. When patterns are active, `IngestRealPathFiles` is called eagerly for both root and every subfolder during `AddTreeNodeRecursive` so the lazy `TVN_SELCHANGED` path never re-reads disk without the filter. ListView refreshed via `ForceRefreshListView` (uses pre-filtered VFS data) instead of `PopulateListView`. Patterns persisted to DB via `DB::GetSetting`/`DB::SetSetting` with key `folder_exclude_patterns_<projectId>` (newline-separated); recalled on next Add Folder for the same project. Cancelling aborts the entire Add Folder operation. Dialog style: `my_scrollbar` on listbox, NONCLIENTMETRICS font, `CreateCustomButtonWithIcon` Add (Blue, shell32 #264) / Remove (Red, shell32 #234) / Add Folder OK (Green, imageres #89) / Cancel (Red, shell32 #131), `WM_DRAWITEM` + `WM_CTLCOLORSTATIC` + `WM_DESTROY`. New locale keys: `ffilter_title`, `ffilter_label`, `ffilter_hint`, `ffilter_add_btn`, `ffilter_remove_btn`, `ffilter_ok`, `ffilter_cancel`. Control ID range 9030–9035 (`IDC_FFILTER_*`).
+- **Files page — TreeView redraw fix after Add Folder**: TreeView failed to repaint after `FolderFilterDialogProc` (and `FileCompDialogProc`) modal closed, until the user clicked on it. Root cause: `GetMessageW` loop lacked an `IsWindow` guard, and a `PeekMessage(PM_REMOVE)` drain consumed the `WM_PAINT` messages queued by `TreeView_Expand`/`TreeView_SelectItem`. Fix: loop condition changed to `IsWindow(hDlgFF) && GetMessageW(...) > 0`; drain removed; `InvalidateRect(s_hTreeView, NULL, TRUE)` + `UpdateWindow` called after all tree operations.
+
 ## [2026.04.17.17] - 2026-04-17
 
 ### Added / Fixed (Files page — per-file component assignment; FileCompDialogProc visual polish)

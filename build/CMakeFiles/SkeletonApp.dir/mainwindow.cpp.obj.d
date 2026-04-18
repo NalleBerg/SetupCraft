@@ -417,34 +417,7 @@ CMakeFiles/SkeletonApp.dir/mainwindow.cpp.obj: \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/set \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_set.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_multiset.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/unordered_set \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/unordered_set.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/algorithm \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_algo.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/algorithmfwd.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_heap.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/uniform_int_dist.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_tempbuf.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/pstl/glue_algorithm_defs.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/pstl/execution_defs.h \
- C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\ctrlw.h \
- C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\button.h \
- C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\spinner_dialog.h \
- C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\about.h \
- C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\tooltip.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/utility \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_relops.h \
- C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\about_icon.h \
- C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\dragdrop.h \
- C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\checkbox.h \
- C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\notes_editor.h \
- C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\shortcuts.h \
- C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\dialogs.h \
- C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\scripts.h \
- C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\settings.h \
- C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\my_scrollbar.h \
- C:/mingw64/x86_64-w64-mingw32/include/richedit.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/fstream \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/sstream \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/istream \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/ios \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/exception \
@@ -497,6 +470,35 @@ CMakeFiles/SkeletonApp.dir/mainwindow.cpp.obj: \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/ostream.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/ostream.tcc \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/istream.tcc \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/sstream.tcc \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/unordered_set \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/unordered_set.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/algorithm \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_algo.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/algorithmfwd.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_heap.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/uniform_int_dist.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_tempbuf.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/pstl/glue_algorithm_defs.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/pstl/execution_defs.h \
+ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\ctrlw.h \
+ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\button.h \
+ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\spinner_dialog.h \
+ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\about.h \
+ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\tooltip.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/utility \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_relops.h \
+ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\about_icon.h \
+ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\dragdrop.h \
+ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\checkbox.h \
+ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\notes_editor.h \
+ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\shortcuts.h \
+ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\dialogs.h \
+ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\scripts.h \
+ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\settings.h \
+ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\my_scrollbar.h \
+ C:/mingw64/x86_64-w64-mingw32/include/richedit.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/fstream \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/codecvt.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/x86_64-w64-mingw32/bits/basic_file.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/x86_64-w64-mingw32/bits/c++io.h \

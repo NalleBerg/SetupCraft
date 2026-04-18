@@ -9,6 +9,7 @@
 #include <functional>
 #include <vector>
 #include <set>
+#include <sstream>
 #include <unordered_set>
 #include <algorithm>
 #include "ctrlw.h"
@@ -340,6 +341,14 @@ static bool s_filesPageHasContent = false; // tracks whether Files page has any 
 #define IDC_FCOMP_ADD_BTN           9022
 #define IDC_FCOMP_OK                9023
 #define IDC_FCOMP_CANCEL            9024
+
+// Folder Exclude Filter dialog control IDs (9030-9035)
+#define IDC_FFILTER_LIST            9030
+#define IDC_FFILTER_EDIT            9031
+#define IDC_FFILTER_ADD_BTN         9032
+#define IDC_FFILTER_REMOVE          9033
+#define IDC_FFILTER_OK              9034
+#define IDC_FFILTER_CANCEL          9035
 
 // Notes button inside folder edit and component edit dialogs
 #define IDC_FOLDER_DLG_NOTES       340
@@ -1250,8 +1259,20 @@ static void SaveCompTreeExpansion(HWND hTree, HTREEITEM hParent) {
 // Recursively clone hSrc subtree (text, fullPath, virtualFiles) under hNewParent.
 // virtualFiles are *moved* (not copied) so they need no second erase.
 // Enumerate files at a real disk path and append them as VirtualFolderFile
-// entries into s_virtualFolderFiles[hTarget].  Only direct children (no subdirs).
-static void IngestRealPathFiles(HTREEITEM hTarget, const std::wstring& folderPath) {
+// Returns true if 'filename' (just the name, no path) matches any wildcard
+// pattern in 'excludePatterns'.  Uses PathMatchSpecW which supports * and ?.
+static bool MatchExcludePattern(const std::wstring& filename,
+                                 const std::vector<std::wstring>& excludePatterns) {
+    for (const auto& pat : excludePatterns)
+        if (!pat.empty() && PathMatchSpecW(filename.c_str(), pat.c_str()))
+            return true;
+    return false;
+}
+
+// Scan folderPath for direct-child files and append VirtualFolderFile entries
+// into s_virtualFolderFiles[hTarget].  Only direct children (no subdirs).
+static void IngestRealPathFiles(HTREEITEM hTarget, const std::wstring& folderPath,
+                                const std::vector<std::wstring>& excludePatterns = {}) {
     std::wstring searchPath = folderPath + L"\\*";
     WIN32_FIND_DATAW fd = {};
     HANDLE hFind = FindFirstFileW(searchPath.c_str(), &fd);
@@ -1259,6 +1280,9 @@ static void IngestRealPathFiles(HTREEITEM hTarget, const std::wstring& folderPat
     do {
         if (wcscmp(fd.cFileName, L".") == 0 || wcscmp(fd.cFileName, L"..") == 0) continue;
         if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+        // Skip files matching any exclude pattern
+        if (!excludePatterns.empty() && MatchExcludePattern(fd.cFileName, excludePatterns))
+            continue;
         VirtualFolderFile vf;
         vf.sourcePath    = folderPath + L"\\" + fd.cFileName;
         vf.destination   = L"\\" + std::wstring(fd.cFileName);
@@ -3463,7 +3487,9 @@ const std::vector<ComponentRow>& MainWindow::GetComponents() {
     return s_components;
 }
 
-void MainWindow::AddTreeNodeRecursive(HWND hTree, HTREEITEM hParent, const std::wstring &folderPath) {
+void MainWindow::AddTreeNodeRecursive(HWND hTree, HTREEITEM hParent,
+                                      const std::wstring& folderPath,
+                                      const std::vector<std::wstring>& excludePatterns) {
     std::wstring searchPath = folderPath + L"\\*";
     WIN32_FIND_DATAW findData;
     HANDLE hFind = FindFirstFileW(searchPath.c_str(), &findData);
@@ -3472,12 +3498,19 @@ void MainWindow::AddTreeNodeRecursive(HWND hTree, HTREEITEM hParent, const std::
         do {
             if (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
                 // Skip . and ..
-                if (wcscmp(findData.cFileName, L".") != 0 && wcscmp(findData.cFileName, L"..") != 0) {
-                    std::wstring subPath = folderPath + L"\\" + findData.cFileName;
-                    HTREEITEM hItem = AddTreeNode(hTree, hParent, findData.cFileName, subPath);
-                    // Recursively add subdirectories
-                    AddTreeNodeRecursive(hTree, hItem, subPath);
-                }
+                if (wcscmp(findData.cFileName, L".") == 0 ||
+                    wcscmp(findData.cFileName, L"..") == 0) continue;
+                // Skip directories matching any exclude pattern
+                if (!excludePatterns.empty() &&
+                    MatchExcludePattern(findData.cFileName, excludePatterns)) continue;
+                std::wstring subPath = folderPath + L"\\" + findData.cFileName;
+                HTREEITEM hItem = AddTreeNode(hTree, hParent, findData.cFileName, subPath);
+                // When patterns are active, eagerly ingest files so the lazy
+                // TVN_SELCHANGED path never overwrites with unfiltered results.
+                if (!excludePatterns.empty())
+                    IngestRealPathFiles(hItem, subPath, excludePatterns);
+                // Recursively add subdirectories
+                AddTreeNodeRecursive(hTree, hItem, subPath, excludePatterns);
             }
         } while (FindNextFileW(hFind, &findData));
         FindClose(hFind);
@@ -5019,6 +5052,249 @@ LRESULT CALLBACK FileCompDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
             NONCLIENTMETRICSW ncm = {};
             ncm.cbSize = sizeof(ncm);
+            SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+            if (ncm.lfMessageFont.lfHeight < 0)
+                ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
+            ncm.lfMessageFont.lfWeight = FW_BOLD;
+            ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+            HFONT hFont = CreateFontIndirectW(&ncm.lfMessageFont);
+            LRESULT result = DrawCustomButton(dis, color, hFont);
+            if (hFont) DeleteObject(hFont);
+            return result;
+        }
+        break;
+    }
+
+    case WM_CTLCOLORSTATIC: {
+        HDC hdc = (HDC)wParam;
+        SetBkMode(hdc, TRANSPARENT);
+        return (LRESULT)GetStockObject(WHITE_BRUSH);
+    }
+
+    case WM_DESTROY: {
+        HFONT hCtrlFont = (HFONT)GetPropW(hwnd, L"hCtrlFont");
+        if (hCtrlFont) { DeleteObject(hCtrlFont); RemovePropW(hwnd, L"hCtrlFont"); }
+        HMSB hMsb = (HMSB)GetPropW(hwnd, L"hMsbListV");
+        if (hMsb) { msb_detach(hMsb); RemovePropW(hwnd, L"hMsbListV"); }
+        break;
+    }
+
+    case WM_CLOSE:
+        DestroyWindow(hwnd);
+        return 0;
+    }
+
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+// ─── Folder Exclude Filter Dialog ──────────────────────────────────────────
+// Shown after the developer picks a folder in "Add Folder".
+// Lets the developer specify wildcard exclude patterns (e.g. *.pdb, Thumbs.db)
+// that are applied during folder ingestion.  Patterns are persisted per project
+// so the same list reappears on the next "Add Folder" call.
+
+struct FolderFilterDialogData {
+    std::vector<std::wstring> patterns;  // in/out — the exclude pattern list
+    bool confirmed = false;
+    // Locale strings cached at construction time
+    std::wstring labelText;     // description label above the listbox
+    std::wstring hintText;      // cue banner in the new-pattern edit
+    std::wstring addBtnText;
+    std::wstring removeBtnText;
+    std::wstring okText;        // "Add Folder"
+    std::wstring cancelText;
+};
+
+// Layout constants for Folder Exclude Filter dialog (design px at 96 DPI)
+static const int FFILTER_PAD_H  = 16;
+static const int FFILTER_PAD_T  = 12;
+static const int FFILTER_LBL_H  = 40;   // description label (~2 lines)
+static const int FFILTER_LIST_H = 140;  // patterns listbox
+static const int FFILTER_ROW_H  = 28;   // edit+buttons row
+static const int FFILTER_BTN_H  = 34;   // OK/Cancel height
+static const int FFILTER_GAP    = 8;
+static const int FFILTER_DLG_W  = 440;
+
+LRESULT CALLBACK FolderFilterDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+    case WM_CREATE: {
+        CREATESTRUCTW* cs = (CREATESTRUCTW*)lParam;
+        HINSTANCE hInst   = cs->hInstance;
+        FolderFilterDialogData* pData = (FolderFilterDialogData*)cs->lpCreateParams;
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)pData);
+
+        RECT rc; GetClientRect(hwnd, &rc);
+        int cw   = rc.right - rc.left;
+        int padH = S(FFILTER_PAD_H);
+        int padT = S(FFILTER_PAD_T);
+        int gap  = S(FFILTER_GAP);
+        int y    = padT;
+
+        // Description label
+        CreateWindowExW(0, L"STATIC", pData->labelText.c_str(),
+            WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX,
+            padH, y, cw - 2*padH, S(FFILTER_LBL_H),
+            hwnd, (HMENU)0, hInst, NULL);
+        y += S(FFILTER_LBL_H) + gap;
+
+        // Patterns listbox
+        HWND hList = CreateWindowExW(WS_EX_CLIENTEDGE, L"ListBox", NULL,
+            WS_CHILD | WS_VISIBLE | WS_VSCROLL | LBS_NOTIFY | LBS_NOINTEGRALHEIGHT,
+            padH, y, cw - 2*padH, S(FFILTER_LIST_H),
+            hwnd, (HMENU)IDC_FFILTER_LIST, hInst, NULL);
+
+        // Attach custom scrollbar BEFORE populating (Rule 5)
+        HMSB hMsb = msb_attach(hList, MSB_VERTICAL);
+        SetPropW(hwnd, L"hMsbListV", (HANDLE)hMsb);
+
+        // Populate with saved patterns
+        for (const auto& pat : pData->patterns)
+            if (!pat.empty())
+                SendMessageW(hList, LB_ADDSTRING, 0, (LPARAM)pat.c_str());
+        ShowScrollBar(hList, SB_VERT, FALSE);
+        if (hMsb) msb_sync(hMsb);
+
+        y += S(FFILTER_LIST_H) + gap;
+
+        // Edit + Add + Remove row
+        int wAdd    = MeasureButtonWidth(pData->addBtnText, true);
+        int wRemove = MeasureButtonWidth(pData->removeBtnText, true);
+        int editW   = cw - 2*padH - gap - wAdd - gap - wRemove;
+        CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", NULL,
+            WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL,
+            padH, y, editW, S(FFILTER_ROW_H),
+            hwnd, (HMENU)IDC_FFILTER_EDIT, hInst, NULL);
+        HWND hEditCtrl = GetDlgItem(hwnd, IDC_FFILTER_EDIT);
+        if (hEditCtrl)
+            SendMessageW(hEditCtrl, EM_SETCUEBANNER, TRUE, (LPARAM)pData->hintText.c_str());
+
+        CreateCustomButtonWithIcon(hwnd, IDC_FFILTER_ADD_BTN, pData->addBtnText.c_str(),
+            ButtonColor::Blue, L"shell32.dll", 264,
+            padH + editW + gap, y, wAdd, S(FFILTER_ROW_H), hInst);
+        CreateCustomButtonWithIcon(hwnd, IDC_FFILTER_REMOVE, pData->removeBtnText.c_str(),
+            ButtonColor::Red, L"shell32.dll", 234,
+            padH + editW + gap + wAdd + gap, y, wRemove, S(FFILTER_ROW_H), hInst);
+
+        // Disable Remove until something is selected
+        EnableWindow(GetDlgItem(hwnd, IDC_FFILTER_REMOVE), FALSE);
+
+        y += S(FFILTER_ROW_H) + gap * 2;
+
+        // OK / Cancel — centred
+        int wOK  = MeasureButtonWidth(pData->okText, true);
+        int wCnl = MeasureButtonWidth(pData->cancelText, true);
+        int totalBtnW = wOK + S(FF_BTN_GAP) + wCnl;
+        int startX    = (cw - totalBtnW) / 2;
+        CreateCustomButtonWithIcon(hwnd, IDC_FFILTER_OK, pData->okText.c_str(),
+            ButtonColor::Green, L"imageres.dll", 89,
+            startX, y, wOK, S(FFILTER_BTN_H), hInst);
+        CreateCustomButtonWithIcon(hwnd, IDC_FFILTER_CANCEL, pData->cancelText.c_str(),
+            ButtonColor::Red, L"shell32.dll", 131,
+            startX + wOK + S(FF_BTN_GAP), y, wCnl, S(FFILTER_BTN_H), hInst);
+
+        // Apply NONCLIENTMETRICS font to all controls
+        {
+            NONCLIENTMETRICSW ncm = {};
+            ncm.cbSize = sizeof(ncm);
+            SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+            if (ncm.lfMessageFont.lfHeight < 0)
+                ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
+            ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+            HFONT hCtrlFont = CreateFontIndirectW(&ncm.lfMessageFont);
+            if (hCtrlFont) {
+                EnumChildWindows(hwnd, [](HWND hChild, LPARAM lp) -> BOOL {
+                    SendMessageW(hChild, WM_SETFONT, (WPARAM)(HFONT)lp, TRUE);
+                    return TRUE;
+                }, (LPARAM)hCtrlFont);
+                SetPropW(hwnd, L"hCtrlFont", (HANDLE)hCtrlFont);
+            }
+        }
+        return 0;
+    }
+
+    case WM_COMMAND: {
+        int id    = LOWORD(wParam);
+        int notif = HIWORD(wParam);
+        FolderFilterDialogData* pData =
+            (FolderFilterDialogData*)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+        if (!pData) return 0;
+        HWND hList = GetDlgItem(hwnd, IDC_FFILTER_LIST);
+        HWND hEdit = GetDlgItem(hwnd, IDC_FFILTER_EDIT);
+
+        if (id == IDC_FFILTER_ADD_BTN) {
+            if (!hEdit || !hList) return 0;
+            wchar_t buf[256] = {};
+            GetWindowTextW(hEdit, buf, _countof(buf));
+            std::wstring pat(buf);
+            // Trim whitespace
+            while (!pat.empty() && pat.front() == L' ') pat.erase(pat.begin());
+            while (!pat.empty() && pat.back()  == L' ') pat.pop_back();
+            if (pat.empty()) return 0;
+            // Skip duplicates (case-insensitive)
+            LRESULT existing = SendMessageW(hList, LB_FINDSTRINGEXACT, (WPARAM)-1,
+                                            (LPARAM)pat.c_str());
+            if (existing == LB_ERR)
+                SendMessageW(hList, LB_ADDSTRING, 0, (LPARAM)pat.c_str());
+            SetWindowTextW(hEdit, L"");
+            HMSB hMsb = (HMSB)GetPropW(hwnd, L"hMsbListV");
+            if (hMsb) msb_sync(hMsb);
+            return 0;
+        }
+
+        if (id == IDC_FFILTER_REMOVE) {
+            if (!hList) return 0;
+            LRESULT sel = SendMessageW(hList, LB_GETCURSEL, 0, 0);
+            if (sel != LB_ERR) {
+                SendMessageW(hList, LB_DELETESTRING, sel, 0);
+                // Select the item above (or first remaining)
+                int cnt = (int)SendMessageW(hList, LB_GETCOUNT, 0, 0);
+                if (cnt > 0)
+                    SendMessageW(hList, LB_SETCURSEL,
+                                 (sel > 0 ? sel - 1 : 0), 0);
+                else
+                    EnableWindow(GetDlgItem(hwnd, IDC_FFILTER_REMOVE), FALSE);
+                HMSB hMsb = (HMSB)GetPropW(hwnd, L"hMsbListV");
+                if (hMsb) msb_sync(hMsb);
+            }
+            return 0;
+        }
+
+        // Enable/disable Remove based on listbox selection
+        if (id == IDC_FFILTER_LIST) {
+            if (notif == LBN_SELCHANGE || notif == LBN_SELCANCEL) {
+                LRESULT sel = SendMessageW(hList, LB_GETCURSEL, 0, 0);
+                EnableWindow(GetDlgItem(hwnd, IDC_FFILTER_REMOVE), sel != LB_ERR);
+            }
+            return 0;
+        }
+
+        if (id == IDC_FFILTER_OK) {
+            // Collect patterns from the listbox into pData->patterns
+            int cnt = (int)SendMessageW(hList, LB_GETCOUNT, 0, 0);
+            pData->patterns.clear();
+            for (int i = 0; i < cnt; ++i) {
+                wchar_t buf[256] = {};
+                SendMessageW(hList, LB_GETTEXT, i, (LPARAM)buf);
+                if (buf[0]) pData->patterns.push_back(buf);
+            }
+            pData->confirmed = true;
+            DestroyWindow(hwnd);
+            return 0;
+        }
+
+        if (id == IDC_FFILTER_CANCEL) {
+            DestroyWindow(hwnd);
+            return 0;
+        }
+        return 0;
+    }
+
+    case WM_DRAWITEM: {
+        LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
+        if (dis->CtlID == IDC_FFILTER_OK   || dis->CtlID == IDC_FFILTER_CANCEL ||
+            dis->CtlID == IDC_FFILTER_ADD_BTN || dis->CtlID == IDC_FFILTER_REMOVE) {
+            ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
+            NONCLIENTMETRICSW ncm = {}; ncm.cbSize = sizeof(ncm);
             SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
             if (ncm.lfMessageFont.lfHeight < 0)
                 ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
@@ -8537,6 +8813,106 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                     size_t lastSlash = path.find_last_of(L"\\/");
                     std::wstring folderName = (lastSlash != std::wstring::npos) ? path.substr(lastSlash + 1) : path;
                     
+                    // ── Show the Exclude Filter dialog ───────────────────
+                    // Load any previously saved patterns for this project.
+                    std::vector<std::wstring> excludePatterns;
+                    if (s_currentProject.id > 0) {
+                        std::wstring saved;
+                        DB::GetSetting(
+                            L"folder_exclude_patterns_" + std::to_wstring(s_currentProject.id),
+                            saved);
+                        // Split by \n
+                        if (!saved.empty()) {
+                            std::wstringstream ss(saved);
+                            std::wstring line;
+                            while (std::getline(ss, line))
+                                if (!line.empty()) excludePatterns.push_back(line);
+                        }
+                    }
+
+                    // Register the dialog window class (idempotent)
+                    WNDCLASSEXW wcFF = {};
+                    if (!GetClassInfoExW(GetModuleHandleW(NULL), L"FolderFilterDialog", &wcFF)) {
+                        wcFF.cbSize        = sizeof(wcFF);
+                        wcFF.lpfnWndProc   = FolderFilterDialogProc;
+                        wcFF.hInstance     = GetModuleHandleW(NULL);
+                        wcFF.hCursor       = LoadCursorW(NULL, IDC_ARROW);
+                        wcFF.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+                        wcFF.lpszClassName = L"FolderFilterDialog";
+                        RegisterClassExW(&wcFF);
+                    }
+
+                    // Build locale strings for the dialog
+                    auto locFF = [&](const wchar_t* key, const wchar_t* fallback) -> std::wstring {
+                        auto it = s_locale.find(key);
+                        return (it != s_locale.end()) ? it->second : fallback;
+                    };
+                    FolderFilterDialogData dlgDataFF;
+                    dlgDataFF.patterns    = excludePatterns;
+                    dlgDataFF.labelText   = locFF(L"ffilter_label",
+                        L"Files and folders matching these wildcard patterns will be excluded:");
+                    dlgDataFF.hintText    = locFF(L"ffilter_hint",   L"e.g. *.pdb, *.log, Thumbs.db");
+                    dlgDataFF.addBtnText  = locFF(L"ffilter_add_btn",    L"Add");
+                    dlgDataFF.removeBtnText = locFF(L"ffilter_remove_btn", L"Remove");
+                    dlgDataFF.okText      = locFF(L"ffilter_ok",      L"Add Folder");
+                    dlgDataFF.cancelText  = locFF(L"ffilter_cancel",  L"Cancel");
+
+                    // Compute dialog size
+                    int ffClientH = S(FFILTER_PAD_T) + S(FFILTER_LBL_H) + S(FFILTER_GAP)
+                                  + S(FFILTER_LIST_H) + S(FFILTER_GAP)
+                                  + S(FFILTER_ROW_H)  + S(FFILTER_GAP)*2
+                                  + S(FFILTER_BTN_H)  + S(FFILTER_PAD_T);
+                    RECT wrcFF = {0, 0, S(FFILTER_DLG_W), ffClientH};
+                    AdjustWindowRectEx(&wrcFF, WS_POPUP|WS_CAPTION|WS_SYSMENU, FALSE,
+                                       WS_EX_TOOLWINDOW);
+                    int ffDlgW = wrcFF.right  - wrcFF.left;
+                    int ffDlgH = wrcFF.bottom - wrcFF.top;
+                    RECT rcMain; GetWindowRect(hwnd, &rcMain);
+                    int ffDlgX = rcMain.left + (rcMain.right  - rcMain.left  - ffDlgW) / 2;
+                    int ffDlgY = rcMain.top  + (rcMain.bottom - rcMain.top   - ffDlgH) / 2;
+                    RECT rcWkFF; SystemParametersInfoW(SPI_GETWORKAREA, 0, &rcWkFF, 0);
+                    if (ffDlgX < rcWkFF.left)  ffDlgX = rcWkFF.left;
+                    if (ffDlgY < rcWkFF.top)   ffDlgY = rcWkFF.top;
+                    if (ffDlgX + ffDlgW > rcWkFF.right)  ffDlgX = rcWkFF.right  - ffDlgW;
+                    if (ffDlgY + ffDlgH > rcWkFF.bottom) ffDlgY = rcWkFF.bottom - ffDlgH;
+
+                    std::wstring ffTitle = locFF(L"ffilter_title", L"Exclude Filter");
+                    ffTitle += L" \u2014 " + folderName;
+
+                    HWND hDlgFF = CreateWindowExW(
+                        WS_EX_TOOLWINDOW,
+                        L"FolderFilterDialog", ffTitle.c_str(),
+                        WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
+                        ffDlgX, ffDlgY, ffDlgW, ffDlgH,
+                        hwnd, NULL, GetModuleHandleW(NULL), &dlgDataFF);
+
+                    // Modal message loop
+                    MSG msgFF;
+                    while (IsWindow(hDlgFF) && GetMessageW(&msgFF, NULL, 0, 0) > 0) {
+                        TranslateMessage(&msgFF);
+                        DispatchMessageW(&msgFF);
+                    }
+
+                    // Abort if the developer cancelled
+                    if (!dlgDataFF.confirmed) {
+                        CoTaskMemFree(pidl);
+                        return 0;
+                    }
+
+                    // Persist the (possibly edited) pattern list
+                    excludePatterns = dlgDataFF.patterns;
+                    if (s_currentProject.id > 0) {
+                        std::wstring joined;
+                        for (const auto& p : excludePatterns) {
+                            if (!joined.empty()) joined += L"\n";
+                            joined += p;
+                        }
+                        DB::SetSetting(
+                            L"folder_exclude_patterns_" + std::to_wstring(s_currentProject.id),
+                            joined);
+                    }
+                    // ── End Exclude Filter dialog ─────────────────────────
+
                     // Add folder to TreeView - use selected item as parent if any, otherwise Program Files root
                     if (s_hTreeView && s_hProgramFilesRoot) {
                         // Get currently selected item (if any)
@@ -8553,16 +8929,29 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                         bool isFirstFolderUnderProgramFiles = (hParent == s_hProgramFilesRoot && hFirstChild == NULL);
                         
                         HTREEITEM hRoot = AddTreeNode(s_hTreeView, hParent, folderName, path);
-                        AddTreeNodeRecursive(s_hTreeView, hRoot, path);
+                        // Eagerly ingest root files with exclude filter applied;
+                        // if no patterns, the lazy TVN_SELCHANGED path handles ingestion.
+                        if (!excludePatterns.empty())
+                            IngestRealPathFiles(hRoot, path, excludePatterns);
+                        AddTreeNodeRecursive(s_hTreeView, hRoot, path, excludePatterns);
                         TreeView_Expand(s_hTreeView, hParent, TVE_EXPAND);
                         TreeView_Expand(s_hTreeView, hRoot, TVE_EXPAND);
                         TreeView_SelectItem(s_hTreeView, hRoot);
                         
-                        // Populate ListView with folder contents
-                        PopulateListView(s_hListView, path);
+                        // Populate ListView with folder contents.
+                        // When exclude patterns are active we've already built s_virtualFolderFiles,
+                        // so use ForceRefreshListView to avoid an unfiltered disk scan.
+                        if (!excludePatterns.empty())
+                            ForceRefreshListView(s_hListView, hRoot);
+                        else
+                            PopulateListView(s_hListView, path);
                         // Re-suppress native list bars that ListView re-enables on item insertion.
                         if (s_hMsbFilesListV) { ShowScrollBar(s_hListView, SB_VERT, FALSE); msb_sync(s_hMsbFilesListV); }
                         if (s_hMsbFilesListH) { ShowScrollBar(s_hListView, SB_HORZ, FALSE); msb_sync(s_hMsbFilesListH); }
+
+                        // Force the tree to repaint now that all nodes are inserted.
+                        InvalidateRect(s_hTreeView, NULL, TRUE);
+                        UpdateWindow(s_hTreeView);
                         
                         // If this is the first folder under Program Files, update install path and possibly project name
                         if (isFirstFolderUnderProgramFiles) {
