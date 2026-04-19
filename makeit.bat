@@ -110,3 +110,6 @@ copy /y "%~dp0GnuLogo.bmp" "%PKG_DIR%\" >nul 2>&1
 copy /y "%~dp0curver.txt" "%PKG_DIR%\" >nul 2>&1
 
 echo Package created at %PKG_DIR%
+
+REM Show timestamp of the packaged exe
+for %%F in ("%PKG_DIR%\SetupCraft.exe") do echo SetupCraft.exe: %%~tF

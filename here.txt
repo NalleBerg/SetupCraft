@@ -1,88 +1,144 @@
 ================================================================================
   Session State — SetupCraft
-  Version: 2026.04.07.11  (see curver.txt)
-  Commit: (see git log — pushed end of session 07.04.2026)
+  Build: 19.04.2026  (see curver.txt for exact version)
+  Last commit: HEAD = 8ecadde  (my_scrollbar.cpp unchanged from HEAD)
 ================================================================================
 
-------------------------------------------------------------------------
-KNOWN ISSUE — Dependencies page H-bar (thumb drag not working correctly)
-------------------------------------------------------------------------
 
- [!!] Dependencies page ListView horizontal scrollbar — PARTIALLY WORKING
-      Arrow buttons (left/right): work correctly.
-      Track-click: works correctly.
-      Tilt-wheel: works correctly.
-      Thumb drag: content moves right when dragging right, but thumb does
-        not visually follow. Cannot drag back left. Blinks at right end.
+────────────────────────────────────────────────────────────────────────────────
+KNOWN ISSUE — Dependencies page ListView H-scrollbar: THUMB DRAG BROKEN
+────────────────────────────────────────────────────────────────────────────────
 
-      Root cause (identified): ListView H-scroll is extremely unreliable.
-        ShowScrollBar(FALSE) zeroes SCROLLINFO.nPos. LVM_SCROLL does not
-        update it. WM_HSCROLL may not update it when nMax=0. The WM_NCPAINT
-        fires synchronously inside LVM_SCROLL before the header repositions.
-        Result: no single read point gives a reliable current position.
+  ALL other interactions work: arrow buttons, track-click, tilt-wheel.
+  Only THUMB DRAG is broken.
 
-      Approach taken: MsbCtx.lvHPos tracking + Msb_GetListViewHPos()
-        (reads -Header_GetItemRect(col0).left). The header IS the ground
-        truth — but WM_NCPAINT fires before header is repositioned, so
-        reading it there gives stale value and corrupts delta calculation.
-        Guard added to skip sync when our bar has capture, but thumb drag
-        is still broken because dragStartPos feeds from lvHPos which drifts.
+  ── EXACT DIAGNOSIS (found 19.04.2026) ──────────────────────────────────────
 
-      What still needs to be done:
-        - Thumb drag: fix dragStartPos to always read Msb_GetListViewHPos()
-          JUST BEFORE capturing the mouse (drag-start moment only). 
-          Then in WM_MOUSEMOVE, compute newPos from dragStartPos + pixel
-          delta as now. In Msb_ScrollToPos read header BEFORE LVM_SCROLL
-          for delta, then read header AFTER for lvHPos readback.
-        - The blink at right end: likely from Msb_ScrollToPos being called
-          in a tight loop with delta=0 (already clamped). Add early return
-          when delta==0 after clamping.
-        - Consider: after WM_LBUTTONUP (drag end), re-read header into
-          lvHPos one final time to capture any last-moment clamp.
+  The working commit is HEAD = 8ecadde.  My_scrollbar.cpp in HEAD works.
+  The working tree (the file on disk, built at 08:57 19.04.2026) is DIFFERENT
+  from HEAD -- it has session debug changes layered on top.
 
-      Other pages: Files, Components, Registry — H-bars all work perfectly.
-      Dependencies is unique in keeping stale lvHPos across scrolls/resizes.
+  git diff HEAD -- my_scrollbar.cpp   ->  218 lines of diff
 
-------------------------------------------------------------------------
-COMPLETED THIS SESSION (07.04.2026)
-------------------------------------------------------------------------
+  The SINGLE critical bug introduced in this session's working tree:
 
- [OK]  Dependencies page MSB H-bar — partial fix
-         - WM_NCPAINT: H SCROLLINFO capture/restore added (was missing);
-           ShowScrollBar(SB_HORZ,FALSE) silently zeroed nPos after every
-           LVM_SCROLL, corrupting the next delta.
-         - deps.cpp: All 6 ShowScrollBar(SB_HORZ,FALSE) calls now use
-           capture/restore pattern.
-         - Msb_Scroll (ListView H): replaced WM_HSCROLL path with
-           Msb_ScrollToPos via column-width stepping.
-         - WM_HSCROLL interceptor: removed unreliable lvHPos=siPre.nPos.
-         - WM_MOUSEHWHEEL (tilt-wheel): ListView H now routes through
-           Msb_ScrollToPos (LVM_SCROLL + lvHPos), bypassing WM_HSCROLL.
-         - Msb_GetListViewHPos(): reads -Header_GetItemRect(col0).left
-           for the true visual scroll offset — never reads GetScrollInfo.
-         - Msb_ScrollToPos: reads header BEFORE LVM_SCROLL for delta,
-           reads header AFTER for lvHPos readback.
-         - msb_sync: uses Msb_GetListViewHPos() not GetScrollInfo.nPos.
-         - dragStartPos at drag-start: uses Msb_GetListViewHPos().
-         - WM_NCPAINT: does NOT sync lvHPos (fires before header moves).
-         - WM_SIZE: syncs lvHPos from header with capture guard.
-         - msb_reposition: syncs lvHPos from header.
-         - HDN_ENDTRACK in DEP_OnNotify: calls msb_reposition after
-           column resize so lvHPos is corrected.
-         - Forward declaration added for Msb_ScrollToPos (used before def).
-         - Build: clean.
-         Arrow buttons, track-click, tilt-wheel: WORKING.
-         Thumb drag: BROKEN (see above).
+  In WM_MOUSEMOVE, inside the "if (ctx->dragging)" block, these TWO lines
+  were added at the start of drag processing:
 
- [OK]  Dependencies page — test data
-         15 rows (IDs 9000-9020) covering all delivery/required/detection
-         combos + H-overflow row. Still present — DELETE before release.
+      if (ctx->isListView && !vert)
+          ctx->lvHPos = Msb_GetListViewHPos(ctx->hTarget);
 
-------------------------------------------------------------------------
-NEXT SESSION — start here
-------------------------------------------------------------------------
+  These appear just before:
+      int cur   = vert ? GET_Y_LPARAM(lParam) : GET_X_LPARAM(lParam);
 
- [ ]  Fix Dep H-bar thumb drag (see KNOWN ISSUE above)
- [ ]  Remove test data from deps.cpp (s_testDataAdded + IDs 9000-9020)
- [ ]  Update docs once H-bar is fully fixed
- [ ]  Release commit
+  This violates GOLDEN RULE 1 (see my_scrollbar_API.txt and
+  scrollbar_INTERNALS.txt): WM_MOUSEMOVE fires while we hold capture,
+  which means it fires inside the scroll hot-path.  But worse: LVM_SCROLL
+  does NOT actually move the header when WS_HSCROLL is absent.  So after
+  every Msb_ScrollToPos() call, ctx->lvHPos is correctly set to newPos,
+  but on the VERY NEXT WM_MOUSEMOVE the re-read sets ctx->lvHPos = 0
+  (header hasn't moved).  On the next iteration:
+      delta = newPos - ctx->lvHPos = newPos - 0 = same large value again
+  This makes every drag step recompute from scratch against 0, so the
+  scroll position never accumulates.
+
+  The debug log confirms this exactly:
+      LBUTTONDOWN: vert=0 clickPos=340 lvHPos=0 (correct, read from header)
+      ScrollToPos: lvHPos=0 newPos=2 delta=2
+      ScrollToPos: post-scroll lvHPos=2 header=0  <- LVM_SCROLL did nothing
+      ScrollToPos: lvHPos=0 newPos=2 delta=2       <- lvHPos reset to 0!
+      ScrollToPos: post-scroll lvHPos=2 header=0
+      (repeats forever -- cursor barely moved, newPos=2 every step)
+
+  The re-read is the only change that could cause this -- it was not in HEAD.
+
+  ── THE FIX (ready to apply in Norway) ─────────────────────────────────────
+
+  In my_scrollbar.cpp, WM_MOUSEMOVE handler, REMOVE these two lines:
+
+      if (ctx->isListView && !vert)
+          ctx->lvHPos = Msb_GetListViewHPos(ctx->hTarget);
+
+  After removing them, lvHPos will only be updated by:
+    1. WM_LBUTTONDOWN (drag-start): reads from header (correct, ListView idle)
+    2. Msb_ScrollToPos: sets lvHPos = newPos (the clamped target)
+    3. WM_SIZE / msb_reposition: reads from header (ListView settled)
+  This is exactly what HEAD = 8ecadde does.
+
+  ── SECONDARY QUESTION: why does LVM_SCROLL not move the header? ─────────────
+
+  LVM_SCROLL fires WM_NCPAINT synchronously, which calls ShowScrollBar(FALSE),
+  which removes WS_HSCROLL from the ListView's window style.  Next time
+  LVM_SCROLL is called, it checks WS_HSCROLL and silently does nothing when
+  the flag is absent.  The header never moves.  ctx->lvHPos = newPos is the
+  only tracking mechanism -- the header is only a ground-truth for DRAG-START
+  and RESIZE events, not mid-drag.
+
+  If the fix above still does not scroll the content visually, the next thing
+  to investigate is whether WS_HSCROLL is indeed absent when LVM_SCROLL is
+  called.  Diagnostic: log GetWindowLongW(ctx->hTarget, GWL_STYLE) & WS_HSCROLL
+  inside Msb_ScrollToPos.  If absent, add ShowScrollBar(TRUE) before the call
+  with a guard so the WM_SIZE it triggers does not reset lvHPos.
+
+  ── OTHER CHANGES IN WORKING TREE (not in HEAD = 8ecadde) ──────────────────
+
+  The following GOOD additions are in the working tree and need to be kept
+  (but debug logging must be removed before committing):
+
+  1. LVM_DELETEALLITEMS intercept -- resets lvHPos=0, updates bar.
+     Saves callers from having to call ShowScrollBar+msb_sync.
+
+  2. LVM_SETCOLUMNWIDTH intercept -- re-reads lvHPos after column resize.
+     Saves callers from having to call msb_reposition.
+
+  3. WM_NOTIFY / HDN_ENDTRACK intercept -- re-reads lvHPos after header drag.
+     Same benefit as #2.
+
+  4. inNcPaintChain guard in WM_SIZE -- skips lvHPos re-read when WM_SIZE
+     fires from inside a WM_NCPAINT handler.  Correct per the golden rules.
+
+  5. Debug logging (MsbDbg + NCPAINT log points) -- REMOVE before committing.
+
+  ── PROCEDURE FOR NORWAY (5-15 minutes) ────────────────────────────────────
+
+  Step 1: Remove the two WM_MOUSEMOVE re-read lines  (THE FIX, see above).
+  Step 2: Remove all MsbDbg() calls and the MsbDbg/MsbDbgInit block.
+  Step 3: Remove #include <stdio.h> added for debug logging.
+  Step 4: Build (makeit.bat) and test drag on the Dependencies page.
+  Step 5: If drag works, update Status in my_scrollbar_API.txt: thumb drag ✓.
+  Step 6: git add -A && git commit -m "msb: fix ListView H thumb drag"
+          git push
+
+
+────────────────────────────────────────────────────────────────────────────────
+COMPLETED THIS SESSION (18-19.04.2026)
+────────────────────────────────────────────────────────────────────────────────
+
+  [OK]  mainwindow.cpp -- TVN_ITEMEXPANDED handlers added (Files/Components/
+        Registry pages); all boilerplate removed from those three pages.
+
+  [OK]  deps.cpp -- all remaining boilerplate removed.
+
+  [OK]  my_scrollbar.cpp -- added LVM_DELETEALLITEMS, LVM_SETCOLUMNWIDTH,
+        HDN_ENDTRACK interceptions + inNcPaintChain WM_SIZE guard.
+        (Not yet committed: needs debug-log removal + the two-line drag fix.)
+
+  [OK]  makeit.bat -- exe timestamp line added at end of build.
+
+  [OK]  scrollbar_INTERNALS.txt -- section 12 (overhaul notes) + section 13
+        (usage examples) added in a prior session.
+
+  [NOT FIXED]  H-scroll thumb drag -- broken in working tree due to the
+               WM_MOUSEMOVE re-read added during debugging.  Fix is
+               documented above.  Fix in Norway, ~5 minutes.
+
+
+────────────────────────────────────────────────────────────────────────────────
+CURRENT VERSION / COMMIT
+────────────────────────────────────────────────────────────────────────────────
+
+  See curver.txt for Published/Version string.
+  See git log for last commit hash and message.
+  my_scrollbar.cpp: working tree differs from HEAD -- see git diff HEAD.
+
+================================================================================

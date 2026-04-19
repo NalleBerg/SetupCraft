@@ -2,6 +2,17 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.04.19.09] - 2026-04-19
+
+### Internal housekeeping (boilerplate removal, my_scrollbar auto-syncs, makeit timestamp)
+- **mainwindow.cpp — TVN_ITEMEXPANDED handlers**: The Files, Components, and Registry pages now handle `TVN_ITEMEXPANDED` on their TreeViews; calls `msb_reposition` so the custom scrollbar thumb resizes correctly after subtree expand/collapse.
+- **mainwindow.cpp / deps.cpp — boilerplate removal**: All remaining placeholder comments, stub handlers, and dead code removed from the Files, Components, Registry, and Dependencies page sections. No functional changes.
+- **my_scrollbar — LVM_DELETEALLITEMS auto-sync**: Library now intercepts `LVM_DELETEALLITEMS` on ListView targets; resets `lvHPos` to 0 and redraws the H-bar after items are cleared. Callers no longer need a post-`ListView_DeleteAllItems` `ShowScrollBar`+`msb_sync` sequence.
+- **my_scrollbar — LVM_SETCOLUMNWIDTH auto-sync**: Library now intercepts `LVM_SETCOLUMNWIDTH`; re-reads `lvHPos` from the header and redraws the bar after `origProc` commits the new width. Callers no longer need a post-`ListView_SetColumnWidth` `msb_reposition` call.
+- **my_scrollbar — HDN_ENDTRACK auto-sync**: Library now intercepts `WM_NOTIFY`/`HDN_ENDTRACK` from the ListView header; re-reads `lvHPos` and redraws after the user finishes dragging a column divider. Callers no longer need a manual `msb_reposition` call from `HDN_ENDTRACK`.
+- **my_scrollbar — inNcPaintChain WM_SIZE guard**: `WM_SIZE` now skips the `Msb_GetListViewHPos` re-read when `inNcPaint` is set on either attached bar, preventing a stale-read corruption that could corrupt `lvHPos` when `LVM_SCROLL` fires `WM_NCPAINT` synchronously before the header repositions.
+- **makeit.bat — exe timestamp**: Build script now prints the `SetupCraft.exe` file timestamp after packaging.
+
 ## [2026.04.18.07] - 2026-04-18
 
 ### Added / Fixed (Files page — exclude filter for Add Folder; tree redraw fix)

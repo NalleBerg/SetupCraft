@@ -74,6 +74,9 @@
     SetScrollInfo inside Msb_ScrollToPos (triggers WM_NCPAINT blink loop).
     WM_NCPAINT fires synchronously inside LVM_SCROLL before the header
     repositions — do NOT read or write lvHPos there.
+    The library intercepts LVM_DELETEALLITEMS, LVM_SETCOLUMNWIDTH, and
+    HDN_ENDTRACK internally so callers need no post-call msb_reposition;
+    thumb drag in the ListView H-axis has a known pending fix (see here.txt).
   - sqlite3 amalgamation version: pin to the version used in SetupCraft
     at publish time and note it here.
   - IsDialogMessageW gotcha: ONLY call IsDialogMessageW on windows that were

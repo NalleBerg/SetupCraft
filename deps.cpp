@@ -345,9 +345,6 @@ void DEP_BuildPage(HWND hwnd, HINSTANCE hInst,
 
     // Populate from in-memory state.
     RefreshList();
-    // Re-suppress native bars re-enabled by ListView_InsertItem.
-    if (s_hMsbDepListV) { ShowScrollBar(s_hDepList, SB_VERT, FALSE); msb_sync(s_hMsbDepListV); }
-    if (s_hMsbDepListH) { ShowScrollBar(s_hDepList, SB_HORZ, FALSE); msb_sync(s_hMsbDepListH); }
 
 }
 
@@ -356,16 +353,6 @@ void DEP_BuildPage(HWND hwnd, HINSTANCE hInst,
 LRESULT DEP_OnNotify(HWND /*hwnd*/, LPNMHDR nmhdr, bool* handled)
 {
     if (!s_hDepList) { *handled = false; return 0; }
-
-    // HDN_ENDTRACK fires (from the header child) when the user finishes resizing
-    // a column.  The ListView may have scrolled the content to keep columns
-    // visible; sync the H-bar's lvHPos so the next scroll delta is correct.
-    if (nmhdr->hwndFrom == ListView_GetHeader(s_hDepList) &&
-        (nmhdr->code == HDN_ENDTRACKW || nmhdr->code == HDN_ENDTRACKA)) {
-        if (s_hMsbDepListH) msb_reposition(s_hMsbDepListH);
-        *handled = false;   // let default processing continue
-        return 0;
-    }
 
     if (nmhdr->hwndFrom != s_hDepList) { *handled = false; return 0; }
 
@@ -405,8 +392,6 @@ bool DEP_OnCommand(HWND hwnd, int id, int event, HWND /*hCtrl*/)
             blank.id = s_nextDepId++;
             s_deps.push_back(blank);
             RefreshList();
-            if (s_hMsbDepListV) { ShowScrollBar(s_hDepList, SB_VERT, FALSE); msb_sync(s_hMsbDepListV); }
-            if (s_hMsbDepListH) { ShowScrollBar(s_hDepList, SB_HORZ, FALSE); msb_sync(s_hMsbDepListH); }
             // Select the newly added item.
             int last = (int)s_deps.size() - 1;
             ListView_SetItemState(s_hDepList, last,
@@ -424,8 +409,6 @@ bool DEP_OnCommand(HWND hwnd, int id, int event, HWND /*hCtrl*/)
         if (s_pLocale && DEP_EditDialog(hwnd, s_hInst, *s_pLocale, copy)) {
             *dep = copy;
             RefreshList();
-            if (s_hMsbDepListV) { ShowScrollBar(s_hDepList, SB_VERT, FALSE); msb_sync(s_hMsbDepListV); }
-            if (s_hMsbDepListH) { ShowScrollBar(s_hDepList, SB_HORZ, FALSE); msb_sync(s_hMsbDepListH); }
             MainWindow::MarkAsModified();
         }
         return true;
@@ -465,8 +448,6 @@ bool DEP_OnCommand(HWND hwnd, int id, int event, HWND /*hCtrl*/)
         s_deps.erase(std::remove_if(s_deps.begin(), s_deps.end(),
             [removeId](const ExternalDep& d){ return d.id == removeId; }), s_deps.end());
         RefreshList();
-        if (s_hMsbDepListV) { ShowScrollBar(s_hDepList, SB_VERT, FALSE); msb_sync(s_hMsbDepListV); }
-        if (s_hMsbDepListH) { ShowScrollBar(s_hDepList, SB_HORZ, FALSE); msb_sync(s_hMsbDepListH); }
         // Update button states.
         EnableWindow(s_hDepEdit,   FALSE);
         EnableWindow(s_hDepRemove, FALSE);
@@ -497,14 +478,6 @@ void DEP_LoadFromDb(int projectId)
     for (const ExternalDep& d : s_deps)
         if (d.id >= s_nextDepId) s_nextDepId = d.id + 1;
     RefreshList();
-    if (s_hMsbDepListV) { ShowScrollBar(s_hDepList, SB_VERT, FALSE); msb_sync(s_hMsbDepListV); }
-    if (s_hMsbDepListH) {
-        SCROLLINFO siH = {sizeof(siH), SIF_ALL};
-        GetScrollInfo(s_hDepList, SB_HORZ, &siH);
-        ShowScrollBar(s_hDepList, SB_HORZ, FALSE);
-        if (siH.nMax > siH.nMin) SetScrollInfo(s_hDepList, SB_HORZ, &siH, FALSE);
-        msb_sync(s_hMsbDepListH);
-    }
 }
 
 // ── DEP_RepositionScrollbars ──────────────────────────────────────────────────

@@ -251,16 +251,305 @@ Key ListView H-axis notes (see my_scrollbar_API.txt §1 status table and §4d ch
     LVM_SCROLL(delta) where delta = newPos - lvHPos.
   • Arrows and tilt wheel use WM_HSCROLL (which the ListView handles correctly
     when nMax is pre-restored before the send).
-  • H scrollbar must be suppressed explicitly after every InsertItem/populate call
-    in deps.cpp using the capture/restore pattern (not plain ShowScrollBar):
-        SCROLLINFO siH = {sizeof(siH), SIF_ALL};
-        GetScrollInfo(s_hDepList, SB_HORZ, &siH);
-        ShowScrollBar(s_hDepList, SB_HORZ, FALSE);
-        if (siH.nMax > siH.nMin) SetScrollInfo(s_hDepList, SB_HORZ, &siH, FALSE);
-        msb_sync(s_hMsbDepListH);
+  • After the 2026-04-18 overhaul: ShowScrollBar+msb_sync boilerplate after
+    InsertItem / DeleteAllItems / SetColumnWidth is NO LONGER NEEDED in calling
+    code.  The subclass proc intercepts LVM_DELETEALLITEMS, LVM_SETCOLUMNWIDTH,
+    and WM_NOTIFY(HDN_ENDTRACK) internally.  See §12 (2026-04 Overhaul) below.
 
 Teardown — MUST come BEFORE the controlIds[] DestroyWindow loop (same rule as
 all other MSB-attached controls — see scrollbar_reopen_INTERNALS.txt):
     DEP_TearDown(hwnd);   // contains msb_detach calls
     // ← controlIds[] loop follows
+================================================================================
+
+
+12. 2026-04-18 OVERHAUL — LISTVIEW H-AXIS INTERNALIZED SYNC
+================================================================================
+
+Root cause (pre-overhaul)
+─────────────────────────
+ListView H-axis used MsbCtx.lvHPos as a shadow position tracker because
+GetScrollInfo(SB_HORZ).nPos is unreliable (zeroed by ShowScrollBar(FALSE);
+not updated by LVM_SCROLL).  Keeping lvHPos in sync required callers to call
+ShowScrollBar(FALSE)+msb_sync after every item insertion, column resize, and
+content repopulate.  If any path was missed, lvHPos drifted and subsequent
+LVM_SCROLL deltas were wrong — producing the "thumb snaps back when dragging
+left" symptom.
+
+Root cause of drag-left snap
+─────────────────────────────
+In addition to drift, the WM_SIZE handler inside the subclass proc called
+Msb_GetListViewHPos() (reads the header item-0 rect) even when WM_SIZE fired
+from within WM_NCPAINT→HideNativeBar.  LVM_SCROLL triggers WM_NCPAINT
+synchronously BEFORE the header repositions its items, so the header rect
+returned 0 at that moment.  The WM_SIZE read then set lvHPos=0, and the next
+drag started from 0 regardless of actual scroll position.
+
+Fixes applied to my_scrollbar.cpp
+──────────────────────────────────
+1. WM_SIZE — inNcPaint guard:
+   The lvHPos header-read in the WM_SIZE handler is now skipped when
+   inNcPaint=TRUE on either ctx.  Only genuine WM_SIZE events (window resize,
+   column resize committed) update lvHPos; transient WM_SIZE events from
+   LVM_SCROLL's internal ShowScrollBar(TRUE/FALSE) cycle do not.
+
+2. New intercepts in Msb_TargetSubclassProc:
+   LVM_DELETEALLITEMS  → sets lvHPos=0 and repaints (scroll position resets
+                          when all items are deleted).
+   LVM_SETCOLUMNWIDTH  → reads Msb_GetListViewHPos() after origProc returns
+                          (header is settled at this point); repaints.
+   WM_NOTIFY(HDN_ENDTRACK) → same as LVM_SETCOLUMNWIDTH but for user column
+                          drags via the header control.
+
+3. WM_LBUTTONDOWN drag-start — removed savedLvHPos header snapshot:
+   The pre-Msb_PositionBar header read is no longer needed because lvHPos is
+   kept authoritative by the intercepts above.  ctx->lvHPos is used directly
+   as dragStartPos.
+
+Caller impact
+──────────────
+The following boilerplate is NO LONGER NEEDED in any calling code:
+
+    // OLD — no longer needed anywhere:
+    ShowScrollBar(hList, SB_VERT, FALSE); msb_sync(s_hMsbListV);
+    ShowScrollBar(hList, SB_HORZ, FALSE); msb_sync(s_hMsbListH);
+    // after: ListView_DeleteAllItems, ListView_InsertItem, ListView_SetColumnWidth
+
+    // OLD WM_NOTIFY handler — no longer needed:
+    if (nmhdr->hwndFrom == ListView_GetHeader(hList) &&
+        (nmhdr->code == HDN_ENDTRACKW || nmhdr->code == HDN_ENDTRACKA))
+        msb_reposition(s_hMsbListH);
+
+Removed from mainwindow.cpp: ForceRefreshListView, PopulateListView,
+IDC_FILES_ADD_FILES, and the HDN_ENDTRACK WM_NOTIFY block.
+Removed from deps.cpp: init, Add, Edit, Remove, LoadFromDb, and the
+HDN_ENDTRACK DEP_OnNotify block.
+
+What still requires explicit caller action
+───────────────────────────────────────────
+  • TVN_ITEMEXPANDED for TreeView: call msb_reposition (unchanged — the library
+    does not intercept TreeView notifications).
+  • msb_reposition after external SetWindowPos on the target (splitter/resize).
+  • msb_sync / msb_notify_content_changed after WM_SETTEXT / EN_CHANGE on
+    RichEdit (unchanged).
+
+
+13. USAGE EXAMPLES — ALL CONTROL TYPES
+================================================================================
+
+GENERAL RULES (post-2026-04 overhaul)
+──────────────────────────────────────
+A. msb_attach() is the ONLY mandatory call at control creation — no boilerplate.
+B. msb_detach() before or during WM_DESTROY of the target's parent dialog.
+   The library also auto-detaches when the target receives WM_DESTROY.
+C. msb_reposition() after external SetWindowPos on the target (splitter, resize)
+   and after TVN_ITEMEXPANDED for TreeView.
+D. msb_notify_content_changed() after EN_CHANGE in a RichEdit (invalidates the
+   cached doc-width so the H-bar thumb stays accurate).
+E. msb_sync() after programmatic scrolls that bypass WM_VSCROLL/WM_HSCROLL,
+   or after WM_SETTEXT / EM_STREAMIN on RichEdit.
+F. msb_set_edge_gap() to inset the bar from the window edge (cosmetic; typical:
+   SM_CYEDGE + SM_CYBORDER + 6 for the H-bar on a bordered ListView/TreeView).
+
+NOT needed (handled internally):
+  ShowScrollBar(FALSE) calls          — done by msb_attach and subclass proc
+  msb_sync after ListView_DeleteAllItems   — LVM_DELETEALLITEMS intercepted
+  msb_sync after ListView_SetColumnWidth   — LVM_SETCOLUMNWIDTH intercepted
+  HDN_ENDTRACK handler for ListView H-bar — WM_NOTIFY/HDN_ENDTRACK intercepted
+  msb_sync after ListView_InsertItem       — WM_NCPAINT + WM_SIZE handle it
+
+────────────────────────────────────────────────────────────────────────────────
+LISTVIEW (report mode, V + H)     e.g. Files, Deps, Registry, Components
+────────────────────────────────────────────────────────────────────────────────
+
+  static HWND s_hList = NULL;
+  static HMSB s_hMsbV = NULL;
+  static HMSB s_hMsbH = NULL;
+
+  // --- WM_INITDIALOG / page creation ---
+  s_hList = GetDlgItem(hwnd, IDC_MY_LIST);
+  s_hMsbV = msb_attach(s_hList, MSB_VERTICAL);
+  s_hMsbH = msb_attach(s_hList, MSB_HORIZONTAL);
+  if (s_hMsbH)
+      msb_set_edge_gap(s_hMsbH, GetSystemMetrics(SM_CYEDGE)
+                                + GetSystemMetrics(SM_CYBORDER) + 6);
+  PopulateList();   // DeleteAllItems + InsertItem + SetColumnWidth — all handled
+
+  // --- RefreshList / repopulate ---
+  static void RefreshList() {
+      ListView_DeleteAllItems(s_hList);        // intercept → lvHPos=0
+      for (auto& item : s_items) { /* InsertItem ... */ }
+      ListView_SetColumnWidth(s_hList, 0, LVSCW_AUTOSIZE_USEHEADER);
+      ListView_SetColumnWidth(s_hList, 1, LVSCW_AUTOSIZE);
+      // No ShowScrollBar + msb_sync needed.
+  }
+
+  // --- WM_NOTIFY: no HDN_ENDTRACK handler needed ---
+  // Only handle LVN_* notifications.
+
+  // --- WM_SIZE (splitter / resize) ---
+  if (s_hMsbV) msb_reposition(s_hMsbV);
+  if (s_hMsbH) msb_reposition(s_hMsbH);
+
+  // --- WM_DESTROY ---
+  msb_detach(s_hMsbV); s_hMsbV = NULL;
+  msb_detach(s_hMsbH); s_hMsbH = NULL;
+
+────────────────────────────────────────────────────────────────────────────────
+TREEVIEW (V + H)     e.g. Files tree, Components tree, Registry tree
+────────────────────────────────────────────────────────────────────────────────
+  REQUIRED: create with WS_VSCROLL | WS_HSCROLL even though native bars are
+  hidden.  Without these styles, the TreeView never populates SCROLLINFO and
+  MSB bars stay blank.
+
+  static HWND s_hTree    = NULL;
+  static HMSB s_hMsbTreeV = NULL;
+  static HMSB s_hMsbTreeH = NULL;
+
+  // --- WM_INITDIALOG ---
+  s_hTree    = GetDlgItem(hwnd, IDC_MY_TREE);
+  s_hMsbTreeV = msb_attach(s_hTree, MSB_VERTICAL);
+  s_hMsbTreeH = msb_attach(s_hTree, MSB_HORIZONTAL);
+  if (s_hMsbTreeH)
+      msb_set_edge_gap(s_hMsbTreeH, GetSystemMetrics(SM_CYEDGE)
+                                    + GetSystemMetrics(SM_CYBORDER) + 6);
+  PopulateTree(); // TreeView_InsertItem calls
+
+  // Send WM_SIZE through subclass so nPage is initialised correctly:
+  RECT rcT; GetClientRect(s_hTree, &rcT);
+  SendMessageW(s_hTree, WM_SIZE, SIZE_RESTORED,
+               MAKELPARAM(rcT.right, rcT.bottom));
+
+  // --- WM_NOTIFY: TVN_ITEMEXPANDED (REQUIRED for TreeView!) ---
+  // The library does not intercept tree notifications — you must call
+  // msb_reposition after expand/collapse so the V-bar updates row count.
+  if (nmhdr->hwndFrom == s_hTree &&
+      (nmhdr->code == TVN_ITEMEXPANDED || nmhdr->code == TVN_ITEMEXPANDEDW)) {
+      if (s_hMsbTreeV) msb_reposition(s_hMsbTreeV);
+      if (s_hMsbTreeH) msb_reposition(s_hMsbTreeH);
+  }
+
+  // --- WM_SIZE ---
+  if (s_hMsbTreeV) msb_reposition(s_hMsbTreeV);
+  if (s_hMsbTreeH) msb_reposition(s_hMsbTreeH);
+
+  // --- WM_DESTROY ---
+  msb_detach(s_hMsbTreeV); s_hMsbTreeV = NULL;
+  msb_detach(s_hMsbTreeH); s_hMsbTreeH = NULL;
+
+────────────────────────────────────────────────────────────────────────────────
+RICHEDIT — READ-WRITE editor (V + H, no-wrap)     e.g. Scripts editor
+────────────────────────────────────────────────────────────────────────────────
+
+  static HWND s_hEdit    = NULL;
+  static HMSB s_hMsbEditV = NULL;
+  static HMSB s_hMsbEditH = NULL;
+
+  // --- WM_INITDIALOG ---
+  s_hEdit = GetDlgItem(hwnd, IDC_SCRIPT_EDIT);
+  // Disable word-wrap BEFORE attaching so H bar measures correctly:
+  SendMessageW(s_hEdit, EM_SETTARGETDEVICE, (WPARAM)NULL, 1);
+  s_hMsbEditV = msb_attach(s_hEdit, MSB_VERTICAL);
+  s_hMsbEditH = msb_attach(s_hEdit, MSB_HORIZONTAL);
+
+  // --- EN_CHANGE (content edited) ---
+  if (s_hMsbEditH) msb_notify_content_changed(s_hMsbEditH);
+  // msb_notify_content_changed also syncs the peer V bar.
+
+  // --- Loading new content (WM_SETTEXT / EM_STREAMIN) ---
+  SendMessageW(s_hEdit, WM_SETTEXT, 0, (LPARAM)newText);
+  if (s_hMsbEditV) msb_sync(s_hMsbEditV);
+  if (s_hMsbEditH) msb_notify_content_changed(s_hMsbEditH);
+
+  // --- WM_SIZE ---
+  if (s_hMsbEditV) msb_reposition(s_hMsbEditV);
+  if (s_hMsbEditH) msb_reposition(s_hMsbEditH);
+
+  // --- WM_DESTROY ---
+  msb_detach(s_hMsbEditV); s_hMsbEditV = NULL;
+  msb_detach(s_hMsbEditH); s_hMsbEditH = NULL;
+
+────────────────────────────────────────────────────────────────────────────────
+RICHEDIT — READ-ONLY viewer (V + H)     e.g. About, Changelog, License
+────────────────────────────────────────────────────────────────────────────────
+  Identical to read-write above, with these differences:
+    SendMessageW(s_hView, EM_SETREADONLY, TRUE, 0);
+  No EN_CHANGE handler needed.  Call msb_sync + msb_notify_content_changed
+  once after loading content.
+
+  Wrap-mode viewer (V only):
+    s_hMsbViewV = msb_attach(s_hView, MSB_VERTICAL);
+    // Do not attach MSB_HORIZONTAL — no H bar needed when wrapped.
+
+────────────────────────────────────────────────────────────────────────────────
+DIALOGS EDITOR (multi-line no-wrap RichEdit, V + H, with toolbar insets)
+────────────────────────────────────────────────────────────────────────────────
+  Same as read-write RichEdit.  Add insets so bars avoid chrome:
+
+  s_hMsbEditV = msb_attach(s_hEdit, MSB_VERTICAL);
+  s_hMsbEditH = msb_attach(s_hEdit, MSB_HORIZONTAL);
+  msb_set_insets(s_hMsbEditV, toolbarHeight, statusBarHeight);
+  msb_set_insets(s_hMsbEditH, 0, statusBarHeight);
+
+────────────────────────────────────────────────────────────────────────────────
+MAIN WINDOW / TOP-LEVEL (V only, toolbar + status insets)
+────────────────────────────────────────────────────────────────────────────────
+  // Bar is created as a child of the target itself (no parent).
+  static HMSB s_hMsbMain = NULL;
+
+  // WM_CREATE / after layout:
+  s_hMsbMain = msb_attach(hwnd, MSB_VERTICAL);
+  msb_set_insets(s_hMsbMain, TOOLBAR_HEIGHT, STATUSBAR_HEIGHT);
+  msb_set_edge_gap(s_hMsbMain, 4);
+
+  // Exclude bar from child-moving scroll loops:
+  HWND hBarWnd = msb_get_bar_hwnd(s_hMsbMain);
+  HWND hChild = GetWindow(hwnd, GW_CHILD);
+  while (hChild) {
+      if (hChild != hBarWnd)
+          SetWindowPos(hChild, NULL, newX, newY, 0, 0, SWP_NOSIZE|SWP_NOZORDER);
+      hChild = GetWindow(hChild, GW_HWNDNEXT);
+  }
+
+  // WM_SIZE: if (s_hMsbMain) msb_reposition(s_hMsbMain);
+  // WM_DESTROY: msb_detach(s_hMsbMain); s_hMsbMain = NULL;
+
+────────────────────────────────────────────────────────────────────────────────
+ALWAYS-VISIBLE BARS (MSB_NOHIDE)
+────────────────────────────────────────────────────────────────────────────────
+  // No fade animation — bar stays at full width at all times.
+  s_hMsbV = msb_attach(hTarget, MSB_VERTICAL   | MSB_NOHIDE);
+  s_hMsbH = msb_attach(hTarget, MSB_HORIZONTAL | MSB_NOHIDE);
+  // All other patterns identical to auto-hide variants.
+
+────────────────────────────────────────────────────────────────────────────────
+TEARDOWN ORDER RULE
+────────────────────────────────────────────────────────────────────────────────
+  Always msb_detach BEFORE DestroyWindow on the target, or in WM_DESTROY of
+  the parent dialog BEFORE chaining to DefDlgProc.  Never detach after the
+  target is destroyed.
+
+  Recommended:
+  case WM_DESTROY:
+      msb_detach(s_hMsbV); s_hMsbV = NULL;
+      msb_detach(s_hMsbH); s_hMsbH = NULL;
+      // ... other cleanup ...
+      return 0;
+
+────────────────────────────────────────────────────────────────────────────────
+QUICK REFERENCE CARD
+────────────────────────────────────────────────────────────────────────────────
+  Function                         When to call
+  ──────────────────────────────────────────────────────────────────────────────
+  msb_attach(hWnd, flags)          Once per axis at control creation.
+  msb_detach(h)                    At WM_DESTROY of target or its parent dialog.
+  msb_reposition(h)                After external SetWindowPos on target, and
+                                   after TVN_ITEMEXPANDED for TreeView.
+  msb_sync(h)                      After programmatic scroll bypassing
+                                   WM_VSCROLL/WM_HSCROLL, or after
+                                   WM_SETTEXT/EM_STREAMIN on RichEdit.
+  msb_notify_content_changed(h)    After EN_CHANGE or content edit in RichEdit.
+  msb_set_insets(h, near, far)     After attach when bar must avoid chrome.
+  msb_set_edge_gap(h, gap)         After attach for cosmetic inset from edge.
+  msb_get_bar_hwnd(h)              To exclude bar from child-enumeration loops.
 ================================================================================

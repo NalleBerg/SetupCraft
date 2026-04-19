@@ -45,10 +45,11 @@ struct ComponentRow {
 struct FileRow {
     int id = 0;
     int project_id = 0;
-    std::wstring source_path;       // real disk path, or "" for virtual folders
-    std::wstring destination_path;  // virtual tree path, e.g. "Program Files\MyApp\sub"
-    std::wstring install_scope;     // "" | "AskAtInstall" | "__folder__"
-    std::wstring inno_flags;        // space-separated Inno [Files] flags, e.g. "ignoreversion 32bit"
+    std::wstring source_path;         // real disk path, or "" for virtual folders
+    std::wstring destination_path;    // virtual tree path, e.g. "Program Files\MyApp\sub"
+    std::wstring install_scope;       // "" | "AskAtInstall" | "__folder__"
+    std::wstring inno_flags;          // space-separated Inno [Files] flags, e.g. "ignoreversion 32bit"
+    std::wstring dest_dir_override;   // Inno dir constant override, e.g. "{sys}"; empty = use tree node default
 };
 
 namespace DB {
@@ -61,7 +62,7 @@ namespace DB {
     bool SetSetting(const std::wstring &key, const std::wstring &value);
     // File persistence
     bool DeleteFilesForProject(int projectId);
-    bool InsertFile(int projectId, const std::wstring &sourcePath, const std::wstring &destPath, const std::wstring &installScope, const std::wstring &innoFlags = L"");
+    bool InsertFile(int projectId, const std::wstring &sourcePath, const std::wstring &destPath, const std::wstring &installScope, const std::wstring &innoFlags = L"", const std::wstring &destDirOverride = L"");
     std::vector<FileRow> GetFilesForProject(int projectId);
     // Registry entry persistence (relational: one project → many entries)
     bool InsertRegistryEntry(int projectId, const std::wstring &hive, const std::wstring &path, const std::wstring &name, const std::wstring &type, const std::wstring &data);

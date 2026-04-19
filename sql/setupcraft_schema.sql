@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS files (
     destination_path TEXT NOT NULL,
     install_scope TEXT DEFAULT '',
     inno_flags TEXT DEFAULT '',
+    dest_dir_override TEXT DEFAULT '',
     FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
 );
 

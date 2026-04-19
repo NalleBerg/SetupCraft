@@ -29,9 +29,10 @@
   • DPI-aware: all pixel values go through S() internally; works at any DPI.
   • No SetupCraft dependencies — only <windows.h>.
 
-  Status (2026-04-07)
+  Status (2026-04-19)
   ────────────────────
-    Thumb drag         ✓  Works correctly.
+    Thumb drag         ✓  Works correctly (V/H for all targets except
+                          ListView H-axis — see below).
     Arrow click        ✓  Works correctly (auto-repeat, 350 ms / 50 ms).
     Track click        ✓  Works correctly (jump to position, not page scroll).
     Mouse wheel        ✓  Works correctly (sub-tick accumulation).
@@ -44,9 +45,10 @@
     Page scrollbar     ✓  Dialogs page; msb_set_insets / msb_set_edge_gap;
                           WM_SIZE updates SCROLLINFO + calls msb_sync so bar
                           hides when content fits and returns when window shrinks.
-    ListView V+H       ✓  ALL interactions fully working (2026-04-08):
-                          arrow (20 px step), track-click, tilt-wheel (20 px ×
-                          lines), thumb drag.
+    ListView V+H       ✓  Arrow, track-click, tilt-wheel all working.
+                       !  ListView H thumb drag: known bug in working tree
+                          (see here.txt for exact diagnosis and one-line fix).
+                          Fix pending for next session.
                           H-axis position tracked in MsbCtx.lvHPos because
                           GetScrollInfo.nPos is unreliable (ShowScrollBar(FALSE)
                           zeroes it; LVM_SCROLL does not update it).
@@ -56,6 +58,14 @@
                           ListView_GetItemRect.  Column widths based on
                           GetClientRect width (not window width) to avoid false
                           H-bar overflow from border gap.
+                          Auto-syncs (new 2026-04-19): library intercepts
+                          LVM_DELETEALLITEMS (resets lvHPos=0),
+                          LVM_SETCOLUMNWIDTH (re-reads lvHPos after resize),
+                          and HDN_ENDTRACK (re-reads lvHPos after header drag)
+                          — callers need no post-call msb_reposition.
+                          inNcPaintChain WM_SIZE guard: skips lvHPos re-read
+                          when WM_NCPAINT is active, preventing stale-read
+                          corruption from LVM_SCROLL's synchronous NCPAINT.
 
                           !! GOLDEN RULES FOR LISTVIEW H-AXIS (hard-won) !!
 

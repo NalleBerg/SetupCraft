@@ -6263,6 +6263,7 @@ CMakeFiles/SkeletonApp.dir/my_scrollbar.cpp.obj: C:/Users/NalleBerg/Documents/C+
   C:/mingw64/x86_64-w64-mingw32/include/_bsd_types.h \
   C:/mingw64/x86_64-w64-mingw32/include/_mingw.h \
   C:/mingw64/x86_64-w64-mingw32/include/_mingw_mac.h \
+  C:/mingw64/x86_64-w64-mingw32/include/_mingw_off_t.h \
   C:/mingw64/x86_64-w64-mingw32/include/_mingw_secapi.h \
   C:/mingw64/x86_64-w64-mingw32/include/_mingw_stdarg.h \
   C:/mingw64/x86_64-w64-mingw32/include/_mingw_unicode.h \
@@ -6282,6 +6283,7 @@ CMakeFiles/SkeletonApp.dir/my_scrollbar.cpp.obj: C:/Users/NalleBerg/Documents/C+
   C:/mingw64/x86_64-w64-mingw32/include/consoleapi2.h \
   C:/mingw64/x86_64-w64-mingw32/include/consoleapi3.h \
   C:/mingw64/x86_64-w64-mingw32/include/corecrt.h \
+  C:/mingw64/x86_64-w64-mingw32/include/corecrt_stdio_config.h \
   C:/mingw64/x86_64-w64-mingw32/include/corecrt_wctype.h \
   C:/mingw64/x86_64-w64-mingw32/include/corecrt_wstdlib.h \
   C:/mingw64/x86_64-w64-mingw32/include/crtdefs.h \
@@ -6369,6 +6371,7 @@ CMakeFiles/SkeletonApp.dir/my_scrollbar.cpp.obj: C:/Users/NalleBerg/Documents/C+
   C:/mingw64/x86_64-w64-mingw32/include/sal.h \
   C:/mingw64/x86_64-w64-mingw32/include/sdkddkver.h \
   C:/mingw64/x86_64-w64-mingw32/include/sdks/_mingw_ddk.h \
+  C:/mingw64/x86_64-w64-mingw32/include/sec_api/stdio_s.h \
   C:/mingw64/x86_64-w64-mingw32/include/sec_api/stdlib_s.h \
   C:/mingw64/x86_64-w64-mingw32/include/sec_api/stralign_s.h \
   C:/mingw64/x86_64-w64-mingw32/include/sec_api/string_s.h \
@@ -6379,10 +6382,12 @@ CMakeFiles/SkeletonApp.dir/my_scrollbar.cpp.obj: C:/Users/NalleBerg/Documents/C+
   C:/mingw64/x86_64-w64-mingw32/include/specstrings.h \
   C:/mingw64/x86_64-w64-mingw32/include/stdarg.h \
   C:/mingw64/x86_64-w64-mingw32/include/stddef.h \
+  C:/mingw64/x86_64-w64-mingw32/include/stdio.h \
   C:/mingw64/x86_64-w64-mingw32/include/stdlib.h \
   C:/mingw64/x86_64-w64-mingw32/include/stralign.h \
   C:/mingw64/x86_64-w64-mingw32/include/string.h \
   C:/mingw64/x86_64-w64-mingw32/include/stringapiset.h \
+  C:/mingw64/x86_64-w64-mingw32/include/swprintf.inl \
   C:/mingw64/x86_64-w64-mingw32/include/synchapi.h \
   C:/mingw64/x86_64-w64-mingw32/include/sysinfoapi.h \
   C:/mingw64/x86_64-w64-mingw32/include/systemtopologyapi.h \

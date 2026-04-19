@@ -37,8 +37,26 @@
 #include <windowsx.h>   /* GET_X_LPARAM / GET_Y_LPARAM */
 #include <commctrl.h>   /* LVM_SCROLL, ListView_GetItemRect, etc. */
 #include <algorithm>    /* std::min / std::max */
+#include <stdio.h>      /* for debug log */
 using std::min;
 using std::max;
+
+/* ── Debug logging ───────────────────────────────────────────────────────── */
+static void MsbDbg(const char* fmt, ...)
+{
+    static BOOL disabled = FALSE;
+    if (disabled) return;
+    char buf[512];
+    va_list ap; va_start(ap, fmt); vsnprintf(buf, sizeof(buf), fmt, ap); va_end(ap);
+    FILE* f = fopen("msb_debug.log", "a");
+    if (!f) { disabled = TRUE; return; }
+    fputs(buf, f); fputs("\n", f);
+    fclose(f);
+}
+/* Clear the log at startup so each run starts fresh. */
+static struct MsbDbgInit {
+    MsbDbgInit() { FILE* f = fopen("msb_debug.log", "w"); if (f) fclose(f); }
+} s_dbgInit;
 
 /* ── Internal enums ─────────────────────────────────────────────────────────*/
 
@@ -993,11 +1011,13 @@ static void Msb_ScrollToPos(MsbCtx* ctx, int newPos)
              * Using lvHPos gives a consistent delta in both directions. */
             int curPos = ctx->lvHPos;
             int delta  = newPos - curPos;
+            MsbDbg("ScrollToPos: lvHPos=%d newPos=%d delta=%d", curPos, newPos, delta);
             if (delta != 0)
                 SendMessageW(ctx->hTarget, LVM_SCROLL, (WPARAM)delta, 0);
-            /* Trust newPos as authoritative — it is already clamped to maxPos.
+            /* Trust newPos as authoritative — already clamped to maxPos.
              * msb_reposition/WM_SIZE re-sync from the header on layout changes. */
             ctx->lvHPos = newPos;
+            MsbDbg("ScrollToPos: post-scroll lvHPos=%d header=%d", ctx->lvHPos, Msb_GetListViewHPos(ctx->hTarget));
             return;
         }
         /* Vertical: LVM_SCROLL with row-height conversion works reliably. */
@@ -1067,6 +1087,19 @@ static LRESULT CALLBACK Msb_BarWndProc(HWND hwnd, UINT msg,
         case WM_LBUTTONDOWN: {
             if (!ctx) break;
             KillTimer(hwnd, 4); /* cancel any pending leave-delay contraction */
+            /* For ListView H-axis: re-sync lvHPos from the header control RIGHT
+             * NOW, before Msb_PositionBar is called below.
+             * At click time no scroll is in progress: the user has just moved the
+             * mouse and stopped, so the header item rects are fully settled and
+             * Msb_GetListViewHPos returns the ground-truth offset.
+             * This guards against any stale lvHPos caused by paths we don't
+             * intercept (e.g. LVM_DELETEALLITEMS not resetting H-scroll on all
+             * Windows versions, or WM_SIZE firing in an un-guarded context).
+             * Reading BEFORE Msb_PositionBar avoids any header state changes
+             * that SetWindowPos on the bar sibling might trigger. */
+            if (ctx->isListView && (ctx->flags & MSB_HORIZONTAL)) {
+                ctx->lvHPos = Msb_GetListViewHPos(ctx->hTarget);
+            }
             /* If the bar is in hint-strip state (3 px), jump to full width
              * immediately so the user can hit-test arrows/track/thumb now.*/
             if (!(ctx->flags & MSB_NOHIDE) && ctx->fadeState == FADE_HIDDEN) {
@@ -1091,8 +1124,10 @@ static LRESULT CALLBACK Msb_BarWndProc(HWND hwnd, UINT msg,
                 ctx->thumbState  = THUMB_DRAG;
                 BOOL vert        = !(ctx->flags & MSB_HORIZONTAL);
                 ctx->dragStartPx = vert ? y : x;
-                /* Use EM_GETSCROLLPOS for RichEdit — GetScrollInfo nPos is stale
-                 * when the native bar is hidden. */
+                MsbDbg("LBUTTONDOWN: vert=%d clickPos=%d lvHPos=%d rThumb=[%d,%d,%d,%d] rTrack=[%d,%d,%d,%d]",
+                    (int)vert, (vert?y:x), ctx->lvHPos,
+                    ctx->rThumb.left, ctx->rThumb.top, ctx->rThumb.right, ctx->rThumb.bottom,
+                    ctx->rTrack.left, ctx->rTrack.top, ctx->rTrack.right, ctx->rTrack.bottom);
                 int startPos = 0;
                 if (ctx->isRichEdit) {
                     POINT pt = {0, 0};
@@ -1206,8 +1241,14 @@ static LRESULT CALLBACK Msb_BarWndProc(HWND hwnd, UINT msg,
             if (ctx->dragging) {
                 /* Thumb drag — map cursor delta to scroll position */
                 BOOL vert = !(ctx->flags & MSB_HORIZONTAL);
+                if (ctx->isListView && !vert)
+                    ctx->lvHPos = Msb_GetListViewHPos(ctx->hTarget);
                 int cur   = vert ? GET_Y_LPARAM(lParam) : GET_X_LPARAM(lParam);
                 int delta = cur - ctx->dragStartPx;
+                MsbDbg("MOUSEMOVE drag: vert=%d cur=%d delta=%d lvHPos=%d dragStartPos=%d rTrack=[%d..%d]",
+                    (int)vert, cur, delta, ctx->lvHPos, ctx->dragStartPos,
+                    (int)(vert?ctx->rTrack.top:ctx->rTrack.left),
+                    (int)(vert?ctx->rTrack.bottom:ctx->rTrack.right));
 
                 SCROLLINFO si = {sizeof(si), SIF_ALL};
                 GetScrollInfo(ctx->hTarget, vert ? SB_VERT : SB_HORZ, &si);
@@ -1229,20 +1270,22 @@ static LRESULT CALLBACK Msb_BarWndProc(HWND hwnd, UINT msg,
                         si.nMin = 0;
                     }
                 } else if (ctx->isListView && !vert) {
-                    /* ListView H-axis: live column-width / client-width, same as Msb_Layout. */
+                    /* ListView H-axis: live column-width / client-width. */
                     Msb_FixListViewHScrollInfo(ctx->hTarget, &si);
                 }
                 int trackPx = vert ? (ctx->rTrack.bottom - ctx->rTrack.top)
                                    : (ctx->rTrack.right  - ctx->rTrack.left);
                 int thumbPx = vert ? (ctx->rThumb.bottom - ctx->rThumb.top)
                                    : (ctx->rThumb.right  - ctx->rThumb.left);
-                int range   = si.nMax - si.nMin - si.nPage + 1;
+                int range   = si.nMax - si.nMin - (int)si.nPage + 1;
                 if (range <= 0) break;
 
                 int newPos = ctx->dragStartPos
                            + (int)(delta * (float)range / max(1, trackPx - thumbPx) + 0.5f);
                 newPos = max(si.nMin, min(si.nMax - (int)si.nPage + 1, newPos));
                 ctx->dragCurPos = newPos;
+                MsbDbg("  -> si[min=%d max=%d page=%d] trackPx=%d thumbPx=%d range=%d newPos=%d",
+                    si.nMin, si.nMax, (int)si.nPage, trackPx, thumbPx, range, newPos);
 
                 if (ctx->isRichEdit) {
                     UINT smsg = vert ? WM_VSCROLL : WM_HSCROLL;
@@ -1560,11 +1603,17 @@ static LRESULT CALLBACK Msb_TargetSubclassProc(HWND hwnd, UINT msg,
                  * (during scrolling) and msb_reposition/WM_SIZE (on layout
                  * changes such as column resize and window resize). */
             }
+            if (ctxH && ctxH->isListView)
+                MsbDbg("NCPAINT: pre-hide  header=%d siH.nPos=%d siH.nMax=%d", Msb_GetListViewHPos(hwnd), siH.nPos, siH.nMax);
             if (ctxV) Msb_HideNativeBar(hwnd, ctxV->isRichEdit, TRUE);
             if (ctxH) Msb_HideNativeBar(hwnd, ctxH->isRichEdit, FALSE);
+            if (ctxH && ctxH->isListView)
+                MsbDbg("NCPAINT: post-hide  header=%d", Msb_GetListViewHPos(hwnd));
             /* Reconstruct V for TreeView; restore H for ListView/TreeView. */
             if (ctxV && ctxV->isTreeView) Msb_ReconstructTreeVScrollInfo(hwnd);
             if (restoreH) SetScrollInfo(hwnd, SB_HORZ, &siH, FALSE);
+            if (ctxH && ctxH->isListView)
+                MsbDbg("NCPAINT: post-restore header=%d siH.nPos=%d", Msb_GetListViewHPos(hwnd), siH.nPos);
             if (ctxV) ctxV->inNcPaint = FALSE;
             if (ctxH) ctxH->inNcPaint = FALSE;
             return r;
@@ -1615,7 +1664,16 @@ static LRESULT CALLBACK Msb_TargetSubclassProc(HWND hwnd, UINT msg,
                  * want to overwrite the lvHPos that Msb_ScrollToPos just set. */
                 if (ctxH->isListView) {
                     HWND cap = GetCapture();
-                    if (cap != ctxH->hBar)
+                    /* Also skip the sync when WM_SIZE fires from within a
+                     * WM_NCPAINT handler (inNcPaint=TRUE).  LVM_SCROLL
+                     * triggers WM_NCPAINT synchronously BEFORE the header
+                     * repositions its items, so Msb_GetListViewHPos() would
+                     * return the old/stale position and corrupt lvHPos.
+                     * After WM_NCPAINT completes (inNcPaint cleared), the
+                     * next genuine WM_SIZE (window resize) syncs correctly. */
+                    BOOL inNcPaintChain = ctxH->inNcPaint ||
+                                         (ctxV && ctxV->inNcPaint);
+                    if (cap != ctxH->hBar && !inNcPaintChain)
                         ctxH->lvHPos = Msb_GetListViewHPos(hwnd);
                 }
             }
@@ -1821,6 +1879,61 @@ static LRESULT CALLBACK Msb_TargetSubclassProc(HWND hwnd, UINT msg,
                 KillTimer(ctxH->hBar, 3);
                 ctxH->fadeState = FADE_EXPANDING;
                 SetTimer(ctxH->hBar, 3, 16, NULL);
+            }
+            break;
+        }
+
+        case LVM_DELETEALLITEMS: {
+            /* When all ListView items are deleted the scroll position resets to 0.
+             * Intercept here so callers do not need ShowScrollBar+msb_sync after
+             * ListView_DeleteAllItems; the library keeps lvHPos in sync itself. */
+            LRESULT r = CallWindowProcW(any->origProc, hwnd, msg, wParam, lParam);
+            if (ctxH && ctxH->isListView) {
+                ctxH->lvHPos = 0;
+                Msb_UpdateVisibility(ctxH);
+                Msb_Layout(ctxH);
+                InvalidateRect(ctxH->hBar, NULL, FALSE);
+                UpdateWindow(ctxH->hBar);
+            }
+            return r;
+        }
+
+        case LVM_SETCOLUMNWIDTH: {
+            /* Intercept programmatic column-width changes (AUTOSIZE / fixed px).
+             * After origProc the ListView has committed the new width and the
+             * header item rects are settled, so Msb_GetListViewHPos returns the
+             * true horizontal scroll position.  Callers no longer need
+             * ShowScrollBar+msb_sync after every ListView_SetColumnWidth call. */
+            LRESULT r = CallWindowProcW(any->origProc, hwnd, msg, wParam, lParam);
+            if (ctxH && ctxH->isListView) {
+                ctxH->lvHPos = Msb_GetListViewHPos(hwnd);
+                Msb_UpdateVisibility(ctxH);
+                Msb_Layout(ctxH);
+                InvalidateRect(ctxH->hBar, NULL, FALSE);
+                UpdateWindow(ctxH->hBar);
+            }
+            return r;
+        }
+
+        case WM_NOTIFY: {
+            /* Intercept HDN_ENDTRACK from the ListView header so the library
+             * handles column-resize sync internally.  After origProc the column
+             * widths are committed and the header item rects are settled.
+             * Callers no longer need a WM_NOTIFY/HDN_ENDTRACK handler to call
+             * msb_reposition — the library does it automatically. */
+            if (ctxH && ctxH->isListView) {
+                NMHDR* nm = (NMHDR*)lParam;
+                HWND hHdr = ListView_GetHeader(hwnd);
+                if (hHdr && nm->hwndFrom == hHdr &&
+                    (nm->code == HDN_ENDTRACKW || nm->code == HDN_ENDTRACKA)) {
+                    LRESULT r = CallWindowProcW(any->origProc, hwnd, msg, wParam, lParam);
+                    ctxH->lvHPos = Msb_GetListViewHPos(hwnd);
+                    Msb_UpdateVisibility(ctxH);
+                    Msb_Layout(ctxH);
+                    InvalidateRect(ctxH->hBar, NULL, FALSE);
+                    UpdateWindow(ctxH->hBar);
+                    return r;
+                }
             }
             break;
         }

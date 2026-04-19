@@ -317,6 +317,7 @@ static bool s_filesPageHasContent = false; // tracks whether Files page has any 
 #define IDM_DEPS_CTX_SHOWFILES      6211 // dep-list context menu: Show files…
 #define IDM_FILES_FLAGS             6220 // files context menu: File Flags…
 #define IDM_FILES_COMPONENT         6221 // files context menu: Component…
+#define IDM_FILES_DESTDIR           6222 // files context menu: DestDir…
 
 // File Flags dialog control IDs (9001-9015)
 #define IDC_FFLG_IGNOREVERSION      9001
@@ -349,6 +350,11 @@ static bool s_filesPageHasContent = false; // tracks whether Files page has any 
 #define IDC_FFILTER_REMOVE          9033
 #define IDC_FFILTER_OK              9034
 #define IDC_FFILTER_CANCEL          9035
+
+// File DestDir dialog control IDs (9040-9042)
+#define IDC_FDDLG_COMBO             9040
+#define IDC_FDDLG_OK                9041
+#define IDC_FDDLG_CANCEL            9042
 
 // Notes button inside folder edit and component edit dialogs
 #define IDC_FOLDER_DLG_NOTES       340
@@ -1434,12 +1440,14 @@ static void ForceRefreshListView(HWND hwndListView, HTREEITEM hItem) {
             ListView_SetItemText(hwndListView, idx, 2, (LPWSTR)fileInfo.inno_flags.c_str());
             std::wstring compName3 = GetCompNameForFile(fileInfo.sourcePath);
             ListView_SetItemText(hwndListView, idx, 3, (LPWSTR)compName3.c_str());
+            ListView_SetItemText(hwndListView, idx, 4, (LPWSTR)fileInfo.dest_dir_override.c_str());
         }
     }
     ListView_SetColumnWidth(hwndListView, 0, LVSCW_AUTOSIZE_USEHEADER);
     ListView_SetColumnWidth(hwndListView, 1, LVSCW_AUTOSIZE);
     ListView_SetColumnWidth(hwndListView, 2, LVSCW_AUTOSIZE_USEHEADER);
     ListView_SetColumnWidth(hwndListView, 3, LVSCW_AUTOSIZE_USEHEADER);
+    ListView_SetColumnWidth(hwndListView, 4, LVSCW_AUTOSIZE_USEHEADER);
     InvalidateRect(hwndListView, NULL, TRUE);
     UpdateWindow(hwndListView);
 }
@@ -1468,7 +1476,7 @@ static void SaveTreeToDb(int projectId,
             // f.destination is like L"\filename.exe" (leading backslash)
             DB::InsertFile(projectId, f.sourcePath, myPath + f.destination,
                            f.install_scope.empty() ? L"" : f.install_scope,
-                           f.inno_flags);
+                           f.inno_flags, f.dest_dir_override);
         }
         // Recurse into children
         SaveTreeToDb(projectId, snap.children, myPath);
@@ -2175,7 +2183,12 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
           ListView_InsertColumn(s_hListView, 2, &col);
           col.cx = S(130);
           col.pszText = (LPWSTR)colCompText.c_str();
-          ListView_InsertColumn(s_hListView, 3, &col); }
+          ListView_InsertColumn(s_hListView, 3, &col);
+          auto itColDD = s_locale.find(L"files_col_destdir");
+          std::wstring colDestDirText = (itColDD != s_locale.end()) ? itColDD->second : L"DestDir";
+          col.cx = S(130);
+          col.pszText = (LPWSTR)colDestDirText.c_str();
+          ListView_InsertColumn(s_hListView, 4, &col); }
         // Attach custom hidden scrollbars to the ListView.
         s_hMsbFilesListV = msb_attach(s_hListView, MSB_VERTICAL);
         s_hMsbFilesListH = msb_attach(s_hListView, MSB_HORIZONTAL);
@@ -2288,6 +2301,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
                                 vf.destination   = fileName;
                                 vf.install_scope = row.install_scope;
                                 vf.inno_flags    = row.inno_flags;
+                                vf.dest_dir_override = row.dest_dir_override;
                                 s_virtualFolderFiles[it->second].push_back(vf);
                             }
                         }
@@ -3558,10 +3572,7 @@ void MainWindow::PopulateTreeView(HWND hTree, const std::wstring &rootPath, cons
     // Select app root and populate list with root contents
     TreeView_SelectItem(hTree, hRoot);
     PopulateListView(s_hListView, rootPath);
-    // Re-suppress native list bars that ListView re-enables on item insertion.
-    if (s_hMsbFilesListV) { ShowScrollBar(s_hListView, SB_VERT, FALSE); msb_sync(s_hMsbFilesListV); }
-    if (s_hMsbFilesListH) { ShowScrollBar(s_hListView, SB_HORZ, FALSE); msb_sync(s_hMsbFilesListH); }
-    
+
     // Force complete redraw
     InvalidateRect(hTree, NULL, TRUE);
     UpdateWindow(hTree);
@@ -5319,6 +5330,161 @@ LRESULT CALLBACK FolderFilterDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
         if (hCtrlFont) { DeleteObject(hCtrlFont); RemovePropW(hwnd, L"hCtrlFont"); }
         HMSB hMsb = (HMSB)GetPropW(hwnd, L"hMsbListV");
         if (hMsb) { msb_detach(hMsb); RemovePropW(hwnd, L"hMsbListV"); }
+        break;
+    }
+
+    case WM_CLOSE:
+        DestroyWindow(hwnd);
+        return 0;
+    }
+
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+// ─── File DestDir Override Dialog ───────────────────────────────────────────
+// Allows the developer to override the Inno Setup DestDir for a single file.
+// Leave blank to derive the destination from the parent tree-node path.
+
+struct FileDestDirDialogData {
+    std::wstring destDirOverride;   // in: current value; out: new value on confirm
+    bool         confirmed = false;
+    std::wstring labelText;
+    std::wstring okText;
+    std::wstring cancelText;
+};
+
+// Layout constants for File DestDir dialog (design px at 96 DPI)
+static const int FDDLG_DLG_W   = 420;
+static const int FDDLG_PAD_H   = 16;
+static const int FDDLG_PAD_T   = 14;
+static const int FDDLG_LBL_H   = 48;
+static const int FDDLG_CMB_H   = 24;
+static const int FDDLG_BTN_H   = 34;
+static const int FDDLG_BTN_PAD = 12;
+static const int FDDLG_GAP     = 10;
+
+LRESULT CALLBACK FileDestDirDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+    case WM_CREATE: {
+        CREATESTRUCTW* cs = (CREATESTRUCTW*)lParam;
+        HINSTANCE hInst   = cs->hInstance;
+        FileDestDirDialogData* pData = (FileDestDirDialogData*)cs->lpCreateParams;
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)pData);
+
+        RECT rc; GetClientRect(hwnd, &rc);
+        int cw   = rc.right - rc.left;
+        int padH = S(FDDLG_PAD_H);
+        int padT = S(FDDLG_PAD_T);
+        int lblH = S(FDDLG_LBL_H);
+        int cmbH = S(FDDLG_CMB_H);
+        int btnH = S(FDDLG_BTN_H);
+        int gap  = S(FDDLG_GAP);
+
+        int y = padT;
+
+        // Description label
+        CreateWindowExW(0, L"STATIC", pData->labelText.c_str(),
+            WS_CHILD | WS_VISIBLE | SS_LEFT,
+            padH, y, cw - 2*padH, lblH, hwnd, NULL, hInst, NULL);
+        y += lblH + gap;
+
+        // Combobox (editable, CBS_DROPDOWN)
+        HWND hCmb = CreateWindowExW(0, L"COMBOBOX", NULL,
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWN | CBS_AUTOHSCROLL,
+            padH, y, cw - 2*padH, S(200), hwnd, (HMENU)(INT_PTR)IDC_FDDLG_COMBO, hInst, NULL);
+        // Pre-populate common Inno Setup directory constants
+        const wchar_t* presets[] = {
+            L"{sys}", L"{syswow64}", L"{sysnative}", L"{win}",
+            L"{commonpf}", L"{commonpf32}", L"{commonpf64}",
+            L"{cf}", L"{commonappdata}", L"{userappdata}",
+            L"{localappdata}", L"{tmp}"
+        };
+        for (auto& p : presets)
+            SendMessageW(hCmb, CB_ADDSTRING, 0, (LPARAM)p);
+        // Set current value (may be empty)
+        SetWindowTextW(hCmb, pData->destDirOverride.c_str());
+        y += cmbH + gap * 2;
+
+        // OK / Cancel buttons — centered
+        int btnW = S(100);
+        int totalBtnW = btnW * 2 + S(FDDLG_BTN_PAD);
+        int bx = (cw - totalBtnW) / 2;
+
+        HWND hOk = CreateCustomButtonWithIcon(hwnd, IDC_FDDLG_OK, pData->okText.c_str(),
+            ButtonColor::Green, L"imageres.dll", 89,
+            bx, y, btnW, btnH, hInst);
+        (void)hOk;
+
+        HWND hCancel = CreateCustomButtonWithIcon(hwnd, IDC_FDDLG_CANCEL, pData->cancelText.c_str(),
+            ButtonColor::Red, L"shell32.dll", 131,
+            bx + btnW + S(FDDLG_BTN_PAD), y, btnW, btnH, hInst);
+        (void)hCancel;
+
+        // Apply scaled UI font to all child controls
+        NONCLIENTMETRICSW ncm2 = {}; ncm2.cbSize = sizeof(ncm2);
+        SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm2), &ncm2, 0);
+        if (ncm2.lfMessageFont.lfHeight < 0)
+            ncm2.lfMessageFont.lfHeight = (LONG)(ncm2.lfMessageFont.lfHeight * 1.2f);
+        ncm2.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+        HFONT hCtrlFont = CreateFontIndirectW(&ncm2.lfMessageFont);
+        if (hCtrlFont) {
+            SetPropW(hwnd, L"hCtrlFont", hCtrlFont);
+            EnumChildWindows(hwnd, [](HWND hChild, LPARAM lp) -> BOOL {
+                SendMessageW(hChild, WM_SETFONT, (WPARAM)(HFONT)lp, TRUE);
+                return TRUE;
+            }, (LPARAM)hCtrlFont);
+        }
+        return 0;
+    }
+
+    case WM_COMMAND: {
+        int id = LOWORD(wParam);
+        if (id == IDC_FDDLG_OK) {
+            FileDestDirDialogData* pData = (FileDestDirDialogData*)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+            if (pData) {
+                HWND hCmb = GetDlgItem(hwnd, IDC_FDDLG_COMBO);
+                wchar_t buf[1024] = {};
+                GetWindowTextW(hCmb, buf, _countof(buf));
+                pData->destDirOverride = buf;
+                pData->confirmed = true;
+            }
+            DestroyWindow(hwnd);
+            return 0;
+        }
+        if (id == IDC_FDDLG_CANCEL) {
+            DestroyWindow(hwnd);
+            return 0;
+        }
+        return 0;
+    }
+
+    case WM_DRAWITEM: {
+        LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
+        if (dis->CtlID == IDC_FDDLG_OK || dis->CtlID == IDC_FDDLG_CANCEL) {
+            ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
+            NONCLIENTMETRICSW ncm = {}; ncm.cbSize = sizeof(ncm);
+            SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+            if (ncm.lfMessageFont.lfHeight < 0)
+                ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
+            ncm.lfMessageFont.lfWeight = FW_BOLD;
+            ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+            HFONT hFont = CreateFontIndirectW(&ncm.lfMessageFont);
+            LRESULT result = DrawCustomButton(dis, color, hFont);
+            if (hFont) DeleteObject(hFont);
+            return result;
+        }
+        break;
+    }
+
+    case WM_CTLCOLORSTATIC: {
+        HDC hdc = (HDC)wParam;
+        SetBkMode(hdc, TRANSPARENT);
+        return (LRESULT)GetStockObject(WHITE_BRUSH);
+    }
+
+    case WM_DESTROY: {
+        HFONT hCtrlFont = (HFONT)GetPropW(hwnd, L"hCtrlFont");
+        if (hCtrlFont) { DeleteObject(hCtrlFont); RemovePropW(hwnd, L"hCtrlFont"); }
         break;
     }
 
@@ -7309,6 +7475,7 @@ void MainWindow::EnsureTreeSnapshotsFromDb()
         vf.destination   = row.destination_path.substr(sep); // includes leading '\'
         vf.install_scope = row.install_scope;
         vf.inno_flags    = row.inno_flags;
+        vf.dest_dir_override = row.dest_dir_override;
         it->second.virtualFiles.push_back(std::move(vf));
     }
 
@@ -8418,7 +8585,16 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             SendMessageW(hwnd, WM_COMMAND, IDM_REG_EDIT_KEY, 0);
             return 0;
         }
-        
+
+        // TVN_ITEMEXPANDED: Files TreeView (id 102) expand/collapse.
+        // msb_reposition re-counts expanded rows via tree-walk so the V-bar
+        // thumb updates correctly without needing a WM_SIZE round-trip.
+        if (nmhdr->idFrom == 102 &&
+            (nmhdr->code == TVN_ITEMEXPANDED || nmhdr->code == TVN_ITEMEXPANDEDW)) {
+            if (s_hMsbFilesTreeV) msb_reposition(s_hMsbFilesTreeV);
+            if (s_hMsbFilesTreeH) msb_reposition(s_hMsbFilesTreeH);
+        }
+
         // Handle TreeView selection change
         if (nmhdr->idFrom == 102 && nmhdr->code == TVN_SELCHANGED) {
             LPNMTREEVIEW pnmtv = (LPNMTREEVIEW)lParam;
@@ -8468,19 +8644,18 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                         ListView_SetItemText(s_hListView, idx, 2, (LPWSTR)fileInfo.inno_flags.c_str());
                         std::wstring compName4 = GetCompNameForFile(fileInfo.sourcePath);
                         ListView_SetItemText(s_hListView, idx, 3, (LPWSTR)compName4.c_str());
+                        ListView_SetItemText(s_hListView, idx, 4, (LPWSTR)fileInfo.dest_dir_override.c_str());
                     }
                 }
                 ListView_SetColumnWidth(s_hListView, 0, LVSCW_AUTOSIZE_USEHEADER);
                 ListView_SetColumnWidth(s_hListView, 1, LVSCW_AUTOSIZE);
                 ListView_SetColumnWidth(s_hListView, 2, LVSCW_AUTOSIZE_USEHEADER);
                 ListView_SetColumnWidth(s_hListView, 3, LVSCW_AUTOSIZE_USEHEADER);
+                ListView_SetColumnWidth(s_hListView, 4, LVSCW_AUTOSIZE_USEHEADER);
 
                 // Force ListView to redraw
                 InvalidateRect(s_hListView, NULL, TRUE);
                 UpdateWindow(s_hListView);
-                // Re-suppress native list bars that ListView re-enables on item insertion.
-                if (s_hMsbFilesListV) { ShowScrollBar(s_hListView, SB_VERT, FALSE); msb_sync(s_hMsbFilesListV); }
-                if (s_hMsbFilesListH) { ShowScrollBar(s_hListView, SB_HORZ, FALSE); msb_sync(s_hMsbFilesListH); }
                 // Show tooltip if AskAtInstall root is selected
                 if (pnmtv->itemNew.hItem == s_hAskAtInstallRoot) {
                     // Get item rect
@@ -8516,6 +8691,18 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             // Route to Edit Value handler
             SendMessageW(hwnd, WM_COMMAND, IDM_REG_EDIT_VALUE, 0);
             return 0;
+        }
+
+        // TVN_ITEMEXPANDED: Components TreeView expand/collapse.
+        if (nmhdr->idFrom == IDC_COMP_TREEVIEW && nmhdr->code == TVN_ITEMEXPANDED) {
+            if (s_hMsbCompTreeV) msb_reposition(s_hMsbCompTreeV);
+            if (s_hMsbCompTreeH) msb_reposition(s_hMsbCompTreeH);
+        }
+
+        // TVN_ITEMEXPANDED: Registry TreeView expand/collapse.
+        if (nmhdr->idFrom == IDC_REG_TREEVIEW && nmhdr->code == TVN_ITEMEXPANDED) {
+            if (s_hMsbRegTreeV) msb_reposition(s_hMsbRegTreeV);
+            if (s_hMsbRegTreeH) msb_reposition(s_hMsbRegTreeH);
         }
 
         // Handle double-click on Components ListView -> edit component
@@ -8591,9 +8778,6 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 }
             }
             ListView_SetColumnWidth(s_hCompListView, 4, LVSCW_AUTOSIZE_USEHEADER);
-            // Re-suppress native ListView bars that get re-enabled on item insertion.
-            if (s_hMsbCompListV) { ShowScrollBar(s_hCompListView, SB_VERT, FALSE); msb_sync(s_hMsbCompListV); }
-            if (s_hMsbCompListH) { ShowScrollBar(s_hCompListView, SB_HORZ, FALSE); msb_sync(s_hMsbCompListH); }
             return 0;
         }
 
@@ -9660,7 +9844,117 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             }
             return 0;
         }
-            
+
+        case IDM_FILES_DESTDIR: {
+            if (!s_hListView || !IsWindow(s_hListView)) return 0;
+            int selIdx = ListView_GetNextItem(s_hListView, -1, LVNI_SELECTED);
+            if (selIdx < 0) return 0;
+
+            // Retrieve source path stored in LPARAM
+            LVITEMW lvGet = {};
+            lvGet.mask  = LVIF_PARAM;
+            lvGet.iItem = selIdx;
+            if (!ListView_GetItem(s_hListView, &lvGet) || !lvGet.lParam) return 0;
+            std::wstring sourcePath = (const wchar_t*)lvGet.lParam;
+
+            // Display name for title bar
+            wchar_t destBuf[MAX_PATH] = {};
+            ListView_GetItemText(s_hListView, selIdx, 0, destBuf, _countof(destBuf));
+            std::wstring dispName = destBuf;
+            if (!dispName.empty() && (dispName[0] == L'\\' || dispName[0] == L'/'))
+                dispName = dispName.substr(1);
+
+            // Find the VirtualFolderFile to read/write dest_dir_override.
+            // The live working store is s_virtualFolderFiles, keyed by HTREEITEM.
+            // Search the currently selected tree node's file list first, then
+            // fall back to all nodes in the map (covers multi-level trees).
+            VirtualFolderFile* pVff = nullptr;
+            HTREEITEM hSelItem = TreeView_GetSelection(s_hTreeView);
+            if (hSelItem) {
+                auto it = s_virtualFolderFiles.find(hSelItem);
+                if (it != s_virtualFolderFiles.end()) {
+                    for (auto& vf : it->second) {
+                        if (vf.sourcePath == sourcePath) { pVff = &vf; break; }
+                    }
+                }
+            }
+            // Fallback: scan all nodes (handles edge cases where selection changed)
+            if (!pVff) {
+                for (auto& kv : s_virtualFolderFiles) {
+                    for (auto& vf : kv.second) {
+                        if (vf.sourcePath == sourcePath) { pVff = &vf; break; }
+                    }
+                    if (pVff) break;
+                }
+            }
+            if (!pVff) return 0;
+
+            auto locFD = [&](const wchar_t* k, const wchar_t* fb) -> std::wstring {
+                auto it = s_locale.find(k);
+                return (it != s_locale.end()) ? it->second : fb;
+            };
+            FileDestDirDialogData dlgDataFD;
+            dlgDataFD.destDirOverride = pVff->dest_dir_override;
+            dlgDataFD.confirmed       = false;
+            dlgDataFD.labelText       = locFD(L"fddlg_label",  L"Override the destination directory for this file. Leave blank to use the folder's default.");
+            dlgDataFD.okText          = locFD(L"fddlg_ok",     L"OK");
+            dlgDataFD.cancelText      = locFD(L"fddlg_cancel", L"Cancel");
+
+            // Register window class (idempotent)
+            WNDCLASSEXW wcFD = {};
+            wcFD.cbSize = sizeof(WNDCLASSEXW);
+            if (!GetClassInfoExW(GetModuleHandleW(NULL), L"FileDestDirDialog", &wcFD)) {
+                wcFD.lpfnWndProc   = FileDestDirDialogProc;
+                wcFD.hInstance     = GetModuleHandleW(NULL);
+                wcFD.lpszClassName = L"FileDestDirDialog";
+                wcFD.hbrBackground = (HBRUSH)GetStockObject(WHITE_BRUSH);
+                wcFD.hCursor       = LoadCursor(NULL, IDC_ARROW);
+                RegisterClassExW(&wcFD);
+            }
+
+            // Compute window size
+            int fdClientH = S(FDDLG_PAD_T) + S(FDDLG_LBL_H) + S(FDDLG_GAP)
+                          + S(FDDLG_CMB_H) + S(FDDLG_GAP)*2 + S(FDDLG_BTN_H) + S(FDDLG_PAD_T);
+            RECT wrcFD = {0, 0, S(FDDLG_DLG_W), fdClientH};
+            AdjustWindowRectEx(&wrcFD, WS_POPUP|WS_CAPTION|WS_SYSMENU, FALSE,
+                               WS_EX_TOOLWINDOW);
+            int dlgW = wrcFD.right - wrcFD.left;
+            int dlgH = wrcFD.bottom - wrcFD.top;
+            RECT rcMain; GetWindowRect(hwnd, &rcMain);
+            int dlgX = rcMain.left + (rcMain.right  - rcMain.left  - dlgW) / 2;
+            int dlgY = rcMain.top  + (rcMain.bottom - rcMain.top   - dlgH) / 2;
+            RECT rcWk; SystemParametersInfoW(SPI_GETWORKAREA, 0, &rcWk, 0);
+            if (dlgX < rcWk.left)  dlgX = rcWk.left;
+            if (dlgY < rcWk.top)   dlgY = rcWk.top;
+            if (dlgX + dlgW > rcWk.right)  dlgX = rcWk.right  - dlgW;
+            if (dlgY + dlgH > rcWk.bottom) dlgY = rcWk.bottom - dlgH;
+
+            std::wstring dlgTitle = locFD(L"fddlg_title", L"Destination Directory");
+            if (!dispName.empty()) dlgTitle += L" \u2014 " + dispName;
+
+            HWND hDlgFD = CreateWindowExW(
+                WS_EX_TOOLWINDOW,
+                L"FileDestDirDialog", dlgTitle.c_str(),
+                WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
+                dlgX, dlgY, dlgW, dlgH,
+                hwnd, NULL, GetModuleHandleW(NULL), &dlgDataFD);
+
+            // Modal message loop
+            MSG msgFD;
+            while (IsWindow(hDlgFD) && GetMessageW(&msgFD, NULL, 0, 0) > 0) {
+                TranslateMessage(&msgFD);
+                DispatchMessageW(&msgFD);
+            }
+
+            if (dlgDataFD.confirmed) {
+                pVff->dest_dir_override = dlgDataFD.destDirOverride;
+                ListView_SetItemText(s_hListView, selIdx, 4,
+                                     (LPWSTR)pVff->dest_dir_override.c_str());
+                MarkAsModified();
+            }
+            return 0;
+        }
+
         case IDC_BROWSE_INSTALL_DIR: {
             // Get the current install folder and extract the last component
             HWND hEdit = GetDlgItem(hwnd, IDC_INSTALL_FOLDER);
@@ -11787,6 +12081,9 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                     std::wstring compText = (itFc != s_locale.end()) ? itFc->second : L"Component\u2026";
                     AppendMenuW(hMenu, MF_STRING, IDM_FILES_COMPONENT, compText.c_str());
                 }
+                auto itFd = s_locale.find(L"files_ctx_destdir");
+                std::wstring destDirText = (itFd != s_locale.end()) ? itFd->second : L"DestDir\u2026";
+                AppendMenuW(hMenu, MF_STRING, IDM_FILES_DESTDIR, destDirText.c_str());
             }
             TrackPopupMenu(hMenu, TPM_RIGHTBUTTON, xPos, yPos, 0, hwnd, NULL);
             DestroyMenu(hMenu);
