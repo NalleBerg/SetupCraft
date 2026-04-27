@@ -79,13 +79,17 @@
   - ListView H-scroll lesson: GetScrollInfo.nPos is zeroed by
     ShowScrollBar(FALSE) and not updated by LVM_SCROLL.  The only
     reliable true offset is -Header_GetItemRect(col0).left (encapsulated
-    as Msb_GetListViewHPos()).  Use LVM_SCROLL for delta scrolling; never
-    SetScrollInfo inside Msb_ScrollToPos (triggers WM_NCPAINT blink loop).
-    WM_NCPAINT fires synchronously inside LVM_SCROLL before the header
-    repositions — do NOT read or write lvHPos there.
-    The library intercepts LVM_DELETEALLITEMS, LVM_SETCOLUMNWIDTH, and
-    HDN_ENDTRACK internally so callers need no post-call msb_reposition;
-    thumb drag in the ListView H-axis has a known pending fix (see here.txt).
+    as Msb_GetListViewHPos()).  WM_NCPAINT fires synchronously inside
+    LVM_SCROLL before the header repositions — do NOT read or write lvHPos
+    there.  The library intercepts LVM_DELETEALLITEMS, LVM_SETCOLUMNWIDTH,
+    and HDN_ENDTRACK internally so callers need no post-call msb_reposition.
+  - LVM_SCROLL delta-clamping pitfall: LVM_SCROLL uses nPos for left-boundary
+    clamping.  ShowScrollBar(FALSE) zeroes nPos; origProc's WM_NCPAINT
+    overwrites any SetScrollInfo(nPos=lvHPos) you set before ShowScrollBar(TRUE),
+    restoring nPos=0.  Leftward LVM_SCROLL is then rejected.  Fix: use
+    WM_HSCROLL(SB_THUMBPOSITION, newPos) with SIF_TRACKPOS=newPos — an
+    absolute-position message that doesn't delta-clamp via nPos.  The ListView
+    reads nTrackPos and computes the delta from the visual header position.
   - sqlite3 amalgamation version: pin to the version used in SetupCraft
     at publish time and note it here.
   - IsDialogMessageW gotcha: ONLY call IsDialogMessageW on windows that were

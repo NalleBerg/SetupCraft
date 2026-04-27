@@ -30,27 +30,36 @@
   Files that only use V-scroll include only my_scrollbar_vscroll.h.
 
 
-3. CURRENT STATUS — Step 1: H-scroll suppressed
-────────────────────────────────────────────────
-  MsbH_DeliverScroll is a no-op.  No content scrolls.
-  The custom H-bar widget is NOT shown (msb_attach with MSB_HORIZONTAL
-  does nothing visible).  The native Windows H-bar is suppressed by the
-  WM_NCPAINT intercept in my_scrollbar_vscroll.cpp.
+3. CURRENT STATUS — Step 2: tilt-wheel partial (right only)
+────────────────────────────────────────────────────────────
+  MsbH_DeliverScroll sends ShowScrollBar(TRUE) + SetScrollInfo(full range +
+  nPos=lvHPos) + LVM_SCROLL(delta).  Tilt-wheel RIGHT works.
+  Tilt-wheel LEFT is broken — see ROOT CAUSE below.
 
-  This is intentional.  Steps:
+  The custom H-bar widget is NOT yet shown (MSB_HORIZONTAL visibility guards
+  still in place in Msb_UpdateVisibility / Msb_UpdateVisibilityGuarded /
+  WM_MOUSEMOVE proximity-expand).  No H-bar appears anywhere.
 
-    Step 1 (done)  — Suppress: MsbH_DeliverScroll is a no-op.
-                     Native bar hidden.  Nothing moves.  Verify no crashes.
+  Steps:
 
-    Step 2 (next)  — Show bar: make msb_attach(MSB_HORIZONTAL) create and
-                     show the bar window so the custom bar appears.
+    Step 1 (done)  — Suppress all H-scroll.  Native bar hidden.
+                     No crashes.  Baseline verified.
 
-    Step 3          — Arrow buttons: wire LVM_SCROLL / WM_HSCROLL delivery
-                     in MsbH_DeliverScroll.
+    Step 2 (partial) — LVM_SCROLL tilt-wheel: right works, left broken.
+                     ROOT CAUSE: origProc's WM_NCPAINT overwrites our
+                     SetScrollInfo(nPos=lvHPos) back to nPos=0 before
+                     LVM_SCROLL runs.  LVM_SCROLL left-boundary clamps at 0.
+                     FIX (pending): use WM_HSCROLL(SB_THUMBPOSITION, newPos)
+                     with SIF_TRACKPOS=newPos — absolute, no delta clamping.
+                     See FIX DIRECTION in here.txt.
 
-    Step 4          — Track-click: confirm it works through Msb_ScrollToPos.
+    Step 3          — Show bar: remove MSB_HORIZONTAL visibility guards.
 
-    Step 5          — Thumb drag: confirm Golden Rules 1-3 hold.
+    Step 4          — Arrow buttons: wire delivery in MsbH_DeliverScroll.
+
+    Step 5          — Track-click: confirm via Msb_ScrollToPos.
+
+    Step 6          — Thumb drag: confirm Golden Rules 1-3 hold.
 
 
 4. GOLDEN RULES FOR LISTVIEW H-AXIS
@@ -73,6 +82,18 @@
      Fix: ShowScrollBar(SB_HORZ, TRUE) just before LVM_SCROLL, then let
      NCPAINT remove it again.  Guard SCROLLINFO capture/restore so the
      NCPAINT intercept does not corrupt lvHPos.
+
+  4. LVM_SCROLL is a DELTA scroll.  It uses SCROLLINFO.nPos for left-boundary
+     clamping.  ShowScrollBar(FALSE) zeroes nPos; origProc's WM_NCPAINT reads
+     it back as 0.  SetScrollInfo(nPos=lvHPos) before ShowScrollBar(TRUE) is
+     overwritten by origProc during that same NCPAINT.  Result: nPos is always
+     0 when LVM_SCROLL is called — positive (rightward) deltas work, negative
+     (leftward) deltas are rejected.
+     Fix direction: use WM_HSCROLL(SB_THUMBPOSITION, newPos) with
+     SetScrollInfo(SIF_RANGE|SIF_PAGE|SIF_POS|SIF_TRACKPOS, nTrackPos=newPos)
+     before ShowScrollBar(TRUE).  SB_THUMBPOSITION is absolute — the ListView
+     reads nTrackPos and computes its own delta from the visual header position.
+     No left-boundary clamping via nPos.
 
 
 5. REFERENCE

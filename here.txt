@@ -5,79 +5,95 @@
 
 
 ────────────────────────────────────────────────────────────────────────────────
-CURRENT STATE — H-scroll isolated, thumb drag still to be fixed
+CURRENT STATE — H-scroll Step 2 (tilt-wheel) partially working; left broken
 ────────────────────────────────────────────────────────────────────────────────
 
-  ── WHAT WAS DONE ───────────────────────────────────────────────────────────
+  ── WHAT WAS DONE (27.04.2026 session) ─────────────────────────────────────
 
-  1. H-scroll delivery extracted to my_scrollbar_hscroll.cpp (27.04.2026)
-     - #included directly by my_scrollbar.cpp (not a separate compilation unit)
-     - MsbH_DeliverScroll(MsbCtx*, int newPos) replaces the inlined H-ListView
-       body that was in Msb_ScrollToPos
-     - Msb_ScrollToPos ListView H-path now just calls MsbH_DeliverScroll and returns
-     - All other callers (Msb_Scroll, WM_MOUSEMOVE drag, WM_MOUSEHWHEEL) already
-       went through Msb_ScrollToPos so they automatically use the new path
-     - Build: clean
+  1. V/H file separation + Step 1 (H-bars suppressed) — committed earlier
+     - my_scrollbar split into my_scrollbar_vscroll.* + my_scrollbar_hscroll.*
+     - All three bypass paths blocked (Msb_UpdateVisibility, Msb_UpdateVisibilityGuarded,
+       WM_MOUSEMOVE proximity-expand). No H-bar appears anywhere.
+     - MsbH_DeliverScroll is the single routing point for all H-scroll delivery.
+     - lvHPos drag-bug (stale header re-read in WM_MOUSEMOVE) removed.
+     - Published as v2026.04.27.10.
 
-  2. Buggy lvHPos re-read removed (also 27.04.2026, earlier this session)
-     - WM_MOUSEMOVE drag handler no longer re-reads lvHPos from header
-     - All MsbDbg debug calls removed
+  2. Step 2: MsbH_DeliverScroll implemented (tilt-wheel) — NOT YET COMMITTED
+     - ShowScrollBar(SB_HORZ, TRUE) + SetScrollInfo(full range + nPos=lvHPos)
+       before LVM_SCROLL; WS_HSCROLL re-enabled so LVM_SCROLL doesn't no-op.
+     - Tilt-wheel RIGHT works: content scrolls right correctly.
+     - Tilt-wheel LEFT does NOT work: content stays still.
 
-  ── CURRENT STATUS OF THUMB DRAG ────────────────────────────────────────────
+  ── ROOT CAUSE — why left-scroll fails ──────────────────────────────────────
 
-  The isolation is done. Now my_scrollbar_hscroll.cpp is the ONLY file to
-  touch when fixing ListView H-scroll thumb drag.
+  LVM_SCROLL uses the ListView's internal SCROLLINFO nPos for left-boundary
+  clamping. ShowScrollBar(FALSE) zeroes nPos. The ListView's own WM_NCPAINT
+  handler (origProc, called FIRST inside our NCPAINT intercept) reads nPos
+  back from the SCROLLINFO and re-establishes it at 0. So when LVM_SCROLL
+  is called, it always sees nPos=0 — and rejects any negative delta ("already
+  at leftmost position").
 
-  GOLDEN RULES (see my_scrollbar_hscroll.cpp header):
-  1. lvHPos is authoritative. Only written by drag-start, MsbH_DeliverScroll,
-     and WM_SIZE/msb_reposition. NEVER re-read from header mid-drag.
-  2. LVM_SCROLL(dx, 0) is the only reliable H-scroll primitive.
-  3. After LVM_SCROLL, WM_NCPAINT fires → ShowScrollBar(FALSE) removes
-     WS_HSCROLL → next LVM_SCROLL silently does nothing (header never moves).
+  Our SetScrollInfo(nPos=lvHPos) is called BEFORE ShowScrollBar(TRUE) fires
+  NCPAINT, but origProc overrides it to 0 during the NCPAINT call itself.
+  Any SetScrollInfo AFTER origProc is restored by the NCPAINT capture/restore
+  cycle. The nPos=0 value wins every time.
 
-  THE OPEN QUESTION for the next session:
-  After our fix today (removing the lvHPos re-read), does drag now accumulate
-  scroll position correctly? Or does WS_HSCROLL still get removed and the
-  content not actually move visually? Test: drag the H thumb — does the
-  content scroll, or does the thumb move but content stay still?
+  ── FIX DIRECTION for next session ──────────────────────────────────────────
 
-  If content stays still: root cause is WS_HSCROLL missing when LVM_SCROLL
-  is sent. Fix direction: ShowScrollBar(SB_HORZ, TRUE) + guard inside
-  MsbH_DeliverScroll before LVM_SCROLL, capturing/restoring SCROLLINFO
-  so the NCPAINT intercept doesn't corrupt lvHPos.
+  Use WM_HSCROLL(SB_THUMBPOSITION, newPos) instead of LVM_SCROLL(delta).
+  SB_THUMBPOSITION is an ABSOLUTE scroll, not a delta — no left-boundary
+  clamping. The ListView reads nTrackPos from SCROLLINFO for SB_THUMBPOSITION.
+
+  Concretely, replace the LVM_SCROLL block in MsbH_DeliverScroll with:
+
+    SCROLLINFO tsi = {sizeof(tsi), SIF_RANGE | SIF_PAGE | SIF_POS | SIF_TRACKPOS};
+    tsi.nMin      = si.nMin;
+    tsi.nMax      = si.nMax;
+    tsi.nPage     = si.nPage;
+    tsi.nPos      = newPos;
+    tsi.nTrackPos = newPos;
+    SetScrollInfo(ctx->hTarget, SB_HORZ, &tsi, FALSE);
+    ShowScrollBar(ctx->hTarget, SB_HORZ, TRUE);
+    SendMessageW(ctx->hTarget, WM_HSCROLL,
+                 MAKEWPARAM(SB_THUMBPOSITION, (WORD)newPos), 0);
+    SendMessageW(ctx->hTarget, WM_HSCROLL,
+                 MAKEWPARAM(SB_ENDSCROLL, 0), 0);
+
+  This bypasses LVM_SCROLL entirely. The ListView's WM_HSCROLL handler for
+  SB_THUMBPOSITION computes the scroll delta from (nTrackPos - currentPos)
+  internally — it reads the header to find currentPos (visual ground truth),
+  so no stale-nPos problem.
+
+  NOTE: the previous GOLDEN RULE 2 ("LVM_SCROLL is the only reliable H-scroll
+  primitive") was derived when nPos was being re-read from the header mid-scroll
+  (the bug that's now fixed). With the lvHPos guard in place, WM_HSCROLL +
+  SIF_TRACKPOS may work correctly.
 
 ────────────────────────────────────────────────────────────────────────────────
 NEXT PRIORITIES
 ────────────────────────────────────────────────────────────────────────────────
 
-  1. Test H-scroll thumb drag — does content scroll visually?
-  2. H-align for showExtras split layout (dialogs.cpp preview)
-  3. userSized height: use avail/2 for contentH in split layout when userSized
-  4. userSized single layout: fill full avail when userSized
+  1. Fix left-scroll in MsbH_DeliverScroll: replace LVM_SCROLL(delta) with
+     WM_HSCROLL(SB_THUMBPOSITION) + SIF_TRACKPOS=newPos (see FIX DIRECTION above).
+     Test: tilt-wheel left and right. Test: thumb drag. Test: V-scroll unaffected.
 
-  ── PROCEDURE FOR NORWAY (5-15 minutes) ────────────────────────────────────
+  2. Once both directions work: Step 3 — show the H-bar (remove the three
+     MSB_HORIZONTAL guards in Msb_UpdateVisibility, Msb_UpdateVisibilityGuarded,
+     WM_MOUSEMOVE proximity-expand).
 
-  Step 1: Remove the two WM_MOUSEMOVE re-read lines  (THE FIX, see above).
-  Step 2: Remove all MsbDbg() calls and the MsbDbg/MsbDbgInit block.
-  Step 3: Remove #include <stdio.h> added for debug logging.
-  Step 4: Build (makeit.bat) and test drag on the Dependencies page.
-  Step 5: If drag works, update Status in my_scrollbar_API.txt: thumb drag ✓.
-  Step 6: git add -A && git commit -m "msb: fix ListView H thumb drag"
-          git push
-
+  3. Step 4: arrow-button scrolling via bar clicks.
+  4. Step 5: track-click scrolling.
+  5. Step 6: thumb drag via bar.
 
 ────────────────────────────────────────────────────────────────────────────────
-COMPLETED THIS SESSION (18-19.04.2026)
+COMPLETED THIS SESSION (27.04.2026)
 ────────────────────────────────────────────────────────────────────────────────
 
-  [OK]  mainwindow.cpp -- TVN_ITEMEXPANDED handlers added (Files/Components/
-        Registry pages); all boilerplate removed from those three pages.
-
-  [OK]  deps.cpp -- all remaining boilerplate removed.
-
-  [OK]  my_scrollbar.cpp -- added LVM_DELETEALLITEMS, LVM_SETCOLUMNWIDTH,
-        HDN_ENDTRACK interceptions + inNcPaintChain WM_SIZE guard.
-        (Not yet committed: needs debug-log removal + the two-line drag fix.)
+  [OK]  my_scrollbar V/H split — my_scrollbar_vscroll.* + my_scrollbar_hscroll.*
+  [OK]  Step 1 — all H-bars suppressed everywhere (three bypass paths blocked)
+  [OK]  lvHPos drag-bug fix — stale header re-read in WM_MOUSEMOVE removed
+  [OK]  Step 2 tilt-wheel — MsbH_DeliverScroll sends LVM_SCROLL (right works)
+  [--]  Left-scroll fix — root cause identified; WM_HSCROLL+SIF_TRACKPOS pending
 
   [OK]  makeit.bat -- exe timestamp line added at end of build.
 
