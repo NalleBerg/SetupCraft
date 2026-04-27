@@ -496,7 +496,8 @@ CMakeFiles/SkeletonApp.dir/mainwindow.cpp.obj: \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\dialogs.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\scripts.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\settings.h \
- C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\my_scrollbar.h \
+ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\my_scrollbar_vscroll.h \
+ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\my_scrollbar_hscroll.h \
  C:/mingw64/x86_64-w64-mingw32/include/richedit.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/fstream \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/codecvt.h \

@@ -2,7 +2,8 @@
 #include "dpi.h"
 #include "button.h"
 #include "tooltip.h"
-#include "my_scrollbar.h"
+#include "my_scrollbar_vscroll.h"
+#include "my_scrollbar_hscroll.h"
 #define _RICHEDIT_VER 0x0800   // enable TABLEROWPARMS / TABLECELLPARMS
 #include <richedit.h>
 #include <commdlg.h>

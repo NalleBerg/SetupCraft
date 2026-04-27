@@ -23,7 +23,7 @@
 #include "dpi.h"          // S()
 #include "button.h"       // CreateCustomButtonWithIcon(), MeasureButtonWidth()
 #include "checkbox.h"     // CreateCustomCheckbox, DrawCustomCheckbox
-#include "my_scrollbar.h" // msb_attach / msb_detach / msb_sync
+#include "my_scrollbar_vscroll.h" // msb_attach / msb_detach / msb_sync
 #include "ctrlw.h"        // ShowConfirmDeleteDialog()
 #include "tooltip.h"      // ShowMultilingualTooltip(), SetButtonTooltip()
 #include <richedit.h>     // EM_STREAMIN, SF_RTF, EDITSTREAM

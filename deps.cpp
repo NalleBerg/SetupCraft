@@ -11,7 +11,8 @@
 
 #include "deps.h"
 #include "dep_edit_dialog.h"
-#include "my_scrollbar.h"
+#include "my_scrollbar_vscroll.h"
+#include "my_scrollbar_hscroll.h"
 #include "mainwindow.h"   // MainWindow::MarkAsModified(), GetLocale()
 #include "dpi.h"          // S() DPI-scale macro
 #include "button.h"       // CreateCustomButtonWithIcon, CreateCustomButtonWithCompositeIcon

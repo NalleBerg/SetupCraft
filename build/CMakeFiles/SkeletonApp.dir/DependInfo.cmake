@@ -39,7 +39,7 @@ set(CMAKE_DEPENDS_DEPENDENCY_FILES
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/languages.cpp" "CMakeFiles/SkeletonApp.dir/languages.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/languages.cpp.obj.d"
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/main.cpp" "CMakeFiles/SkeletonApp.dir/main.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/main.cpp.obj.d"
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/mainwindow.cpp" "CMakeFiles/SkeletonApp.dir/mainwindow.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/mainwindow.cpp.obj.d"
-  "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/my_scrollbar.cpp" "CMakeFiles/SkeletonApp.dir/my_scrollbar.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/my_scrollbar.cpp.obj.d"
+  "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/my_scrollbar_vscroll.cpp" "CMakeFiles/SkeletonApp.dir/my_scrollbar_vscroll.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/my_scrollbar_vscroll.cpp.obj.d"
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/notes_editor.cpp" "CMakeFiles/SkeletonApp.dir/notes_editor.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/notes_editor.cpp.obj.d"
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/sc_shortcut_dialog.cpp" "CMakeFiles/SkeletonApp.dir/sc_shortcut_dialog.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/sc_shortcut_dialog.cpp.obj.d"
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/script_edit_dialog.cpp" "CMakeFiles/SkeletonApp.dir/script_edit_dialog.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/script_edit_dialog.cpp.obj.d"

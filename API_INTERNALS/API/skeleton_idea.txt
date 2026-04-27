@@ -25,7 +25,16 @@
                               statements, RAII transaction guard
 
   Reusable UI modules  (copy from API_INTERNALS\API\)
-    [ ] my_scrollbar        — custom fade scrollbar (V + H, MSB_NOHIDE flag)
+    [ ] my_scrollbar_vscroll / my_scrollbar_hscroll
+                              — custom fade scrollbar, fully split V+H modules.
+                              my_scrollbar_vscroll.cpp/.h: vertical (working).
+                              my_scrollbar_hscroll.cpp/.h: horizontal (clean-room
+                              rewrite in progress; Step 1 = suppressed baseline).
+                              hscroll.cpp is #included inside vscroll.cpp —
+                              single compilation unit, shared MsbCtx/S()/helpers.
+                              Public API: msb_attach/msb_detach/msb_sync/
+                              msb_notify_content_changed/msb_reposition/
+                              msb_set_insets/msb_get_bar_hwnd/msb_set_edge_gap.
     [ ] tooltip             — multilingual tooltip system
     [ ] checkbox            — theme-aware custom checkbox + TreeView states
     [ ] dragdrop            — TreeView/ListView drag-and-drop

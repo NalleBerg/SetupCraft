@@ -12,7 +12,7 @@ static void ABLog(const wchar_t* msg) {
     fclose(f);
 }
 #include "button.h"         // CreateCustomButtonWithIcon, MeasureButtonWidth, DrawCustomButton
-#include "my_scrollbar.h"   // msb_attach, msb_detach, msb_notify_content_changed
+#include "my_scrollbar_vscroll.h"   // msb_attach, msb_detach, msb_notify_content_changed
 #include <richedit.h>
 #include <shellapi.h>
 #include <vector>

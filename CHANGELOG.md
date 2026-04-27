@@ -2,6 +2,15 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.04.27.10] - 2026-04-27
+
+### H-scroll clean-room rewrite (Step 1): total V/H separation, H-bars suppressed
+- **my_scrollbar — V/H separation**: Scrollbar module split into two fully independent units: `my_scrollbar_vscroll.cpp`/`my_scrollbar_vscroll.h` (vertical, working, untouched) and `my_scrollbar_hscroll.cpp`/`my_scrollbar_hscroll.h` (horizontal, clean-room rewrite in progress). `my_scrollbar_hscroll.cpp` is `#include`d directly inside `my_scrollbar_vscroll.cpp` so it shares all internal types (`MsbCtx`, `S()`, helpers) without being a separate compilation unit. Public API unchanged — all callers continue to use `msb_attach`/`msb_detach`/`msb_sync` etc.
+- **my_scrollbar — H-scroll Step 1 (suppressed)**: All H-scroll delivery routes through `MsbH_DeliverScroll` (in `my_scrollbar_hscroll.cpp`), currently a no-op. `Msb_UpdateVisibility` and `Msb_UpdateVisibilityGuarded` return immediately for `MSB_HORIZONTAL` bars; proximity-expand in `WM_MOUSEMOVE` also suppressed. No custom H-bar appears anywhere in the application. The native Windows H-bar continues to be suppressed by the existing `WM_NCPAINT` intercept. Intentional — Step 1 verifies a clean baseline before scroll delivery is added incrementally.
+- **my_scrollbar — lvHPos drag-bug fix**: Removed stale `lvHPos` re-read from `WM_MOUSEMOVE` drag path. Previous code called `Msb_GetListViewHPos()` on every mouse-move; because `LVM_SCROLL` fires `WM_NCPAINT` → `ShowScrollBar(FALSE)` before the header repositions, the re-read always returned the old position — making every drag delta compute from zero and scroll never accumulate.
+- **my_scrollbar — debug logging removed**: `MsbDbg()` function, `MsbDbgInit` struct, `#include <stdio.h>`, and all eight `MsbDbg(...)` call sites removed.
+- **API docs — split**: `my_scrollbar_API.txt` renamed to `my_scrollbar_vscroll_API.txt`; new `my_scrollbar_hscroll_API.txt` documents H-scroll Golden Rules, step plan, and architecture. `API_list.txt` updated.
+
 ## [2026.04.19.09] - 2026-04-19
 
 ### Internal housekeeping (boilerplate removal, my_scrollbar auto-syncs, makeit timestamp)

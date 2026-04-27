@@ -482,7 +482,7 @@ CMakeFiles/SkeletonApp.dir/about.cpp.obj: C:/Users/NalleBerg/Documents/C++/Works
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/about.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/button.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/dpi.h \
-  C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/my_scrollbar.h
+  C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/my_scrollbar_vscroll.h
 
 CMakeFiles/SkeletonApp.dir/about_icon.cpp.obj: C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/about_icon.cpp \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/adxintrin.h \
@@ -3223,7 +3223,8 @@ CMakeFiles/SkeletonApp.dir/deps.cpp.obj: C:/Users/NalleBerg/Documents/C++/Worksp
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/deps.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/dpi.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/mainwindow.h \
-  C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/my_scrollbar.h \
+  C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/my_scrollbar_hscroll.h \
+  C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/my_scrollbar_vscroll.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/tooltip.h
 
 CMakeFiles/SkeletonApp.dir/dialogs.cpp.obj: C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/dialogs.cpp \
@@ -3617,7 +3618,7 @@ CMakeFiles/SkeletonApp.dir/dialogs.cpp.obj: C:/Users/NalleBerg/Documents/C++/Wor
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/dpi.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/edit_rtf.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/mainwindow.h \
-  C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/my_scrollbar.h \
+  C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/my_scrollbar_vscroll.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/shortcuts.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/tooltip.h
 
@@ -4698,7 +4699,8 @@ CMakeFiles/SkeletonApp.dir/edit_rtf.cpp.obj: C:/Users/NalleBerg/Documents/C++/Wo
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/button.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/dpi.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/edit_rtf.h \
-  C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/my_scrollbar.h \
+  C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/my_scrollbar_hscroll.h \
+  C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/my_scrollbar_vscroll.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/tooltip.h
 
 CMakeFiles/SkeletonApp.dir/languages.cpp.obj: C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/languages.cpp \
@@ -6089,7 +6091,8 @@ CMakeFiles/SkeletonApp.dir/mainwindow.cpp.obj: C:/Users/NalleBerg/Documents/C++/
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/dpi.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/dragdrop.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/mainwindow.h \
-  C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/my_scrollbar.h \
+  C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/my_scrollbar_hscroll.h \
+  C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/my_scrollbar_vscroll.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/notes_editor.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/scripts.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/settings.h \
@@ -6097,7 +6100,7 @@ CMakeFiles/SkeletonApp.dir/mainwindow.cpp.obj: C:/Users/NalleBerg/Documents/C++/
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/spinner_dialog.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/tooltip.h
 
-CMakeFiles/SkeletonApp.dir/my_scrollbar.cpp.obj: C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/my_scrollbar.cpp \
+CMakeFiles/SkeletonApp.dir/my_scrollbar_vscroll.cpp.obj: C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/my_scrollbar_vscroll.cpp \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/adxintrin.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/ammintrin.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/amxavx512intrin.h \
@@ -6263,7 +6266,6 @@ CMakeFiles/SkeletonApp.dir/my_scrollbar.cpp.obj: C:/Users/NalleBerg/Documents/C+
   C:/mingw64/x86_64-w64-mingw32/include/_bsd_types.h \
   C:/mingw64/x86_64-w64-mingw32/include/_mingw.h \
   C:/mingw64/x86_64-w64-mingw32/include/_mingw_mac.h \
-  C:/mingw64/x86_64-w64-mingw32/include/_mingw_off_t.h \
   C:/mingw64/x86_64-w64-mingw32/include/_mingw_secapi.h \
   C:/mingw64/x86_64-w64-mingw32/include/_mingw_stdarg.h \
   C:/mingw64/x86_64-w64-mingw32/include/_mingw_unicode.h \
@@ -6283,7 +6285,6 @@ CMakeFiles/SkeletonApp.dir/my_scrollbar.cpp.obj: C:/Users/NalleBerg/Documents/C+
   C:/mingw64/x86_64-w64-mingw32/include/consoleapi2.h \
   C:/mingw64/x86_64-w64-mingw32/include/consoleapi3.h \
   C:/mingw64/x86_64-w64-mingw32/include/corecrt.h \
-  C:/mingw64/x86_64-w64-mingw32/include/corecrt_stdio_config.h \
   C:/mingw64/x86_64-w64-mingw32/include/corecrt_wctype.h \
   C:/mingw64/x86_64-w64-mingw32/include/corecrt_wstdlib.h \
   C:/mingw64/x86_64-w64-mingw32/include/crtdefs.h \
@@ -6371,7 +6372,6 @@ CMakeFiles/SkeletonApp.dir/my_scrollbar.cpp.obj: C:/Users/NalleBerg/Documents/C+
   C:/mingw64/x86_64-w64-mingw32/include/sal.h \
   C:/mingw64/x86_64-w64-mingw32/include/sdkddkver.h \
   C:/mingw64/x86_64-w64-mingw32/include/sdks/_mingw_ddk.h \
-  C:/mingw64/x86_64-w64-mingw32/include/sec_api/stdio_s.h \
   C:/mingw64/x86_64-w64-mingw32/include/sec_api/stdlib_s.h \
   C:/mingw64/x86_64-w64-mingw32/include/sec_api/stralign_s.h \
   C:/mingw64/x86_64-w64-mingw32/include/sec_api/string_s.h \
@@ -6382,12 +6382,10 @@ CMakeFiles/SkeletonApp.dir/my_scrollbar.cpp.obj: C:/Users/NalleBerg/Documents/C+
   C:/mingw64/x86_64-w64-mingw32/include/specstrings.h \
   C:/mingw64/x86_64-w64-mingw32/include/stdarg.h \
   C:/mingw64/x86_64-w64-mingw32/include/stddef.h \
-  C:/mingw64/x86_64-w64-mingw32/include/stdio.h \
   C:/mingw64/x86_64-w64-mingw32/include/stdlib.h \
   C:/mingw64/x86_64-w64-mingw32/include/stralign.h \
   C:/mingw64/x86_64-w64-mingw32/include/string.h \
   C:/mingw64/x86_64-w64-mingw32/include/stringapiset.h \
-  C:/mingw64/x86_64-w64-mingw32/include/swprintf.inl \
   C:/mingw64/x86_64-w64-mingw32/include/synchapi.h \
   C:/mingw64/x86_64-w64-mingw32/include/sysinfoapi.h \
   C:/mingw64/x86_64-w64-mingw32/include/systemtopologyapi.h \
@@ -6430,7 +6428,8 @@ CMakeFiles/SkeletonApp.dir/my_scrollbar.cpp.obj: C:/Users/NalleBerg/Documents/C+
   C:/mingw64/x86_64-w64-mingw32/include/wow64apiset.h \
   C:/mingw64/x86_64-w64-mingw32/include/wtypes.h \
   C:/mingw64/x86_64-w64-mingw32/include/wtypesbase.h \
-  C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/my_scrollbar.h
+  C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/my_scrollbar_hscroll.cpp \
+  C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/my_scrollbar_vscroll.h
 
 CMakeFiles/SkeletonApp.dir/notes_editor.cpp.obj: C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/notes_editor.cpp \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/adxintrin.h \
@@ -11150,6 +11149,8 @@ C:/mingw64/x86_64-w64-mingw32/include/stdarg.h:
 
 C:/mingw64/x86_64-w64-mingw32/include/_mingw_secapi.h:
 
+C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/my_scrollbar_vscroll.h:
+
 C:/mingw64/x86_64-w64-mingw32/include/_mingw_stat64.h:
 
 C:/mingw64/x86_64-w64-mingw32/include/_mingw_stdarg.h:
@@ -11163,8 +11164,6 @@ C:/mingw64/x86_64-w64-mingw32/include/basetyps.h:
 C:/mingw64/x86_64-w64-mingw32/include/cderr.h:
 
 C:/mingw64/x86_64-w64-mingw32/include/cguid.h:
-
-C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/my_scrollbar.h:
 
 C:/mingw64/x86_64-w64-mingw32/include/combaseapi.h:
 
@@ -11468,6 +11467,8 @@ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_algo.h:
 
 C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/uniform_int_dist.h:
 
+C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/my_scrollbar_hscroll.h:
+
 C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/dragdrop.cpp:
 
 C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/array:
@@ -11528,7 +11529,9 @@ C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/settings.h:
 
 C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/spinner_dialog.h:
 
-C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/my_scrollbar.cpp:
+C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/my_scrollbar_vscroll.cpp:
+
+C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/my_scrollbar_hscroll.cpp:
 
 C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/vfs_picker.h:
 

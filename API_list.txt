@@ -95,7 +95,7 @@
                                                 doc seed) and open decisions to resolve at
                                                 publish time.
 
-  API_INTERNALS\API\my_scrollbar_API.txt        Custom Win32 scrollbar — full public API.
+  API_INTERNALS\API\my_scrollbar_vscroll_API.txt  Custom Win32 vertical scrollbar — full public API.
                                                 msb_attach / msb_detach / msb_sync /
                                                 msb_notify_content_changed; MSB_VERTICAL /
                                                 MSB_HORIZONTAL / MSB_NOHIDE flags; color and
@@ -103,6 +103,11 @@
                                                 measurement, EM_SETRECT format-rect management,
                                                 EM_SHOWSCROLLBAR suppression); typical wiring
                                                 pattern for V+H dual-attach. ListView H-axis:
+
+  API_INTERNALS\API\my_scrollbar_hscroll_API.txt  Custom Win32 horizontal scrollbar — impl notes.
+                                                Step-by-step rewrite (Step 1: suppressed).
+                                                Golden Rules for ListView H-axis. MsbH_DeliverScroll
+                                                is #included into my_scrollbar_vscroll.cpp.
                                                 position read via Msb_GetListViewHPos()
                                                 (-Header_GetItemRect(col0).left) — the only
                                                 reliable source; GetScrollInfo.nPos is zeroed

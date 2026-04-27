@@ -32,31 +32,13 @@
  *   Hover/drag state enums are declared here ready for Phase 2/3.
  */
 
-#include "my_scrollbar.h"
+#include "my_scrollbar_vscroll.h"
 #include <stdlib.h>     /* malloc / free */
 #include <windowsx.h>   /* GET_X_LPARAM / GET_Y_LPARAM */
 #include <commctrl.h>   /* LVM_SCROLL, ListView_GetItemRect, etc. */
 #include <algorithm>    /* std::min / std::max */
-#include <stdio.h>      /* for debug log */
 using std::min;
 using std::max;
-
-/* ── Debug logging ───────────────────────────────────────────────────────── */
-static void MsbDbg(const char* fmt, ...)
-{
-    static BOOL disabled = FALSE;
-    if (disabled) return;
-    char buf[512];
-    va_list ap; va_start(ap, fmt); vsnprintf(buf, sizeof(buf), fmt, ap); va_end(ap);
-    FILE* f = fopen("msb_debug.log", "a");
-    if (!f) { disabled = TRUE; return; }
-    fputs(buf, f); fputs("\n", f);
-    fclose(f);
-}
-/* Clear the log at startup so each run starts fresh. */
-static struct MsbDbgInit {
-    MsbDbgInit() { FILE* f = fopen("msb_debug.log", "w"); if (f) fclose(f); }
-} s_dbgInit;
 
 /* ── Internal enums ─────────────────────────────────────────────────────────*/
 
@@ -577,6 +559,16 @@ static BOOL Msb_ContentOverflows(MsbCtx* ctx)
  * In NOHIDE mode the bar is always shown.  Returns TRUE if visible. */
 static BOOL Msb_UpdateVisibility(MsbCtx* ctx)
 {
+    /* H-scroll Step 1: bar never shown. Native bar still suppressed by subclass. */
+    if (ctx->flags & MSB_HORIZONTAL) {
+        if (ctx->fadeState != FADE_INVISIBLE) {
+            KillTimer(ctx->hBar, 3);
+            ctx->fadeState = FADE_INVISIBLE;
+            ctx->fadeWidth = 0.0f;
+            ShowWindow(ctx->hBar, SW_HIDE);
+        }
+        return FALSE;
+    }
     if (ctx->flags & MSB_NOHIDE) return TRUE;
     BOOL overflows = Msb_ContentOverflows(ctx);
     if (!overflows) {
@@ -625,6 +617,8 @@ static BOOL Msb_UpdateVisibilityGuarded(MsbCtx* ctx)
 {
     BOOL wasNonInvisible = (ctx->fadeState != FADE_INVISIBLE);
     BOOL result = Msb_UpdateVisibility(ctx);
+    /* H-scroll Step 1: never restore the H-bar. */
+    if (ctx->flags & MSB_HORIZONTAL) return FALSE;
     if ((ctx->isListView || ctx->isTreeView) && wasNonInvisible && !result) {
         /* Content appeared to fit — likely a transient artefact of an
          * internal scroll-to-selection event (GetScrollInfo range == 0 briefly).
@@ -926,6 +920,9 @@ static void Msb_Paint(HWND hwnd, MsbCtx* ctx)
 
 /* ── Bar window proc ─────────────────────────────────────────────────────────*/
 
+/* ListView H-scroll delivery — isolated for safe rewriting without risk to V. */
+#include "my_scrollbar_hscroll.cpp"
+
 static void Msb_ScrollToPos(MsbCtx* ctx, int newPos); /* forward decl */
 
 /* Send a scroll message to the target and re-sync the bar. */
@@ -992,32 +989,10 @@ static void Msb_ScrollToPos(MsbCtx* ctx, int newPos)
 
     if (ctx->isListView) {
         if (!vert) {
-            /* Horizontal absolute scroll via LVM_SCROLL (pixel delta).
-             * WM_HSCROLL(SB_THUMBPOSITION) requires SIF_TRACKPOS which is set
-             * only by Windows's native scrollbar machinery — it cannot be set
-             * via SetScrollInfo.  The ListView therefore reads TRACKPOS=0 and
-             * scrolls to position 0 ("too far left").
-             * Fix: write nPos into SCROLLINFO BEFORE calling LVM_SCROLL so that
-             * our WM_NCPAINT intercept captures and restores the correct position.
-             * LVM_SCROLL does not update nPos itself, but we've already set it. */
-            SCROLLINFO si = {sizeof(si), SIF_ALL};
-            Msb_FixListViewHScrollInfo(ctx->hTarget, &si);
-            int maxPos = max(0, (int)(si.nMax - (int)si.nPage + 1));
-            if (newPos < 0)       newPos = 0;
-            if (newPos > maxPos)  newPos = maxPos;
-            /* Compute delta from our tracked position (ctx->lvHPos).
-             * Msb_GetListViewHPos reads the header control, but the header
-             * may not have repositioned yet if WM_NCPAINT fired mid-scroll.
-             * Using lvHPos gives a consistent delta in both directions. */
-            int curPos = ctx->lvHPos;
-            int delta  = newPos - curPos;
-            MsbDbg("ScrollToPos: lvHPos=%d newPos=%d delta=%d", curPos, newPos, delta);
-            if (delta != 0)
-                SendMessageW(ctx->hTarget, LVM_SCROLL, (WPARAM)delta, 0);
-            /* Trust newPos as authoritative — already clamped to maxPos.
-             * msb_reposition/WM_SIZE re-sync from the header on layout changes. */
-            ctx->lvHPos = newPos;
-            MsbDbg("ScrollToPos: post-scroll lvHPos=%d header=%d", ctx->lvHPos, Msb_GetListViewHPos(ctx->hTarget));
+            /* ListView H-scroll: delivered by MsbH_DeliverScroll (my_scrollbar_hscroll.cpp).
+             * All clamping and lvHPos tracking live there — edit that file to fix H bugs
+             * without any risk of disturbing the vertical scrollbar path below. */
+            MsbH_DeliverScroll(ctx, newPos);
             return;
         }
         /* Vertical: LVM_SCROLL with row-height conversion works reliably. */
@@ -1030,6 +1005,12 @@ static void Msb_ScrollToPos(MsbCtx* ctx, int newPos)
         if (delta) SendMessageW(ctx->hTarget, LVM_SCROLL, 0, (LPARAM)(delta * rowH));
     } else {
         /* TreeView and other controls: SetScrollInfo + WM_VSCROLL/HSCROLL. */
+        if (!vert) {
+            /* H-scroll: routed through MsbH_DeliverScroll (my_scrollbar_hscroll.cpp).
+             * Step 1: suppressed — content does not scroll yet. */
+            MsbH_DeliverScroll(ctx, newPos);
+            return;
+        }
         SCROLLINFO setSi = {sizeof(SCROLLINFO), SIF_POS};
         setSi.nPos = newPos;
         SetScrollInfo(ctx->hTarget, vert ? SB_VERT : SB_HORZ, &setSi, FALSE);
@@ -1124,10 +1105,6 @@ static LRESULT CALLBACK Msb_BarWndProc(HWND hwnd, UINT msg,
                 ctx->thumbState  = THUMB_DRAG;
                 BOOL vert        = !(ctx->flags & MSB_HORIZONTAL);
                 ctx->dragStartPx = vert ? y : x;
-                MsbDbg("LBUTTONDOWN: vert=%d clickPos=%d lvHPos=%d rThumb=[%d,%d,%d,%d] rTrack=[%d,%d,%d,%d]",
-                    (int)vert, (vert?y:x), ctx->lvHPos,
-                    ctx->rThumb.left, ctx->rThumb.top, ctx->rThumb.right, ctx->rThumb.bottom,
-                    ctx->rTrack.left, ctx->rTrack.top, ctx->rTrack.right, ctx->rTrack.bottom);
                 int startPos = 0;
                 if (ctx->isRichEdit) {
                     POINT pt = {0, 0};
@@ -1241,14 +1218,8 @@ static LRESULT CALLBACK Msb_BarWndProc(HWND hwnd, UINT msg,
             if (ctx->dragging) {
                 /* Thumb drag — map cursor delta to scroll position */
                 BOOL vert = !(ctx->flags & MSB_HORIZONTAL);
-                if (ctx->isListView && !vert)
-                    ctx->lvHPos = Msb_GetListViewHPos(ctx->hTarget);
                 int cur   = vert ? GET_Y_LPARAM(lParam) : GET_X_LPARAM(lParam);
                 int delta = cur - ctx->dragStartPx;
-                MsbDbg("MOUSEMOVE drag: vert=%d cur=%d delta=%d lvHPos=%d dragStartPos=%d rTrack=[%d..%d]",
-                    (int)vert, cur, delta, ctx->lvHPos, ctx->dragStartPos,
-                    (int)(vert?ctx->rTrack.top:ctx->rTrack.left),
-                    (int)(vert?ctx->rTrack.bottom:ctx->rTrack.right));
 
                 SCROLLINFO si = {sizeof(si), SIF_ALL};
                 GetScrollInfo(ctx->hTarget, vert ? SB_VERT : SB_HORZ, &si);
@@ -1284,8 +1255,6 @@ static LRESULT CALLBACK Msb_BarWndProc(HWND hwnd, UINT msg,
                            + (int)(delta * (float)range / max(1, trackPx - thumbPx) + 0.5f);
                 newPos = max(si.nMin, min(si.nMax - (int)si.nPage + 1, newPos));
                 ctx->dragCurPos = newPos;
-                MsbDbg("  -> si[min=%d max=%d page=%d] trackPx=%d thumbPx=%d range=%d newPos=%d",
-                    si.nMin, si.nMax, (int)si.nPage, trackPx, thumbPx, range, newPos);
 
                 if (ctx->isRichEdit) {
                     UINT smsg = vert ? WM_VSCROLL : WM_HSCROLL;
@@ -1603,17 +1572,11 @@ static LRESULT CALLBACK Msb_TargetSubclassProc(HWND hwnd, UINT msg,
                  * (during scrolling) and msb_reposition/WM_SIZE (on layout
                  * changes such as column resize and window resize). */
             }
-            if (ctxH && ctxH->isListView)
-                MsbDbg("NCPAINT: pre-hide  header=%d siH.nPos=%d siH.nMax=%d", Msb_GetListViewHPos(hwnd), siH.nPos, siH.nMax);
             if (ctxV) Msb_HideNativeBar(hwnd, ctxV->isRichEdit, TRUE);
             if (ctxH) Msb_HideNativeBar(hwnd, ctxH->isRichEdit, FALSE);
-            if (ctxH && ctxH->isListView)
-                MsbDbg("NCPAINT: post-hide  header=%d", Msb_GetListViewHPos(hwnd));
             /* Reconstruct V for TreeView; restore H for ListView/TreeView. */
             if (ctxV && ctxV->isTreeView) Msb_ReconstructTreeVScrollInfo(hwnd);
             if (restoreH) SetScrollInfo(hwnd, SB_HORZ, &siH, FALSE);
-            if (ctxH && ctxH->isListView)
-                MsbDbg("NCPAINT: post-restore header=%d siH.nPos=%d", Msb_GetListViewHPos(hwnd), siH.nPos);
             if (ctxV) ctxV->inNcPaint = FALSE;
             if (ctxH) ctxH->inNcPaint = FALSE;
             return r;
@@ -1867,19 +1830,7 @@ static LRESULT CALLBACK Msb_TargetSubclassProc(HWND hwnd, UINT msg,
                 ctxV->fadeState = FADE_EXPANDING;
                 SetTimer(ctxV->hBar, 3, 16, NULL);
             }
-            if (ctxH && !(ctxH->flags & MSB_NOHIDE) &&
-                ctxH->fadeState == FADE_INVISIBLE &&
-                Msb_ContentOverflows(ctxH) &&
-                my >= rcT.bottom - S(ctxH, MSB_WIDTH_FULL)) {
-                if (ctxH->fadeState == FADE_INVISIBLE) {
-                    ctxH->fadeWidth = 0.0f;
-                    Msb_PositionBar(ctxH);
-                    ShowWindow(ctxH->hBar, SW_SHOWNOACTIVATE);
-                }
-                KillTimer(ctxH->hBar, 3);
-                ctxH->fadeState = FADE_EXPANDING;
-                SetTimer(ctxH->hBar, 3, 16, NULL);
-            }
+            /* H-scroll Step 1: proximity-expand suppressed for H-bar. */
             break;
         }
 

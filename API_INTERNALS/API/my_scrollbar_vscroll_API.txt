@@ -1,7 +1,7 @@
 ================================================================================
-  my_scrollbar_API.txt
-  Custom Win32 scrollbar — public API reference
-  my_scrollbar.h / my_scrollbar.cpp
+  my_scrollbar_vscroll_API.txt
+  Custom Win32 vertical scrollbar — public API reference
+  my_scrollbar_vscroll.h / my_scrollbar_vscroll.cpp
 ================================================================================
 
 
@@ -125,9 +125,11 @@
 
 2. INCLUDE AND LINK
 ───────────────────
-  #include "my_scrollbar.h"
+  #include "my_scrollbar_vscroll.h"
 
-  Add my_scrollbar.cpp to the build.  No extra libraries required.
+  Add my_scrollbar_vscroll.cpp to the build.  No extra libraries required.
+  my_scrollbar_hscroll.cpp is #included inside my_scrollbar_vscroll.cpp —
+  do NOT add it to the build separately.
 
 
 3. PUBLIC API

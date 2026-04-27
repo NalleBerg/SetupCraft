@@ -1,0 +1,67 @@
+/*
+ * my_scrollbar_hscroll.cpp — ListView horizontal-scroll delivery.
+ *
+ * This file is #included directly by my_scrollbar_vscroll.cpp (not compiled separately).
+ * It therefore has access to all internal types (MsbCtx, S(), Msb_Fix*, etc.)
+ * without a separate header.
+ *
+ * WHY ISOLATED HERE
+ * -----------------
+ * The horizontal scrollbar thumb-drag for ListView has been a persistent source
+ * of bugs across multiple sessions (lvHPos tracking, LVM_SCROLL / WS_HSCROLL
+ * interaction, header-position ground-truth rules).  Keeping the H delivery code
+ * in this file lets it be rewritten freely without any risk of breaking the
+ * working vertical scrollbar code in my_scrollbar.cpp.
+ *
+ * GOLDEN RULES (do not violate)
+ * ------------------------------
+ * 1. lvHPos is the AUTHORITATIVE horizontal position.  It is ONLY written by:
+ *      a. WM_LBUTTONDOWN drag-start  (reads header — ListView is idle, correct)
+ *      b. MsbH_DeliverScroll()       (sets lvHPos = clamped newPos)
+ *      c. WM_SIZE / msb_reposition   (reads header — layout settle, correct)
+ *    Never read lvHPos back from the header control during an active scroll
+ *    (mid-drag, inside a WM_MOUSEMOVE, inside Msb_ScrollToPos) — LVM_SCROLL
+ *    causes WM_NCPAINT → ShowScrollBar(FALSE) → removes WS_HSCROLL → next
+ *    LVM_SCROLL silently does nothing → header never moves → re-read returns 0.
+ *
+ * 2. LVM_SCROLL(dx, 0) is the only reliable H-scroll primitive for ListView.
+ *    WM_HSCROLL(SB_THUMBPOSITION) requires SIF_TRACKPOS which Windows only sets
+ *    via its native scrollbar machinery.  SetScrollInfo + SB_THUMBTRACK zeroes
+ *    the delta because the ListView reads nPos AFTER we updated it.
+ *
+ * 3. WS_HSCROLL is removed by ShowScrollBar(FALSE) inside our WM_NCPAINT
+ *    intercept.  After removal, LVM_SCROLL silently does nothing.
+ *    Solution: send LVM_SCROLL BEFORE WM_NCPAINT fires — i.e. send it once,
+ *    from MsbH_DeliverScroll, and let the NCPAINT intercept do its thing.
+ *    Never re-send LVM_SCROLL after NCPAINT has run for that scroll step.
+ */
+
+/*
+ * MsbH_DeliverScroll — deliver a new absolute horizontal pixel position to
+ * a ListView target.
+ *
+ * newPos must already be clamped to [0, maxPos] before calling.
+ * Computes delta = newPos - ctx->lvHPos, sends LVM_SCROLL(delta, 0), then sets
+ * ctx->lvHPos = newPos.
+ *
+ * If newPos == ctx->lvHPos (no movement needed), the function returns
+ * immediately without sending any message.
+ */
+static void MsbH_DeliverScroll(MsbCtx* ctx, int newPos)
+{
+    /* Clamp to valid scroll range. */
+    SCROLLINFO si = {sizeof(si), SIF_ALL};
+    Msb_FixListViewHScrollInfo(ctx->hTarget, &si);
+    int maxPos = max(0, (int)(si.nMax - (int)si.nPage + 1));
+    if (newPos < 0)       newPos = 0;
+    if (newPos > maxPos)  newPos = maxPos;
+
+    int delta = newPos - ctx->lvHPos;
+    if (delta != 0)
+        SendMessageW(ctx->hTarget, LVM_SCROLL, (WPARAM)delta, 0);
+
+    /* Always trust newPos as authoritative — it is already clamped.
+     * msb_reposition / WM_SIZE re-sync lvHPos from the header on genuine
+     * layout changes (column resize, window resize). */
+    ctx->lvHPos = newPos;
+}

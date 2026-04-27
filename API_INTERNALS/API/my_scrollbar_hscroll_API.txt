@@ -1,0 +1,82 @@
+================================================================================
+  my_scrollbar_hscroll_API.txt
+  Custom Win32 horizontal scrollbar — implementation notes
+  my_scrollbar_hscroll.h / my_scrollbar_hscroll.cpp
+================================================================================
+
+
+1. PURPOSE
+──────────
+  Isolated horizontal-scroll delivery for all controls (ListView, TreeView,
+  RichEdit).  Rewritten from scratch so H-scroll can be improved without any
+  risk of disturbing the working vertical scrollbar.
+
+  Architecture: my_scrollbar_hscroll.cpp is #included directly inside
+  my_scrollbar_vscroll.cpp.  It is NOT a separate compilation unit.
+  It has full access to MsbCtx, S(), Msb_FixListViewHScrollInfo, and all
+  other internal helpers from my_scrollbar_vscroll.cpp.
+
+  All H-scroll calls from Msb_ScrollToPos route through MsbH_DeliverScroll
+  (defined in my_scrollbar_hscroll.cpp), regardless of control type.
+
+
+2. INCLUDE
+──────────
+  Files that attach an H-bar include BOTH headers:
+
+    #include "my_scrollbar_vscroll.h"   // full API declaration
+    #include "my_scrollbar_hscroll.h"   // documents intent; pulls vscroll.h
+
+  Files that only use V-scroll include only my_scrollbar_vscroll.h.
+
+
+3. CURRENT STATUS — Step 1: H-scroll suppressed
+────────────────────────────────────────────────
+  MsbH_DeliverScroll is a no-op.  No content scrolls.
+  The custom H-bar widget is NOT shown (msb_attach with MSB_HORIZONTAL
+  does nothing visible).  The native Windows H-bar is suppressed by the
+  WM_NCPAINT intercept in my_scrollbar_vscroll.cpp.
+
+  This is intentional.  Steps:
+
+    Step 1 (done)  — Suppress: MsbH_DeliverScroll is a no-op.
+                     Native bar hidden.  Nothing moves.  Verify no crashes.
+
+    Step 2 (next)  — Show bar: make msb_attach(MSB_HORIZONTAL) create and
+                     show the bar window so the custom bar appears.
+
+    Step 3          — Arrow buttons: wire LVM_SCROLL / WM_HSCROLL delivery
+                     in MsbH_DeliverScroll.
+
+    Step 4          — Track-click: confirm it works through Msb_ScrollToPos.
+
+    Step 5          — Thumb drag: confirm Golden Rules 1-3 hold.
+
+
+4. GOLDEN RULES FOR LISTVIEW H-AXIS
+─────────────────────────────────────
+  1. lvHPos is AUTHORITATIVE.  Only written by:
+       a. WM_LBUTTONDOWN drag-start (header idle — correct ground truth)
+       b. MsbH_DeliverScroll()      (sets lvHPos = clamped newPos)
+       c. WM_SIZE / msb_reposition  (layout settle — header correct)
+     NEVER re-read from the header mid-drag / mid-scroll.
+     Reason: LVM_SCROLL fires WM_NCPAINT BEFORE the header repositions.
+     Msb_GetListViewHPos() inside the scroll hot-path returns the OLD
+     position → delta always computed from 0 → scroll never accumulates.
+
+  2. LVM_SCROLL(dx, 0) is the only reliable H-scroll primitive.
+     WM_HSCROLL(SB_THUMBPOSITION) needs SIF_TRACKPOS (set only by native
+     scrollbar machinery).  SetScrollInfo + SB_THUMBTRACK zeroes the delta.
+
+  3. WS_HSCROLL is removed by ShowScrollBar(FALSE) in the WM_NCPAINT
+     intercept.  After removal, LVM_SCROLL silently does nothing.
+     Fix: ShowScrollBar(SB_HORZ, TRUE) just before LVM_SCROLL, then let
+     NCPAINT remove it again.  Guard SCROLLINFO capture/restore so the
+     NCPAINT intercept does not corrupt lvHPos.
+
+
+5. REFERENCE
+────────────
+  my_scrollbar_hscroll_template.cpp.bak — previous H-scroll implementation
+  (had the right structure but was missing the ShowScrollBar(TRUE) guard).
+  Use for ideas; do NOT copy-paste directly.

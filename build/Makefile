@@ -496,29 +496,29 @@ mainwindow.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/mainwindow.cpp.s
 .PHONY : mainwindow.cpp.s
 
-my_scrollbar.obj: my_scrollbar.cpp.obj
-.PHONY : my_scrollbar.obj
+my_scrollbar_vscroll.obj: my_scrollbar_vscroll.cpp.obj
+.PHONY : my_scrollbar_vscroll.obj
 
 # target to build an object file
-my_scrollbar.cpp.obj:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/my_scrollbar.cpp.obj
-.PHONY : my_scrollbar.cpp.obj
+my_scrollbar_vscroll.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/my_scrollbar_vscroll.cpp.obj
+.PHONY : my_scrollbar_vscroll.cpp.obj
 
-my_scrollbar.i: my_scrollbar.cpp.i
-.PHONY : my_scrollbar.i
+my_scrollbar_vscroll.i: my_scrollbar_vscroll.cpp.i
+.PHONY : my_scrollbar_vscroll.i
 
 # target to preprocess a source file
-my_scrollbar.cpp.i:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/my_scrollbar.cpp.i
-.PHONY : my_scrollbar.cpp.i
+my_scrollbar_vscroll.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/my_scrollbar_vscroll.cpp.i
+.PHONY : my_scrollbar_vscroll.cpp.i
 
-my_scrollbar.s: my_scrollbar.cpp.s
-.PHONY : my_scrollbar.s
+my_scrollbar_vscroll.s: my_scrollbar_vscroll.cpp.s
+.PHONY : my_scrollbar_vscroll.s
 
 # target to generate assembly for a file
-my_scrollbar.cpp.s:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/my_scrollbar.cpp.s
-.PHONY : my_scrollbar.cpp.s
+my_scrollbar_vscroll.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/my_scrollbar_vscroll.cpp.s
+.PHONY : my_scrollbar_vscroll.cpp.s
 
 notes_editor.obj: notes_editor.cpp.obj
 .PHONY : notes_editor.obj
@@ -815,9 +815,9 @@ help:
 	@echo ... mainwindow.obj
 	@echo ... mainwindow.i
 	@echo ... mainwindow.s
-	@echo ... my_scrollbar.obj
-	@echo ... my_scrollbar.i
-	@echo ... my_scrollbar.s
+	@echo ... my_scrollbar_vscroll.obj
+	@echo ... my_scrollbar_vscroll.i
+	@echo ... my_scrollbar_vscroll.s
 	@echo ... notes_editor.obj
 	@echo ... notes_editor.i
 	@echo ... notes_editor.s

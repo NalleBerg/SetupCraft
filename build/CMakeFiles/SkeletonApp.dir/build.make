@@ -431,20 +431,20 @@ CMakeFiles/SkeletonApp.dir/scrollbar.cpp.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/SkeletonApp.dir/scrollbar.cpp.s"
 	C:\mingw64\bin\c++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\scrollbar.cpp -o CMakeFiles\SkeletonApp.dir\scrollbar.cpp.s
 
-CMakeFiles/SkeletonApp.dir/my_scrollbar.cpp.obj: CMakeFiles/SkeletonApp.dir/flags.make
-CMakeFiles/SkeletonApp.dir/my_scrollbar.cpp.obj: CMakeFiles/SkeletonApp.dir/includes_CXX.rsp
-CMakeFiles/SkeletonApp.dir/my_scrollbar.cpp.obj: C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/my_scrollbar.cpp
-CMakeFiles/SkeletonApp.dir/my_scrollbar.cpp.obj: CMakeFiles/SkeletonApp.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\build\CMakeFiles --progress-num=$(CMAKE_PROGRESS_25) "Building CXX object CMakeFiles/SkeletonApp.dir/my_scrollbar.cpp.obj"
-	C:\mingw64\bin\c++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/SkeletonApp.dir/my_scrollbar.cpp.obj -MF CMakeFiles\SkeletonApp.dir\my_scrollbar.cpp.obj.d -o CMakeFiles\SkeletonApp.dir\my_scrollbar.cpp.obj -c C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\my_scrollbar.cpp
+CMakeFiles/SkeletonApp.dir/my_scrollbar_vscroll.cpp.obj: CMakeFiles/SkeletonApp.dir/flags.make
+CMakeFiles/SkeletonApp.dir/my_scrollbar_vscroll.cpp.obj: CMakeFiles/SkeletonApp.dir/includes_CXX.rsp
+CMakeFiles/SkeletonApp.dir/my_scrollbar_vscroll.cpp.obj: C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/my_scrollbar_vscroll.cpp
+CMakeFiles/SkeletonApp.dir/my_scrollbar_vscroll.cpp.obj: CMakeFiles/SkeletonApp.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\build\CMakeFiles --progress-num=$(CMAKE_PROGRESS_25) "Building CXX object CMakeFiles/SkeletonApp.dir/my_scrollbar_vscroll.cpp.obj"
+	C:\mingw64\bin\c++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/SkeletonApp.dir/my_scrollbar_vscroll.cpp.obj -MF CMakeFiles\SkeletonApp.dir\my_scrollbar_vscroll.cpp.obj.d -o CMakeFiles\SkeletonApp.dir\my_scrollbar_vscroll.cpp.obj -c C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\my_scrollbar_vscroll.cpp
 
-CMakeFiles/SkeletonApp.dir/my_scrollbar.cpp.i: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/SkeletonApp.dir/my_scrollbar.cpp.i"
-	C:\mingw64\bin\c++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\my_scrollbar.cpp > CMakeFiles\SkeletonApp.dir\my_scrollbar.cpp.i
+CMakeFiles/SkeletonApp.dir/my_scrollbar_vscroll.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/SkeletonApp.dir/my_scrollbar_vscroll.cpp.i"
+	C:\mingw64\bin\c++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\my_scrollbar_vscroll.cpp > CMakeFiles\SkeletonApp.dir\my_scrollbar_vscroll.cpp.i
 
-CMakeFiles/SkeletonApp.dir/my_scrollbar.cpp.s: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/SkeletonApp.dir/my_scrollbar.cpp.s"
-	C:\mingw64\bin\c++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\my_scrollbar.cpp -o CMakeFiles\SkeletonApp.dir\my_scrollbar.cpp.s
+CMakeFiles/SkeletonApp.dir/my_scrollbar_vscroll.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/SkeletonApp.dir/my_scrollbar_vscroll.cpp.s"
+	C:\mingw64\bin\c++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\my_scrollbar_vscroll.cpp -o CMakeFiles\SkeletonApp.dir\my_scrollbar_vscroll.cpp.s
 
 CMakeFiles/SkeletonApp.dir/vfs_picker.cpp.obj: CMakeFiles/SkeletonApp.dir/flags.make
 CMakeFiles/SkeletonApp.dir/vfs_picker.cpp.obj: CMakeFiles/SkeletonApp.dir/includes_CXX.rsp
@@ -492,7 +492,7 @@ SkeletonApp_OBJECTS = \
 "CMakeFiles/SkeletonApp.dir/settings.cpp.obj" \
 "CMakeFiles/SkeletonApp.dir/dialogs.cpp.obj" \
 "CMakeFiles/SkeletonApp.dir/scrollbar.cpp.obj" \
-"CMakeFiles/SkeletonApp.dir/my_scrollbar.cpp.obj" \
+"CMakeFiles/SkeletonApp.dir/my_scrollbar_vscroll.cpp.obj" \
 "CMakeFiles/SkeletonApp.dir/vfs_picker.cpp.obj" \
 "CMakeFiles/SkeletonApp.dir/SetupCraft.rc.obj"
 
@@ -523,7 +523,7 @@ SetupCraft.exe: CMakeFiles/SkeletonApp.dir/script_edit_dialog.cpp.obj
 SetupCraft.exe: CMakeFiles/SkeletonApp.dir/settings.cpp.obj
 SetupCraft.exe: CMakeFiles/SkeletonApp.dir/dialogs.cpp.obj
 SetupCraft.exe: CMakeFiles/SkeletonApp.dir/scrollbar.cpp.obj
-SetupCraft.exe: CMakeFiles/SkeletonApp.dir/my_scrollbar.cpp.obj
+SetupCraft.exe: CMakeFiles/SkeletonApp.dir/my_scrollbar_vscroll.cpp.obj
 SetupCraft.exe: CMakeFiles/SkeletonApp.dir/vfs_picker.cpp.obj
 SetupCraft.exe: CMakeFiles/SkeletonApp.dir/SetupCraft.rc.obj
 SetupCraft.exe: CMakeFiles/SkeletonApp.dir/build.make

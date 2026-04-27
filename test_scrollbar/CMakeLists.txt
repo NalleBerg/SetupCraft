@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_executable(ScrollbarTest WIN32
     test_scrollbar.cpp
-    ../my_scrollbar.cpp
+    ../my_scrollbar_vscroll.cpp
 )
 
 target_include_directories(ScrollbarTest PRIVATE ..)

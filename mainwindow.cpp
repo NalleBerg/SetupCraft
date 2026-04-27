@@ -26,7 +26,8 @@
 #include "dialogs.h"
 #include "scripts.h"
 #include "settings.h"
-#include "my_scrollbar.h"
+#include "my_scrollbar_vscroll.h"
+#include "my_scrollbar_hscroll.h"
 #include <richedit.h>
 #include <commdlg.h>
 #include <fstream>
