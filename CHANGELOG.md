@@ -2,6 +2,12 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.04.29.09] - 2026-04-29
+
+### H-scroll Step 2 (tilt-wheel): inHDeliver guard + SetScrollInfo-before-LVM_SCROLL attempt
+- **my_scrollbar — inHDeliver guard**: Added `inHDeliver` flag to `MsbCtx`. Set `TRUE` by `MsbH_DeliverScroll` around `LVM_SCROLL`; the `WM_NCPAINT` intercept skips `Msb_HideNativeBar` for H while the flag is set, preventing `ShowScrollBar(FALSE)` from firing during the scroll itself.
+- **my_scrollbar — SetScrollInfo before LVM_SCROLL**: `SetScrollInfo(SIF_POS, nPos=lvHPos, FALSE)` is now called immediately before `LVM_SCROLL` in `MsbH_DeliverScroll`, restoring `SCROLLINFO.nPos` (zeroed by `ShowScrollBar(FALSE)` between deliveries) as the correct left-boundary clamp baseline. Tilt-wheel **right** works. Tilt-wheel **left** is still broken — `LVM_SCROLL` uses an internal scroll counter separate from `SCROLLINFO.nPos`; `SetScrollInfo` updates the struct but not the counter. See `here.txt` for next direction.
+
 ## [2026.04.27.10] - 2026-04-27
 
 ### H-scroll Step 2 (tilt-wheel, partial) + left-scroll root cause identified

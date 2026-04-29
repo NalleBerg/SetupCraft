@@ -138,6 +138,12 @@ typedef struct MsbCtx {
      * value here and use it exclusively instead of GetScrollInfo for nPos.
      * Initialised to 0 (calloc); updated by every H scroll operation. */
     int     lvHPos;
+
+    /* Set TRUE by MsbH_DeliverScroll while an LVM_SCROLL is in flight.
+     * The WM_NCPAINT intercept skips Msb_HideNativeBar for H while this flag
+     * is set — preventing ShowScrollBar(FALSE) from zeroing the ListView's
+     * internal scroll counter mid-delivery, which would block leftward scroll. */
+    BOOL    inHDeliver;
 } MsbCtx;
 
 /* Window property key to retrieve MsbCtx from the bar window proc. */
@@ -1573,7 +1579,10 @@ static LRESULT CALLBACK Msb_TargetSubclassProc(HWND hwnd, UINT msg,
                  * changes such as column resize and window resize). */
             }
             if (ctxV) Msb_HideNativeBar(hwnd, ctxV->isRichEdit, TRUE);
-            if (ctxH) Msb_HideNativeBar(hwnd, ctxH->isRichEdit, FALSE);
+            /* Skip H hide during LVM_SCROLL delivery — ShowScrollBar(FALSE)
+             * zeroes the ListView's internal scroll counter, which causes
+             * LVM_SCROLL to clamp all leftward (negative) deltas to zero. */
+            if (ctxH && !ctxH->inHDeliver) Msb_HideNativeBar(hwnd, ctxH->isRichEdit, FALSE);
             /* Reconstruct V for TreeView; restore H for ListView/TreeView. */
             if (ctxV && ctxV->isTreeView) Msb_ReconstructTreeVScrollInfo(hwnd);
             if (restoreH) SetScrollInfo(hwnd, SB_HORZ, &siH, FALSE);

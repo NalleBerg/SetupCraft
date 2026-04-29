@@ -68,25 +68,23 @@ static void MsbH_DeliverScroll(MsbCtx* ctx, int newPos)
         int delta = newPos - ctx->lvHPos;
         if (delta == 0) return;
 
-        /* The NCPAINT intercept fires synchronously inside ShowScrollBar(TRUE).
-         * It captures SCROLLINFO → calls ShowScrollBar(FALSE) → restores SCROLLINFO.
-         * BUT: if nMax=0 when captured (zeroed by the previous ShowScrollBar(FALSE)),
-         * restoreH=FALSE and nPos is never restored.  LVM_SCROLL then sees nPos=0,
-         * treats the current position as 0, and refuses any negative (leftward) delta.
-         *
-         * Fix: set the full SCROLLINFO (range + current position) BEFORE calling
-         * ShowScrollBar(TRUE), so the NCPAINT capture sees nMax>0 (restoreH=TRUE)
-         * and nPos=lvHPos, and restores both correctly.  LVM_SCROLL then knows the
-         * real current position and can scroll in both directions. */
-        SCROLLINFO fullSi = {sizeof(fullSi), SIF_RANGE | SIF_PAGE | SIF_POS};
-        fullSi.nMin  = si.nMin;
-        fullSi.nMax  = si.nMax;
-        fullSi.nPage = si.nPage;
-        fullSi.nPos  = ctx->lvHPos;
-        SetScrollInfo(ctx->hTarget, SB_HORZ, &fullSi, FALSE);
+        /* LVM_SCROLL uses SCROLLINFO.nPos for its left-boundary clamp
+         * (rejects dx if nPos + dx < 0).  ShowScrollBar(FALSE) in any
+         * WM_NCPAINT call between delivery events zeroes nPos, so all
+         * leftward deltas would be clamped even when the view is scrolled
+         * right.  Restore nPos = lvHPos before the call.
+         * SetScrollInfo with FALSE (no-redraw) does NOT post WM_NCPAINT,
+         * so this value is safe until LVM_SCROLL runs. */
+        SCROLLINFO setSi = {sizeof(setSi), SIF_POS};
+        setSi.nPos = ctx->lvHPos;
+        SetScrollInfo(ctx->hTarget, SB_HORZ, &setSi, FALSE);
 
-        ShowScrollBar(ctx->hTarget, SB_HORZ, TRUE);
+        /* inHDeliver guard: WM_NCPAINT intercept skips Msb_HideNativeBar
+         * for H while TRUE, so ShowScrollBar(FALSE) cannot zero nPos again
+         * during the scroll itself. */
+        ctx->inHDeliver = TRUE;
         SendMessageW(ctx->hTarget, LVM_SCROLL, (WPARAM)delta, 0);
+        ctx->inHDeliver = FALSE;
         ctx->lvHPos = newPos;
     } else {
         /* TreeView and RichEdit: WM_HSCROLL via origProc, same as the old path. */

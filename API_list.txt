@@ -105,21 +105,21 @@
                                                 pattern for V+H dual-attach. ListView H-axis:
 
   API_INTERNALS\API\my_scrollbar_hscroll_API.txt  Custom Win32 horizontal scrollbar — impl notes.
-                                                Step-by-step rewrite (Step 1: suppressed).
+                                                Step-by-step rewrite (Steps 1-2 in progress).
                                                 Golden Rules for ListView H-axis. MsbH_DeliverScroll
                                                 is #included into my_scrollbar_vscroll.cpp.
-                                                position read via Msb_GetListViewHPos()
-                                                (-Header_GetItemRect(col0).left) — the only
-                                                reliable source; GetScrollInfo.nPos is zeroed
-                                                by ShowScrollBar(FALSE) and not updated by
-                                                LVM_SCROLL. Scroll dispatch via LVM_SCROLL(delta).
+                                                Scroll dispatch via LVM_SCROLL(delta) with
+                                                SetScrollInfo(SIF_POS, nPos=lvHPos, FALSE) before
+                                                the call and inHDeliver flag on MsbCtx around it.
+                                                Tilt-wheel right works; left still broken —
+                                                LVM_SCROLL uses an internal counter separate from
+                                                SCROLLINFO.nPos; SetScrollInfo alone cannot reset
+                                                it. Next direction: ShowScrollBar(TRUE) with
+                                                inHDeliver already TRUE so NCPAINT skips hide.
                                                 Auto-syncs: LVM_DELETEALLITEMS resets lvHPos=0;
                                                 LVM_SETCOLUMNWIDTH and HDN_ENDTRACK re-read
-                                                lvHPos from header — callers need no post-call
-                                                msb_reposition. Deps page H-bar: arrows,
-                                                track-click, and tilt-wheel all work; thumb drag
-                                                has a known bug (see here.txt / scrollbar
-                                                INTERNALS) — fix pending.
+                                                lvHPos from header. H-bar still hidden (Step 1
+                                                guards in place).
 
   about.h / about.cpp                           About dialog module — three public functions:
                                                 ShowAboutDialog, ShowLicenseDialog,

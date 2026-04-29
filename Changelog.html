@@ -1,6 +1,13 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 27 April 2026 &mdash; v2026.04.27.10 (10:59)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 29 April 2026 &mdash; v2026.04.29.09 (09:58)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.04.29.09</span></h3>
+<p><strong>H-scroll Step 2: inHDeliver guard + SetScrollInfo-before-LVM_SCROLL attempt (29.04.2026, 09:58):</strong></p>
+<ul>
+<li><strong>my_scrollbar &mdash; inHDeliver guard:</strong> Added <code>inHDeliver</code> flag to <code>MsbCtx</code>. <code>MsbH_DeliverScroll</code> sets it <code>TRUE</code> around the <code>LVM_SCROLL</code> call; the <code>WM_NCPAINT</code> intercept skips <code>Msb_HideNativeBar</code> for H while the flag is set, preventing <code>ShowScrollBar(FALSE)</code> from firing during the scroll itself.</li>
+<li><strong>my_scrollbar &mdash; SetScrollInfo before LVM_SCROLL:</strong> <code>SetScrollInfo(SIF_POS, nPos=lvHPos, FALSE)</code> is now called immediately before <code>LVM_SCROLL</code> in <code>MsbH_DeliverScroll</code>, restoring <code>SCROLLINFO.nPos</code> (zeroed by <code>ShowScrollBar(FALSE)</code> between deliveries) as the correct left-boundary clamp baseline. Tilt-wheel <strong>right</strong> works. Tilt-wheel <strong>left</strong> is still broken &mdash; <code>LVM_SCROLL</code> uses an internal scroll counter that is separate from <code>SCROLLINFO.nPos</code>; <code>SetScrollInfo</code> updates the struct but not the counter. See <code>here.txt</code> for next direction.</li>
+</ul>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.04.27.10</span></h3>
 <p><strong>H-scroll clean-room rewrite (Step 2): tilt-wheel delivery; root cause of left-scroll identified (27.04.2026, 10:59):</strong></p>

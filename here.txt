@@ -1,7 +1,111 @@
 ================================================================================
   Session State — SetupCraft
-  Build: 27.04.2026  (see curver.txt for exact version)
+  Build: 29.04.2026  (see curver.txt for exact version)
 ================================================================================
+
+
+────────────────────────────────────────────────────────────────────────────────
+CURRENT STATE — H-scroll Step 2 (tilt-wheel) partially working; left broken
+────────────────────────────────────────────────────────────────────────────────
+
+  ── WHAT WAS DONE (29.04.2026 session) ─────────────────────────────────────
+
+  1. inHDeliver flag added to MsbCtx
+     - New BOOL inHDeliver field in MsbCtx (my_scrollbar_vscroll.cpp).
+     - Set TRUE by MsbH_DeliverScroll around LVM_SCROLL, FALSE after.
+     - WM_NCPAINT intercept now skips Msb_HideNativeBar for H when
+       ctxH->inHDeliver is TRUE — so ShowScrollBar(FALSE) never fires
+       during the scroll itself.
+
+  2. SetScrollInfo(nPos=lvHPos) before LVM_SCROLL
+     - SetScrollInfo(SIF_POS, nPos=lvHPos, FALSE) called immediately before
+       LVM_SCROLL in MsbH_DeliverScroll (ListView branch).
+     - FALSE = no-redraw, does not post WM_NCPAINT, value is safe until
+       the call.
+     - Tilt-wheel RIGHT works. Tilt-wheel LEFT still broken.
+
+  ── ROOT CAUSE — why left-scroll still fails ────────────────────────────────
+
+  LVM_SCROLL uses an INTERNAL scroll counter for left-boundary clamping
+  (rejects dx if counter + dx < 0). This counter is SEPARATE from
+  SCROLLINFO.nPos. ShowScrollBar(FALSE) zeroes BOTH the counter and nPos.
+  SetScrollInfo updates nPos only — it cannot restore the counter.
+
+  So even with SetScrollInfo(nPos=lvHPos) and inHDeliver=TRUE:
+    - Before the call: counter is 0 (zeroed by last ShowScrollBar(FALSE))
+    - SetScrollInfo restores nPos, but counter stays at 0
+    - LVM_SCROLL sees counter=0, rejects negative dx
+    - inHDeliver prevents ShowScrollBar(FALSE) DURING the call, but the
+      counter was already 0 before we got there
+
+  ── FIX DIRECTION for next session ──────────────────────────────────────────
+
+  ShowScrollBar(SB_HORZ, TRUE) should reinitialize the ListView's internal
+  counter from SCROLLINFO.nPos. The sequence to try:
+
+    ctx->inHDeliver = TRUE;                              // guard first
+    SCROLLINFO setSi = {sizeof(setSi), SIF_POS};
+    setSi.nPos = ctx->lvHPos;
+    SetScrollInfo(ctx->hTarget, SB_HORZ, &setSi, FALSE); // set nPos = lvHPos
+    ShowScrollBar(ctx->hTarget, SB_HORZ, TRUE);          // re-init counter from nPos
+    // WM_NCPAINT fires here but inHDeliver=TRUE skips Msb_HideNativeBar(H)
+    // so ShowScrollBar(FALSE) never runs and the counter stays at lvHPos
+    SendMessageW(ctx->hTarget, LVM_SCROLL, (WPARAM)delta, 0); // counter + delta >= 0
+    ctx->inHDeliver = FALSE;
+
+  Critical: inHDeliver must be set BEFORE ShowScrollBar(TRUE), not after,
+  because ShowScrollBar(TRUE) triggers WM_NCPAINT synchronously.
+
+  Test: tilt-wheel left and right. Test: V-scroll unaffected.
+
+────────────────────────────────────────────────────────────────────────────────
+NEXT PRIORITIES
+────────────────────────────────────────────────────────────────────────────────
+
+  1. Fix left-scroll: try ShowScrollBar(TRUE) sequence above.
+     The WM_NCPAINT triggered by ShowScrollBar(TRUE) is the key —
+     it should re-read nPos (now = lvHPos) into the internal counter.
+
+  2. Once both directions work: Step 3 — show the H-bar (remove the three
+     MSB_HORIZONTAL guards in Msb_UpdateVisibility, Msb_UpdateVisibilityGuarded,
+     WM_MOUSEMOVE proximity-expand).
+
+  3. Step 4: arrow-button scrolling via bar clicks.
+  4. Step 5: track-click scrolling.
+  5. Step 6: thumb drag.
+
+────────────────────────────────────────────────────────────────────────────────
+GOLDEN RULES FOR LISTVIEW H-AXIS  (full text in my_scrollbar_hscroll_API.txt)
+────────────────────────────────────────────────────────────────────────────────
+
+  1. lvHPos is AUTHORITATIVE. Never re-read from the header mid-drag/mid-scroll.
+     LVM_SCROLL fires WM_NCPAINT before the header repositions — reading then
+     returns the old position and breaks delta accumulation.
+     Written only by: WM_LBUTTONDOWN drag-start, MsbH_DeliverScroll, WM_SIZE.
+
+  2. LVM_SCROLL(dx) is the scroll primitive. Requires setup before the call:
+       SetScrollInfo(nPos=lvHPos, FALSE) + inHDeliver=TRUE.
+     NOTE: LVM_SCROLL's left-boundary clamp uses an internal counter separate
+     from SCROLLINFO.nPos. SetScrollInfo alone cannot restore it — see Rule 4.
+
+  3. WS_HSCROLL being stripped does NOT block LVM_SCROLL. It scrolls regardless.
+
+  4. ShowScrollBar(FALSE) zeroes both nPos AND LVM_SCROLL's internal counter.
+     Counter is separate from SCROLLINFO.nPos. SetScrollInfo cannot restore it.
+     Fix direction: ShowScrollBar(TRUE) with inHDeliver already TRUE should
+     re-init the counter from nPos (= lvHPos) without triggering HideNativeBar.
+
+────────────────────────────────────────────────────────────────────────────────
+COMPLETED THIS SESSION (29.04.2026)
+────────────────────────────────────────────────────────────────────────────────
+
+  [OK]  inHDeliver flag added to MsbCtx
+  [OK]  WM_NCPAINT intercept skips H hide when inHDeliver is TRUE
+  [OK]  SetScrollInfo(nPos=lvHPos, FALSE) before LVM_SCROLL in MsbH_DeliverScroll
+  [--]  Left-scroll still broken — SetScrollInfo updates nPos but not internal
+        counter; ShowScrollBar(TRUE) sequence identified as next fix direction
+  [OK]  Published as v2026.04.29.09
+
 
 
 ────────────────────────────────────────────────────────────────────────────────
