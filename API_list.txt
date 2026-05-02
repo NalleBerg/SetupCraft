@@ -198,6 +198,38 @@
                                                 ffilter_remove_btn, ffilter_ok,
                                                 ffilter_cancel. Control ID range 9030–9035
                                                 (IDC_FFILTER_*).
+                                                AddValueDialogProc — Add/Edit Registry Value
+                                                modal (IDC_ADDVAL_* = 5060–5080):
+                                                name/type/data fields; data-type syntax hint
+                                                label (IDC_ADDVAL_HINT=5078, gray, updates on
+                                                CBN_SELCHANGE via GetRegTypeHint); Uninstall
+                                                behaviour section (7 checkboxes:
+                                                deletevalue/uninsdeletevalue/deletekey/
+                                                uninsdeletekey/uninsdeletekeyifempty/
+                                                dontcreatekey/preservestringtype) + Registry
+                                                view radio group (Default/32bit/64bit); all
+                                                controls subclassed with AVFlag_SubclassProc
+                                                for per-control hover tooltips (SetPropW
+                                                L"avTip" pattern); Components row:
+                                                ES_READONLY edit (IDC_ADDVAL_COMPONENTS=5079)
+                                                + "…" button (IDC_ADDVAL_COMP_PICK=5080,
+                                                AV_PICK_W=30). PickCompDialogProc opens a
+                                                400×500 TVS_CHECKBOXES tree (section roots →
+                                                folder components → file components by
+                                                source_path prefix); PickComp_CollectChecked
+                                                recursively collects checked items on OK.
+                                                Layout constants: AV_PAD_H/T/B, AV_LBL_W,
+                                                AV_FLD_GAP, AV_EDIT_W, AV_ROW_H, AV_GAP_R1/R2,
+                                                AV_GAP_DH, AV_HINT_H, AV_GAP_RD(=18),
+                                                AV_SEC_H, AV_GAP_SEC, AV_CHK_H, AV_GAP_BTW,
+                                                AV_GAP_RB, AV_BTN_H/W0/W1, AV_BTN_GAP,
+                                                AV_GAP_CF, AV_PICK_W.
+                                                Flags/components persisted to DB:
+                                                ALTER TABLE registry_entries ADD COLUMN flags
+                                                + components (idempotent migrations).
+                                                InsertRegistryEntry takes 8 params.
+                                                5-column ListView: Name 22%, Type 14%,
+                                                Data 27%, Flags 20%, Components 17%.
                                                 Modal message loop pattern: ALWAYS guard with
                                                 IsWindow(hDlg) in the while condition —
                                                 while (IsWindow(hDlg) && GetMessageW(...) > 0).

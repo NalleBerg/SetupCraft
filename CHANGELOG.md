@@ -2,6 +2,13 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.05.02.15] - 2026-05-02
+
+### Registry page — Add/Edit Value dialog: Components field UX
+- **mainwindow — hint-to-components spacing**: `AV_GAP_RD` increased from 10 px to 18 px so the data-type syntax hint label (`IDC_ADDVAL_HINT`) is no longer clipped by the Components row. Both `clientH` calculations automatically inherit the larger gap.
+- **mainwindow — Components field changed to read-only + picker button**: `IDC_ADDVAL_COMPONENTS` is now `ES_READONLY` (narrowed). `IDC_ADDVAL_COMP_PICK = 5080` "…" button added to the right. `AV_PICK_W = 30` layout constant added.
+- **mainwindow — `PickCompDialogProc` (TVS_CHECKBOXES tree picker)**: Opens a 400×500 px `PickCompDialog` with a `TVS_CHECKBOXES | TVS_HASLINES | TVS_HASBUTTONS` tree view. Section roots from `dest_path`, folder-type components as parent nodes, file-type components nested by `source_path` prefix. Items already in the field are pre-checked. `PickComp_CollectChecked` recurses on OK to produce the space-separated result. Silent if no components defined.
+
 ## [2026.05.02.14] - 2026-05-02
 
 ### Registry page — Components hint spacing fix and multiselect picker

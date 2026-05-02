@@ -244,4 +244,37 @@
     The hint text function is a simple switch/if-chain returning static string literals
     — no allocation needed and safe to pass directly to SetWindowTextW.
 
+  - TVS_CHECKBOXES inline picker pattern (read-only EDIT + "…" button + modal tree):
+    When a field in a dialog must contain a space-separated set of names drawn from
+    a hierarchical data source, replace the plain EDIT with:
+    1. An ES_READONLY edit narrowed by (pickBtnW + gap) to the left.
+    2. A small "…" BUTTON immediately to the right (IDC_PICK, AV_PICK_W = 30).
+    3. A modal PickerDialogProc window containing a TVS_CHECKBOXES | TVS_HASLINES |
+       TVS_HASBUTTONS | TVS_SHOWSELALWAYS TREEVIEW.
+    Construction:
+    - Tree items are inserted with TVIF_PARAM; section headers get lParam=-1.
+    - Each leaf carries its index into the source vector as lParam.
+    - Checkbox state: INDEXTOSTATEIMAGEMASK(0=no box, 1=unchecked, 2=checked).
+      Apply immediately after TreeView_InsertItem via a TVIF_STATE|TVIS_STATEIMAGEMASK
+      SetItem call (TVS_CHECKBOXES does not set state to 1 automatically until the
+      first WM_PAINT; pre-seeding with SetItem is reliable).
+    - Pre-check items by matching against the current space-split token set.
+    - Expand all section and folder nodes after population.
+    Collection on OK:
+      static void CollectChecked(HWND hTree, HTREEITEM h, vector& out) {
+          while (h) {
+              TVITEMW tv = { TVIF_PARAM|TVIF_STATE, h, 0, TVIS_STATEIMAGEMASK };
+              TreeView_GetItem(hTree, &tv);
+              int state = (tv.state & TVIS_STATEIMAGEMASK) >> 12;
+              if (tv.lParam >= 0 && state == 2) out += source[tv.lParam].name + L' ';
+              CollectChecked(hTree, TreeView_GetChild(hTree, h), out);
+              h = TreeView_GetNextSibling(hTree, h);
+          }
+      }
+    Window: WS_POPUP | WS_CAPTION | WS_SYSMENU, WS_EX_DLGMODALFRAME.
+    Modal loop: EnableWindow(parent, FALSE) → GetMessageW pump → EnableWindow(parent,TRUE).
+    Size: fixed (e.g. 400×500) rather than dynamic — the tree has a scrollbar.
+    Positioning: try right of the "…" button; clamp to work area; fall back to
+    centred over the parent dialog if the button is near the screen edge.
+
 ================================================================================

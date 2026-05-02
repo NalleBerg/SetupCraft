@@ -2,9 +2,9 @@
 
 An installer creation tool for making your developed packages distributable. Designed to be simple to use with a clean, native Windows interface.
 
-**Current Release:** Version 2026.05.02.13 (Published: 02.05.2026 13:50)
+**Current Release:** Version 2026.05.02.15 (Published: 02.05.2026 15:11)
 
-> Note: This project is in active development. Entry screen, Files management, Shortcuts, Dependencies, Dialogs, and Scripts pages are complete.
+> Note: This project is in active development. Entry screen, Files management, Shortcuts, Dependencies, Dialogs, Scripts, and Registry pages are complete.
 
 ## Bundled Freeware Utilities
 
@@ -45,7 +45,7 @@ An app-launching stopwatch. Screen 1 lets you optionally pick an executable to l
 - **Selection-Based Remove**: TreeView uses plain blue selection highlight (no checkboxes). Remove deletes the selected item with a per-item or recursive confirmation dialog
 - **Saved/Unsaved Indicator**: Owner-drawn right section of the status bar shows green ✔ Saved or red ● Unsaved, updating instantly on every change and on save
 - **Persistent Ask-at-Install**: "Ask end user at install" checkbox state stored per-project via `DB::SetSetting` and restored on project open
-- **Registry Management**: Complete Windows Registry integration page for Add/Remove Programs registration with icon preview and registry path navigation
+- **Registry Value per-entry flags, GUID, syntax hints, and component linkage**: The Add/Edit Registry Value dialog has been expanded with: per-entry Inno `[Registry]` flags (7 checkboxes + 3 radio buttons for registry view, all with hover tooltips); a read-only AppId (GUID) field with Regenerate button + confirmation dialog; a data-type syntax hint label (`IDC_ADDVAL_HINT`) that updates live on type-combo change; and a Components field (`IDC_ADDVAL_COMPONENTS`, read-only) with a `…` picker button that opens a `TVS_CHECKBOXES` tree view (section roots → folder components → file components) for multi-select. All fields persisted to DB. 5-column ListView (Name / Type / Data / Flags / Components). Control IDs 5059–5080.
 - **Registry Backup System**: "Create Restore Point" button creates Windows System Restore Point before registry edits with animated spinner dialog
 - **Registry Warning Tooltip**: Custom tooltip with light yellow background matching globe icon style, explains risks and recommends restore point creation
 - **Registry Tree Structure**: Clean registry hierarchy showing only keys with actual values - Uninstall key displays DisplayName, DisplayVersion, Publisher, InstallLocation, DisplayIcon, UninstallString
@@ -132,7 +132,7 @@ An app-launching stopwatch. Screen 1 lets you optionally pick an executable to l
 ✅ Unsaved changes warning dialog (Save/Don't Save/Cancel)
 ✅ Close Project confirmation with unsaved changes detection
 
-🔄 In Progress: Registry edit functionality for keys and values, Build/Test implementation, Shortcuts page
+🔄 In Progress: Build/Test implementation
 
 ## Building
 
