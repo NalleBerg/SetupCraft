@@ -4683,24 +4683,49 @@ struct PickCompDialogData {
     bool          okClicked; // OUT
 };
 
+// Recursively walk the tree and collect display_names of checked items.
+static void PickComp_CollectChecked(HWND hTree, HTREEITEM hItem,
+                                    const std::vector<ComponentRow>& comps,
+                                    std::wstring& out)
+{
+    while (hItem) {
+        TVITEMW tv = {};
+        tv.mask      = TVIF_PARAM | TVIF_STATE;
+        tv.hItem     = hItem;
+        tv.stateMask = TVIS_STATEIMAGEMASK;
+        TreeView_GetItem(hTree, &tv);
+        int stateImg = (tv.state & TVIS_STATEIMAGEMASK) >> 12;
+        // lParam >= 0 → valid component index (section headers have lParam == -1)
+        if (tv.lParam >= 0 && (int)tv.lParam < (int)comps.size() && stateImg == 2) {
+            if (!out.empty()) out += L' ';
+            out += comps[(int)tv.lParam].display_name;
+        }
+        HTREEITEM hChild = TreeView_GetChild(hTree, hItem);
+        if (hChild) PickComp_CollectChecked(hTree, hChild, comps, out);
+        hItem = TreeView_GetNextSibling(hTree, hItem);
+    }
+}
+
 static LRESULT CALLBACK PickCompDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
-    enum { IDC_PCD_LIST = 8800, IDC_PCD_OK = 8801, IDC_PCD_CANCEL = 8802 };
+    enum { IDC_PCD_TREE = 8800, IDC_PCD_OK = 8801, IDC_PCD_CANCEL = 8802 };
     switch (msg) {
     case WM_CREATE: {
-        CREATESTRUCTW* cs  = (CREATESTRUCTW*)lParam;
+        CREATESTRUCTW*      cs = (CREATESTRUCTW*)lParam;
         PickCompDialogData* pd = (PickCompDialogData*)cs->lpCreateParams;
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)pd);
 
         RECT rc; GetClientRect(hwnd, &rc);
         int cW = rc.right, cH = rc.bottom;
         int pad = 10, btnH = 32, btnW = 100, gap = 8;
-        // Listbox fills most of the height
-        int listH = cH - 2*pad - btnH - gap;
-        HWND hList = CreateWindowExW(WS_EX_CLIENTEDGE, L"LISTBOX", L"",
-            WS_CHILD | WS_VISIBLE | LBS_MULTIPLESEL | LBS_NOTIFY | WS_VSCROLL | LBS_NOINTEGRALHEIGHT,
-            pad, pad, cW - 2*pad, listH, hwnd, (HMENU)IDC_PCD_LIST, cs->hInstance, NULL);
+        int treeH = cH - 2*pad - btnH - gap;
 
-        // Populate from s_components; build set of current selections
+        HWND hTree = CreateWindowExW(WS_EX_CLIENTEDGE, WC_TREEVIEWW, L"",
+            WS_CHILD | WS_VISIBLE | TVS_HASLINES | TVS_LINESATROOT |
+            TVS_HASBUTTONS | TVS_CHECKBOXES | TVS_SHOWSELALWAYS,
+            pad, pad, cW - 2*pad, treeH,
+            hwnd, (HMENU)IDC_PCD_TREE, cs->hInstance, NULL);
+
+        // Build set of currently-selected component names.
         std::set<std::wstring> sel;
         {
             std::wstring cur = pd->current;
@@ -4713,19 +4738,100 @@ static LRESULT CALLBACK PickCompDialogProc(HWND hwnd, UINT msg, WPARAM wParam, L
                 start = sp + 1;
             }
         }
+
+        // Helper: insert one tree item and apply checkbox state.
+        // lp < 0 → section header (no checkbox shown, state image 0).
+        auto insertNode = [&](HTREEITEM hParent, const wchar_t* text,
+                              LPARAM lp, bool checked) -> HTREEITEM
+        {
+            TVINSERTSTRUCTW tv = {};
+            tv.hParent      = hParent;
+            tv.hInsertAfter = TVI_LAST;
+            tv.item.mask    = TVIF_TEXT | TVIF_PARAM;
+            tv.item.pszText = const_cast<LPWSTR>(text);
+            tv.item.lParam  = lp;
+            HTREEITEM h = TreeView_InsertItem(hTree, &tv);
+            if (h) {
+                TVITEMW tvi = {};
+                tvi.mask      = TVIF_STATE;
+                tvi.hItem     = h;
+                tvi.stateMask = TVIS_STATEIMAGEMASK;
+                // 0=no checkbox, 1=unchecked, 2=checked
+                tvi.state = INDEXTOSTATEIMAGEMASK(lp < 0 ? 0 : (checked ? 2 : 1));
+                TreeView_SetItem(hTree, &tvi);
+            }
+            return h;
+        };
+
         const auto& comps = s_components;
-        for (int i = 0; i < (int)comps.size(); ++i) {
-            const std::wstring& dn = comps[i].display_name;
-            if (dn.empty()) continue;
-            int idx = (int)SendMessageW(hList, LB_ADDSTRING, 0, (LPARAM)dn.c_str());
-            if (sel.count(dn))
-                SendMessageW(hList, LB_SETSEL, TRUE, idx);
+
+        // Collect unique sections in order of first appearance.
+        std::vector<std::wstring> sections;
+        {
+            std::set<std::wstring> seen;
+            for (const auto& c : comps) {
+                std::wstring sec = c.dest_path.empty() ? L"Other" : c.dest_path;
+                if (seen.insert(sec).second) sections.push_back(sec);
+            }
         }
 
-        // OK / Cancel buttons
+        for (const auto& sec : sections) {
+            HTREEITEM hSec = insertNode(TVI_ROOT, sec.c_str(), (LPARAM)-1, false);
+            if (!hSec) continue;
+
+            // First pass: folder-type components in this section.
+            for (int fi = 0; fi < (int)comps.size(); ++fi) {
+                const auto& fc = comps[fi];
+                if ((fc.dest_path.empty() ? L"Other" : fc.dest_path) != sec) continue;
+                if (fc.source_type != L"folder") continue;
+
+                HTREEITEM hFolder = insertNode(hSec, fc.display_name.c_str(),
+                                               (LPARAM)fi, sel.count(fc.display_name) > 0);
+                if (!hFolder) continue;
+
+                // Children: file components whose source_path falls inside this folder.
+                for (int ci = 0; ci < (int)comps.size(); ++ci) {
+                    const auto& cc = comps[ci];
+                    if ((cc.dest_path.empty() ? L"Other" : cc.dest_path) != sec) continue;
+                    if (cc.source_type != L"file") continue;
+                    if (fc.source_path.empty()) continue;
+                    if (cc.source_path.size() <= fc.source_path.size()) continue;
+                    if (_wcsnicmp(cc.source_path.c_str(),
+                                  fc.source_path.c_str(),
+                                  fc.source_path.size()) != 0) continue;
+                    if (cc.source_path[fc.source_path.size()] != L'\\') continue;
+                    insertNode(hFolder, cc.display_name.c_str(),
+                               (LPARAM)ci, sel.count(cc.display_name) > 0);
+                }
+                TreeView_Expand(hTree, hFolder, TVE_EXPAND);
+            }
+
+            // Second pass: file-type components with no matching folder parent.
+            for (int ci = 0; ci < (int)comps.size(); ++ci) {
+                const auto& cc = comps[ci];
+                if ((cc.dest_path.empty() ? L"Other" : cc.dest_path) != sec) continue;
+                if (cc.source_type != L"file") continue;
+                bool hasParent = false;
+                for (const auto& fc : comps) {
+                    if ((fc.dest_path.empty() ? L"Other" : fc.dest_path) != sec) continue;
+                    if (fc.source_type != L"folder" || fc.source_path.empty()) continue;
+                    if (cc.source_path.size() > fc.source_path.size() &&
+                        _wcsnicmp(cc.source_path.c_str(), fc.source_path.c_str(),
+                                  fc.source_path.size()) == 0 &&
+                        cc.source_path[fc.source_path.size()] == L'\\') {
+                        hasParent = true; break;
+                    }
+                }
+                if (!hasParent)
+                    insertNode(hSec, cc.display_name.c_str(),
+                               (LPARAM)ci, sel.count(cc.display_name) > 0);
+            }
+            TreeView_Expand(hTree, hSec, TVE_EXPAND);
+        }
+
+        // OK / Cancel buttons.
         int btnY = cH - pad - btnH;
-        int totalBW = 2*btnW + gap;
-        int bx = (cW - totalBW) / 2;
+        int bx   = (cW - (2*btnW + gap)) / 2;
         CreateWindowExW(0, L"BUTTON", L"OK",
             WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
             bx, btnY, btnW, btnH, hwnd, (HMENU)IDC_PCD_OK, cs->hInstance, NULL);
@@ -4733,7 +4839,7 @@ static LRESULT CALLBACK PickCompDialogProc(HWND hwnd, UINT msg, WPARAM wParam, L
             WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
             bx + btnW + gap, btnY, btnW, btnH, hwnd, (HMENU)IDC_PCD_CANCEL, cs->hInstance, NULL);
 
-        // Apply message font
+        // Apply message font.
         NONCLIENTMETRICSW ncm = {}; ncm.cbSize = sizeof(ncm);
         SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
         HFONT hFont = CreateFontIndirectW(&ncm.lfMessageFont);
@@ -4747,31 +4853,19 @@ static LRESULT CALLBACK PickCompDialogProc(HWND hwnd, UINT msg, WPARAM wParam, L
     }
     case WM_COMMAND: {
         int id = LOWORD(wParam);
-        if (id == 8801 /*IDC_PCD_OK*/) {
+        if (id == IDC_PCD_OK) {
             PickCompDialogData* pd = (PickCompDialogData*)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
-            HWND hList = GetDlgItem(hwnd, 8800);
-            if (pd && hList) {
-                int count = (int)SendMessageW(hList, LB_GETCOUNT, 0, 0);
+            HWND hTree = GetDlgItem(hwnd, IDC_PCD_TREE);
+            if (pd && hTree) {
                 std::wstring out;
-                const auto& comps = s_components;
-                int ci = 0;
-                for (int i = 0; i < count && ci < (int)comps.size(); ++i) {
-                    // skip empty entries (same skip as population loop)
-                    while (ci < (int)comps.size() && comps[ci].display_name.empty()) ++ci;
-                    if (ci >= (int)comps.size()) break;
-                    if (SendMessageW(hList, LB_GETSEL, i, 0) > 0) {
-                        if (!out.empty()) out += L' ';
-                        out += comps[ci].display_name;
-                    }
-                    ++ci;
-                }
-                pd->result = out;
+                PickComp_CollectChecked(hTree, TreeView_GetRoot(hTree), s_components, out);
+                pd->result    = out;
                 pd->okClicked = true;
             }
             DestroyWindow(hwnd);
             return 0;
         }
-        if (id == 8802 /*IDC_PCD_CANCEL*/) { DestroyWindow(hwnd); return 0; }
+        if (id == IDC_PCD_CANCEL) { DestroyWindow(hwnd); return 0; }
         break;
     }
     case WM_DESTROY: {
@@ -5155,11 +5249,8 @@ LRESULT CALLBACK AddValueDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 RegisterClassExW(&wcp);
             }
 
-            // Size: enough rows for all components, capped at 320px tall
-            int rows = (int)s_components.size();
-            int rowH = 20, pad = 10, btnH = 32, gap = 8;
-            int listH = std::min(rows * rowH + 8, 320);
-            int dlgW = 320, dlgH = pad + listH + gap + btnH + pad;
+            // Fixed size — the tree view needs room for the hierarchy.
+            int dlgW = 400, dlgH = 500;
             RECT rcParent; GetWindowRect(hwnd, &rcParent);
             // Position it to the right of the pick button if possible, else centred
             HWND hPickBtn = GetDlgItem(hwnd, IDC_ADDVAL_COMP_PICK);
