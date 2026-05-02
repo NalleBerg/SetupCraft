@@ -281,27 +281,12 @@ static void Msb_HideNativeBar(HWND hWnd, BOOL isRichEdit, BOOL vert)
     int which = vert ? SB_VERT : SB_HORZ;
     if (isRichEdit) {
         SendMessageW(hWnd, EM_SHOWSCROLLBAR, (WPARAM)which, FALSE);
-    } else if (!vert) {
-        /* H-axis: clear WS_HSCROLL via SetWindowLongPtr instead of
-         * ShowScrollBar(FALSE).  ShowScrollBar(FALSE) zeroes the ListView's
-         * internal horizontal scroll counter (separate from SCROLLINFO.nPos)
-         * which LVM_SCROLL uses for left-boundary clamping: rejects dx if
-         * counter + dx < 0.  Zeroing it between tilt-wheel ticks makes all
-         * leftward scrolls silently rejected.
-         * SetWindowLongPtr only removes the style bit — counter is untouched.
-         * The guard prevents redundant SWP_FRAMECHANGED cascades. */
-        LONG_PTR style = GetWindowLongPtrW(hWnd, GWL_STYLE);
-        if (style & WS_HSCROLL) {
-            SetWindowLongPtrW(hWnd, GWL_STYLE, style & ~WS_HSCROLL);
-            /* No SWP_FRAMECHANGED: that would fire WM_NCCALCSIZE → WM_SIZE →
-             * ListView calls ShowScrollBar(TRUE) with whatever nPos is current
-             * (potentially stale), cascading and unpredictably re-seeding the
-             * internal scroll counter.  The style-bit change is enough — the
-             * NC area repaints on the next natural WM_NCPAINT. */
-        }
     } else {
-        /* V-axis: ShowScrollBar(FALSE) zeroes the V counter but that is fine —
-         * LVM_SCROLL(0, dy) has no counter check on the vertical delta. */
+        /* ShowScrollBar(FALSE) collapses the NC area so the bar slot disappears.
+         * For the H-axis, this also zeroes LVM_SCROLL's internal scroll counter,
+         * but the inHDeliver guard in WM_NCPAINT and WM_SIZE prevents this
+         * function from being called during LVM_SCROLL delivery, so the counter
+         * is never zeroed while a scroll is in flight. */
         ShowScrollBar(hWnd, which, FALSE);
     }
 }
@@ -569,8 +554,11 @@ static BOOL Msb_ContentOverflows(MsbCtx* ctx)
     }
     /* ListView H-axis: use live column widths vs client width.
      * GetScrollInfo(SB_HORZ) nMax and nPage are unreliable after ShowScrollBar(FALSE)
-     * and may not reflect column-resize changes made through the header control. */
+     * and may not reflect column-resize changes made through the header control.
+     * Only report overflow when there are actually items — an empty ListView does
+     * not scroll horizontally even if column headers exceed the client width. */
     if (ctx->isListView && !vert) {
+        if (ListView_GetItemCount(ctx->hTarget) == 0) return FALSE;
         int totalW = Msb_ListViewTotalColumnWidth(ctx->hTarget);
         RECT rcLV; GetClientRect(ctx->hTarget, &rcLV);
         return (totalW > rcLV.right);
@@ -586,16 +574,6 @@ static BOOL Msb_ContentOverflows(MsbCtx* ctx)
  * In NOHIDE mode the bar is always shown.  Returns TRUE if visible. */
 static BOOL Msb_UpdateVisibility(MsbCtx* ctx)
 {
-    /* H-scroll Step 1: bar never shown. Native bar still suppressed by subclass. */
-    if (ctx->flags & MSB_HORIZONTAL) {
-        if (ctx->fadeState != FADE_INVISIBLE) {
-            KillTimer(ctx->hBar, 3);
-            ctx->fadeState = FADE_INVISIBLE;
-            ctx->fadeWidth = 0.0f;
-            ShowWindow(ctx->hBar, SW_HIDE);
-        }
-        return FALSE;
-    }
     if (ctx->flags & MSB_NOHIDE) return TRUE;
     BOOL overflows = Msb_ContentOverflows(ctx);
     if (!overflows) {
@@ -644,9 +622,12 @@ static BOOL Msb_UpdateVisibilityGuarded(MsbCtx* ctx)
 {
     BOOL wasNonInvisible = (ctx->fadeState != FADE_INVISIBLE);
     BOOL result = Msb_UpdateVisibility(ctx);
-    /* H-scroll Step 1: never restore the H-bar. */
-    if (ctx->flags & MSB_HORIZONTAL) return FALSE;
-    if ((ctx->isListView || ctx->isTreeView) && wasNonInvisible && !result) {
+    BOOL vert = !(ctx->flags & MSB_HORIZONTAL);
+    /* Only apply the "keep showing" guard for V-bars.  For H-bars, content
+     * genuinely not overflowing means the bar should hide.  The guard was
+     * designed for transient zero-range events on V-axis (auto-scroll-to-
+     * selection briefly reports zero range); H-axis has no equivalent. */
+    if (vert && (ctx->isListView || ctx->isTreeView) && wasNonInvisible && !result) {
         /* Content appeared to fit — likely a transient artefact of an
          * internal scroll-to-selection event (GetScrollInfo range == 0 briefly).
          * Restore hint-strip visibility instead of hiding the bar. */
@@ -1877,7 +1858,19 @@ static LRESULT CALLBACK Msb_TargetSubclassProc(HWND hwnd, UINT msg,
                 ctxV->fadeState = FADE_EXPANDING;
                 SetTimer(ctxV->hBar, 3, 16, NULL);
             }
-            /* H-scroll Step 1: proximity-expand suppressed for H-bar. */
+            if (ctxH && !(ctxH->flags & MSB_NOHIDE) &&
+                ctxH->fadeState == FADE_INVISIBLE &&
+                Msb_ContentOverflows(ctxH) &&
+                my >= rcT.bottom - S(ctxH, MSB_WIDTH_FULL)) {
+                if (ctxH->fadeState == FADE_INVISIBLE) {
+                    ctxH->fadeWidth = 0.0f;
+                    Msb_PositionBar(ctxH);
+                    ShowWindow(ctxH->hBar, SW_SHOWNOACTIVATE);
+                }
+                KillTimer(ctxH->hBar, 3);
+                ctxH->fadeState = FADE_EXPANDING;
+                SetTimer(ctxH->hBar, 3, 16, NULL);
+            }
             break;
         }
 

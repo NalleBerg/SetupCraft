@@ -4667,3 +4667,115 @@
 [10:14:49.084] Create() before ShowWindow
 [10:14:49.099] Create() after ShowWindow
 [10:14:49.124] Create() RETURN
+[10:24:07.080] Create() ENTRY
+[10:24:07.099] Create() before CreateWindowExW
+[10:24:07.104] WM_CREATE START
+[10:24:07.104] WM_CREATE before CreateMenuBar
+[10:24:07.110] WM_CREATE before CreateToolbar
+[10:24:07.110] WM_CREATE before CreateStatusBar
+[10:24:07.116] WM_CREATE before SwitchPage(0)
+[10:24:07.116] SwitchPage(0) START
+[10:24:07.140] SwitchPage(0) DONE
+[10:24:07.140] WM_CREATE after SwitchPage(0)
+[10:24:07.140] WM_CREATE DONE
+[10:24:07.140] Create() CreateWindowExW OK
+[10:24:07.140] Create() before ShowWindow
+[10:24:07.153] Create() after ShowWindow
+[10:24:07.171] Create() RETURN
+[10:24:20.884] SwitchPage(9) START
+[10:24:20.933] SwitchPage(9) DONE
+[10:24:36.180] SwitchPage(0) START
+[10:24:36.215] SwitchPage(0) DONE
+[10:35:23.797] Create() ENTRY
+[10:35:23.823] Create() before CreateWindowExW
+[10:35:23.824] WM_CREATE START
+[10:35:23.825] WM_CREATE before CreateMenuBar
+[10:35:23.829] WM_CREATE before CreateToolbar
+[10:35:23.835] WM_CREATE before CreateStatusBar
+[10:35:23.836] WM_CREATE before SwitchPage(0)
+[10:35:23.837] SwitchPage(0) START
+[10:35:23.860] SwitchPage(0) DONE
+[10:35:23.861] WM_CREATE after SwitchPage(0)
+[10:35:23.861] WM_CREATE DONE
+[10:35:23.861] Create() CreateWindowExW OK
+[10:35:23.861] Create() before ShowWindow
+[10:35:23.872] Create() after ShowWindow
+[10:35:23.889] Create() RETURN
+[10:59:54.122] Create() ENTRY
+[10:59:54.148] Create() before CreateWindowExW
+[10:59:54.151] WM_CREATE START
+[10:59:54.151] WM_CREATE before CreateMenuBar
+[10:59:54.154] WM_CREATE before CreateToolbar
+[10:59:54.157] WM_CREATE before CreateStatusBar
+[10:59:54.157] WM_CREATE before SwitchPage(0)
+[10:59:54.157] SwitchPage(0) START
+[10:59:54.175] SwitchPage(0) DONE
+[10:59:54.175] WM_CREATE after SwitchPage(0)
+[10:59:54.175] WM_CREATE DONE
+[10:59:54.175] Create() CreateWindowExW OK
+[10:59:54.175] Create() before ShowWindow
+[10:59:54.191] Create() after ShowWindow
+[10:59:54.215] Create() RETURN
+[11:15:21.739] MAIN: ENTRY WM_CLOSE -> ShowQuitDialog
+[11:15:23.183] MAIN: ENTRY WM_DESTROY -> PostQuitMessage
+[11:15:35.114] Create() ENTRY
+[11:15:35.134] Create() before CreateWindowExW
+[11:15:35.137] WM_CREATE START
+[11:15:35.137] WM_CREATE before CreateMenuBar
+[11:15:35.141] WM_CREATE before CreateToolbar
+[11:15:35.146] WM_CREATE before CreateStatusBar
+[11:15:35.147] WM_CREATE before SwitchPage(0)
+[11:15:35.147] SwitchPage(0) START
+[11:15:35.170] SwitchPage(0) DONE
+[11:15:35.171] WM_CREATE after SwitchPage(0)
+[11:15:35.171] WM_CREATE DONE
+[11:15:35.171] Create() CreateWindowExW OK
+[11:15:35.172] Create() before ShowWindow
+[11:15:35.185] Create() after ShowWindow
+[11:15:35.210] Create() RETURN
+[11:15:49.320] SwitchPage(3) START
+[11:15:49.346] SwitchPage(3) DONE
+[11:15:55.012] SwitchPage(0) START
+[11:15:55.058] SwitchPage(0) DONE
+[11:16:43.496] SwitchPage(9) START
+[11:16:43.544] SwitchPage(9) DONE
+[11:17:34.276] SwitchPage(0) START
+[11:17:34.308] SwitchPage(0) DONE
+[11:19:46.580] Create() ENTRY
+[11:19:46.600] Create() before CreateWindowExW
+[11:19:46.602] WM_CREATE START
+[11:19:46.602] WM_CREATE before CreateMenuBar
+[11:19:46.605] WM_CREATE before CreateToolbar
+[11:19:46.614] WM_CREATE before CreateStatusBar
+[11:19:46.614] WM_CREATE before SwitchPage(0)
+[11:19:46.614] SwitchPage(0) START
+[11:19:46.636] SwitchPage(0) DONE
+[11:19:46.636] WM_CREATE after SwitchPage(0)
+[11:19:46.636] WM_CREATE DONE
+[11:19:46.636] Create() CreateWindowExW OK
+[11:19:46.636] Create() before ShowWindow
+[11:19:46.650] Create() after ShowWindow
+[11:19:46.673] Create() RETURN
+[11:19:48.550] SwitchPage(9) START
+[11:19:48.597] SwitchPage(9) DONE
+[11:20:59.210] SwitchPage(0) START
+[11:20:59.258] SwitchPage(0) DONE
+[11:21:42.376] SwitchPage(4) START
+[11:21:42.423] SwitchPage(4) DONE
+[11:26:09.102] Create() ENTRY
+[11:26:09.118] Create() before CreateWindowExW
+[11:26:09.118] WM_CREATE START
+[11:26:09.118] WM_CREATE before CreateMenuBar
+[11:26:09.135] WM_CREATE before CreateToolbar
+[11:26:09.142] WM_CREATE before CreateStatusBar
+[11:26:09.142] WM_CREATE before SwitchPage(0)
+[11:26:09.143] SwitchPage(0) START
+[11:26:09.153] SwitchPage(0) DONE
+[11:26:09.153] WM_CREATE after SwitchPage(0)
+[11:26:09.153] WM_CREATE DONE
+[11:26:09.153] Create() CreateWindowExW OK
+[11:26:09.153] Create() before ShowWindow
+[11:26:09.177] Create() after ShowWindow
+[11:26:09.204] Create() RETURN
+[11:26:10.593] SwitchPage(4) START
+[11:26:10.640] SwitchPage(4) DONE

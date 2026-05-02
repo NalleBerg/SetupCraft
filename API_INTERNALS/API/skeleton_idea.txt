@@ -28,8 +28,9 @@
     [ ] my_scrollbar_vscroll / my_scrollbar_hscroll
                               — custom fade scrollbar, fully split V+H modules.
                               my_scrollbar_vscroll.cpp/.h: vertical (working).
-                              my_scrollbar_hscroll.cpp/.h: horizontal (Step 2
-                              complete — tilt-wheel both directions working).
+                              my_scrollbar_hscroll.cpp/.h: horizontal (Step 3
+                              complete — bar shown, tilt-wheel both directions,
+                              edge cases fixed).
                               hscroll.cpp is #included inside vscroll.cpp —
                               single compilation unit, shared MsbCtx/S()/helpers.
                               Public API: msb_attach/msb_detach/msb_sync/
@@ -83,18 +84,21 @@
     LVM_SCROLL before the header repositions — do NOT read or write lvHPos
     there.  The library intercepts LVM_DELETEALLITEMS, LVM_SETCOLUMNWIDTH,
     and HDN_ENDTRACK internally so callers need no post-call msb_reposition.
-  - LVM_SCROLL delta-clamping pitfall (SOLVED v2026.05.02.10): LVM_SCROLL
+  - LVM_SCROLL delta-clamping pitfall (SOLVED v2026.05.02.10/11): LVM_SCROLL
     uses an internal scroll counter for left-boundary clamping (rejects dx
     if counter + dx < 0).  This counter is SEPARATE from SCROLLINFO.nPos.
     ShowScrollBar(FALSE) zeroes BOTH.  SetScrollInfo updates nPos but NOT
-    the internal counter.  SOLUTION: in Msb_HideNativeBar for the H-axis,
-    use SetWindowLongPtrW(GWL_STYLE, style & ~WS_HSCROLL) instead of
-    ShowScrollBar(FALSE).  This removes the bar visually without zeroing
-    the counter.  Counter persists at lvHPos between ticks; lvHPos+delta>=0
-    always passes after clamping.  Also pre-seed SetScrollInfo(nPos=lvHPos,
-    FALSE) immediately before LVM_SCROLL so any internal ShowScrollBar(TRUE)
-    within LVM_SCROLL re-seeds from the correct baseline.  Both left and
-    right tilt-wheel now work reliably.
+    the internal counter.  SOLUTION: use the inHDeliver guard (set TRUE by
+    MsbH_DeliverScroll around LVM_SCROLL; WM_NCPAINT and WM_SIZE skip
+    Msb_HideNativeBar(H) while the flag is set) so ShowScrollBar(FALSE) never
+    fires during delivery.  Both Msb_HideNativeBar(H) and Msb_HideNativeBar(V)
+    now use ShowScrollBar(FALSE).  SetWindowLongPtr(~WS_HSCROLL) was tried
+    (v2026.05.02.10) but only clears the style bit \u2014 the NC area slot stays
+    visible as a 3-px strip when the custom H-bar is shown.  inHDeliver makes
+    ShowScrollBar(FALSE) safe for H-axis too.  Also pre-seed
+    SetScrollInfo(nPos=lvHPos, FALSE) immediately before LVM_SCROLL so any
+    internal ShowScrollBar(TRUE) within LVM_SCROLL re-seeds from the correct
+    baseline.  Both left and right tilt-wheel work reliably.
   - sqlite3 amalgamation version: pin to the version used in SetupCraft
     at publish time and note it here.
   - IsDialogMessageW gotcha: ONLY call IsDialogMessageW on windows that were

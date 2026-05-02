@@ -392,6 +392,7 @@ CMakeFiles/SkeletonApp.dir/dialogs.cpp.obj: \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\button.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\checkbox.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\my_scrollbar_vscroll.h \
+ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\my_scrollbar_hscroll.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\ctrlw.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\tooltip.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/utility \

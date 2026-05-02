@@ -2,6 +2,16 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.05.02.11] - 2026-05-02
+
+### H-scroll Step 3 complete: custom H-bar now shown; Dialogs→Preview H-scroll added
+- **my_scrollbar — H-bar now visible (Step 3 done)**: `MSB_HORIZONTAL` early-return guards removed from `Msb_UpdateVisibility` and `Msb_UpdateVisibilityGuarded`. The custom H-bar now fades in when content overflows and fades out when it does not, identical to the V-bar behaviour.
+- **my_scrollbar — proximity-expand for H-bar**: `WM_MOUSEMOVE` now triggers `FADE_EXPANDING` for the H-bar when the cursor moves within `MSB_WIDTH_FULL` px of the target's bottom edge and content overflows — matching the V-bar proximity logic.
+- **my_scrollbar — `Msb_HideNativeBar(H)` reverted to `ShowScrollBar(FALSE)`**: The Step-2 fix used `SetWindowLongPtr(GWL_STYLE, style & ~WS_HSCROLL)` to preserve the ListView internal scroll counter between ticks. With Step 3 showing the custom bar, this approach caused a problem: `SetWindowLongPtr` only clears the style bit; the NC area slot remains painted as a 3-px strip behind the custom bar. `ShowScrollBar(FALSE)` actually collapses the NC area. The `inHDeliver` guard already in place in `WM_NCPAINT` and `WM_SIZE` prevents `Msb_HideNativeBar(H)` from being called during `LVM_SCROLL` delivery, so the internal counter is never zeroed while a scroll is in flight — making `ShowScrollBar(FALSE)` safe to use here.
+- **my_scrollbar — `Msb_UpdateVisibilityGuarded` guard restricted to V-bars**: The "keep showing" guard (prevents premature hide of a bar that was just visible) now checks `vert &&` before applying. For H-bars, content genuinely not overflowing must immediately hide the bar; the guard was incorrectly keeping a 3-px strip visible.
+- **my_scrollbar — empty-ListView guard in `Msb_ContentOverflows`**: For the H-axis on a ListView, `Msb_ContentOverflows` now returns `FALSE` immediately when `ListView_GetItemCount == 0`, regardless of column widths. Prevents a phantom H-bar from appearing on empty ListViews.
+- **dialogs.cpp — H-scroll on Dialogs→Preview content RichEdit**: `WS_HSCROLL` added to the RichEdit creation style; `hContentSBH` handle added to `PreviewData`; `msb_attach(MSB_HORIZONTAL)` called in `SyncContentScrollbar` on the first layout pass and `msb_sync` on subsequent passes; `msb_detach` in `WM_DESTROY`. Both `my_scrollbar_vscroll.h` and `my_scrollbar_hscroll.h` included. Resize the preview small enough to truncate wide content and the H-bar appears automatically.
+
 ## [2026.05.02.10] - 2026-05-02
 
 ### H-scroll Step 2: tilt-wheel left+right fully working on ListView, TreeView, and RichEdit

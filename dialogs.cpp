@@ -24,6 +24,7 @@
 #include "button.h"       // CreateCustomButtonWithIcon(), MeasureButtonWidth()
 #include "checkbox.h"     // CreateCustomCheckbox, DrawCustomCheckbox
 #include "my_scrollbar_vscroll.h" // msb_attach / msb_detach / msb_sync
+#include "my_scrollbar_hscroll.h" // MSB_HORIZONTAL
 #include "ctrlw.h"        // ShowConfirmDeleteDialog()
 #include "tooltip.h"      // ShowMultilingualTooltip(), SetButtonTooltip()
 #include <richedit.h>     // EM_STREAMIN, SF_RTF, EDITSTREAM
@@ -222,7 +223,8 @@ struct PreviewData {
     // Interior controls for relayout and navigation
     HWND                hTypeTitle;  // dialog-type name STATIC at the top
     HWND                hContent;    // RichEdit (content area)
-    HMSB                hContentSB;  // custom scrollbar on hContent (NULL when not needed)
+    HMSB                hContentSB;  // custom V-scrollbar on hContent (NULL when not needed)
+    HMSB                hContentSBH; // custom H-scrollbar on hContent (NULL when not needed)
     HWND                hBack;       // Back button
     HWND                hNext;       // Next / Finish button
     HWND                hCancel;     // Cancel button
@@ -487,6 +489,10 @@ static void LayoutPreviewControls(HWND hwnd, PreviewData* pd)
             if (overflow)
                 pd->hContentSB = msb_attach(pd->hContent, MSB_VERTICAL);
         }
+        if (!pd->hContentSBH)
+            pd->hContentSBH = msb_attach(pd->hContent, MSB_HORIZONTAL);
+        else
+            msb_sync(pd->hContentSBH);
     }
 
     // Force the parent to repaint vacated areas when controls shift position
@@ -1022,7 +1028,7 @@ static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
         // internally; the custom scrollbar (my_scrollbar) hides the native gutter
         // and replaces it when SyncContentScrollbar (called from LayoutPreviewControls)
         // detects overflow after the window is sized.
-        DWORD reStyle = WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL;
+        DWORD reStyle = WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL | WS_HSCROLL;
         pd->hContent = CreateWindowExW(0, reClass, L"",
             reStyle, 0, 0, 10, 10,
             hwnd, (HMENU)(UINT_PTR)IDC_IDLG_PRV_CONTENT, cs->hInstance, NULL);
@@ -1209,6 +1215,10 @@ static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
         if (pd && pd->hContentSB) {
             msb_detach(pd->hContentSB);
             pd->hContentSB = NULL;
+        }
+        if (pd && pd->hContentSBH) {
+            msb_detach(pd->hContentSBH);
+            pd->hContentSBH = NULL;
         }
         // Restore the original RichEdit window proc before the control is destroyed.
         if (pd && pd->hContent && IsWindow(pd->hContent) && s_origContentProc)

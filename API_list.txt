@@ -105,18 +105,20 @@
                                                 pattern for V+H dual-attach. ListView H-axis:
 
   API_INTERNALS\API\my_scrollbar_hscroll_API.txt  Custom Win32 horizontal scrollbar — impl notes.
-                                                Step-by-step rewrite (Steps 1-2 complete).
+                                                Step-by-step rewrite (Steps 1-3 complete).
                                                 Golden Rules for ListView H-axis. MsbH_DeliverScroll
                                                 is #included into my_scrollbar_vscroll.cpp.
                                                 Scroll dispatch via LVM_SCROLL(delta) with
                                                 SetScrollInfo(nPos=lvHPos, FALSE) before the call
                                                 and inHDeliver flag on MsbCtx around it.
-                                                Tilt-wheel LEFT and RIGHT both work (v2026.05.02.10).
-                                                Key fix: Msb_HideNativeBar(H) clears WS_HSCROLL
-                                                via SetWindowLongPtr(~WS_HSCROLL) instead of
-                                                ShowScrollBar(FALSE) — preserves the internal
-                                                scroll counter between ticks. H-bar still hidden
-                                                (Step 1 guards in place; Step 3 will show it).
+                                                Tilt-wheel LEFT and RIGHT both work.
+                                                Custom H-bar shown (Step 3): MSB_HORIZONTAL guards
+                                                removed, proximity-expand added, edge cases fixed
+                                                (empty ListView, premature-hide guard V-only).
+                                                Msb_HideNativeBar(H) uses ShowScrollBar(FALSE)
+                                                (same as V-axis) — collapses NC area. inHDeliver
+                                                guard in WM_NCPAINT + WM_SIZE protects the
+                                                internal counter during delivery.
 
   about.h / about.cpp                           About dialog module — three public functions:
                                                 ShowAboutDialog, ShowLicenseDialog,
