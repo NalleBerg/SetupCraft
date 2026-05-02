@@ -2,6 +2,13 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.05.02.14] - 2026-05-02
+
+### Registry page — Components hint spacing fix and multiselect picker
+- **mainwindow — hint-to-components spacing**: `AV_GAP_RD` increased from 10 px to 18 px so the data-type syntax hint label (`IDC_ADDVAL_HINT`) is no longer clipped by the Components row immediately below it. Both `clientH` calculations automatically inherit the larger gap.
+- **mainwindow — Components field changed to read-only + picker button**: `IDC_ADDVAL_COMPONENTS` is now an `ES_READONLY` edit (narrowed to leave room for the button). A new `IDC_ADDVAL_COMP_PICK = 5080` "…" button sits immediately to its right. `AV_PICK_W = 30` layout constant added for the button width.
+- **mainwindow — `PickCompDialogProc` (modal multi-select picker)**: Clicking "…" opens a `PickCompDialog` popup containing a `LBS_MULTIPLESEL | LBS_HASSTRINGS | WS_VSCROLL` listbox populated from `s_components[i].display_name`. Items already in the Components field are pre-selected. OK writes the space-separated display names of all selected items back to `IDC_ADDVAL_COMPONENTS`; Cancel discards. If no components are defined the button does nothing. Uses the standard modal loop pattern: `EnableWindow(parent, FALSE)` → `GetMessageW` pump → `EnableWindow(parent, TRUE)`.
+
 ## [2026.05.02.13] - 2026-05-02
 
 ### Registry page — per-entry flags, registry view selector, GUID field protection, data syntax hints, and per-component linkage

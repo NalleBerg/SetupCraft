@@ -436,7 +436,8 @@ static bool s_filesPageHasContent = false; // tracks whether Files page has any 
 #define IDC_ADDVAL_F_ARCH_32BIT           5076
 #define IDC_ADDVAL_F_ARCH_64BIT           5077
 #define IDC_ADDVAL_HINT                   5078  // syntax hint label below Data field
-#define IDC_ADDVAL_COMPONENTS             5079  // Inno Components: edit field
+#define IDC_ADDVAL_COMPONENTS             5079  // Inno Components: edit field (read-only display)
+#define IDC_ADDVAL_COMP_PICK              5080  // "..." picker button for Components
 
 // Add Key dialog IDs
 #define IDC_ADDKEY_NAME     5070
@@ -4614,7 +4615,8 @@ static const int AV_GAP_R1  = 16;  // vertical gap between rows 1 and 2
 static const int AV_GAP_R2  = 18;  // vertical gap between rows 2 and 3
 static const int AV_GAP_DH  =  3;  // gap between data edit and hint label
 static const int AV_HINT_H  = 14;  // syntax hint label height
-static const int AV_GAP_RD  = 10;  // vertical gap between hint label and flags sections
+static const int AV_GAP_RD  = 18;  // vertical gap between hint label and components row
+static const int AV_PICK_W  = 30;  // width of the Components picker button
 static const int AV_SEC_H   = 18;  // flags section header height
 static const int AV_GAP_SEC =  4;  // gap between section header and first control
 static const int AV_CHK_H   = 24;  // checkbox/radio row height
@@ -4671,6 +4673,117 @@ static LRESULT CALLBACK AVFlag_SubclassProc(HWND hwnd, UINT msg, WPARAM wParam, 
         break;
     }
     return CallWindowProcW(s_avPrevChkProc, hwnd, msg, wParam, lParam);
+}
+
+// ── Component picker dialog ───────────────────────────────────────────────────
+// Data block passed as lpCreateParams; the dialog writes the result back.
+struct PickCompDialogData {
+    std::wstring  current;   // IN:  space-separated component names already selected
+    std::wstring  result;    // OUT: space-separated component names chosen by user
+    bool          okClicked; // OUT
+};
+
+static LRESULT CALLBACK PickCompDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    enum { IDC_PCD_LIST = 8800, IDC_PCD_OK = 8801, IDC_PCD_CANCEL = 8802 };
+    switch (msg) {
+    case WM_CREATE: {
+        CREATESTRUCTW* cs  = (CREATESTRUCTW*)lParam;
+        PickCompDialogData* pd = (PickCompDialogData*)cs->lpCreateParams;
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)pd);
+
+        RECT rc; GetClientRect(hwnd, &rc);
+        int cW = rc.right, cH = rc.bottom;
+        int pad = 10, btnH = 32, btnW = 100, gap = 8;
+        // Listbox fills most of the height
+        int listH = cH - 2*pad - btnH - gap;
+        HWND hList = CreateWindowExW(WS_EX_CLIENTEDGE, L"LISTBOX", L"",
+            WS_CHILD | WS_VISIBLE | LBS_MULTIPLESEL | LBS_NOTIFY | WS_VSCROLL | LBS_NOINTEGRALHEIGHT,
+            pad, pad, cW - 2*pad, listH, hwnd, (HMENU)IDC_PCD_LIST, cs->hInstance, NULL);
+
+        // Populate from s_components; build set of current selections
+        std::set<std::wstring> sel;
+        {
+            std::wstring cur = pd->current;
+            size_t start = 0;
+            while (start < cur.size()) {
+                size_t sp = cur.find(L' ', start);
+                if (sp == std::wstring::npos) sp = cur.size();
+                std::wstring tok = cur.substr(start, sp - start);
+                if (!tok.empty()) sel.insert(tok);
+                start = sp + 1;
+            }
+        }
+        const auto& comps = s_components;
+        for (int i = 0; i < (int)comps.size(); ++i) {
+            const std::wstring& dn = comps[i].display_name;
+            if (dn.empty()) continue;
+            int idx = (int)SendMessageW(hList, LB_ADDSTRING, 0, (LPARAM)dn.c_str());
+            if (sel.count(dn))
+                SendMessageW(hList, LB_SETSEL, TRUE, idx);
+        }
+
+        // OK / Cancel buttons
+        int btnY = cH - pad - btnH;
+        int totalBW = 2*btnW + gap;
+        int bx = (cW - totalBW) / 2;
+        CreateWindowExW(0, L"BUTTON", L"OK",
+            WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
+            bx, btnY, btnW, btnH, hwnd, (HMENU)IDC_PCD_OK, cs->hInstance, NULL);
+        CreateWindowExW(0, L"BUTTON", L"Cancel",
+            WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+            bx + btnW + gap, btnY, btnW, btnH, hwnd, (HMENU)IDC_PCD_CANCEL, cs->hInstance, NULL);
+
+        // Apply message font
+        NONCLIENTMETRICSW ncm = {}; ncm.cbSize = sizeof(ncm);
+        SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+        HFONT hFont = CreateFontIndirectW(&ncm.lfMessageFont);
+        if (hFont) {
+            SetPropW(hwnd, L"hPCFont", hFont);
+            EnumChildWindows(hwnd, [](HWND h, LPARAM lp) -> BOOL {
+                SendMessageW(h, WM_SETFONT, (WPARAM)(HFONT)lp, FALSE); return TRUE;
+            }, (LPARAM)hFont);
+        }
+        return 0;
+    }
+    case WM_COMMAND: {
+        int id = LOWORD(wParam);
+        if (id == 8801 /*IDC_PCD_OK*/) {
+            PickCompDialogData* pd = (PickCompDialogData*)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+            HWND hList = GetDlgItem(hwnd, 8800);
+            if (pd && hList) {
+                int count = (int)SendMessageW(hList, LB_GETCOUNT, 0, 0);
+                std::wstring out;
+                const auto& comps = s_components;
+                int ci = 0;
+                for (int i = 0; i < count && ci < (int)comps.size(); ++i) {
+                    // skip empty entries (same skip as population loop)
+                    while (ci < (int)comps.size() && comps[ci].display_name.empty()) ++ci;
+                    if (ci >= (int)comps.size()) break;
+                    if (SendMessageW(hList, LB_GETSEL, i, 0) > 0) {
+                        if (!out.empty()) out += L' ';
+                        out += comps[ci].display_name;
+                    }
+                    ++ci;
+                }
+                pd->result = out;
+                pd->okClicked = true;
+            }
+            DestroyWindow(hwnd);
+            return 0;
+        }
+        if (id == 8802 /*IDC_PCD_CANCEL*/) { DestroyWindow(hwnd); return 0; }
+        break;
+    }
+    case WM_DESTROY: {
+        HFONT hFont = (HFONT)GetPropW(hwnd, L"hPCFont");
+        if (hFont) { DeleteObject(hFont); RemovePropW(hwnd, L"hPCFont"); }
+        break;
+    }
+    case WM_CLOSE:
+        DestroyWindow(hwnd);
+        return 0;
+    }
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
 }
 
 LRESULT CALLBACK AddValueDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -4760,15 +4873,23 @@ LRESULT CALLBACK AddValueDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             pData->sectionRects.push_back(r);
         };
 
-        // Row 4 — Components (Inno Components: field)
+        // Row 4 — Components (Inno Components: field, read-only + picker button)
         CreateWindowExW(0, L"STATIC",
             _loc(L"reg_add_value_components", L"Components:").c_str(),
             WS_CHILD | WS_VISIBLE | SS_LEFT,
             S(AV_PAD_H), y, S(AV_LBL_W), S(AV_ROW_H), hwnd, NULL, hInst, NULL);
-        CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", pData->valueComponents.c_str(),
-            WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL,
-            editX, y, editW, S(AV_ROW_H),
-            hwnd, (HMENU)IDC_ADDVAL_COMPONENTS, hInst, NULL);
+        {
+            int pickW = S(AV_PICK_W);
+            int compEditW = editW - pickW - S(4);
+            CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", pData->valueComponents.c_str(),
+                WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL | ES_READONLY,
+                editX, y, compEditW, S(AV_ROW_H),
+                hwnd, (HMENU)IDC_ADDVAL_COMPONENTS, hInst, NULL);
+            CreateWindowExW(0, L"BUTTON", L"...",
+                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+                editX + compEditW + S(4), y, pickW, S(AV_ROW_H),
+                hwnd, (HMENU)IDC_ADDVAL_COMP_PICK, hInst, NULL);
+        }
         y += S(AV_ROW_H) + S(AV_GAP_CF);
 
         // ── Section: Uninstall behaviour ──────────────────────────────────────
@@ -5012,6 +5133,69 @@ LRESULT CALLBACK AddValueDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         case IDC_ADDVAL_CANCEL:
             DestroyWindow(hwnd);
             return 0;
+
+        case IDC_ADDVAL_COMP_PICK: {
+            if (s_components.empty()) return 0;  // no components defined yet
+            PickCompDialogData pd;
+            wchar_t curBuf[512] = {};
+            GetDlgItemTextW(hwnd, IDC_ADDVAL_COMPONENTS, curBuf, 512);
+            pd.current = curBuf;
+            pd.okClicked = false;
+
+            // Register picker class if needed
+            HINSTANCE hInst = (HINSTANCE)GetWindowLongPtrW(hwnd, GWLP_HINSTANCE);
+            WNDCLASSEXW wcp = {};
+            wcp.cbSize = sizeof(wcp);
+            if (!GetClassInfoExW(GetModuleHandleW(NULL), L"PickCompDialog", &wcp)) {
+                wcp.lpfnWndProc   = PickCompDialogProc;
+                wcp.hInstance     = GetModuleHandleW(NULL);
+                wcp.lpszClassName = L"PickCompDialog";
+                wcp.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
+                wcp.hCursor       = LoadCursor(NULL, IDC_ARROW);
+                RegisterClassExW(&wcp);
+            }
+
+            // Size: enough rows for all components, capped at 320px tall
+            int rows = (int)s_components.size();
+            int rowH = 20, pad = 10, btnH = 32, gap = 8;
+            int listH = std::min(rows * rowH + 8, 320);
+            int dlgW = 320, dlgH = pad + listH + gap + btnH + pad;
+            RECT rcParent; GetWindowRect(hwnd, &rcParent);
+            // Position it to the right of the pick button if possible, else centred
+            HWND hPickBtn = GetDlgItem(hwnd, IDC_ADDVAL_COMP_PICK);
+            RECT rcBtn = {};
+            if (hPickBtn) {
+                GetWindowRect(hPickBtn, &rcBtn);
+                // Try right side; fall back to centred under parent
+            }
+            int px = rcBtn.right + 4;
+            int py = rcBtn.top;
+            RECT rcWA; SystemParametersInfoW(SPI_GETWORKAREA, 0, &rcWA, 0);
+            if (px + dlgW > rcWA.right)  px = rcBtn.left - dlgW - 4;
+            if (px < rcWA.left)          px = (rcParent.left + rcParent.right - dlgW) / 2;
+            if (py + dlgH > rcWA.bottom) py = rcWA.bottom - dlgH;
+            if (py < rcWA.top)           py = rcWA.top;
+
+            HWND hPicker = CreateWindowExW(
+                WS_EX_DLGMODALFRAME | WS_EX_TOPMOST,
+                L"PickCompDialog", L"Pick Components",
+                WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
+                px, py, dlgW, dlgH, hwnd, NULL, GetModuleHandleW(NULL), &pd);
+            if (hPicker) {
+                EnableWindow(hwnd, FALSE);
+                MSG m;
+                while (IsWindow(hPicker) && GetMessageW(&m, NULL, 0, 0)) {
+                    if (!IsDialogMessageW(hPicker, &m)) {
+                        TranslateMessage(&m); DispatchMessageW(&m);
+                    }
+                }
+                EnableWindow(hwnd, TRUE);
+                SetForegroundWindow(hwnd);
+                if (pd.okClicked)
+                    SetDlgItemTextW(hwnd, IDC_ADDVAL_COMPONENTS, pd.result.c_str());
+            }
+            return 0;
+        }
 
         case IDC_ADDVAL_TYPE:
             if (HIWORD(wParam) == CBN_SELCHANGE) {
