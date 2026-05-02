@@ -1,10 +1,21 @@
 #include "db.h"
 #include <windows.h>
+#include <objbase.h>   // CoCreateGuid, StringFromGUID2
 #include <string>
 #include <vector>
 #include <sstream>
 #include <ctime>
 #include <cstdio>
+
+// Generate a new GUID string in the format "{xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}"
+static std::wstring GenerateAppId()
+{
+    GUID g = {};
+    CoCreateGuid(&g);
+    wchar_t buf[64] = {};
+    StringFromGUID2(g, buf, _countof(buf));
+    return buf;  // already includes braces, e.g. "{6B29FC40-CA47-1067-B31D-00DD010662DA}"
+}
 
 // sqlite3 function pointers
 typedef int (*sqlite3_open_v2_t)(const char*, void**, int, const char*);
@@ -142,6 +153,8 @@ bool DB::InitDb() {
     p_exec(db, "ALTER TABLE files ADD COLUMN dest_dir_override TEXT DEFAULT '';", NULL, NULL, &errmsg);
     // Add use_components column to projects table
     p_exec(db, "ALTER TABLE projects ADD COLUMN use_components INTEGER DEFAULT 0;", NULL, NULL, &errmsg);
+    // Add app_id column for Inno AppId GUID (stable across upgrades)
+    p_exec(db, "ALTER TABLE projects ADD COLUMN app_id TEXT DEFAULT '';", NULL, NULL, &errmsg);
     // Ensure component_dependencies table exists for older DBs
     p_exec(db, "CREATE TABLE IF NOT EXISTS component_dependencies (id INTEGER PRIMARY KEY AUTOINCREMENT, component_id INTEGER NOT NULL, depends_on_id INTEGER NOT NULL, UNIQUE(component_id, depends_on_id), FOREIGN KEY(component_id) REFERENCES components(id) ON DELETE CASCADE, FOREIGN KEY(depends_on_id) REFERENCES components(id) ON DELETE CASCADE);", NULL, NULL, &errmsg);
     // Add notes_rtf column to components table for existing databases
@@ -351,7 +364,7 @@ bool DB::InsertProject(const std::wstring &name, const std::wstring &directory, 
     int flags = 0x00000002 /*SQLITE_OPEN_READWRITE*/ | 0x00000004 /*SQLITE_OPEN_CREATE*/;
     if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return false;
 
-    const char *sql = "INSERT INTO projects (name, directory, description, lang, version, created, last_updated) VALUES (?, ?, ?, ?, ?, ?, ?);";
+    const char *sql = "INSERT INTO projects (name, directory, description, lang, version, created, last_updated, app_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?);";  // app_id: stable GUID for Inno AppId
     void *stmt = NULL;
     if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return false; }
     std::string n = WToUtf8(name);
@@ -368,8 +381,10 @@ bool DB::InsertProject(const std::wstring &name, const std::wstring &directory, 
     // bind created and last_updated as text of epoch
     std::ostringstream os; os << (long long)now;
     std::string sEpoch = os.str();
-    if (p_bind_text) p_bind_text(stmt, 6, sEpoch.c_str(), -1, NULL);
-    if (p_bind_text) p_bind_text(stmt, 7, sEpoch.c_str(), -1, NULL);
+    std::string sAppId = WToUtf8(GenerateAppId());
+    if (p_bind_text) p_bind_text(stmt, 6, sEpoch.c_str(),  -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 7, sEpoch.c_str(),  -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 8, sAppId.c_str(),  -1, NULL);
 
     int rc = p_step(stmt);
     (void)rc;
@@ -476,7 +491,7 @@ std::vector<ProjectRow> DB::ListProjects() {
     int flags = 0x00000002 /*SQLITE_OPEN_READWRITE*/ | 0x00000004 /*SQLITE_OPEN_CREATE*/;
     if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return out;
 
-    const char *sql = "SELECT id, name, directory, description, lang, version, created, last_updated, register_in_windows, app_icon_path, app_publisher, use_components FROM projects ORDER BY last_updated DESC;";
+    const char *sql = "SELECT id, name, directory, description, lang, version, created, last_updated, register_in_windows, app_icon_path, app_publisher, use_components, app_id FROM projects ORDER BY last_updated DESC;";
     void *stmt = NULL;
     if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return out; }
     while (p_step(stmt) == 100 /*SQLITE_ROW*/) {
@@ -502,6 +517,21 @@ std::vector<ProjectRow> DB::ListProjects() {
         r.app_icon_path = Utf8ToW(t7 ? (const char*)t7 : "");
         r.app_publisher = Utf8ToW(t8 ? (const char*)t8 : "");
         r.use_components = (int)p_col_int64(stmt, 11);
+        const unsigned char *t9 = p_col_text(stmt, 12);
+        r.app_id = Utf8ToW(t9 ? (const char*)t9 : "");
+        // Existing project with no GUID yet — generate one and persist it.
+        if (r.app_id.empty() && r.id > 0) {
+            r.app_id = GenerateAppId();
+            const char* updSql = "UPDATE projects SET app_id=? WHERE id=?;";
+            void* us = NULL;
+            if (p_prepare(db, updSql, -1, &us, NULL) == 0) {
+                std::string sAid = WToUtf8(r.app_id), sId2 = std::to_string(r.id);
+                p_bind_text(us, 1, sAid.c_str(), -1, NULL);
+                p_bind_text(us, 2, sId2.c_str(), -1, NULL);
+                p_step(us);
+                if (p_finalize) p_finalize(us);
+            }
+        }
         out.push_back(r);
     }
     if (p_finalize) p_finalize(stmt);
@@ -516,7 +546,7 @@ bool DB::GetProject(int id, ProjectRow &outProject) {
     int flags = 0x00000002 /*SQLITE_OPEN_READWRITE*/ | 0x00000004 /*SQLITE_OPEN_CREATE*/;
     if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return false;
 
-    const char *sql = "SELECT id, name, directory, description, lang, version, created, last_updated, register_in_windows, app_icon_path, app_publisher, use_components FROM projects WHERE id = ?;";
+    const char *sql = "SELECT id, name, directory, description, lang, version, created, last_updated, register_in_windows, app_icon_path, app_publisher, use_components, app_id FROM projects WHERE id = ?;";
     void *stmt = NULL;
     if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return false; }
     
@@ -547,6 +577,28 @@ bool DB::GetProject(int id, ProjectRow &outProject) {
         outProject.app_icon_path = Utf8ToW(t7 ? (const char*)t7 : "");
         outProject.app_publisher = Utf8ToW(t8 ? (const char*)t8 : "");
         outProject.use_components = (int)p_col_int64(stmt, 11);
+        const unsigned char *t9 = p_col_text(stmt, 12);
+        outProject.app_id = Utf8ToW(t9 ? (const char*)t9 : "");
+        // Existing project with no GUID yet — generate one and persist it.
+        if (outProject.app_id.empty() && outProject.id > 0) {
+            if (p_finalize) p_finalize(stmt); stmt = NULL;
+            p_close(db); db = NULL;
+            outProject.app_id = GenerateAppId();
+            // Re-open to persist the new GUID.
+            if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) == 0) {
+                const char* updSql = "UPDATE projects SET app_id=? WHERE id=?;";
+                void* us = NULL;
+                if (p_prepare(db, updSql, -1, &us, NULL) == 0) {
+                    std::string sAid = WToUtf8(outProject.app_id), sId2 = std::to_string(outProject.id);
+                    p_bind_text(us, 1, sAid.c_str(), -1, NULL);
+                    p_bind_text(us, 2, sId2.c_str(), -1, NULL);
+                    p_step(us);
+                    if (p_finalize) p_finalize(us);
+                }
+                p_close(db);
+            }
+            return true;
+        }
         found = true;
     }
     if (p_finalize) p_finalize(stmt);
@@ -608,7 +660,7 @@ bool DB::UpdateProject(const ProjectRow &project) {
     int flags = 0x00000002 /*SQLITE_OPEN_READWRITE*/ | 0x00000004 /*SQLITE_OPEN_CREATE*/;
     if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return false;
 
-    const char *sql = "UPDATE projects SET name=?, directory=?, description=?, lang=?, version=?, last_updated=?, register_in_windows=?, app_icon_path=?, app_publisher=?, use_components=? WHERE id=?;";
+    const char *sql = "UPDATE projects SET name=?, directory=?, description=?, lang=?, version=?, last_updated=?, register_in_windows=?, app_icon_path=?, app_publisher=?, use_components=?, app_id=? WHERE id=?;";
     void *stmt = NULL;
     if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return false; }
 
@@ -621,20 +673,22 @@ bool DB::UpdateProject(const ProjectRow &project) {
     std::string sPub    = WToUtf8(project.app_publisher);
     std::string sReg    = std::to_string(project.register_in_windows);
     std::string sUseComp = std::to_string(project.use_components);
+    std::string sAppId  = WToUtf8(project.app_id.empty() ? GenerateAppId() : project.app_id);
     std::ostringstream os; os << (long long)time(NULL); std::string sNow = os.str();
     std::string sId     = std::to_string(project.id);
 
-    if (p_bind_text) p_bind_text(stmt, 1,  sName.c_str(),  -1, NULL);
-    if (p_bind_text) p_bind_text(stmt, 2,  sDir.c_str(),   -1, NULL);
-    if (p_bind_text) p_bind_text(stmt, 3,  sDesc.c_str(),  -1, NULL);
-    if (p_bind_text) p_bind_text(stmt, 4,  sLang.c_str(),  -1, NULL);
-    if (p_bind_text) p_bind_text(stmt, 5,  sVer.c_str(),   -1, NULL);
-    if (p_bind_text) p_bind_text(stmt, 6,  sNow.c_str(),   -1, NULL);
-    if (p_bind_text) p_bind_text(stmt, 7,  sReg.c_str(),   -1, NULL);
-    if (p_bind_text) p_bind_text(stmt, 8,  sIcon.c_str(),  -1, NULL);
-    if (p_bind_text) p_bind_text(stmt, 9,  sPub.c_str(),   -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 1,  sName.c_str(),    -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 2,  sDir.c_str(),     -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 3,  sDesc.c_str(),    -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 4,  sLang.c_str(),    -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 5,  sVer.c_str(),     -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 6,  sNow.c_str(),     -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 7,  sReg.c_str(),     -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 8,  sIcon.c_str(),    -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 9,  sPub.c_str(),     -1, NULL);
     if (p_bind_text) p_bind_text(stmt, 10, sUseComp.c_str(), -1, NULL);
-    if (p_bind_text) p_bind_text(stmt, 11, sId.c_str(),    -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 11, sAppId.c_str(),   -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 12, sId.c_str(),      -1, NULL);
 
     int rc2 = p_step(stmt); (void)rc2;
     if (p_finalize) p_finalize(stmt);

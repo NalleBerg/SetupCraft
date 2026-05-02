@@ -209,6 +209,12 @@ reg_select_icon_title=Select Application Icon
 reg_no_key_selected=No registry key selected
 reg_select_key_first=Please select a registry key first
 reg_cannot_delete_root=Cannot delete root registry hives
+reg_app_id=AppId (GUID):
+reg_regen_guid=Generate new GUID
+reg_regen_warn_title=Regenerate AppId?
+reg_regen_warn_msg=Changing the AppId will break uninstallation of previous versions of your software.\r\n\r\nOnly regenerate for a major new release or when starting fresh.\r\n\r\nAre you sure?
+reg_regen_warn_yes=Yes, regenerate
+reg_regen_warn_no=Cancel
 
 # Components page
 comp_page_title=Components

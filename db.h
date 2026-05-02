@@ -16,6 +16,7 @@ struct ProjectRow {
     std::wstring app_icon_path;
     std::wstring app_publisher;
     int use_components = 0;  // 0 = full package, 1 = component-based
+    std::wstring app_id;     // Inno AppId GUID, e.g. "{xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}"; auto-generated on creation
 };
 
 struct RegistryEntryRow {

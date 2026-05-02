@@ -185,4 +185,25 @@
     If either DLL is unavailable (SciLoad returns false), fall back to a plain
     multiline WS_BORDER EDIT control so the feature degrades gracefully.
 
+  - Win32 GUID generation (CoCreateGuid + StringFromGUID2):
+    #include <objbase.h>  (link uuid, ole32 — already in most Win32 projects)
+    GUID guid; CoCreateGuid(&guid);
+    WCHAR buf[40]; StringFromGUID2(guid, buf, 40);
+    // buf = L"{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}"  (38 chars + NUL)
+    // Trim braces if needed: std::wstring s(buf+1, buf+37);
+    Good for: Inno Setup AppId GUIDs, install tokens, unique keys.
+    CoCreateGuid uses the OS CSPRNG — cryptographically adequate for identifiers.
+
+  - TTM_ADDTOOL is unreliable for owner-drawn / icon-only buttons:
+    Standard Win32 tooltips (TTM_ADDTOOL with TTF_IDISHWND | TTF_SUBCLASS) work
+    well for text-label buttons but break silently for owner-drawn buttons with no
+    window text (isIconOnly path).  The subclass approach is robust:
+    1. Subclass the button HWND with SetWindowLongPtrW(GWLP_WNDPROC, myProc).
+    2. In WM_MOUSEMOVE: if (!IsTooltipVisible()) ShowMultilingualTooltip(...);
+       if (!trackingFlag) { TrackMouseEvent(TME_LEAVE); trackingFlag=true; }
+    3. In WM_MOUSELEAVE: HideTooltip(); trackingFlag=false;
+    4. In WM_NCDESTROY: restore the original proc.
+    This is identical to the pattern used for shell icon tooltips (WarningIcon,
+    CompInfoIcon, RegenBtn) throughout SetupCraft.
+
 ================================================================================

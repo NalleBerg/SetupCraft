@@ -6,6 +6,7 @@
 #include <shobjidl.h>
 #include <shellapi.h>
 #include <windowsx.h>
+#include <objbase.h>   // CoCreateGuid, StringFromGUID2
 #include <functional>
 #include <vector>
 #include <set>
@@ -114,6 +115,8 @@ static WNDPROC s_prevTreeProc = NULL;
 static WNDPROC s_prevWarnIconProc = NULL;
 static WNDPROC s_prevCompInfoIconProc = NULL;
 static bool    s_compInfoTooltipTracking = false;
+static WNDPROC s_prevRegenBtnProc       = NULL;  // subclass for AppId Regenerate button
+static bool    s_regenBtnTooltipTracking = false;
 static HFONT s_scaledFont = NULL;     // Scaled default GUI font for labels/edits/checkboxes
 static HFONT s_hPageTitleFont = NULL; // Larger bold system font used for all page headlines (i18n-safe, NONCLIENTMETRICS-based)
 // Forward declarations for functions defined later
@@ -168,6 +171,7 @@ static std::map<HTREEITEM, std::vector<RegistryEntry>> s_registryValues;
 static bool s_registerInWindows = true;
 static std::wstring s_appIconPath;
 static std::wstring s_appPublisher;
+static std::wstring s_appId;          // Inno AppId GUID, e.g. "{xxxxxxxx-...}"
 static HWND s_hRegTreeView = NULL;
 static HWND s_hRegListView = NULL;
 static HMSB s_hMsbRegTreeV = NULL;
@@ -352,10 +356,11 @@ static bool s_filesPageHasContent = false; // tracks whether Files page has any 
 #define IDC_FFILTER_OK              9034
 #define IDC_FFILTER_CANCEL          9035
 
-// File DestDir dialog control IDs (9040-9042)
+// File DestDir dialog control IDs (9040-9043)
 #define IDC_FDDLG_COMBO             9040
 #define IDC_FDDLG_OK                9041
 #define IDC_FDDLG_CANCEL            9042
+#define IDC_FDDLG_BROWSE            9043
 
 // Notes button inside folder edit and component edit dialogs
 #define IDC_FOLDER_DLG_NOTES       340
@@ -403,6 +408,8 @@ static bool s_filesPageHasContent = false; // tracks whether Files page has any 
 #define IDC_REG_EDIT        5056
 #define IDC_REG_WARNING_ICON 5057
 #define IDC_REG_BACKUP      5058
+#define IDC_REG_APP_ID      5059   // AppId GUID edit field
+#define IDC_REG_REGEN_GUID  5070   // Regenerate AppId button
 #define IDC_REGKEY_DLG_CLOSE 5052
 #define IDC_REGKEY_DLG_NAVIGATE 5053
 #define IDC_REGKEY_DLG_COPY 5054
@@ -552,6 +559,39 @@ static LRESULT CALLBACK WarningIcon_SubclassProc(HWND hwnd, UINT msg, WPARAM wPa
     return CallWindowProcW(s_prevWarnIconProc, hwnd, msg, wParam, lParam);
 }
 
+// Subclass proc for the AppId Regenerate button — shows custom tooltip on hover
+static LRESULT CALLBACK RegenBtn_SubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+    case WM_MOUSEMOVE: {
+        if (!IsTooltipVisible()) {
+            auto it = MainWindow::GetLocale().find(L"reg_regen_guid");
+            std::wstring text = (it != MainWindow::GetLocale().end()) ? it->second : L"Generate new GUID";
+            RECT rc; GetWindowRect(hwnd, &rc);
+            std::vector<std::pair<std::wstring,std::wstring>> entry = {{L"", text}};
+            ShowMultilingualTooltip(entry, rc.left, rc.bottom + 5, GetParent(hwnd), rc.top);
+            s_currentTooltipIcon = hwnd;
+        }
+        if (!s_regenBtnTooltipTracking) {
+            TRACKMOUSEEVENT tme = {};
+            tme.cbSize = sizeof(tme); tme.dwFlags = TME_LEAVE; tme.hwndTrack = hwnd;
+            TrackMouseEvent(&tme);
+            s_regenBtnTooltipTracking = true;
+        }
+        break;
+    }
+    case WM_MOUSELEAVE: {
+        HideTooltip();
+        s_currentTooltipIcon = NULL;
+        s_regenBtnTooltipTracking = false;
+        break;
+    }
+    case WM_NCDESTROY:
+        SetWindowLongPtrW(hwnd, GWLP_WNDPROC, (LONG_PTR)s_prevRegenBtnProc);
+        break;
+    }
+    return CallWindowProcW(s_prevRegenBtnProc, hwnd, msg, wParam, lParam);
+}
+
 HWND MainWindow::Create(HINSTANCE hInstance, const ProjectRow &project, const std::map<std::wstring, std::wstring> &locale) {
     SCLog(L"Create() ENTRY");
     // ── Stale-state reset ────────────────────────────────────────────────────
@@ -638,6 +678,7 @@ HWND MainWindow::Create(HINSTANCE hInstance, const ProjectRow &project, const st
     s_appPublisher      = project.app_publisher;
     s_appIconPath       = project.app_icon_path;
     s_registerInWindows = (project.register_in_windows != 0);
+    s_appId             = project.app_id;
     s_customRegistryEntries.clear();
     s_customRegistryKeys.clear();
     if (project.id > 0) {
@@ -2577,12 +2618,9 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         int currentY = pageY + S(55);
         
         // Checkbox for "Register in Windows Installed Programs"
-        HWND hCheckbox = CreateWindowExW(0, L"BUTTON", regRegister.c_str(),
-            WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
-            S(20), currentY, S(400), S(25),
-            hwnd, (HMENU)IDC_REG_CHECKBOX, hInst, NULL);
+        HWND hCheckbox = CreateCustomCheckbox(hwnd, IDC_REG_CHECKBOX, regRegister,
+            s_registerInWindows, S(20), currentY, S(400), S(25), hInst);
         if (s_scaledFont) SendMessageW(hCheckbox, WM_SETFONT, (WPARAM)s_scaledFont, TRUE);
-        SendMessageW(hCheckbox, BM_SETCHECK, s_registerInWindows ? BST_CHECKED : BST_UNCHECKED, 0);
         currentY += S(35);
         
         // Layout: Icon + Buttons on left, Fields on right
@@ -2624,16 +2662,16 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         CreateCustomButtonWithIcon(hwnd, IDC_REG_SHOW_REGKEY, showRegkeyText.c_str(), ButtonColor::Blue,
             L"shell32.dll", 268, S(80), currentY + S(35), wRegShowKey, S(30), hInst);
         
-        // Display Name field (right side, aligned with icon)
+        // Display Name field
         { HWND hLbl5101 = CreateWindowExW(0, L"STATIC", displayName.c_str(),
             WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
-            S(220), currentY, S(100), S(22),
+            S(370), currentY, S(95), S(22),
             hwnd, (HMENU)5101, hInst, NULL);
           if (s_scaledFont && hLbl5101) SendMessageW(hLbl5101, WM_SETFONT, (WPARAM)s_scaledFont, TRUE); }
         
         HWND hDisplayNameEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", s_currentProject.name.c_str(),
             WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL,
-            S(325), currentY, S(300), S(22),
+            S(470), currentY, rc.right - S(540), S(22),
             hwnd, (HMENU)IDC_REG_DISPLAY_NAME, hInst, NULL);
         if (s_scaledFont && hDisplayNameEdit) SendMessageW(hDisplayNameEdit, WM_SETFONT, (WPARAM)s_scaledFont, TRUE);
         currentY += S(27);
@@ -2641,13 +2679,13 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         // Version field
         { HWND hLbl5102 = CreateWindowExW(0, L"STATIC", versionText.c_str(),
             WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
-            S(220), currentY, S(100), S(22),
+            S(370), currentY, S(95), S(22),
             hwnd, (HMENU)5102, hInst, NULL);
           if (s_scaledFont && hLbl5102) SendMessageW(hLbl5102, WM_SETFONT, (WPARAM)s_scaledFont, TRUE); }
         
         HWND hVersionEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", s_currentProject.version.c_str(),
             WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL,
-            S(325), currentY, S(300), S(22),
+            S(470), currentY, rc.right - S(540), S(22),
             hwnd, (HMENU)IDC_REG_VERSION, hInst, NULL);
         if (s_scaledFont && hVersionEdit) SendMessageW(hVersionEdit, WM_SETFONT, (WPARAM)s_scaledFont, TRUE);
         currentY += S(27);
@@ -2655,15 +2693,56 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         // Publisher field
         { HWND hLbl5103 = CreateWindowExW(0, L"STATIC", publisherText.c_str(),
             WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
-            S(220), currentY, S(100), S(22),
+            S(370), currentY, S(95), S(22),
             hwnd, (HMENU)5103, hInst, NULL);
           if (s_scaledFont && hLbl5103) SendMessageW(hLbl5103, WM_SETFONT, (WPARAM)s_scaledFont, TRUE); }
         
         HWND hPublisherEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", s_appPublisher.c_str(),
             WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL,
-            S(325), currentY, S(300), S(22),
+            S(470), currentY, rc.right - S(540), S(22),
             hwnd, (HMENU)IDC_REG_PUBLISHER, hInst, NULL);
         if (s_scaledFont && hPublisherEdit) SendMessageW(hPublisherEdit, WM_SETFONT, (WPARAM)s_scaledFont, TRUE);
+        currentY += S(27);
+
+        // AppId field — indented past the left-side buttons (Show Regkey ends ~S(350))
+        {
+            auto itAid = s_locale.find(L"reg_app_id");
+            std::wstring appIdLabel = (itAid != s_locale.end()) ? itAid->second : L"AppId (GUID):";
+            HWND hLblAid = CreateWindowExW(0, L"STATIC", appIdLabel.c_str(),
+                WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
+                S(370), currentY, S(95), S(22),
+                hwnd, (HMENU)5106, hInst, NULL);
+            if (s_scaledFont && hLblAid) SendMessageW(hLblAid, WM_SETFONT, (WPARAM)s_scaledFont, TRUE);
+        }
+        {
+            // Fixed-width edit — wide enough for a full GUID, not stretching to window edge
+            int editX  = S(470);
+            int editW  = S(300);   // fits "{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}"
+            int regenW = S(30);
+
+            // Read-only: GUID is changed only via the Regenerate button
+            HWND hAppIdEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", s_appId.c_str(),
+                WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL | ES_READONLY,
+                editX, currentY, editW, S(22),
+                hwnd, (HMENU)IDC_REG_APP_ID, hInst, NULL);
+            if (s_scaledFont && hAppIdEdit) SendMessageW(hAppIdEdit, WM_SETFONT, (WPARAM)s_scaledFont, TRUE);
+
+            // Regenerate button — icon only (shell32 #238, Blue, centred)
+            auto itRegen = s_locale.find(L"reg_regen_guid");
+            std::wstring regenTip = (itRegen != s_locale.end()) ? itRegen->second : L"Generate new GUID";
+            (void)regenTip; // used by the subclass tooltip proc
+            CreateCustomButtonWithIcon(hwnd, IDC_REG_REGEN_GUID, L"", ButtonColor::Blue,
+                L"shell32.dll", 238,
+                editX + editW + S(4), currentY, regenW, S(22), hInst);
+
+            // Wire custom tooltip via subclass (not s_hTooltip / TTM_ADDTOOL)
+            {
+                HWND hRegen = GetDlgItem(hwnd, IDC_REG_REGEN_GUID);
+                if (hRegen)
+                    s_prevRegenBtnProc = (WNDPROC)SetWindowLongPtrW(
+                        hRegen, GWLP_WNDPROC, (LONG_PTR)RegenBtn_SubclassProc);
+            }
+        }
         currentY += S(40);
         
         // Divider line
@@ -5363,6 +5442,7 @@ static const int FDDLG_CMB_H   = 24;
 static const int FDDLG_BTN_H   = 34;
 static const int FDDLG_BTN_PAD = 12;
 static const int FDDLG_GAP     = 10;
+static const int FDDLG_BROW_W  = 35;  // folder-browse button beside the combo
 
 LRESULT CALLBACK FileDestDirDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
@@ -5389,10 +5469,17 @@ LRESULT CALLBACK FileDestDirDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
             padH, y, cw - 2*padH, lblH, hwnd, NULL, hInst, NULL);
         y += lblH + gap;
 
-        // Combobox (editable, CBS_DROPDOWN)
+        // Combobox (editable) + folder-browse button to the right
+        int browseW = S(FDDLG_BROW_W);
+        int browseGap = S(4);
+        int cmbW = cw - 2*padH - browseGap - browseW;
         HWND hCmb = CreateWindowExW(0, L"COMBOBOX", NULL,
             WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWN | CBS_AUTOHSCROLL,
-            padH, y, cw - 2*padH, S(200), hwnd, (HMENU)(INT_PTR)IDC_FDDLG_COMBO, hInst, NULL);
+            padH, y, cmbW, S(200), hwnd, (HMENU)(INT_PTR)IDC_FDDLG_COMBO, hInst, NULL);
+        // Folder-browse button — same style as the install-folder browse button
+        CreateCustomButtonWithIcon(hwnd, IDC_FDDLG_BROWSE, L"...", ButtonColor::Blue,
+            L"shell32.dll", 4,
+            padH + cmbW + browseGap, y, browseW, S(FDDLG_CMB_H), hInst);
         // Pre-populate common Inno Setup directory constants
         const wchar_t* presets[] = {
             L"{sys}", L"{syswow64}", L"{sysnative}", L"{win}",
@@ -5456,12 +5543,25 @@ LRESULT CALLBACK FileDestDirDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
             DestroyWindow(hwnd);
             return 0;
         }
+        if (id == IDC_FDDLG_BROWSE) {
+            BROWSEINFOW bi = {};
+            bi.hwndOwner = hwnd;
+            bi.ulFlags   = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE | BIF_USENEWUI;
+            LPITEMIDLIST pidl = SHBrowseForFolderW(&bi);
+            if (pidl) {
+                wchar_t path[MAX_PATH] = {};
+                if (SHGetPathFromIDListW(pidl, path))
+                    SetWindowTextW(GetDlgItem(hwnd, IDC_FDDLG_COMBO), path);
+                CoTaskMemFree(pidl);
+            }
+            return 0;
+        }
         return 0;
     }
 
     case WM_DRAWITEM: {
         LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
-        if (dis->CtlID == IDC_FDDLG_OK || dis->CtlID == IDC_FDDLG_CANCEL) {
+        if (dis->CtlID == IDC_FDDLG_OK || dis->CtlID == IDC_FDDLG_CANCEL || dis->CtlID == IDC_FDDLG_BROWSE) {
             ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
             NONCLIENTMETRICSW ncm = {}; ncm.cbSize = sizeof(ncm);
             SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
@@ -8282,18 +8382,23 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             DeferCtrl(GetDlgItem(hwnd, 5100),
                       S(20), s_toolbarHeight + S(15), rc.right - S(40), S(38));
             DeferCtrl(GetDlgItem(hwnd, IDC_REG_DISPLAY_NAME),
-                      S(325), s_toolbarHeight + S(90),  rc.right - S(395), S(22));
+                      S(470), s_toolbarHeight + S(90),  rc.right - S(540), S(22));
             DeferCtrl(GetDlgItem(hwnd, IDC_REG_VERSION),
-                      S(325), s_toolbarHeight + S(117), rc.right - S(395), S(22));
+                      S(470), s_toolbarHeight + S(117), rc.right - S(540), S(22));
             DeferCtrl(GetDlgItem(hwnd, IDC_REG_PUBLISHER),
-                      S(325), s_toolbarHeight + S(144), rc.right - S(395), S(22));
+                      S(470), s_toolbarHeight + S(144), rc.right - S(540), S(22));
+            // AppId row: fixed positions clear of the left-side buttons
+            DeferCtrl(GetDlgItem(hwnd, IDC_REG_APP_ID),
+                      S(470), s_toolbarHeight + S(171), S(300), S(22));
+            DeferCtrl(GetDlgItem(hwnd, IDC_REG_REGEN_GUID),
+                      S(774), s_toolbarHeight + S(171), S(30), S(22));
             DeferCtrl(GetDlgItem(hwnd, 5104),   // divider line
-                      S(20), s_toolbarHeight + S(184), rc.right - S(40), 2);
+                      S(20), s_toolbarHeight + S(211), rc.right - S(40), 2);
             // Move right-anchored controls (backup button and warning icon)
             DeferCtrl(GetDlgItem(hwnd, IDC_REG_BACKUP),
-                      rc.right - S(190), s_toolbarHeight + S(204), S(170), S(40));
+                      rc.right - S(190), s_toolbarHeight + S(231), S(170), S(40));
             DeferCtrl(GetDlgItem(hwnd, IDC_REG_WARNING_ICON),
-                      rc.right - S(230), s_toolbarHeight + S(208), S(32), S(32));
+                      rc.right - S(230), s_toolbarHeight + S(235), S(32), S(32));
             // Resize split panes
             DeferCtrl(s_hRegTreeView, S(20), splitY, treeWidth, paneH);
             DeferCtrl(s_hRegListView, S(30) + treeWidth, splitY, listWidth, paneH);
@@ -10010,6 +10115,33 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             }
             return 0;
         }
+
+        case IDC_REG_REGEN_GUID: {
+            // Warn the developer: changing the AppId breaks continuity with existing installs.
+            auto itWarnTitle = s_locale.find(L"reg_regen_warn_title");
+            auto itWarnMsg   = s_locale.find(L"reg_regen_warn_msg");
+            auto itWarnYes   = s_locale.find(L"reg_regen_warn_yes");
+            auto itWarnNo    = s_locale.find(L"reg_regen_warn_no");
+            std::wstring warnTitle = (itWarnTitle != s_locale.end()) ? itWarnTitle->second : L"Regenerate AppId?";
+            std::wstring warnMsg   = (itWarnMsg   != s_locale.end()) ? itWarnMsg->second
+                : L"Changing the AppId will break uninstallation of previous versions of your software.\r\n\r\nOnly regenerate for a major new release or when starting fresh.\r\n\r\nAre you sure?";
+            std::wstring warnYes   = (itWarnYes   != s_locale.end()) ? itWarnYes->second : L"Yes, regenerate";
+            std::wstring warnNo    = (itWarnNo    != s_locale.end()) ? itWarnNo->second  : L"Cancel";
+            // Patch yes/no button labels with the localised regen-specific text
+            std::map<std::wstring, std::wstring> dlgLocale = s_locale;
+            dlgLocale[L"yes"] = warnYes;
+            dlgLocale[L"no"]  = warnNo;
+            bool confirmed = ShowConfirmDeleteDialog(hwnd, warnTitle, warnMsg, dlgLocale);
+            if (!confirmed) return 0;
+            // Generate a fresh GUID and update the read-only field.
+            GUID g = {}; CoCreateGuid(&g);
+            wchar_t buf[64] = {}; StringFromGUID2(g, buf, _countof(buf));
+            s_appId = buf;
+            HWND hEdit = GetDlgItem(hwnd, IDC_REG_APP_ID);
+            if (hEdit) SetWindowTextW(hEdit, s_appId.c_str());
+            MarkAsModified();
+            return 0;
+        }
         
         case IDC_SETT_CHANGE_ICON:
         case IDC_REG_ADD_ICON: {
@@ -11523,6 +11655,20 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             s_currentProject.register_in_windows = s_registerInWindows ? 1 : 0;
             s_currentProject.app_publisher = s_appPublisher;
             s_currentProject.app_icon_path = s_appIconPath;
+            // Sync AppId from the edit field (developer may have pasted a custom GUID)
+            {
+                HWND hAidEdit = GetDlgItem(hwnd, IDC_REG_APP_ID);
+                if (hAidEdit) {
+                    int len = GetWindowTextLengthW(hAidEdit);
+                    if (len > 0) {
+                        std::wstring v(len + 1, L'\0');
+                        GetWindowTextW(hAidEdit, &v[0], len + 1);
+                        v.resize(len);
+                        if (!v.empty()) s_appId = v;
+                    }
+                }
+            }
+            s_currentProject.app_id = s_appId;
             DB::UpdateProject(s_currentProject);
 
             // Ensure snapshots are current (take a fresh one if Files page is live).
@@ -12201,6 +12347,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         if ((dis->CtlID >= IDC_TB_FILES && dis->CtlID <= IDC_TB_SAVE) || dis->CtlID == IDC_TB_DIALOGS || dis->CtlID == IDC_TB_COMPONENTS || dis->CtlID == IDC_TB_EXIT || dis->CtlID == IDC_TB_CLOSE_PROJECT ||
             (dis->CtlID >= IDC_FILES_ADD_DIR && dis->CtlID <= IDC_FILES_REMOVE) ||
             (dis->CtlID >= IDC_REG_CHECKBOX && dis->CtlID <= IDC_REG_BACKUP) ||
+            dis->CtlID == IDC_REG_REGEN_GUID ||
             (dis->CtlID >= IDC_COMP_ADD && dis->CtlID <= IDC_COMP_REMOVE) ||
             (dis->CtlID >= IDC_SC_DESKTOP_BTN && dis->CtlID <= IDC_SC_SM_REMOVE) ||
              dis->CtlID == IDC_SC_SM_ADDSC ||

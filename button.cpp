@@ -287,23 +287,8 @@ BOOL DrawCustomButton(LPDRAWITEMSTRUCT dis, ButtonColor color, HFONT hFont) {
     ButtonColors colors = GetButtonColors(color);
     COLORREF bgColor;
     
-    if (isIconOnly) {
-        // For icon-only buttons, use system button face color for better integration
-        bgColor = GetSysColor(COLOR_BTNFACE);
-        // Show subtle hover/press effects
-        if (pressed) {
-            bgColor = RGB(
-                std::max(0, (int)GetRValue(bgColor) - 30),
-                std::max(0, (int)GetGValue(bgColor) - 30),
-                std::max(0, (int)GetBValue(bgColor) - 30)
-            );
-        } else if (hover) {
-            bgColor = RGB(
-                std::min(255, (int)GetRValue(bgColor) + 20),
-                std::min(255, (int)GetGValue(bgColor) + 20),
-                std::min(255, (int)GetBValue(bgColor) + 20)
-            );
-        }
+    if (false) {
+        // (reserved — icon-only buttons now use the same color scheme as text buttons)
     } else {
         // For text buttons, use full color scheme
         BOOL isActive = (BOOL)(INT_PTR)GetPropW(dis->hwndItem, L"IsActivePage");
@@ -404,12 +389,17 @@ BOOL DrawCustomButton(LPDRAWITEMSTRUCT dis, ButtonColor color, HFONT hFont) {
     }
     
     if (hIcon) {
-        // Draw icon + text (or icon only, centered, when button text is empty)
-        int iconSize = S(20);
-        int iconX = isIconOnly ? rc.left + (rc.right - rc.left - iconSize) / 2
+        // Draw icon + text (or icon only, centered, when button text is empty).
+        // Icon-only buttons get a larger icon that fills the button better.
+        int btnH     = rc.bottom - rc.top;
+        int btnW     = rc.right  - rc.left;
+        int iconSize = isIconOnly ? std::min(btnH - S(2), btnW - S(2))
+                                  : S(20);
+        iconSize = std::max(iconSize, S(12));   // never too small
+        int iconX = isIconOnly ? rc.left + (btnW - iconSize) / 2
                                : rc.left + S(10);
-        int iconY = rc.top + (rc.bottom - rc.top - iconSize) / 2;
-        
+        int iconY = rc.top + (btnH - iconSize) / 2;
+
         DrawIconEx(hdc, iconX, iconY, hIcon, iconSize, iconSize, 0, NULL, DI_NORMAL);
         // hIcon is cached in "CachedIcon" — do NOT DestroyIcon here.
         

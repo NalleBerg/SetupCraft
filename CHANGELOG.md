@@ -2,6 +2,17 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.05.02.12] - 2026-05-02
+
+### Registry page — AppId (GUID) feature + field alignment
+- **db.h / db.cpp — `app_id` field on `ProjectRow`**: New `std::wstring app_id` field added to the `ProjectRow` struct. `ALTER TABLE projects ADD COLUMN app_id TEXT DEFAULT ''` migration in `InitDb` (idempotent — existing databases are upgraded silently). `InsertProject` auto-generates a GUID via `CoCreateGuid` + `StringFromGUID2` and binds it as parameter 8. `UpdateProject` persists it as parameter 11. `ListProjects` and `GetProject` auto-generate and immediately persist a GUID if the loaded row has an empty `app_id` — so every existing project gets a stable GUID on first open, with no developer action required.
+- **Registry page — AppId row**: A new "AppId (GUID):" row appears below Publisher. The label uses the `reg_app_id` locale key; the edit field (`IDC_REG_APP_ID = 5059`) is read-only (`ES_READONLY`) and 300 px wide — the GUID is always machine-generated and never typed by hand. A compact Blue icon-only button (`IDC_REG_REGEN_GUID = 5070`, shell32 #238, `S(30)` wide) sits immediately to the right and regenerates the GUID on click.
+- **Regenerate confirmation dialog**: Clicking the Regenerate button shows a custom `ShowConfirmDeleteDialog` modal (not `MessageBox`) with a styled "Yes, regenerate" / "Cancel" button pair and a properly expanded multi-line warning (via `ExpandEscapes`). New locale keys: `reg_regen_warn_title`, `reg_regen_warn_msg`, `reg_regen_warn_yes`, `reg_regen_warn_no`.
+- **Custom tooltip on Regenerate button**: `RegenBtn_SubclassProc` subclasses the button HWND and calls `ShowMultilingualTooltip` with the `reg_regen_guid` locale text on `WM_MOUSEMOVE`, hides on `WM_MOUSELEAVE`. Uses `TrackMouseEvent(TME_LEAVE)` — same pattern as other icon tooltips. `TTM_ADDTOOL` is not used because it does not work reliably on owner-drawn icon-only buttons. Statics: `s_prevRegenBtnProc`, `s_regenBtnTooltipTracking`.
+- **Registry page — field alignment**: Display Name, Version, and Publisher labels moved from `S(220)` to `S(370)`; their edit fields moved from `S(325)` (300 px wide) to `S(470)` with width `rc.right - S(540)` so all four rows (Display Name / Version / Publisher / AppId) share the same label and field X positions. WM_SIZE updated to match. AppId field stays fixed-width (`S(300)`) since the GUID length is constant.
+- **Locale keys added** (both `locale/en_GB.txt` files): `reg_app_id`, `reg_regen_guid`, `reg_regen_warn_title`, `reg_regen_warn_msg`, `reg_regen_warn_yes`, `reg_regen_warn_no`.
+- **`#include <objbase.h>`** added to both `mainwindow.cpp` and `db.cpp` for `CoCreateGuid` / `StringFromGUID2`.
+
 ## [2026.05.02.11] - 2026-05-02
 
 ### H-scroll Step 3 complete: custom H-bar now shown; Dialogs→Preview H-scroll added

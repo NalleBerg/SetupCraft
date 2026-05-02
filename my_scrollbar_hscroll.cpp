@@ -25,35 +25,31 @@
  *    then let NCPAINT remove it again.  Guard SCROLLINFO capture/restore so
  *    the NCPAINT intercept does not corrupt lvHPos.
  *
- * DEVELOPMENT STEPS
- * -----------------
- * Step 1 (done): suppress native bar only.
- *   Bar draws, thumb tracks position, native bar hidden.  Content does NOT
- *   scroll yet — baseline verified.
+ * DELIVERY STRATEGY
+ * ------------------
+ * ListView cannot use WM_HSCROLL(SB_THUMBPOSITION) because SIF_TRACKPOS is
+ * only populated by the native scrollbar machinery, which we suppress.  Instead
+ * we drive scrolling via LVM_SCROLL(delta, 0), which bypasses the scrollbar
+ * subsystem entirely.  The inHDeliver flag guards against our own WM_NCPAINT
+ * intercept corrupting the SCROLLINFO state mid-delivery (see MsbH_DeliverScroll).
  *
- * Step 2 (partial): tilt-wheel delivery via LVM_SCROLL.
- *   Right-scroll works.  Left-scroll broken: origProc's WM_NCPAINT overwrites
- *   SetScrollInfo(nPos=lvHPos) with nPos=0; LVM_SCROLL then clamps leftward
- *   delta to 0.  Fix direction: WM_HSCROLL(SB_THUMBPOSITION)+SIF_TRACKPOS=newPos.
- *
- * Step 3: show bar (remove MSB_HORIZONTAL visibility guards).
- * Step 4: arrow-button scrolling.
- * Step 5: track-click scrolling.
- * Step 6: thumb drag.
+ * Non-ListView controls (TreeView, RichEdit) do not need LVM_SCROLL.  They
+ * accept WM_HSCROLL(SB_THUMBPOSITION) with an up-to-date SCROLLINFO.nPos.
  */
 
-/* ── Step 2: LVM_SCROLL delivery (tilt-wheel right works; left pending) ─── */
-
 /*
- * MsbH_DeliverScroll — called by Msb_ScrollToPos for all H-axis targets.
+ * MsbH_DeliverScroll — scroll the target control to an absolute H-axis position.
  *
- * ListView: clamps newPos, sets full SCROLLINFO, re-enables WS_HSCROLL, sends
- * LVM_SCROLL.  Right-scroll works.  Left-scroll is still broken — origProc's
- * WM_NCPAINT overwrites nPos=lvHPos back to 0 before LVM_SCROLL runs.
- * Fix direction: replace LVM_SCROLL(delta) with WM_HSCROLL(SB_THUMBPOSITION)
- * + SIF_TRACKPOS=newPos (absolute, no delta-clamping).
+ * Called by Msb_ScrollToPos for every horizontal scroll event (tilt-wheel,
+ * arrow buttons, track clicks, thumb drag).  Clamps newPos to [0, maxPos]
+ * before applying the scroll.
  *
- * Non-ListView: WM_HSCROLL(SB_THUMBPOSITION) via origProc.
+ * ListView path: uses LVM_SCROLL(delta) with pre-seeded SCROLLINFO.nPos = lvHPos
+ * (see "Pre-seed" comment below).  Sets inHDeliver around the send so that the
+ * WM_NCPAINT intercept skips Msb_HideNativeBar(H) and the SCROLLINFO restore,
+ * both of which would otherwise corrupt the counter that LVM_SCROLL relies on.
+ *
+ * Non-ListView path: updates SCROLLINFO.nPos then sends WM_HSCROLL via origProc.
  */
 static void MsbH_DeliverScroll(MsbCtx* ctx, int newPos)
 {
