@@ -157,6 +157,8 @@ bool DB::InitDb() {
     p_exec(db, "ALTER TABLE projects ADD COLUMN app_id TEXT DEFAULT '';", NULL, NULL, &errmsg);
     // Add flags column to registry_entries for Inno [Registry] per-entry flags (e.g. uninsdeletevalue, 64bit)
     p_exec(db, "ALTER TABLE registry_entries ADD COLUMN flags TEXT DEFAULT '';", NULL, NULL, &errmsg);
+    // Add components column to registry_entries for Inno Components: field (per-entry component linkage)
+    p_exec(db, "ALTER TABLE registry_entries ADD COLUMN components TEXT DEFAULT '';", NULL, NULL, &errmsg);
     // Ensure component_dependencies table exists for older DBs
     p_exec(db, "CREATE TABLE IF NOT EXISTS component_dependencies (id INTEGER PRIMARY KEY AUTOINCREMENT, component_id INTEGER NOT NULL, depends_on_id INTEGER NOT NULL, UNIQUE(component_id, depends_on_id), FOREIGN KEY(component_id) REFERENCES components(id) ON DELETE CASCADE, FOREIGN KEY(depends_on_id) REFERENCES components(id) ON DELETE CASCADE);", NULL, NULL, &errmsg);
     // Add notes_rtf column to components table for existing databases
@@ -718,32 +720,34 @@ bool DB::DeleteRegistryEntriesForProject(int projectId) {
 
 bool DB::InsertRegistryEntry(int projectId, const std::wstring &hive, const std::wstring &path,
                               const std::wstring &name, const std::wstring &type, const std::wstring &data,
-                              const std::wstring &flags) {
+                              const std::wstring &flags, const std::wstring &components) {
     std::wstring dbPath = GetAppDataDbPath();
     std::string dbPathUtf8 = WToUtf8(dbPath);
     void *db = NULL;
     int flags_o = 0x00000002 | 0x00000004;
     if (p_open(dbPathUtf8.c_str(), &db, flags_o, NULL) != 0) return false;
 
-    const char *sql = "INSERT INTO registry_entries (project_id, hive, path, name, type, data, flags) VALUES (?, ?, ?, ?, ?, ?, ?);";
+    const char *sql = "INSERT INTO registry_entries (project_id, hive, path, name, type, data, flags, components) VALUES (?, ?, ?, ?, ?, ?, ?, ?);";
     void *stmt = NULL;
     if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return false; }
 
-    std::string sId   = std::to_string(projectId);
-    std::string sHive = WToUtf8(hive);
-    std::string sPath = WToUtf8(path);
-    std::string sName = WToUtf8(name);
-    std::string sType  = WToUtf8(type);
-    std::string sData  = WToUtf8(data);
-    std::string sFlags = WToUtf8(flags);
+    std::string sId         = std::to_string(projectId);
+    std::string sHive       = WToUtf8(hive);
+    std::string sPath       = WToUtf8(path);
+    std::string sName       = WToUtf8(name);
+    std::string sType       = WToUtf8(type);
+    std::string sData       = WToUtf8(data);
+    std::string sFlags      = WToUtf8(flags);
+    std::string sComponents = WToUtf8(components);
 
-    if (p_bind_text) p_bind_text(stmt, 1, sId.c_str(),    -1, NULL);
-    if (p_bind_text) p_bind_text(stmt, 2, sHive.c_str(),  -1, NULL);
-    if (p_bind_text) p_bind_text(stmt, 3, sPath.c_str(),  -1, NULL);
-    if (p_bind_text) p_bind_text(stmt, 4, sName.c_str(),  -1, NULL);
-    if (p_bind_text) p_bind_text(stmt, 5, sType.c_str(),  -1, NULL);
-    if (p_bind_text) p_bind_text(stmt, 6, sData.c_str(),  -1, NULL);
-    if (p_bind_text) p_bind_text(stmt, 7, sFlags.c_str(), -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 1, sId.c_str(),         -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 2, sHive.c_str(),       -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 3, sPath.c_str(),       -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 4, sName.c_str(),       -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 5, sType.c_str(),       -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 6, sData.c_str(),       -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 7, sFlags.c_str(),      -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 8, sComponents.c_str(), -1, NULL);
 
     int rc2 = p_step(stmt); (void)rc2;
     if (p_finalize) p_finalize(stmt);
@@ -759,7 +763,7 @@ std::vector<RegistryEntryRow> DB::GetRegistryEntriesForProject(int projectId) {
     int flags = 0x00000002 | 0x00000004;
     if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return out;
 
-    const char *sql = "SELECT id, hive, path, name, type, data, flags FROM registry_entries WHERE project_id = ? ORDER BY id ASC;";
+    const char *sql = "SELECT id, hive, path, name, type, data, flags, components FROM registry_entries WHERE project_id = ? ORDER BY id ASC;";
     void *stmt = NULL;
     if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return out; }
     std::string sId = std::to_string(projectId);
@@ -775,12 +779,14 @@ std::vector<RegistryEntryRow> DB::GetRegistryEntriesForProject(int projectId) {
         const unsigned char *c4 = p_col_text(stmt, 4);
         const unsigned char *c5 = p_col_text(stmt, 5);
         const unsigned char *c6 = p_col_text(stmt, 6);
-        r.hive  = Utf8ToW(c1 ? (const char*)c1 : "");
-        r.path  = Utf8ToW(c2 ? (const char*)c2 : "");
-        r.name  = Utf8ToW(c3 ? (const char*)c3 : "");
-        r.type  = Utf8ToW(c4 ? (const char*)c4 : "");
-        r.data  = Utf8ToW(c5 ? (const char*)c5 : "");
-        r.flags = Utf8ToW(c6 ? (const char*)c6 : "");
+        const unsigned char *c7 = p_col_text(stmt, 7);
+        r.hive       = Utf8ToW(c1 ? (const char*)c1 : "");
+        r.path       = Utf8ToW(c2 ? (const char*)c2 : "");
+        r.name       = Utf8ToW(c3 ? (const char*)c3 : "");
+        r.type       = Utf8ToW(c4 ? (const char*)c4 : "");
+        r.data       = Utf8ToW(c5 ? (const char*)c5 : "");
+        r.flags      = Utf8ToW(c6 ? (const char*)c6 : "");
+        r.components = Utf8ToW(c7 ? (const char*)c7 : "");
         out.push_back(r);
     }
     if (p_finalize) p_finalize(stmt);

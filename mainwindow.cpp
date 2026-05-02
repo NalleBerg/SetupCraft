@@ -165,6 +165,7 @@ struct RegistryEntry {
     std::wstring type;     // REG_SZ, REG_DWORD, etc.
     std::wstring data;     // Value data
     std::wstring flags;    // space-separated Inno [Registry] flags, e.g. "uninsdeletevalue 64bit"
+    std::wstring components; // Inno Components: field, e.g. "main extra"
 };
 static std::map<HTREEITEM, std::vector<RegistryEntry>> s_registryValues;
 
@@ -435,6 +436,7 @@ static bool s_filesPageHasContent = false; // tracks whether Files page has any 
 #define IDC_ADDVAL_F_ARCH_32BIT           5076
 #define IDC_ADDVAL_F_ARCH_64BIT           5077
 #define IDC_ADDVAL_HINT                   5078  // syntax hint label below Data field
+#define IDC_ADDVAL_COMPONENTS             5079  // Inno Components: edit field
 
 // Add Key dialog IDs
 #define IDC_ADDKEY_NAME     5070
@@ -705,6 +707,7 @@ HWND MainWindow::Create(HINSTANCE hInstance, const ProjectRow &project, const st
                 e.hive = r.hive; e.path = r.path;
                 e.name = r.name; e.type = r.type; e.data = r.data;
                 e.flags = r.flags;
+                e.components = r.components;
                 s_customRegistryEntries.push_back(e);
             }
         }
@@ -2853,26 +2856,33 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
 
         auto itColFlags = s_locale.find(L"reg_col_flags");
         std::wstring colFlags = (itColFlags != s_locale.end()) ? itColFlags->second : L"Flags";
+
+        auto itColComponents = s_locale.find(L"reg_col_components");
+        std::wstring colComponents = (itColComponents != s_locale.end()) ? itColComponents->second : L"Components";
         
         LVCOLUMNW lvc = {};
         lvc.mask = LVCF_TEXT | LVCF_WIDTH | LVCF_FMT;
         lvc.fmt = LVCFMT_LEFT;
         
         lvc.pszText = (LPWSTR)colName.c_str();
-        lvc.cx = (int)(listWidth * 0.27);
+        lvc.cx = (int)(listWidth * 0.22);
         ListView_InsertColumn(s_hRegListView, 0, &lvc);
         
         lvc.pszText = (LPWSTR)colType.c_str();
-        lvc.cx = (int)(listWidth * 0.17);
+        lvc.cx = (int)(listWidth * 0.14);
         ListView_InsertColumn(s_hRegListView, 1, &lvc);
         
         lvc.pszText = (LPWSTR)colData.c_str();
-        lvc.cx = (int)(listWidth * 0.33);
+        lvc.cx = (int)(listWidth * 0.27);
         ListView_InsertColumn(s_hRegListView, 2, &lvc);
 
         lvc.pszText = (LPWSTR)colFlags.c_str();
-        lvc.cx = (int)(listWidth * 0.23);
+        lvc.cx = (int)(listWidth * 0.20);
         ListView_InsertColumn(s_hRegListView, 3, &lvc);
+
+        lvc.pszText = (LPWSTR)colComponents.c_str();
+        lvc.cx = (int)(listWidth * 0.17);
+        ListView_InsertColumn(s_hRegListView, 4, &lvc);
 
         // Build fullPath→HTREEITEM map by walking the entire tree.
         // fullPath format: "HIVE_ROOT\\sub\\..." (hive + "\\" + path, same as RegistryEntry).
@@ -4586,6 +4596,7 @@ struct AddValueDialogData {
     std::wstring valueData;
     bool okClicked;
     std::wstring valueFlags;        // space-separated Inno [Registry] flags, e.g. "uninsdeletevalue 64bit"
+    std::wstring valueComponents;   // Inno Components: field, e.g. "main extra"
     std::vector<RECT> sectionRects; // section border rects for WM_PAINT
 };
 
@@ -4613,6 +4624,7 @@ static const int AV_BTN_H   = 38;
 static const int AV_BTN_W0  = 155; // OK
 static const int AV_BTN_W1  = 155; // Cancel
 static const int AV_BTN_GAP = 10;
+static const int AV_GAP_CF  = 14;  // gap between components edit and first flag section
 
 // Returns a short format hint string for the given registry value type.
 static const wchar_t* GetRegTypeHint(const std::wstring& type) {
@@ -4747,6 +4759,17 @@ LRESULT CALLBACK AddValueDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                        S(AV_PAD_H) + w + bdrPad, y + bdrPad };
             pData->sectionRects.push_back(r);
         };
+
+        // Row 4 — Components (Inno Components: field)
+        CreateWindowExW(0, L"STATIC",
+            _loc(L"reg_add_value_components", L"Components:").c_str(),
+            WS_CHILD | WS_VISIBLE | SS_LEFT,
+            S(AV_PAD_H), y, S(AV_LBL_W), S(AV_ROW_H), hwnd, NULL, hInst, NULL);
+        CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", pData->valueComponents.c_str(),
+            WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL,
+            editX, y, editW, S(AV_ROW_H),
+            hwnd, (HMENU)IDC_ADDVAL_COMPONENTS, hInst, NULL);
+        y += S(AV_ROW_H) + S(AV_GAP_CF);
 
         // ── Section: Uninstall behaviour ──────────────────────────────────────
         CreateWindowExW(0, L"STATIC",
@@ -4975,6 +4998,10 @@ LRESULT CALLBACK AddValueDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                     flagsOut += L"64bit";
                 }
                 pData->valueFlags = flagsOut;
+                // Collect Inno Components: string
+                wchar_t compBuf[512] = {};
+                GetDlgItemTextW(hwnd, IDC_ADDVAL_COMPONENTS, compBuf, 512);
+                pData->valueComponents = compBuf;
 
                 pData->okClicked = true;
             }
@@ -8971,6 +8998,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                         ListView_SetItemText(s_hRegListView, idx, 1, (LPWSTR)entry.type.c_str());
                         ListView_SetItemText(s_hRegListView, idx, 2, (LPWSTR)entry.data.c_str());
                         ListView_SetItemText(s_hRegListView, idx, 3, (LPWSTR)entry.flags.c_str());
+                        ListView_SetItemText(s_hRegListView, idx, 4, (LPWSTR)entry.components.c_str());
                     }
                 }
                 
@@ -10750,6 +10778,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                           + S(AV_ROW_H)+S(AV_GAP_R1)         // name
                           + S(AV_ROW_H)+S(AV_GAP_R2)         // type
                           + S(AV_ROW_H)+S(AV_GAP_DH)+S(AV_HINT_H)+S(AV_GAP_RD)  // data + hint
+                          + S(AV_ROW_H)+S(AV_GAP_CF)                              // components
                           + S(AV_SEC_H)+S(AV_GAP_SEC)+4*S(AV_CHK_H)+S(AV_GAP_BTW)  // uninstall section
                           + S(AV_SEC_H)+S(AV_GAP_SEC)+S(AV_CHK_H) // view section
                           + S(AV_GAP_RB)
@@ -10826,6 +10855,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 entry.type  = dialogData.valueType;
                 entry.data  = dialogData.valueData;
                 entry.flags = dialogData.valueFlags;
+                entry.components = dialogData.valueComponents;
                 
                 // Add to map
                 s_registryValues[hSelected].push_back(entry);
@@ -10850,6 +10880,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                             ListView_SetItemText(s_hRegListView, idx, 1, (LPWSTR)e.type.c_str());
                             ListView_SetItemText(s_hRegListView, idx, 2, (LPWSTR)e.data.c_str());
                             ListView_SetItemText(s_hRegListView, idx, 3, (LPWSTR)e.flags.c_str());
+                            ListView_SetItemText(s_hRegListView, idx, 4, (LPWSTR)e.components.c_str());
                         }
                     }
                     
@@ -11216,7 +11247,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             // Create dialog data with existing values
             AddValueDialogData dialogData = {
                 nameText, typeText, dataText, okText, cancelText,
-                entry.name, entry.type, entry.data, false, entry.flags
+                entry.name, entry.type, entry.data, false, entry.flags, entry.components
             };
             
             // Register dialog class if not already registered (AddValueDialog)
@@ -11240,6 +11271,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                             + S(AV_ROW_H)+S(AV_GAP_R1)         // name
                             + S(AV_ROW_H)+S(AV_GAP_R2)         // type
                             + S(AV_ROW_H)+S(AV_GAP_DH)+S(AV_HINT_H)+S(AV_GAP_RD)  // data + hint
+                            + S(AV_ROW_H)+S(AV_GAP_CF)                              // components
                             + S(AV_SEC_H)+S(AV_GAP_SEC)+4*S(AV_CHK_H)+S(AV_GAP_BTW)  // uninstall section
                             + S(AV_SEC_H)+S(AV_GAP_SEC)+S(AV_CHK_H) // view section
                             + S(AV_GAP_RB)
@@ -11274,11 +11306,13 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                     entry.type  = dialogData.valueType;
                     entry.data  = dialogData.valueData;
                     entry.flags = dialogData.valueFlags;
+                    entry.components = dialogData.valueComponents;
                     // Sync to custom entries list if this entry was user-added
                     for (auto& ce : s_customRegistryEntries) {
                         if (ce.hive == entry.hive && ce.path == entry.path && ce.name == oldEntryName) {
                             ce.name = entry.name; ce.type = entry.type;
                             ce.data = entry.data; ce.flags = entry.flags;
+                            ce.components = entry.components;
                             break;
                         }
                     }
@@ -11288,6 +11322,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                     ListView_SetItemText(s_hRegListView, iSelected, 1, (LPWSTR)entry.type.c_str());
                     ListView_SetItemText(s_hRegListView, iSelected, 2, (LPWSTR)entry.data.c_str());
                     ListView_SetItemText(s_hRegListView, iSelected, 3, (LPWSTR)entry.flags.c_str());
+                    ListView_SetItemText(s_hRegListView, iSelected, 4, (LPWSTR)entry.components.c_str());
                     
                     MarkAsModified();
                 }
@@ -11345,6 +11380,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                     ListView_SetItemText(s_hRegListView, idx, 1, (LPWSTR)e.type.c_str());
                     ListView_SetItemText(s_hRegListView, idx, 2, (LPWSTR)e.data.c_str());
                     ListView_SetItemText(s_hRegListView, idx, 3, (LPWSTR)e.flags.c_str());
+                    ListView_SetItemText(s_hRegListView, idx, 4, (LPWSTR)e.components.c_str());
                 }
                 
                 MarkAsModified();
@@ -12055,7 +12091,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             for (const auto& ck : s_customRegistryKeys)
                 DB::InsertRegistryEntry(s_currentProject.id, ck.hive, ck.path, L"__KEY__", L"", L"");
             for (const auto& ce : s_customRegistryEntries)
-                DB::InsertRegistryEntry(s_currentProject.id, ce.hive, ce.path, ce.name, ce.type, ce.data, ce.flags);
+                DB::InsertRegistryEntry(s_currentProject.id, ce.hive, ce.path, ce.name, ce.type, ce.data, ce.flags, ce.components);
             return 0;
         }
             
@@ -12832,6 +12868,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                         ListView_SetItemText(s_hRegListView, idx, 1, (LPWSTR)entry.type.c_str());
                         ListView_SetItemText(s_hRegListView, idx, 2, (LPWSTR)entry.data.c_str());
                         ListView_SetItemText(s_hRegListView, idx, 3, (LPWSTR)entry.flags.c_str());
+                        ListView_SetItemText(s_hRegListView, idx, 4, (LPWSTR)entry.components.c_str());
                     }
                 }
                 
