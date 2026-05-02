@@ -434,6 +434,7 @@ static bool s_filesPageHasContent = false; // tracks whether Files page has any 
 #define IDC_ADDVAL_F_ARCH_DEFAULT         5075
 #define IDC_ADDVAL_F_ARCH_32BIT           5076
 #define IDC_ADDVAL_F_ARCH_64BIT           5077
+#define IDC_ADDVAL_HINT                   5078  // syntax hint label below Data field
 
 // Add Key dialog IDs
 #define IDC_ADDKEY_NAME     5070
@@ -4600,7 +4601,9 @@ static const int AV_EDIT_W  = 460; // edit/combo field width
 static const int AV_ROW_H   = 28;  // row height (label/edit/combo)
 static const int AV_GAP_R1  = 16;  // vertical gap between rows 1 and 2
 static const int AV_GAP_R2  = 18;  // vertical gap between rows 2 and 3
-static const int AV_GAP_RD  = 14;  // vertical gap between data row and flags sections
+static const int AV_GAP_DH  =  3;  // gap between data edit and hint label
+static const int AV_HINT_H  = 14;  // syntax hint label height
+static const int AV_GAP_RD  = 10;  // vertical gap between hint label and flags sections
 static const int AV_SEC_H   = 18;  // flags section header height
 static const int AV_GAP_SEC =  4;  // gap between section header and first control
 static const int AV_CHK_H   = 24;  // checkbox/radio row height
@@ -4610,6 +4613,17 @@ static const int AV_BTN_H   = 38;
 static const int AV_BTN_W0  = 155; // OK
 static const int AV_BTN_W1  = 155; // Cancel
 static const int AV_BTN_GAP = 10;
+
+// Returns a short format hint string for the given registry value type.
+static const wchar_t* GetRegTypeHint(const std::wstring& type) {
+    if (type == L"REG_SZ")        return L"Any text (Unicode string)";
+    if (type == L"REG_EXPAND_SZ") return L"Text with %variables%, e.g. %SystemRoot%\\app.exe";
+    if (type == L"REG_MULTI_SZ")  return L"Multiple strings, one per line (\\0-delimited in the hive)";
+    if (type == L"REG_DWORD")     return L"Decimal: 0\u20134294967295   or   Hex: 0x00000000";
+    if (type == L"REG_QWORD")     return L"Decimal: 0\u201318446744073709551615   or   Hex: 0x0000000000000000";
+    if (type == L"REG_BINARY")    return L"Hex bytes, space-separated, e.g.  01 2A FF B0";
+    return L"";
+}
 
 // Subclass proc for flag checkboxes/radios — shows the custom tooltip on hover
 static WNDPROC s_avPrevChkProc = NULL; // shared; only one control hovered at a time
@@ -4708,7 +4722,15 @@ LRESULT CALLBACK AddValueDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL,
             editX, y, editW, S(AV_ROW_H), hwnd, (HMENU)IDC_ADDVAL_DATA, hInst, NULL);
         SetDlgItemTextW(hwnd, IDC_ADDVAL_DATA, pData->valueData.c_str());
-        y += S(AV_ROW_H) + S(AV_GAP_RD);
+        // Syntax hint — shows the expected data format for the selected type
+        {
+            std::wstring initType = pData->valueType.empty() ? L"REG_SZ" : pData->valueType;
+            CreateWindowExW(0, L"STATIC", GetRegTypeHint(initType),
+                WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX,
+                editX, y + S(AV_ROW_H) + S(AV_GAP_DH), editW, S(AV_HINT_H),
+                hwnd, (HMENU)IDC_ADDVAL_HINT, hInst, NULL);
+        }
+        y += S(AV_ROW_H) + S(AV_GAP_DH) + S(AV_HINT_H) + S(AV_GAP_RD);
 
         // ── Locale helper ─────────────────────────────────────────────────────
         auto _loc = [](const wchar_t* key, const wchar_t* def) -> std::wstring {
@@ -4962,6 +4984,22 @@ LRESULT CALLBACK AddValueDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         
         case IDC_ADDVAL_CANCEL:
             DestroyWindow(hwnd);
+            return 0;
+
+        case IDC_ADDVAL_TYPE:
+            if (HIWORD(wParam) == CBN_SELCHANGE) {
+                HWND hCb   = GetDlgItem(hwnd, IDC_ADDVAL_TYPE);
+                HWND hHint = GetDlgItem(hwnd, IDC_ADDVAL_HINT);
+                if (hCb && hHint) {
+                    int sel = (int)SendMessageW(hCb, CB_GETCURSEL, 0, 0);
+                    static const wchar_t* const s_typeNames[] = {
+                        L"REG_SZ", L"REG_BINARY", L"REG_DWORD",
+                        L"REG_QWORD", L"REG_MULTI_SZ", L"REG_EXPAND_SZ"
+                    };
+                    const wchar_t* selType = (sel >= 0 && sel < 6) ? s_typeNames[sel] : L"REG_SZ";
+                    SetWindowTextW(hHint, GetRegTypeHint(selType));
+                }
+            }
             return 0;
         }
         break;
@@ -10711,7 +10749,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             int avClientH = S(AV_PAD_T)
                           + S(AV_ROW_H)+S(AV_GAP_R1)         // name
                           + S(AV_ROW_H)+S(AV_GAP_R2)         // type
-                          + S(AV_ROW_H)+S(AV_GAP_RD)         // data
+                          + S(AV_ROW_H)+S(AV_GAP_DH)+S(AV_HINT_H)+S(AV_GAP_RD)  // data + hint
                           + S(AV_SEC_H)+S(AV_GAP_SEC)+4*S(AV_CHK_H)+S(AV_GAP_BTW)  // uninstall section
                           + S(AV_SEC_H)+S(AV_GAP_SEC)+S(AV_CHK_H) // view section
                           + S(AV_GAP_RB)
@@ -11201,7 +11239,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 int clientH = S(AV_PAD_T)
                             + S(AV_ROW_H)+S(AV_GAP_R1)         // name
                             + S(AV_ROW_H)+S(AV_GAP_R2)         // type
-                            + S(AV_ROW_H)+S(AV_GAP_RD)         // data
+                            + S(AV_ROW_H)+S(AV_GAP_DH)+S(AV_HINT_H)+S(AV_GAP_RD)  // data + hint
                             + S(AV_SEC_H)+S(AV_GAP_SEC)+4*S(AV_CHK_H)+S(AV_GAP_BTW)  // uninstall section
                             + S(AV_SEC_H)+S(AV_GAP_SEC)+S(AV_CHK_H) // view section
                             + S(AV_GAP_RB)

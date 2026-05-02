@@ -139,7 +139,8 @@ mainwindow.cpp dialogs (all DONE):
 Per-dialog layout constant sets (all in mainwindow.cpp before their proc):
   RK_PAD_H/T/B, RK_LBL_H, RK_GAP_LE, RK_EDIT_H, RK_GAP_EB, RK_BTN_H/W0/W1/W2, RK_BTN_GAP
   AV_PAD_H/T/B, AV_LBL_W, AV_FLD_GAP, AV_EDIT_W, AV_ROW_H,
-      AV_GAP_R1/R2/RD/RB, AV_SEC_H, AV_GAP_SEC, AV_CHK_H, AV_GAP_BTW,
+      AV_GAP_R1/R2/RB, AV_GAP_DH, AV_HINT_H, AV_GAP_RD,
+      AV_SEC_H, AV_GAP_SEC, AV_CHK_H, AV_GAP_BTW,
       AV_BTN_H/W0/W1, AV_BTN_GAP
   AK_PAD_H/T/B, AK_LBL_W, AK_FLD_GAP, AK_EDIT_W, AK_ROW_H,
       AK_GAP_EB, AK_BTN_H/W0/W1, AK_BTN_GAP

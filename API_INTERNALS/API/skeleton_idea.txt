@@ -224,4 +224,24 @@
     controls.  The subclass+property pattern is reliable and requires no extra
     cooperation from the parent dialog proc.
 
+  - Live syntax hint label below type-dependent input fields:
+    When a dialog has a "type" combo and a "data" edit whose expected format varies
+    by type (e.g. registry value types: DWORD wants decimal/hex, BINARY wants hex
+    bytes, SZ wants plain text), add a narrow gray STATIC label immediately below the
+    edit and update it on CBN_SELCHANGE.
+    Pattern (AddValueDialogProc):
+    1. Create the STATIC at creation time with the hint for the initial type:
+         CreateWindowExW(0, L"STATIC", GetRegTypeHint(initType),
+             WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX,
+             editX, dataY + S(ROW_H) + S(GAP_DH), editW, S(HINT_H),
+             hwnd, (HMENU)IDC_HINT, hInst, NULL);
+    2. In WM_CTLCOLORSTATIC, return gray for the hint control:
+         if (GetDlgCtrlID((HWND)lParam) == IDC_HINT) SetTextColor(hdc, RGB(120,120,120));
+    3. In WM_COMMAND / CBN_SELCHANGE, update the label:
+         SetWindowTextW(GetDlgItem(hwnd, IDC_HINT), GetRegTypeHint(selectedType));
+    4. Include the hint row in the clientH calculation so the window is sized right:
+         clientH += S(GAP_DH) + S(HINT_H);
+    The hint text function is a simple switch/if-chain returning static string literals
+    — no allocation needed and safe to pass directly to SetWindowTextW.
+
 ================================================================================
