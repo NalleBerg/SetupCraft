@@ -28,8 +28,8 @@
     [ ] my_scrollbar_vscroll / my_scrollbar_hscroll
                               — custom fade scrollbar, fully split V+H modules.
                               my_scrollbar_vscroll.cpp/.h: vertical (working).
-                              my_scrollbar_hscroll.cpp/.h: horizontal (clean-room
-                              rewrite in progress; Step 1 = suppressed baseline).
+                              my_scrollbar_hscroll.cpp/.h: horizontal (Step 2
+                              complete — tilt-wheel both directions working).
                               hscroll.cpp is #included inside vscroll.cpp —
                               single compilation unit, shared MsbCtx/S()/helpers.
                               Public API: msb_attach/msb_detach/msb_sync/
@@ -83,20 +83,18 @@
     LVM_SCROLL before the header repositions — do NOT read or write lvHPos
     there.  The library intercepts LVM_DELETEALLITEMS, LVM_SETCOLUMNWIDTH,
     and HDN_ENDTRACK internally so callers need no post-call msb_reposition.
-  - LVM_SCROLL delta-clamping pitfall: LVM_SCROLL uses an internal scroll
-    counter for left-boundary clamping (rejects dx if counter + dx < 0).
-    This counter is SEPARATE from SCROLLINFO.nPos.  ShowScrollBar(FALSE)
-    zeroes both.  SetScrollInfo updates nPos but NOT the internal counter.
-    Between deliveries, any ShowScrollBar(FALSE) call (e.g. from the NCPAINT
-    intercept) resets the counter to 0, so all leftward deltas are rejected.
-    Partial fix in place: SetScrollInfo(nPos=lvHPos, FALSE) + inHDeliver flag
-    that prevents ShowScrollBar(FALSE) during the scroll itself.  Right works.
-    Left still broken \u2014 counter is already 0 before SetScrollInfo runs.
-    Next direction to try: set inHDeliver=TRUE FIRST, then call
-    ShowScrollBar(SB_HORZ, TRUE).  ShowScrollBar(TRUE) should re-initialize
-    the ListView's internal counter from SCROLLINFO.nPos.  Because inHDeliver
-    is already set, the WM_NCPAINT that ShowScrollBar(TRUE) fires will skip
-    Msb_HideNativeBar \u2014 so the counter stays at lvHPos when LVM_SCROLL runs.
+  - LVM_SCROLL delta-clamping pitfall (SOLVED v2026.05.02.10): LVM_SCROLL
+    uses an internal scroll counter for left-boundary clamping (rejects dx
+    if counter + dx < 0).  This counter is SEPARATE from SCROLLINFO.nPos.
+    ShowScrollBar(FALSE) zeroes BOTH.  SetScrollInfo updates nPos but NOT
+    the internal counter.  SOLUTION: in Msb_HideNativeBar for the H-axis,
+    use SetWindowLongPtrW(GWL_STYLE, style & ~WS_HSCROLL) instead of
+    ShowScrollBar(FALSE).  This removes the bar visually without zeroing
+    the counter.  Counter persists at lvHPos between ticks; lvHPos+delta>=0
+    always passes after clamping.  Also pre-seed SetScrollInfo(nPos=lvHPos,
+    FALSE) immediately before LVM_SCROLL so any internal ShowScrollBar(TRUE)
+    within LVM_SCROLL re-seeds from the correct baseline.  Both left and
+    right tilt-wheel now work reliably.
   - sqlite3 amalgamation version: pin to the version used in SetupCraft
     at publish time and note it here.
   - IsDialogMessageW gotcha: ONLY call IsDialogMessageW on windows that were

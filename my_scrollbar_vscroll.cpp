@@ -279,10 +279,31 @@ static void Msb_ReconstructTreeVScrollInfo(HWND hWnd)
 static void Msb_HideNativeBar(HWND hWnd, BOOL isRichEdit, BOOL vert)
 {
     int which = vert ? SB_VERT : SB_HORZ;
-    if (isRichEdit)
+    if (isRichEdit) {
         SendMessageW(hWnd, EM_SHOWSCROLLBAR, (WPARAM)which, FALSE);
-    else
+    } else if (!vert) {
+        /* H-axis: clear WS_HSCROLL via SetWindowLongPtr instead of
+         * ShowScrollBar(FALSE).  ShowScrollBar(FALSE) zeroes the ListView's
+         * internal horizontal scroll counter (separate from SCROLLINFO.nPos)
+         * which LVM_SCROLL uses for left-boundary clamping: rejects dx if
+         * counter + dx < 0.  Zeroing it between tilt-wheel ticks makes all
+         * leftward scrolls silently rejected.
+         * SetWindowLongPtr only removes the style bit — counter is untouched.
+         * The guard prevents redundant SWP_FRAMECHANGED cascades. */
+        LONG_PTR style = GetWindowLongPtrW(hWnd, GWL_STYLE);
+        if (style & WS_HSCROLL) {
+            SetWindowLongPtrW(hWnd, GWL_STYLE, style & ~WS_HSCROLL);
+            /* No SWP_FRAMECHANGED: that would fire WM_NCCALCSIZE → WM_SIZE →
+             * ListView calls ShowScrollBar(TRUE) with whatever nPos is current
+             * (potentially stale), cascading and unpredictably re-seeding the
+             * internal scroll counter.  The style-bit change is enough — the
+             * NC area repaints on the next natural WM_NCPAINT. */
+        }
+    } else {
+        /* V-axis: ShowScrollBar(FALSE) zeroes the V counter but that is fine —
+         * LVM_SCROLL(0, dy) has no counter check on the vertical delta. */
         ShowScrollBar(hWnd, which, FALSE);
+    }
 }
 
 static void Msb_ShowNativeBar(HWND hWnd, BOOL isRichEdit, BOOL vert)
@@ -1585,7 +1606,11 @@ static LRESULT CALLBACK Msb_TargetSubclassProc(HWND hwnd, UINT msg,
             if (ctxH && !ctxH->inHDeliver) Msb_HideNativeBar(hwnd, ctxH->isRichEdit, FALSE);
             /* Reconstruct V for TreeView; restore H for ListView/TreeView. */
             if (ctxV && ctxV->isTreeView) Msb_ReconstructTreeVScrollInfo(hwnd);
-            if (restoreH) SetScrollInfo(hwnd, SB_HORZ, &siH, FALSE);
+            /* Skip restoreH during H delivery: siH was captured before the
+             * scroll completed and would overwrite our SetScrollInfo(nPos=lvHPos)
+             * pre-seed with a stale value, causing LVM_SCROLL's internal
+             * ShowScrollBar(TRUE) to re-seed the counter from the wrong nPos. */
+            if (restoreH && !(ctxH && ctxH->inHDeliver)) SetScrollInfo(hwnd, SB_HORZ, &siH, FALSE);
             if (ctxV) ctxV->inNcPaint = FALSE;
             if (ctxH) ctxH->inNcPaint = FALSE;
             return r;
@@ -1650,7 +1675,12 @@ static LRESULT CALLBACK Msb_TargetSubclassProc(HWND hwnd, UINT msg,
                 }
             }
             if (ctxV) Msb_HideNativeBar(hwnd, ctxV->isRichEdit, TRUE);
-            if (ctxH) Msb_HideNativeBar(hwnd, ctxH->isRichEdit, FALSE);
+            /* Skip H hide during LVM_SCROLL delivery — same guard as WM_NCPAINT.
+             * LVM_SCROLL calls ShowScrollBar(TRUE) internally which fires WM_SIZE
+             * synchronously BEFORE the scroll happens.  Without this guard,
+             * Msb_HideNativeBar(H) → ShowScrollBar(FALSE) zeroes the internal
+             * scroll counter here, causing leftward LVM_SCROLL to be rejected. */
+            if (ctxH && !ctxH->inHDeliver) Msb_HideNativeBar(hwnd, ctxH->isRichEdit, FALSE);
             /* For TreeView V-axis: reconstruct SCROLLINFO from tree state. */
             if (ctxV && ctxV->isTreeView) Msb_ReconstructTreeVScrollInfo(hwnd);
             if (restoreH) SetScrollInfo(hwnd, SB_HORZ, &siPreH, FALSE);
@@ -1793,15 +1823,23 @@ static LRESULT CALLBACK Msb_TargetSubclassProc(HWND hwnd, UINT msg,
                     CallWindowProcW(any->origProc, hwnd, WM_HSCROLL,
                                     MAKEWPARAM(cmd, 0), 0);
             }
-            /* Capture SCROLLINFO before HideNativeBar resets nMax. */
+            /* For ListView H: do NOT call HideNativeBar(H) here.
+             * ShowScrollBar(SB_HORZ, FALSE) would zero the ListView's
+             * internal horizontal scroll counter, causing LVM_SCROLL to
+             * reject any leftward (negative) delta on the next delivery.
+             * The counter must stay at newPos between wheel ticks.
+             * The native H bar will be hidden by the WM_NCPAINT intercept
+             * (which fires on the next repaint) — inHDeliver is already
+             * FALSE at that point so HideNativeBar runs normally.
+             * Non-ListView H targets still need explicit hiding. */
             SCROLLINFO siPreH = {}; BOOL restoreH = FALSE;
-            if (ctxH->isTreeView || ctxH->isListView) {
+            if (!ctxH->isListView && (ctxH->isTreeView || ctxH->isRichEdit)) {
                 siPreH.cbSize = sizeof(siPreH); siPreH.fMask = SIF_ALL;
                 GetScrollInfo(hwnd, SB_HORZ, &siPreH);
                 restoreH = (siPreH.nMax > siPreH.nMin);
+                Msb_HideNativeBar(hwnd, ctxH->isRichEdit, FALSE);
+                if (restoreH) SetScrollInfo(hwnd, SB_HORZ, &siPreH, FALSE);
             }
-            Msb_HideNativeBar(hwnd, ctxH->isRichEdit, FALSE);
-            if (restoreH) SetScrollInfo(hwnd, SB_HORZ, &siPreH, FALSE);
             /* Clamp scroll position — same reason as in WM_HSCROLL. */
             Msb_ClampRichHorzPos(ctxH);
             /* Keep bar in hint-strip mode — only update position indicator. */

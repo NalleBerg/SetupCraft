@@ -1,0 +1,119 @@
+H-SCROLL TILT-WHEEL PROGRESS LOG
+=================================
+Goal: tilt-wheel scrolls ListView content left AND right (Step 2 of H-scroll rewrite)
+
+ROOT CAUSE (confirmed 02.05.2026):
+  LVM_SCROLL checks: internal_counter + dx >= 0.
+  ShowScrollBar(SB_HORZ, FALSE) zeroes that counter.
+  Right-scroll (dx>0): 0 + dx >= 0  → always passes.
+  Left-scroll  (dx<0): 0 + dx < 0   → always REJECTED.
+  The counter gets zeroed because LVM_SCROLL internally calls
+  ShowScrollBar(SB_HORZ, TRUE) which fires WM_SIZE synchronously,
+  and our WM_SIZE handler calls Msb_HideNativeBar(H) = ShowScrollBar(FALSE)
+  BEFORE the actual scroll happens. Counter is 0 when scroll runs.
+
+ATTEMPTS (all built and tested unless noted):
+----------------------------------------------
+[1] inHDeliver guard in WM_NCPAINT only (Apr 29)
+    Result: right works, left still broken.
+    Reason: WM_SIZE runs before WM_NCPAINT inside LVM_SCROLL — guard was in wrong place.
+
+[2] SetScrollInfo(nPos=lvHPos) before LVM_SCROLL(delta) (Apr 29)
+    Result: right works, left still broken.
+    Reason: SetScrollInfo updates nPos but NOT the internal counter.
+
+[3] Option B — LVM_SCROLL(newPos) instead of LVM_SCROLL(delta) (02.05, 08:00)
+    Result: right works, left still broken.
+    Reason: LVM_SCROLL is a delta-move. Sending newPos moves content by
+            newPos pixels FROM current position — overshoots right, no left.
+
+[4] Option A — SetScrollInfo(lvHPos) + ShowScrollBar(TRUE) + LVM_SCROLL(delta) (02.05, 08:02)
+    Result: right works, left still broken.
+    Reason: ShowScrollBar(TRUE) does NOT reliably reinit the counter from nPos.
+
+[5] Two-step LVM_SCROLL: WM_SETREDRAW(FALSE), LVM_SCROLL(lvHPos), LVM_SCROLL(delta) (02.05, 08:26)
+    Result: right works, left still broken.
+    Reason: WM_SIZE still fired (and zeroed counter) during the first LVM_SCROLL.
+            WM_SETREDRAW does not suppress WM_SIZE.
+
+[6] WM_HSCROLL(SB_THUMBPOSITION, newPos) via origProc, no SetScrollInfo (02.05, 08:34)
+    Result: no movement at all.
+    Reason: Without SetScrollInfo baseline, ListView computed delta=0
+            (nPos was already synced to lvHPos by restoreH in NCPAINT).
+
+[7] WM_HSCROLL(SB_THUMBPOSITION, newPos) + SetScrollInfo(nPos=lvHPos) first (02.05, 08:47)
+    Result: no movement at all.
+    Reason: Unknown — possibly WS_HSCROLL style removed by our NCPAINT, so
+            origProc ignores WM_HSCROLL entirely.
+
+[8] Skip Msb_HideNativeBar(H) in WM_MOUSEHWHEEL for ListView (02.05, 09:01)
+    + LVM_SCROLL(delta) simple path restored.
+    Result: right works, left still broken.
+    Reason: Counter is zeroed by WM_SIZE during LVM_SCROLL, not by the
+            post-delivery HideNativeBar. Skipping HideNativeBar helped
+            between ticks but not during the delivery itself.
+
+[9] Guard WM_SIZE Msb_HideNativeBar(H) with !ctxH->inHDeliver (02.05, 09:12)
+    Built: 02.05.2026 09:12
+    Result: Still only right scroll.
+    Reason: WM_SIZE guard only protects DURING delivery. The real zero happens
+            BETWEEN ticks: WM_NCPAINT fires after inHDeliver=FALSE and our
+            NCPAINT intercept calls Msb_HideNativeBar(H) = ShowScrollBar(FALSE)
+            → counter=0. The guards protect delivery; they can't protect the
+            post-delivery natural NCPAINT.
+
+[10] SetWindowLongPtr to clear WS_HSCROLL instead of ShowScrollBar(FALSE) in Msb_HideNativeBar (02.05, 09:29)
+    Built: 02.05.2026 09:29
+    Result: LEFT SCROLL WORKS! But stops one step short of position 0.
+    Reason for partial success: Counter now survives between ticks. Fix confirmed.
+    Reason for "one step short": lvHPos was set to newPos (our requested position)
+    not the ACTUAL position after LVM_SCROLL. LVM_SCROLL may round by 1px. If
+    lvHPos = 20 but counter = 19, next delta = 0-20 = -20, check 19-20 = -1 < 0 → rejected.
+    lvHPos=0 gets written but content stays at 19. Next tick: delta=0 → early return. Stuck.
+
+[11] Read back actual position from header after LVM_SCROLL (02.05, 09:34)
+    Built: 02.05.2026 09:34
+    Result: REGRESSION — ListView left scroll broken again. TreeView/RichEdit still fine.
+    Reason: Msb_GetListViewHPos() reads header item rect. Header repositions
+            ASYNCHRONOUSLY after LVM_SCROLL returns (posted paint). Reading right
+            after SendMessageW(LVM_SCROLL) returns the OLD position (or 0).
+            lvHPos=0 after every tick → delta=0 on next left attempt → no movement.
+
+[12] Reverted [11] back to lvHPos = newPos — rebuild of [10] (02.05, 09:42)
+    Built: 02.05.2026 09:42
+    Result: Same as [10] — left+right work, "one step short" on ListView.
+    Note: RTF Preview H-scroll not working = Step 3 issue (MSB_HORIZONTAL visibility
+    guards still suppress bar). Not a regression. Will fix in Step 3.
+
+[13] Pre-seed SCROLLINFO.nPos = newPos before LVM_SCROLL (02.05, 09:53)
+    Built: 02.05.2026 09:53
+    Result: Erratic. Components page mostly works, Files page broken.
+    Reason: Pre-seed was WRONG — used nPos=newPos instead of nPos=lvHPos.
+    ShowScrollBar(TRUE) seeds counter=newPos. Then LVM_SCROLL(delta=newPos-lvHPos).
+    Check: newPos + (newPos - lvHPos) = 2*newPos - lvHPos < 0 for leftward scroll
+    beyond midpoint → rejected. Also: SWP_FRAMECHANGED cascade still active, and
+    restoreH not guarded → overwrites pre-seed with stale captured nPos.
+
+[14] Three-fix build: nPos=lvHPos pre-seed + no SWP_FRAMECHANGED + restoreH guarded (02.05, 10:10) ← CURRENT BUILD
+    Built: 02.05.2026 10:10
+    Result: TESTING...
+    Fix 1 (hscroll.cpp): SetScrollInfo(nPos=lvHPos) before LVM_SCROLL.
+      Counter seeds to lvHPos. delta=newPos-lvHPos. Check: lvHPos+delta=newPos>=0. ✓
+    Fix 2 (HideNativeBar): removed SWP_FRAMECHANGED. No more WM_NCCALCSIZE→WM_SIZE
+      cascade → ListView's ShowScrollBar(TRUE) not triggered with stale nPos.
+    Fix 3 (NCPAINT restoreH): guarded with !inHDeliver. Pre-seeded nPos=lvHPos
+      is not overwritten by a stale captured value during delivery.
+    If fails: The counter may still be zeroed by ListView's own internal
+      ShowScrollBar(FALSE) call inside LVM_SCROLL. If so, try explicitly calling
+      ShowScrollBar(SB_HORZ,TRUE) with inHDeliver=TRUE before LVM_SCROLL to
+      ensure WS_HSCROLL is present when LVM_SCROLL runs (making its internal
+      ShowScrollBar(FALSE) potentially a no-op since bar is already showing).
+
+AFTER TILT-WHEEL WORKS:
+  Step 3: Remove 3 MSB_HORIZONTAL guards (show H-bar)
+    1. Early return in Msb_UpdateVisibility
+    2. Early return in Msb_UpdateVisibilityGuarded
+    3. Suppressed proximity-expand in WM_MOUSEMOVE
+  Step 4: Arrow-button scrolling
+  Step 5: Track-click scrolling
+  Step 6: Thumb drag

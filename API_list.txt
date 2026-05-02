@@ -105,21 +105,18 @@
                                                 pattern for V+H dual-attach. ListView H-axis:
 
   API_INTERNALS\API\my_scrollbar_hscroll_API.txt  Custom Win32 horizontal scrollbar — impl notes.
-                                                Step-by-step rewrite (Steps 1-2 in progress).
+                                                Step-by-step rewrite (Steps 1-2 complete).
                                                 Golden Rules for ListView H-axis. MsbH_DeliverScroll
                                                 is #included into my_scrollbar_vscroll.cpp.
                                                 Scroll dispatch via LVM_SCROLL(delta) with
-                                                SetScrollInfo(SIF_POS, nPos=lvHPos, FALSE) before
-                                                the call and inHDeliver flag on MsbCtx around it.
-                                                Tilt-wheel right works; left still broken —
-                                                LVM_SCROLL uses an internal counter separate from
-                                                SCROLLINFO.nPos; SetScrollInfo alone cannot reset
-                                                it. Next direction: ShowScrollBar(TRUE) with
-                                                inHDeliver already TRUE so NCPAINT skips hide.
-                                                Auto-syncs: LVM_DELETEALLITEMS resets lvHPos=0;
-                                                LVM_SETCOLUMNWIDTH and HDN_ENDTRACK re-read
-                                                lvHPos from header. H-bar still hidden (Step 1
-                                                guards in place).
+                                                SetScrollInfo(nPos=lvHPos, FALSE) before the call
+                                                and inHDeliver flag on MsbCtx around it.
+                                                Tilt-wheel LEFT and RIGHT both work (v2026.05.02.10).
+                                                Key fix: Msb_HideNativeBar(H) clears WS_HSCROLL
+                                                via SetWindowLongPtr(~WS_HSCROLL) instead of
+                                                ShowScrollBar(FALSE) — preserves the internal
+                                                scroll counter between ticks. H-bar still hidden
+                                                (Step 1 guards in place; Step 3 will show it).
 
   about.h / about.cpp                           About dialog module — three public functions:
                                                 ShowAboutDialog, ShowLicenseDialog,

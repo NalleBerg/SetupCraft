@@ -30,11 +30,13 @@
   Files that only use V-scroll include only my_scrollbar_vscroll.h.
 
 
-3. CURRENT STATUS — Step 2: tilt-wheel partial (right only; left still broken)
+3. CURRENT STATUS — Step 2 COMPLETE: tilt-wheel works both directions (left + right)
 ────────────────────────────────────────────────────────────────────
-  MsbH_DeliverScroll uses SetScrollInfo(SIF_POS, nPos=lvHPos, FALSE) +
-  inHDeliver flag + LVM_SCROLL(delta).  Tilt-wheel RIGHT works.
-  Tilt-wheel LEFT is still broken — see ROOT CAUSE (Golden Rule 4).
+  MsbH_DeliverScroll uses SetScrollInfo(nPos=lvHPos, FALSE) to pre-seed
+  the counter baseline, then LVM_SCROLL(delta) inside inHDeliver=TRUE.
+  Msb_HideNativeBar(H) clears WS_HSCROLL via SetWindowLongPtr instead of
+  ShowScrollBar(FALSE) — preserving the internal counter between ticks.
+  Tilt-wheel LEFT and RIGHT both work on ListView, TreeView, and RichEdit.
 
   The custom H-bar widget is NOT yet shown (MSB_HORIZONTAL visibility guards
   still in place in Msb_UpdateVisibility / Msb_UpdateVisibilityGuarded /
@@ -45,14 +47,12 @@
     Step 1 (done)    — Suppress all H-scroll.  Native bar hidden.
                        No crashes.  Baseline verified.
 
-    Step 2 (partial) — LVM_SCROLL tilt-wheel: right works, left broken.
-                       ROOT CAUSE: LVM_SCROLL uses an internal scroll counter
-                       that is separate from SCROLLINFO.nPos.  SetScrollInfo
-                       updates the struct but not the counter.  Between
-                       deliveries, ShowScrollBar(FALSE) zeroes the counter.
-                       The inHDeliver guard prevents this during the scroll
-                       itself but cannot restore the counter to lvHPos before
-                       the call.  See fix direction in here.txt.
+    Step 2 (done)    — LVM_SCROLL tilt-wheel: both directions work.
+                       Root cause was ShowScrollBar(FALSE) zeroing the
+                       internal scroll counter between ticks.
+                       Fix: SetWindowLongPtr(~WS_HSCROLL) instead of
+                       ShowScrollBar(FALSE) in Msb_HideNativeBar(H).
+                       Counter persists at lvHPos between wheel ticks.
 
     Step 3 (next)    — Show bar: remove MSB_HORIZONTAL visibility guards.
 
@@ -83,26 +83,26 @@
      SCROLLINFO.nPos directly.  SetScrollInfo alone cannot restore that
      counter.  See Rule 4 for the full picture.
 
-  3. WS_HSCROLL is removed by ShowScrollBar(FALSE) in the WM_NCPAINT
-     intercept.  LVM_SCROLL works regardless of WS_HSCROLL — it does NOT
-     check the style bit before scrolling.
+  3. WS_HSCROLL is cleared by Msb_HideNativeBar(H) between wheel ticks.
+     The H-axis path uses SetWindowLongPtrW(GWL_STYLE, style & ~WS_HSCROLL)
+     — NOT ShowScrollBar(FALSE).  This removes the bar visually without
+     touching the internal counter.  LVM_SCROLL works regardless of
+     WS_HSCROLL — it does NOT check the style bit before scrolling.
 
   4. LVM_SCROLL is a DELTA scroll.  It uses an internal scroll counter for
      left-boundary clamping (rejects dx if counter + dx < 0).  This counter
      is separate from SCROLLINFO.nPos.  ShowScrollBar(FALSE) zeroes BOTH
      the counter and nPos.  SetScrollInfo updates nPos but NOT the counter.
-     Result: between deliveries, the counter is always 0 even though lvHPos
-     may be > 0 — leftward deltas are rejected.
-     Current approach (in code): SetScrollInfo(nPos=lvHPos, FALSE) + inHDeliver
-     guard.  This prevents ShowScrollBar(FALSE) during the scroll itself, but
-     cannot restore the counter to lvHPos before the call.  Right works; left
-     still broken.
-     Next fix direction (see here.txt): set inHDeliver = TRUE FIRST, then
-     call ShowScrollBar(SB_HORZ, TRUE).  ShowScrollBar(TRUE) should
-     re-initialize the ListView's internal counter from SCROLLINFO.nPos.
-     Because inHDeliver is already TRUE, the WM_NCPAINT that ShowScrollBar(TRUE)
-     triggers will skip Msb_HideNativeBar — so ShowScrollBar(FALSE) never
-     fires and the counter stays at lvHPos for LVM_SCROLL.
+
+     THE FIX (v2026.05.02.10): Replace ShowScrollBar(FALSE) with
+     SetWindowLongPtr(~WS_HSCROLL) in Msb_HideNativeBar for the H-axis.
+     SetWindowLongPtr only removes the style bit — counter is untouched.
+     Counter stays at lvHPos between ticks; lvHPos + delta >= 0 always
+     passes after clamping.  Both left and right tilt-wheel now work.
+
+     Pre-seed: SetScrollInfo(nPos=lvHPos, FALSE) is called immediately
+     before LVM_SCROLL so any internal ShowScrollBar(TRUE) within
+     LVM_SCROLL re-seeds the counter from the correct baseline (lvHPos).
 
 
 5. REFERENCE

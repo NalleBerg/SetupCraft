@@ -2,6 +2,14 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.05.02.10] - 2026-05-02
+
+### H-scroll Step 2: tilt-wheel left+right fully working on ListView, TreeView, and RichEdit
+- **my_scrollbar — ListView H tilt-wheel fixed (both directions)**: `LVM_SCROLL`'s internal horizontal scroll counter was being zeroed between tilt-wheel ticks by `ShowScrollBar(SB_HORZ, FALSE)` inside `Msb_HideNativeBar` — called from the post-delivery `WM_NCPAINT` intercept (when `inHDeliver` is already `FALSE`). Once the counter reached 0, any leftward delta failed the `counter + dx >= 0` clamp check and was silently rejected. Fix: `Msb_HideNativeBar` for the H-axis now clears `WS_HSCROLL` via `SetWindowLongPtrW(GWL_STYLE, style & ~WS_HSCROLL)` instead of `ShowScrollBar(FALSE)`. This removes the bar visually without touching the internal counter. Counter persists at `lvHPos` between ticks; `lvHPos + delta >= 0` always passes after clamping. V-scroll is completely unaffected (separate code path, unchanged).
+- **my_scrollbar — counter pre-seed**: `SetScrollInfo(nPos=lvHPos, FALSE)` is called immediately before `LVM_SCROLL` so that any internal `ShowScrollBar(TRUE)` call within `LVM_SCROLL` re-seeds the counter from the correct baseline (`lvHPos`, not a stale 0).
+- **my_scrollbar — NCPAINT restoreH guarded**: The `restoreH` capture/restore path in the `WM_NCPAINT` intercept is now skipped while `inHDeliver` is `TRUE`, preventing a stale `SCROLLINFO.nPos` snapshot from overwriting the pre-seeded value during delivery.
+- **my_scrollbar — WM_SIZE guard extended**: The `WM_SIZE` handler now applies the same `!ctxH->inHDeliver` guard to `Msb_HideNativeBar(H)` as the `WM_NCPAINT` intercept. `LVM_SCROLL` fires `WM_SIZE` synchronously (via an internal `ShowScrollBar(TRUE)`) before the scroll completes; without the guard the handler called `Msb_HideNativeBar(H)` and zeroed the counter before the scroll ran.
+
 ## [2026.04.29.09] - 2026-04-29
 
 ### H-scroll Step 2 (tilt-wheel): inHDeliver guard + SetScrollInfo-before-LVM_SCROLL attempt

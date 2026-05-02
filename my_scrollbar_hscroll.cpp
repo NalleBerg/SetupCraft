@@ -68,20 +68,23 @@ static void MsbH_DeliverScroll(MsbCtx* ctx, int newPos)
         int delta = newPos - ctx->lvHPos;
         if (delta == 0) return;
 
-        /* LVM_SCROLL uses SCROLLINFO.nPos for its left-boundary clamp
-         * (rejects dx if nPos + dx < 0).  ShowScrollBar(FALSE) in any
-         * WM_NCPAINT call between delivery events zeroes nPos, so all
-         * leftward deltas would be clamped even when the view is scrolled
-         * right.  Restore nPos = lvHPos before the call.
-         * SetScrollInfo with FALSE (no-redraw) does NOT post WM_NCPAINT,
-         * so this value is safe until LVM_SCROLL runs. */
+        /* Pre-seed SCROLLINFO.nPos = lvHPos (CURRENT position, not newPos).
+         * LVM_SCROLL fires ShowScrollBar(SB_HORZ, TRUE) internally which
+         * re-seeds the internal scroll counter from SCROLLINFO.nPos.
+         * We must seed with lvHPos so that:
+         *   counter = lvHPos, delta = newPos - lvHPos
+         *   check: lvHPos + delta = newPos >= 0  (always valid after clamping)
+         * Seeding with newPos instead would give counter = newPos and
+         *   check: newPos + (newPos - lvHPos) = 2*newPos - lvHPos
+         * which is negative for any leftward scroll beyond the midpoint.
+         *
+         * inHDeliver: (a) WM_NCPAINT skips Msb_HideNativeBar(H) so
+         * ShowScrollBar(FALSE) cannot zero the counter mid-delivery, and
+         * (b) restoreH in NCPAINT is skipped so it cannot overwrite our
+         * pre-seeded nPos with a stale captured value. */
         SCROLLINFO setSi = {sizeof(setSi), SIF_POS};
         setSi.nPos = ctx->lvHPos;
         SetScrollInfo(ctx->hTarget, SB_HORZ, &setSi, FALSE);
-
-        /* inHDeliver guard: WM_NCPAINT intercept skips Msb_HideNativeBar
-         * for H while TRUE, so ShowScrollBar(FALSE) cannot zero nPos again
-         * during the scroll itself. */
         ctx->inHDeliver = TRUE;
         SendMessageW(ctx->hTarget, LVM_SCROLL, (WPARAM)delta, 0);
         ctx->inHDeliver = FALSE;
