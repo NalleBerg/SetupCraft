@@ -33,6 +33,11 @@
                                                 WM_LBUTTONDOWN before any ShowXxxDialog() that
                                                 calls EnableWindow(parent, FALSE) — WM_MOUSELEAVE
                                                 is never delivered after the parent is disabled.
+                                                §16: TreeView item-hover pattern (HitTest + iImage).
+                                                §17: Shared subclass proc for many dialog
+                                                checkboxes/radios — attach tip string via
+                                                SetPropW(L"avTip") and read in one shared proc;
+                                                Win32 TOOLTIPS_CLASS unreliable for these controls.
 
   API_INTERNALS\API\spinner_dialog_API.txt      Modal progress/spinner dialog component — API,
                                                 thread usage, and progress callback protocol.

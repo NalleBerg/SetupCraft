@@ -206,4 +206,22 @@
     This is identical to the pattern used for shell icon tooltips (WarningIcon,
     CompInfoIcon, RegenBtn) throughout SetupCraft.
 
+  - Shared subclass proc for many dialog controls via window property (avTip pattern):
+    When a dialog has many checkboxes/radios that each need their own tooltip text,
+    use SetPropW to attach the tip string to each HWND and a single shared subclass
+    proc to read it back.
+    1. Before subclassing:
+         SetPropW(hCtrl, L"avTip", (HANDLE)(const wchar_t*)L"Your tooltip here");
+    2. Subclass all controls with the same proc:
+         s_avPrevChkProc = (WNDPROC)SetWindowLongPtrW(hCtrl, GWLP_WNDPROC, (LONG_PTR)AVFlag_SubclassProc);
+    3. In the shared proc WM_MOUSEMOVE:
+         const wchar_t* tip = (const wchar_t*)GetPropW(hwnd, L"avTip");
+         if (tip) ShowMultilingualTooltip({ {L"", tip} }, rc.left, rc.bottom+4, GetParent(hwnd));
+    The s_avPrevChkProc static is the same for all controls because they share the
+    same underlying BUTTON class window proc.  Win32 TOOLTIPS_CLASS (TTM_ADDTOOL)
+    does not work in dynamically-created dialogs — it never fires TTN_GETDISPINFO
+    for checkboxes without WS_EX_NOPARENTNOTIFY set and never over owner-drawn
+    controls.  The subclass+property pattern is reliable and requires no extra
+    cooperation from the parent dialog proc.
+
 ================================================================================

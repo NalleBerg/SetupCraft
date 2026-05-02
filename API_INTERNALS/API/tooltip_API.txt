@@ -629,3 +629,76 @@ API REFERENCE:
    - This pattern is safe to combine with the drag-and-drop subclass because
      the tooltip subclass is the outermost proc and forwards all messages it
      does not handle via CallWindowProcW.
+
+   17) Tooltip on many dialog checkboxes/radios via window property
+   ---------------------------------------------------------------
+   Use this pattern when you have many checkboxes or radio buttons in a modal
+   dialog and each needs its own distinct tooltip text, but you want a single
+   shared subclass proc rather than one proc per control.
+
+   Key idea: attach the tooltip string as a window property (`SetPropW`)
+   before subclassing, then read it back in the shared proc.
+
+   Example (AVFlag_SubclassProc in mainwindow.cpp, AddValueDialogProc):
+
+   static WNDPROC s_avPrevChkProc    = NULL;
+   static bool    s_avChkTracking    = false;
+
+   static LRESULT CALLBACK AVFlag_SubclassProc(
+       HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+   {
+       switch (msg) {
+       case WM_MOUSEMOVE:
+           if (!IsTooltipVisible()) {
+               const wchar_t* tip = (const wchar_t*)GetPropW(hwnd, L"avTip");
+               if (tip) {
+                   RECT rc; GetWindowRect(hwnd, &rc);
+                   std::vector<TooltipEntry> entries = { { L"", tip } };
+                   ShowMultilingualTooltip(entries, rc.left, rc.bottom + 4,
+                                           GetParent(hwnd));
+               }
+           }
+           if (!s_avChkTracking) {
+               TRACKMOUSEEVENT tme = {};
+               tme.cbSize = sizeof(tme); tme.dwFlags = TME_LEAVE;
+               tme.hwndTrack = hwnd; TrackMouseEvent(&tme);
+               s_avChkTracking = true;
+           }
+           break;
+       case WM_MOUSELEAVE:
+           HideTooltip();
+           s_avChkTracking = false;
+           break;
+       case WM_NCDESTROY:
+           SetWindowLongPtrW(hwnd, GWLP_WNDPROC, (LONG_PTR)s_avPrevChkProc);
+           break;
+       }
+       return CallWindowProcW(s_avPrevChkProc, hwnd, msg, wParam, lParam);
+   }
+
+   Setup in WM_CREATE (after all controls are created):
+
+   struct { HWND h; const wchar_t* tip; } chkInfos[] = {
+       { GetDlgItem(hDlg, IDC_F_DELETEVALUE),   L"Deletes the value on uninstall..." },
+       { GetDlgItem(hDlg, IDC_F_DONTCREATEKEY), L"Does not create the key if absent..." },
+       // ... etc.
+   };
+   for (auto& ci : chkInfos) {
+       if (!ci.h) continue;
+       SetPropW(ci.h, L"avTip", (HANDLE)ci.tip);          // attach tooltip text
+       s_avPrevChkProc = (WNDPROC)SetWindowLongPtrW(      // subclass
+           ci.h, GWLP_WNDPROC, (LONG_PTR)AVFlag_SubclassProc);
+   }
+
+   Notes:
+   - The `s_avPrevChkProc` static is overwritten on each iteration; this is
+     correct ONLY when all controls share the same underlying window class
+     (BS_AUTOCHECKBOX / BS_AUTORADIOBUTTON) so they all have the same original
+     wndproc.
+   - Tip strings must live as long as the dialog (static literals are ideal).
+   - The standard Win32 TOOLTIPS_CLASS is NOT used — it never fires WM_NOTIFY
+     TTN_GETDISPINFO for owner-drawn or template-less dialog checkboxes.
+   - This pattern works even inside dialogs created without a resource template
+     (CreateWindowExW-based dialogs) because the subclass intercepts the
+     individual control HWNDs, not the dialog procedure.
+

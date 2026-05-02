@@ -173,6 +173,7 @@ reg_remove=Delete
 reg_col_name=Name
 reg_col_type=Type
 reg_col_data=Data
+reg_col_flags=Flags
 reg_context_add_key=Add Key
 reg_context_add_value=Add Value
 reg_context_edit=Edit
@@ -215,6 +216,18 @@ reg_regen_warn_title=Regenerate AppId?
 reg_regen_warn_msg=Changing the AppId will break uninstallation of previous versions of your software.\r\n\r\nOnly regenerate for a major new release or when starting fresh.\r\n\r\nAre you sure?
 reg_regen_warn_yes=Yes, regenerate
 reg_regen_warn_no=Cancel
+reg_flg_sec_uninstall=Uninstall behaviour
+reg_flg_sec_view=Registry view
+reg_flg_deletevalue=deletevalue — delete this value on uninstall
+reg_flg_uninsdeletevalue=uninsdeletevalue — delete only if created by installer
+reg_flg_dontcreatekey=dontcreatekey — write value without creating key
+reg_flg_preservestringtype=preservestringtype — keep existing string type
+reg_flg_deletekey=deletekey — delete entire key on uninstall
+reg_flg_uninsdeletekey=uninsdeletekey — delete key only if created by installer
+reg_flg_uninsdeletekeyifempty=uninsdeletekeyifempty — delete key if empty on uninstall
+reg_flg_view_default=Default
+reg_flg_view_32bit=32-bit
+reg_flg_view_64bit=64-bit
 
 # Components page
 comp_page_title=Components

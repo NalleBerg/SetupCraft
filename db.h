@@ -27,6 +27,7 @@ struct RegistryEntryRow {
     std::wstring name;
     std::wstring type;
     std::wstring data;
+    std::wstring flags;  // space-separated Inno [Registry] flags, e.g. "uninsdeletevalue 64bit"
 };
 
 struct ComponentRow {
@@ -66,7 +67,7 @@ namespace DB {
     bool InsertFile(int projectId, const std::wstring &sourcePath, const std::wstring &destPath, const std::wstring &installScope, const std::wstring &innoFlags = L"", const std::wstring &destDirOverride = L"");
     std::vector<FileRow> GetFilesForProject(int projectId);
     // Registry entry persistence (relational: one project → many entries)
-    bool InsertRegistryEntry(int projectId, const std::wstring &hive, const std::wstring &path, const std::wstring &name, const std::wstring &type, const std::wstring &data);
+    bool InsertRegistryEntry(int projectId, const std::wstring &hive, const std::wstring &path, const std::wstring &name, const std::wstring &type, const std::wstring &data, const std::wstring &flags = L"");
     std::vector<RegistryEntryRow> GetRegistryEntriesForProject(int projectId);
     bool DeleteRegistryEntriesForProject(int projectId);
     // Component persistence

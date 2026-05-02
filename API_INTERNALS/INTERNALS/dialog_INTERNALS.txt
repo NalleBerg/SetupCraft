@@ -126,7 +126,12 @@ ctrlw.cpp dialogs (all DONE):
 
 mainwindow.cpp dialogs (all DONE):
   RegKeyDialogProc                         — RK_* layout constants; AdjustWindowRectEx
-  AddValueDialogProc                       — AV_* constants; 3 field rows + buttons
+  AddValueDialogProc                       — AV_* constants; 3 field rows + 2 flag sections + buttons;
+                                             Uninstall behaviour (7 checkboxes, 2 columns) +
+                                             Registry view (3 BS_AUTORADIOBUTTON); WHITE_BRUSH
+                                             background; section borders via sectionRects + WM_PAINT;
+                                             bold hHdrFont for section headers; AVFlag_SubclassProc
+                                             on each checkbox/radio for custom yellow tooltip
   AddKeyDialogProc                         — AK_* constants; single field row + buttons
   CompFolderEditDlgProc                    — CFE_* constants; hint height measured at
                                              creation site with DrawTextW DT_CALCRECT
@@ -134,7 +139,8 @@ mainwindow.cpp dialogs (all DONE):
 Per-dialog layout constant sets (all in mainwindow.cpp before their proc):
   RK_PAD_H/T/B, RK_LBL_H, RK_GAP_LE, RK_EDIT_H, RK_GAP_EB, RK_BTN_H/W0/W1/W2, RK_BTN_GAP
   AV_PAD_H/T/B, AV_LBL_W, AV_FLD_GAP, AV_EDIT_W, AV_ROW_H,
-      AV_GAP_R1/R2/RB, AV_BTN_H/W0/W1, AV_BTN_GAP
+      AV_GAP_R1/R2/RD/RB, AV_SEC_H, AV_GAP_SEC, AV_CHK_H, AV_GAP_BTW,
+      AV_BTN_H/W0/W1, AV_BTN_GAP
   AK_PAD_H/T/B, AK_LBL_W, AK_FLD_GAP, AK_EDIT_W, AK_ROW_H,
       AK_GAP_EB, AK_BTN_H/W0/W1, AK_BTN_GAP
   CFE_PAD_H/T/B, CFE_CONT_W, CFE_NAME_H, CFE_GAP_NR, CFE_CHECK_H,

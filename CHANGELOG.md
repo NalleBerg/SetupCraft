@@ -2,6 +2,18 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.05.02.13] - 2026-05-02
+
+### Registry page — per-entry flags, registry view selector, and GUID field protection
+- **db.h / db.cpp — `flags` on `RegistryEntryRow`**: New `std::wstring flags` field. `ALTER TABLE registry_entries ADD COLUMN flags TEXT DEFAULT ''` migration in `InitDb` (idempotent). `InsertRegistryEntry` extended with `const std::wstring& flags = L""` parameter; SQL binds it as parameter 7. `GetRegistryEntriesForProject` SELECTs and reads column 6 as `r.flags`.
+- **mainwindow — Add/Edit Value dialog expanded**: `AddValueDialogData` gains `std::wstring valueFlags` and `std::vector<RECT> sectionRects`. Two new sections appear below the Data field with 1 px `COLOR_BTNSHADOW` border rectangles: **Uninstall behaviour** (7 checkboxes in two columns: `deletevalue`, `uninsdeletevalue`, `dontcreatekey`, `preservestringtype` on the left; `deletekey`, `uninsdeletekey`, `uninsdeletekeyifempty` on the right) and **Registry view** (3 `BS_AUTORADIOBUTTON`s: Default / 32-bit / 64-bit). Dialog class uses `WHITE_BRUSH`; `WM_CTLCOLORSTATIC` and `WM_CTLCOLORBTN` return `WHITE_BRUSH`. Section headers use a bold NONCLIENTMETRICS font stored as `hHdrFont`. Pre-population restores all 7 checkbox states and the correct radio on Edit.
+- **mainwindow — flags collected on OK**: All 7 checkbox IDs and 2 radio IDs read; flags assembled into a space-separated string (e.g. `uninsdeletevalue 64bit`) and stored in `pData->valueFlags`. IDC constants `IDC_ADDVAL_F_DELETEVALUE = 5065` … `IDC_ADDVAL_F_ARCH_64BIT = 5077`.
+- **mainwindow — ListView Flags column**: 4th column "Flags" (`reg_col_flags` locale key, 23 % width) added. All 4 populate spots call `ListView_SetItemText(..., 3, entry.flags.c_str())`. Widths: Name 27 %, Type 17 %, Data 33 %, Flags 23 %.
+- **mainwindow — load / save / add / edit paths wired**: `RegistryEntry.flags` field added. Loaded from DB on project open, passed into Add/Edit dialog, written back after OK, persisted via updated `InsertRegistryEntry`.
+- **mainwindow — hover tooltips on all flag controls**: Each checkbox and radio subclassed with `AVFlag_SubclassProc` — calls `ShowMultilingualTooltip` (custom yellow tooltip) on `WM_MOUSEMOVE`, `HideTooltip` on `WM_MOUSELEAVE`. Tooltip text (2–3 sentences per flag) stored as window property `avTip`. Win32 `TOOLTIPS_CLASS` not used — it does not fire over owner-drawn checkboxes.
+- **mainwindow — GUID field made read-only static**: `IDC_REG_APP_ID` changed from an `ES_READONLY` EDIT to a plain STATIC (`SS_LEFT | SS_CENTERIMAGE | SS_NOPREFIX`), matching the install-folder field. Text rendered dark blue (`RGB(0, 51, 153)`) via `WM_CTLCOLORSTATIC`. Regenerate button and save path continue to use `SetWindowTextW` / `GetWindowTextW`, which work on STATIC controls.
+- **Locale keys added** (both `locale/en_GB.txt` files): `reg_col_flags`, `reg_flg_sec_uninstall`, `reg_flg_sec_view`, `reg_flg_deletevalue`, `reg_flg_uninsdeletevalue`, `reg_flg_dontcreatekey`, `reg_flg_preservestringtype`, `reg_flg_deletekey`, `reg_flg_uninsdeletekey`, `reg_flg_uninsdeletekeyifempty`, `reg_flg_view_default`, `reg_flg_view_32bit`, `reg_flg_view_64bit`.
+
 ## [2026.05.02.12] - 2026-05-02
 
 ### Registry page — AppId (GUID) feature + field alignment

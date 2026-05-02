@@ -164,6 +164,7 @@ struct RegistryEntry {
     std::wstring name;     // Value name
     std::wstring type;     // REG_SZ, REG_DWORD, etc.
     std::wstring data;     // Value data
+    std::wstring flags;    // space-separated Inno [Registry] flags, e.g. "uninsdeletevalue 64bit"
 };
 static std::map<HTREEITEM, std::vector<RegistryEntry>> s_registryValues;
 
@@ -421,6 +422,18 @@ static bool s_filesPageHasContent = false; // tracks whether Files page has any 
 #define IDC_ADDVAL_DATA     5062
 #define IDC_ADDVAL_OK       5063
 #define IDC_ADDVAL_CANCEL   5064
+// Flag checkboxes (Uninstall behaviour section)
+#define IDC_ADDVAL_F_DELETEVALUE          5065
+#define IDC_ADDVAL_F_UNINSDELETEVALUE     5066
+#define IDC_ADDVAL_F_DELETEKEY            5067
+#define IDC_ADDVAL_F_UNINSDELETEKEY       5068
+#define IDC_ADDVAL_F_UNINSDELETEKEYIFEMPTY 5069
+#define IDC_ADDVAL_F_DONTCREATEKEY        5073
+#define IDC_ADDVAL_F_PRESERVESTRINGTYPE   5074
+// Registry view radio buttons
+#define IDC_ADDVAL_F_ARCH_DEFAULT         5075
+#define IDC_ADDVAL_F_ARCH_32BIT           5076
+#define IDC_ADDVAL_F_ARCH_64BIT           5077
 
 // Add Key dialog IDs
 #define IDC_ADDKEY_NAME     5070
@@ -690,6 +703,7 @@ HWND MainWindow::Create(HINSTANCE hInstance, const ProjectRow &project, const st
                 RegistryEntry e;
                 e.hive = r.hive; e.path = r.path;
                 e.name = r.name; e.type = r.type; e.data = r.data;
+                e.flags = r.flags;
                 s_customRegistryEntries.push_back(e);
             }
         }
@@ -2720,9 +2734,9 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
             int editW  = S(300);   // fits "{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}"
             int regenW = S(30);
 
-            // Read-only: GUID is changed only via the Regenerate button
-            HWND hAppIdEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", s_appId.c_str(),
-                WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL | ES_READONLY,
+            // Read-only: GUID is changed only via the Regenerate button (static, styled like install folder)
+            HWND hAppIdEdit = CreateWindowExW(0, L"STATIC", s_appId.c_str(),
+                WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE | SS_NOPREFIX,
                 editX, currentY, editW, S(22),
                 hwnd, (HMENU)IDC_REG_APP_ID, hInst, NULL);
             if (s_scaledFont && hAppIdEdit) SendMessageW(hAppIdEdit, WM_SETFONT, (WPARAM)s_scaledFont, TRUE);
@@ -2835,22 +2849,29 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         
         auto itColData = s_locale.find(L"reg_col_data");
         std::wstring colData = (itColData != s_locale.end()) ? itColData->second : L"Data";
+
+        auto itColFlags = s_locale.find(L"reg_col_flags");
+        std::wstring colFlags = (itColFlags != s_locale.end()) ? itColFlags->second : L"Flags";
         
         LVCOLUMNW lvc = {};
         lvc.mask = LVCF_TEXT | LVCF_WIDTH | LVCF_FMT;
         lvc.fmt = LVCFMT_LEFT;
         
         lvc.pszText = (LPWSTR)colName.c_str();
-        lvc.cx = (int)(listWidth * 0.35);
+        lvc.cx = (int)(listWidth * 0.27);
         ListView_InsertColumn(s_hRegListView, 0, &lvc);
         
         lvc.pszText = (LPWSTR)colType.c_str();
-        lvc.cx = (int)(listWidth * 0.25);
+        lvc.cx = (int)(listWidth * 0.17);
         ListView_InsertColumn(s_hRegListView, 1, &lvc);
         
         lvc.pszText = (LPWSTR)colData.c_str();
-        lvc.cx = (int)(listWidth * 0.40);
+        lvc.cx = (int)(listWidth * 0.33);
         ListView_InsertColumn(s_hRegListView, 2, &lvc);
+
+        lvc.pszText = (LPWSTR)colFlags.c_str();
+        lvc.cx = (int)(listWidth * 0.23);
+        ListView_InsertColumn(s_hRegListView, 3, &lvc);
 
         // Build fullPath→HTREEITEM map by walking the entire tree.
         // fullPath format: "HIVE_ROOT\\sub\\..." (hive + "\\" + path, same as RegistryEntry).
@@ -4563,25 +4584,68 @@ struct AddValueDialogData {
     std::wstring valueType;
     std::wstring valueData;
     bool okClicked;
+    std::wstring valueFlags;        // space-separated Inno [Registry] flags, e.g. "uninsdeletevalue 64bit"
+    std::vector<RECT> sectionRects; // section border rects for WM_PAINT
 };
 
 // Dialog procedure for Add Registry Value dialog
 // ── AddValue dialog layout constants (design-px at 96 DPI) ────────────────────
 // Layout: label column | gap | edit/combo column, 3 data rows then buttons.
-static const int AV_PAD_H   = 20; // left/right padding
-static const int AV_PAD_T   = 20; // top padding
-static const int AV_PAD_B   = 20; // bottom padding
+static const int AV_PAD_H   = 20;  // left/right padding
+static const int AV_PAD_T   = 20;  // top padding
+static const int AV_PAD_B   = 20;  // bottom padding
 static const int AV_LBL_W   = 145; // label column width
 static const int AV_FLD_GAP = 10;  // gap between label and field
 static const int AV_EDIT_W  = 460; // edit/combo field width
 static const int AV_ROW_H   = 28;  // row height (label/edit/combo)
 static const int AV_GAP_R1  = 16;  // vertical gap between rows 1 and 2
 static const int AV_GAP_R2  = 18;  // vertical gap between rows 2 and 3
-static const int AV_GAP_RB  = 34;  // vertical gap between last row and buttons
+static const int AV_GAP_RD  = 14;  // vertical gap between data row and flags sections
+static const int AV_SEC_H   = 18;  // flags section header height
+static const int AV_GAP_SEC =  4;  // gap between section header and first control
+static const int AV_CHK_H   = 24;  // checkbox/radio row height
+static const int AV_GAP_BTW = 12;  // gap between sections
+static const int AV_GAP_RB  = 16;  // vertical gap between last section and buttons
 static const int AV_BTN_H   = 38;
 static const int AV_BTN_W0  = 155; // OK
 static const int AV_BTN_W1  = 155; // Cancel
 static const int AV_BTN_GAP = 10;
+
+// Subclass proc for flag checkboxes/radios — shows the custom tooltip on hover
+static WNDPROC s_avPrevChkProc = NULL; // shared; only one control hovered at a time
+static bool    s_avChkTracking = false;
+
+static LRESULT CALLBACK AVFlag_SubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+    case WM_MOUSEMOVE: {
+        if (!IsTooltipVisible()) {
+            const wchar_t* tip = (const wchar_t*)GetPropW(hwnd, L"avTip");
+            if (tip) {
+                RECT rc; GetWindowRect(hwnd, &rc);
+                std::vector<TooltipEntry> entries = { { L"", tip } };
+                ShowMultilingualTooltip(entries, rc.left, rc.bottom + 4, GetParent(hwnd));
+            }
+        }
+        if (!s_avChkTracking) {
+            TRACKMOUSEEVENT tme = {};
+            tme.cbSize = sizeof(tme);
+            tme.dwFlags = TME_LEAVE;
+            tme.hwndTrack = hwnd;
+            TrackMouseEvent(&tme);
+            s_avChkTracking = true;
+        }
+        break;
+    }
+    case WM_MOUSELEAVE:
+        HideTooltip();
+        s_avChkTracking = false;
+        break;
+    case WM_NCDESTROY:
+        SetWindowLongPtrW(hwnd, GWLP_WNDPROC, (LONG_PTR)s_avPrevChkProc);
+        break;
+    }
+    return CallWindowProcW(s_avPrevChkProc, hwnd, msg, wParam, lParam);
+}
 
 LRESULT CALLBACK AddValueDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
@@ -4644,7 +4708,101 @@ LRESULT CALLBACK AddValueDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL,
             editX, y, editW, S(AV_ROW_H), hwnd, (HMENU)IDC_ADDVAL_DATA, hInst, NULL);
         SetDlgItemTextW(hwnd, IDC_ADDVAL_DATA, pData->valueData.c_str());
-        y += S(AV_ROW_H) + S(AV_GAP_RB);
+        y += S(AV_ROW_H) + S(AV_GAP_RD);
+
+        // ── Locale helper ─────────────────────────────────────────────────────
+        auto _loc = [](const wchar_t* key, const wchar_t* def) -> std::wstring {
+            const auto& loc = MainWindow::GetLocale();
+            auto it = loc.find(key);
+            return (it != loc.end()) ? it->second : def;
+        };
+
+        const std::wstring& flgs = pData->valueFlags;
+        int w = cW - 2*S(AV_PAD_H);
+        const int bdrPad = S(3);
+        auto pushBorderAV = [&](int top) {
+            RECT r = { S(AV_PAD_H) - bdrPad, top - bdrPad,
+                       S(AV_PAD_H) + w + bdrPad, y + bdrPad };
+            pData->sectionRects.push_back(r);
+        };
+
+        // ── Section: Uninstall behaviour ──────────────────────────────────────
+        CreateWindowExW(0, L"STATIC",
+            _loc(L"reg_flg_sec_uninstall", L"Uninstall behaviour").c_str(),
+            WS_CHILD | WS_VISIBLE | SS_LEFT,
+            S(AV_PAD_H), y, w, S(AV_SEC_H), hwnd, (HMENU)(UINT_PTR)9200, hInst, NULL);
+        y += S(AV_SEC_H) + S(AV_GAP_SEC);
+        { int sTop = y;
+            int colW = w / 2;
+            // Column 1: value-level flags
+            int y1 = y;
+            CreateCustomCheckbox(hwnd, IDC_ADDVAL_F_DELETEVALUE,
+                _loc(L"reg_flg_deletevalue", L"deletevalue"),
+                FlagsHas(flgs, L"deletevalue"),
+                S(AV_PAD_H), y1, colW - S(4), S(AV_CHK_H), hInst); y1 += S(AV_CHK_H);
+            CreateCustomCheckbox(hwnd, IDC_ADDVAL_F_UNINSDELETEVALUE,
+                _loc(L"reg_flg_uninsdeletevalue", L"uninsdeletevalue"),
+                FlagsHas(flgs, L"uninsdeletevalue"),
+                S(AV_PAD_H), y1, colW - S(4), S(AV_CHK_H), hInst); y1 += S(AV_CHK_H);
+            CreateCustomCheckbox(hwnd, IDC_ADDVAL_F_DONTCREATEKEY,
+                _loc(L"reg_flg_dontcreatekey", L"dontcreatekey"),
+                FlagsHas(flgs, L"dontcreatekey"),
+                S(AV_PAD_H), y1, colW - S(4), S(AV_CHK_H), hInst); y1 += S(AV_CHK_H);
+            CreateCustomCheckbox(hwnd, IDC_ADDVAL_F_PRESERVESTRINGTYPE,
+                _loc(L"reg_flg_preservestringtype", L"preservestringtype"),
+                FlagsHas(flgs, L"preservestringtype"),
+                S(AV_PAD_H), y1, colW - S(4), S(AV_CHK_H), hInst); y1 += S(AV_CHK_H);
+            // Column 2: key-level flags
+            int y2 = y;
+            CreateCustomCheckbox(hwnd, IDC_ADDVAL_F_DELETEKEY,
+                _loc(L"reg_flg_deletekey", L"deletekey"),
+                FlagsHas(flgs, L"deletekey"),
+                S(AV_PAD_H) + colW, y2, colW, S(AV_CHK_H), hInst); y2 += S(AV_CHK_H);
+            CreateCustomCheckbox(hwnd, IDC_ADDVAL_F_UNINSDELETEKEY,
+                _loc(L"reg_flg_uninsdeletekey", L"uninsdeletekey"),
+                FlagsHas(flgs, L"uninsdeletekey"),
+                S(AV_PAD_H) + colW, y2, colW, S(AV_CHK_H), hInst); y2 += S(AV_CHK_H);
+            CreateCustomCheckbox(hwnd, IDC_ADDVAL_F_UNINSDELETEKEYIFEMPTY,
+                _loc(L"reg_flg_uninsdeletekeyifempty", L"uninsdeletekeyifempty"),
+                FlagsHas(flgs, L"uninsdeletekeyifempty"),
+                S(AV_PAD_H) + colW, y2, colW, S(AV_CHK_H), hInst); y2 += S(AV_CHK_H);
+            y += 4 * S(AV_CHK_H);
+            pushBorderAV(sTop);
+        }
+        y += S(AV_GAP_BTW);
+
+        // ── Section: Registry view ────────────────────────────────────────────
+        CreateWindowExW(0, L"STATIC",
+            _loc(L"reg_flg_sec_view", L"Registry view").c_str(),
+            WS_CHILD | WS_VISIBLE | SS_LEFT,
+            S(AV_PAD_H), y, w, S(AV_SEC_H), hwnd, (HMENU)(UINT_PTR)9201, hInst, NULL);
+        y += S(AV_SEC_H) + S(AV_GAP_SEC);
+        { int sTop = y;
+            bool has32 = FlagsHas(flgs, L"32bit");
+            bool has64 = FlagsHas(flgs, L"64bit");
+            int radW = w / 3;
+            CreateWindowExW(0, L"BUTTON",
+                _loc(L"reg_flg_view_default", L"Default").c_str(),
+                WS_CHILD | WS_VISIBLE | BS_AUTORADIOBUTTON | WS_GROUP,
+                S(AV_PAD_H), y, radW, S(AV_CHK_H),
+                hwnd, (HMENU)(UINT_PTR)IDC_ADDVAL_F_ARCH_DEFAULT, hInst, NULL);
+            CreateWindowExW(0, L"BUTTON",
+                _loc(L"reg_flg_view_32bit", L"32-bit").c_str(),
+                WS_CHILD | WS_VISIBLE | BS_AUTORADIOBUTTON,
+                S(AV_PAD_H) + radW, y, radW, S(AV_CHK_H),
+                hwnd, (HMENU)(UINT_PTR)IDC_ADDVAL_F_ARCH_32BIT, hInst, NULL);
+            CreateWindowExW(0, L"BUTTON",
+                _loc(L"reg_flg_view_64bit", L"64-bit").c_str(),
+                WS_CHILD | WS_VISIBLE | BS_AUTORADIOBUTTON,
+                S(AV_PAD_H) + 2*radW, y, radW, S(AV_CHK_H),
+                hwnd, (HMENU)(UINT_PTR)IDC_ADDVAL_F_ARCH_64BIT, hInst, NULL);
+            int initRad = has32 ? IDC_ADDVAL_F_ARCH_32BIT
+                        : (has64 ? IDC_ADDVAL_F_ARCH_64BIT : IDC_ADDVAL_F_ARCH_DEFAULT);
+            SendMessageW(GetDlgItem(hwnd, initRad), BM_SETCHECK, BST_CHECKED, 0);
+            y += S(AV_CHK_H);
+            pushBorderAV(sTop);
+        }
+        y += S(AV_GAP_RB);
 
         // Buttons — centred
         int wOK_AV  = MeasureButtonWidth(pData->okText, true);
@@ -4657,7 +4815,7 @@ LRESULT CALLBACK AddValueDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             L"shell32.dll", 131, startX + wOK_AV + S(AV_BTN_GAP), y,
             wCnl_AV, S(AV_BTN_H), hInst);
 
-        // Apply system message font to all controls (labels, edits, combobox)
+        // Apply system message font to all controls (labels, edits, combobox, checkboxes)
         {
             NONCLIENTMETRICSW ncm = {};
             ncm.cbSize = sizeof(ncm);
@@ -4673,12 +4831,54 @@ LRESULT CALLBACK AddValueDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 }, (LPARAM)hCtrlFont);
                 SetPropW(hwnd, L"hCtrlFont", (HANDLE)hCtrlFont);
             }
+            // Bold font for section headers
+            ncm.lfMessageFont.lfWeight = FW_BOLD;
+            HFONT hHdrFont = CreateFontIndirectW(&ncm.lfMessageFont);
+            if (hHdrFont) {
+                for (int secId = 9200; secId <= 9201; secId++) {
+                    HWND h = GetDlgItem(hwnd, secId);
+                    if (h) SendMessageW(h, WM_SETFONT, (WPARAM)hHdrFont, TRUE);
+                }
+                SetPropW(hwnd, L"hHdrFont", (HANDLE)hHdrFont);
+            }
         }
 
         // Set dropped width AFTER font is applied so item pixel widths are correct
         {
             HWND hCb = GetDlgItem(hwnd, IDC_ADDVAL_TYPE);
             if (hCb) SendMessageW(hCb, CB_SETDROPPEDWIDTH, 760, 0);
+        }
+
+        // Subclass each flag control and attach its tooltip text as a window property
+        {
+            static const struct { int id; const wchar_t* tip; } avTips[] = {
+                { IDC_ADDVAL_F_DELETEVALUE,
+                  L"Deletes this registry value during uninstall,\neven if the installer did not originally create it." },
+                { IDC_ADDVAL_F_UNINSDELETEVALUE,
+                  L"Deletes this registry value during uninstall only if\nthe installer created or wrote it.\nSafe default for values you own." },
+                { IDC_ADDVAL_F_DONTCREATEKEY,
+                  L"Does not create the registry key if it does not already exist.\nUse this to add values to a pre-existing key without\naccidentally creating it on machines where it is absent." },
+                { IDC_ADDVAL_F_PRESERVESTRINGTYPE,
+                  L"When the registry value already exists as a string type\n(REG_SZ, REG_EXPAND_SZ or REG_MULTI_SZ), keeps its\ncurrent type instead of changing it to the type specified here." },
+                { IDC_ADDVAL_F_DELETEKEY,
+                  L"Deletes the entire registry key (and all its subkeys\nand values) during uninstall, regardless of who created them." },
+                { IDC_ADDVAL_F_UNINSDELETEKEY,
+                  L"Deletes the entire registry key during uninstall only if\nthis installer created it. Subkeys and values added later\nby other software are also removed." },
+                { IDC_ADDVAL_F_UNINSDELETEKEYIFEMPTY,
+                  L"Deletes the registry key during uninstall only if it is\ncompletely empty by then (no remaining subkeys or values).\nUseful for shared keys that other software may also write to." },
+                { IDC_ADDVAL_F_ARCH_DEFAULT,
+                  L"Inno Setup uses the architecture-native view.\nOn 64-bit Windows the installer runs in 64-bit mode by default,\nso values land in the 64-bit hive unless the installer is 32-bit-only." },
+                { IDC_ADDVAL_F_ARCH_32BIT,
+                  L"Forces this entry into the 32-bit (WOW6432Node) hive\nregardless of the installer's bitness.\nUse when you specifically need to target 32-bit software on 64-bit Windows." },
+                { IDC_ADDVAL_F_ARCH_64BIT,
+                  L"Forces this entry into the native 64-bit hive.\nRequired when the installer is 32-bit but must write to the 64-bit hive.\nThe setup must then declare it is capable of installing on 64-bit systems." },
+            };
+            for (const auto& t : avTips) {
+                HWND hCtrl = GetDlgItem(hwnd, t.id);
+                if (!hCtrl) continue;
+                SetPropW(hCtrl, L"avTip", (HANDLE)t.tip);
+                s_avPrevChkProc = (WNDPROC)SetWindowLongPtrW(hCtrl, GWLP_WNDPROC, (LONG_PTR)AVFlag_SubclassProc);
+            }
         }
 
         return 0;
@@ -4727,7 +4927,33 @@ LRESULT CALLBACK AddValueDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                     MessageBoxW(hwnd, errorMsg.c_str(), L"Validation Error", MB_OK | MB_ICONWARNING);
                     return 0;
                 }
-                
+
+                // Collect Inno flags from checkboxes
+                std::wstring flagsOut;
+                auto addFlg = [&](int id, const wchar_t* flag) {
+                    HWND hChk = GetDlgItem(hwnd, id);
+                    if (hChk && SendMessageW(hChk, BM_GETCHECK, 0, 0) == BST_CHECKED) {
+                        if (!flagsOut.empty()) flagsOut += L' ';
+                        flagsOut += flag;
+                    }
+                };
+                addFlg(IDC_ADDVAL_F_DELETEVALUE,          L"deletevalue");
+                addFlg(IDC_ADDVAL_F_UNINSDELETEVALUE,     L"uninsdeletevalue");
+                addFlg(IDC_ADDVAL_F_DONTCREATEKEY,        L"dontcreatekey");
+                addFlg(IDC_ADDVAL_F_PRESERVESTRINGTYPE,   L"preservestringtype");
+                addFlg(IDC_ADDVAL_F_DELETEKEY,            L"deletekey");
+                addFlg(IDC_ADDVAL_F_UNINSDELETEKEY,       L"uninsdeletekey");
+                addFlg(IDC_ADDVAL_F_UNINSDELETEKEYIFEMPTY, L"uninsdeletekeyifempty");
+                // Registry view radios
+                if (SendMessageW(GetDlgItem(hwnd, IDC_ADDVAL_F_ARCH_32BIT), BM_GETCHECK, 0, 0) == BST_CHECKED) {
+                    if (!flagsOut.empty()) flagsOut += L' ';
+                    flagsOut += L"32bit";
+                } else if (SendMessageW(GetDlgItem(hwnd, IDC_ADDVAL_F_ARCH_64BIT), BM_GETCHECK, 0, 0) == BST_CHECKED) {
+                    if (!flagsOut.empty()) flagsOut += L' ';
+                    flagsOut += L"64bit";
+                }
+                pData->valueFlags = flagsOut;
+
                 pData->okClicked = true;
             }
             DestroyWindow(hwnd);
@@ -4743,6 +4969,7 @@ LRESULT CALLBACK AddValueDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
     
     case WM_DRAWITEM: {
         LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
+        if (DrawCustomCheckbox(dis)) return TRUE;
         if (dis->CtlID == IDC_ADDVAL_OK || dis->CtlID == IDC_ADDVAL_CANCEL) {
             ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
             NONCLIENTMETRICSW ncm = {};
@@ -4760,9 +4987,41 @@ LRESULT CALLBACK AddValueDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         break;
     }
 
+    case WM_PAINT: {
+        PAINTSTRUCT ps;
+        HDC hdc = BeginPaint(hwnd, &ps);
+        AddValueDialogData* pDataP = (AddValueDialogData*)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+        if (pDataP) {
+            HPEN hPen = CreatePen(PS_SOLID, 1, GetSysColor(COLOR_BTNSHADOW));
+            HPEN hOldPen = (HPEN)SelectObject(hdc, hPen);
+            HBRUSH hOldBrush = (HBRUSH)SelectObject(hdc, GetStockObject(NULL_BRUSH));
+            for (const auto& r : pDataP->sectionRects)
+                Rectangle(hdc, r.left, r.top, r.right, r.bottom);
+            SelectObject(hdc, hOldPen);
+            SelectObject(hdc, hOldBrush);
+            DeleteObject(hPen);
+        }
+        EndPaint(hwnd, &ps);
+        return 0;
+    }
+
+    case WM_CTLCOLORSTATIC: {
+        HDC hdc = (HDC)wParam;
+        SetBkMode(hdc, TRANSPARENT);
+        return (LRESULT)GetStockObject(WHITE_BRUSH);
+    }
+
+    case WM_CTLCOLORBTN: {
+        HDC hdc = (HDC)wParam;
+        SetBkMode(hdc, TRANSPARENT);
+        return (LRESULT)GetStockObject(WHITE_BRUSH);
+    }
+
     case WM_DESTROY: {
         HFONT hCtrlFont = (HFONT)GetPropW(hwnd, L"hCtrlFont");
         if (hCtrlFont) { DeleteObject(hCtrlFont); RemovePropW(hwnd, L"hCtrlFont"); }
+        HFONT hHdrFont = (HFONT)GetPropW(hwnd, L"hHdrFont");
+        if (hHdrFont) { DeleteObject(hHdrFont); RemovePropW(hwnd, L"hHdrFont"); }
         break;
     }
 
@@ -4770,11 +5029,9 @@ LRESULT CALLBACK AddValueDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         DestroyWindow(hwnd);
         return 0;
     }
-    
+
     return DefWindowProcW(hwnd, msg, wParam, lParam);
 }
-
-// Add Key dialog data
 struct AddKeyDialogData {
     std::wstring nameText;
     std::wstring okText;
@@ -8675,6 +8932,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                         int idx = ListView_InsertItem(s_hRegListView, &lvi);
                         ListView_SetItemText(s_hRegListView, idx, 1, (LPWSTR)entry.type.c_str());
                         ListView_SetItemText(s_hRegListView, idx, 2, (LPWSTR)entry.data.c_str());
+                        ListView_SetItemText(s_hRegListView, idx, 3, (LPWSTR)entry.flags.c_str());
                     }
                 }
                 
@@ -10445,17 +10703,18 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 wc.lpfnWndProc = AddValueDialogProc;
                 wc.hInstance = GetModuleHandleW(NULL);
                 wc.lpszClassName = L"AddValueDialog";
-                wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
+                wc.hbrBackground = (HBRUSH)GetStockObject(WHITE_BRUSH);
                 wc.hCursor = LoadCursor(NULL, IDC_ARROW);
                 RegisterClassExW(&wc);
             }
-            
-            // Compute DPI-aware dialog size via AdjustWindowRectEx
             int avClientW = S(AV_PAD_H)+S(AV_LBL_W)+S(AV_FLD_GAP)+S(AV_EDIT_W)+S(AV_PAD_H);
             int avClientH = S(AV_PAD_T)
-                          + S(AV_ROW_H)+S(AV_GAP_R1)
-                          + S(AV_ROW_H)+S(AV_GAP_R2)
-                          + S(AV_ROW_H)+S(AV_GAP_RB)
+                          + S(AV_ROW_H)+S(AV_GAP_R1)         // name
+                          + S(AV_ROW_H)+S(AV_GAP_R2)         // type
+                          + S(AV_ROW_H)+S(AV_GAP_RD)         // data
+                          + S(AV_SEC_H)+S(AV_GAP_SEC)+4*S(AV_CHK_H)+S(AV_GAP_BTW)  // uninstall section
+                          + S(AV_SEC_H)+S(AV_GAP_SEC)+S(AV_CHK_H) // view section
+                          + S(AV_GAP_RB)
                           + S(AV_BTN_H)+S(AV_PAD_B);
             RECT wrcAV1 = {0,0,avClientW,avClientH};
             AdjustWindowRectEx(&wrcAV1, WS_POPUP|WS_CAPTION|WS_SYSMENU, FALSE,
@@ -10523,11 +10782,12 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 
                 // Create registry entry
                 RegistryEntry entry;
-                entry.hive = hive;
-                entry.path = path;
-                entry.name = dialogData.valueName;
-                entry.type = dialogData.valueType;
-                entry.data = dialogData.valueData;
+                entry.hive  = hive;
+                entry.path  = path;
+                entry.name  = dialogData.valueName;
+                entry.type  = dialogData.valueType;
+                entry.data  = dialogData.valueData;
+                entry.flags = dialogData.valueFlags;
                 
                 // Add to map
                 s_registryValues[hSelected].push_back(entry);
@@ -10551,6 +10811,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                             int idx = ListView_InsertItem(s_hRegListView, &lvi);
                             ListView_SetItemText(s_hRegListView, idx, 1, (LPWSTR)e.type.c_str());
                             ListView_SetItemText(s_hRegListView, idx, 2, (LPWSTR)e.data.c_str());
+                            ListView_SetItemText(s_hRegListView, idx, 3, (LPWSTR)e.flags.c_str());
                         }
                     }
                     
@@ -10917,7 +11178,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             // Create dialog data with existing values
             AddValueDialogData dialogData = {
                 nameText, typeText, dataText, okText, cancelText,
-                entry.name, entry.type, entry.data, false
+                entry.name, entry.type, entry.data, false, entry.flags
             };
             
             // Register dialog class if not already registered (AddValueDialog)
@@ -10928,7 +11189,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 wc.lpfnWndProc = AddValueDialogProc;
                 wc.hInstance = GetModuleHandleW(NULL);
                 wc.lpszClassName = L"AddValueDialog";
-                wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
+                wc.hbrBackground = (HBRUSH)GetStockObject(WHITE_BRUSH);
                 wc.hCursor = LoadCursor(NULL, IDC_ARROW);
                 RegisterClassExW(&wc);
             }
@@ -10938,9 +11199,12 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             {
                 int clientW = S(AV_PAD_H)+S(AV_LBL_W)+S(AV_FLD_GAP)+S(AV_EDIT_W)+S(AV_PAD_H);
                 int clientH = S(AV_PAD_T)
-                            + S(AV_ROW_H)+S(AV_GAP_R1)
-                            + S(AV_ROW_H)+S(AV_GAP_R2)
-                            + S(AV_ROW_H)+S(AV_GAP_RB)
+                            + S(AV_ROW_H)+S(AV_GAP_R1)         // name
+                            + S(AV_ROW_H)+S(AV_GAP_R2)         // type
+                            + S(AV_ROW_H)+S(AV_GAP_RD)         // data
+                            + S(AV_SEC_H)+S(AV_GAP_SEC)+4*S(AV_CHK_H)+S(AV_GAP_BTW)  // uninstall section
+                            + S(AV_SEC_H)+S(AV_GAP_SEC)+S(AV_CHK_H) // view section
+                            + S(AV_GAP_RB)
                             + S(AV_BTN_H)+S(AV_PAD_B);
                 RECT wrc = {0,0,clientW,clientH};
                 AdjustWindowRectEx(&wrc, WS_POPUP|WS_CAPTION|WS_SYSMENU, FALSE,
@@ -10969,12 +11233,14 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 // Update value if OK was clicked
                 if (dialogData.okClicked) {
                     entry.name = dialogData.valueName;
-                    entry.type = dialogData.valueType;
-                    entry.data = dialogData.valueData;
+                    entry.type  = dialogData.valueType;
+                    entry.data  = dialogData.valueData;
+                    entry.flags = dialogData.valueFlags;
                     // Sync to custom entries list if this entry was user-added
                     for (auto& ce : s_customRegistryEntries) {
                         if (ce.hive == entry.hive && ce.path == entry.path && ce.name == oldEntryName) {
-                            ce.name = entry.name; ce.type = entry.type; ce.data = entry.data;
+                            ce.name = entry.name; ce.type = entry.type;
+                            ce.data = entry.data; ce.flags = entry.flags;
                             break;
                         }
                     }
@@ -10983,6 +11249,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                     ListView_SetItemText(s_hRegListView, iSelected, 0, (LPWSTR)entry.name.c_str());
                     ListView_SetItemText(s_hRegListView, iSelected, 1, (LPWSTR)entry.type.c_str());
                     ListView_SetItemText(s_hRegListView, iSelected, 2, (LPWSTR)entry.data.c_str());
+                    ListView_SetItemText(s_hRegListView, iSelected, 3, (LPWSTR)entry.flags.c_str());
                     
                     MarkAsModified();
                 }
@@ -11039,6 +11306,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                     int idx = ListView_InsertItem(s_hRegListView, &lvi);
                     ListView_SetItemText(s_hRegListView, idx, 1, (LPWSTR)e.type.c_str());
                     ListView_SetItemText(s_hRegListView, idx, 2, (LPWSTR)e.data.c_str());
+                    ListView_SetItemText(s_hRegListView, idx, 3, (LPWSTR)e.flags.c_str());
                 }
                 
                 MarkAsModified();
@@ -11749,7 +12017,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             for (const auto& ck : s_customRegistryKeys)
                 DB::InsertRegistryEntry(s_currentProject.id, ck.hive, ck.path, L"__KEY__", L"", L"");
             for (const auto& ce : s_customRegistryEntries)
-                DB::InsertRegistryEntry(s_currentProject.id, ce.hive, ce.path, ce.name, ce.type, ce.data);
+                DB::InsertRegistryEntry(s_currentProject.id, ce.hive, ce.path, ce.name, ce.type, ce.data, ce.flags);
             return 0;
         }
             
@@ -12250,8 +12518,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             if (s_hGuiFont) SelectObject(hdc, s_hGuiFont);
         }
         
-        // Special handling for install folder - dark blue text
-        if (GetDlgCtrlID(hControl) == IDC_INSTALL_FOLDER) {
+        // Special handling for install folder and GUID field - dark blue text
+        if (GetDlgCtrlID(hControl) == IDC_INSTALL_FOLDER || GetDlgCtrlID(hControl) == IDC_REG_APP_ID) {
             SetTextColor(hdc, RGB(0, 51, 153)); // Dark blue
             SetBkMode(hdc, TRANSPARENT);
             return (LRESULT)GetSysColorBrush(COLOR_WINDOW);
@@ -12525,6 +12793,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                         int idx = ListView_InsertItem(s_hRegListView, &lvi);
                         ListView_SetItemText(s_hRegListView, idx, 1, (LPWSTR)entry.type.c_str());
                         ListView_SetItemText(s_hRegListView, idx, 2, (LPWSTR)entry.data.c_str());
+                        ListView_SetItemText(s_hRegListView, idx, 3, (LPWSTR)entry.flags.c_str());
                     }
                 }
                 
