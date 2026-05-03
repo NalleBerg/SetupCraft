@@ -2,6 +2,11 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.05.03.14] - 2026-05-03
+
+### Dependencies — Per-dep component linkage
+- **dep_edit_dialog / deps / db — Component linkage field (`IDC_DEPDLG_COMP_EDIT = 426`, `IDC_DEPDLG_COMP_PICK = 427`)**: New optional row visible for **all** delivery types whenever the project has at least one component defined. Specifies which components must be selected for this dep to be installed; empty = install unconditionally (default — zero behavior change for existing projects). The read-only edit shows the current space-separated component names; the adjacent `…` button opens a self-contained modal picker (`PickCompDlgProc`, `LBS_EXTENDEDSEL` listbox). Section absent when no components exist, preserving simplicity. Stored in `ExternalDep::required_components` (`std::wstring`). DB migration: `ALTER TABLE external_deps ADD COLUMN required_components TEXT DEFAULT ''` (idempotent). `InsertExternalDep` extended to 21 bound params; `GetExternalDepsForProject` SELECT extended to column 20. Locale keys: `dep_dlg_components`, `dep_dlg_comp_pick_title`. Component names sourced from `MainWindow::GetComponents()` at dialog-open time; sorted + deduplicated in `deps.cpp`.
+
 ## [2026.05.03.13] - 2026-05-03
 
 ### Dependencies — Download timeout; exit codes; max version; help button

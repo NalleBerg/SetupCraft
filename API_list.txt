@@ -345,10 +345,15 @@
                                                 button (IDC_DEPDLG_EXIT_CODES_HELP=425, shell32 #23,
                                                 ShowValidationDialog reference popup), max version
                                                 field (IDC_DEPDLG_MAX_VER=424, Detection section,
-                                                empty = no upper bound), Reflow detection-guard
-                                                fix (7→9), DB table schema and CRUD API,
-                                                control ID ranges, locale key table, and
-                                                mainwindow.cpp wiring guide.
+                                                empty = no upper bound), per-dep component linkage
+                                                (required_components wstring; IDC_DEPDLG_COMP_EDIT=426
+                                                read-only edit + IDC_DEPDLG_COMP_PICK=427 "…" button
+                                                → PickCompDlgProc LBS_EXTENDEDSEL picker; empty =
+                                                install always; section hidden when no components;
+                                                InsertExternalDep 21 params; column 20 in SELECT),
+                                                Reflow detection-guard fix (7→9), DB table schema
+                                                and CRUD API, control ID ranges, locale key table,
+                                                and mainwindow.cpp wiring guide.
 
   API_INTERNALS\INTERNALS\scrollbar_reopen_INTERNALS.txt
                                                 MSB lifecycle across project-close/reopen and

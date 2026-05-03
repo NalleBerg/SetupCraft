@@ -34,14 +34,14 @@ Per-file architecture override \emdash  related to the 32bit/64bit flags above; 
 \par
 \b\f0\par
 Page 1 \f1\emdash\f0  Registry\par
-\b0\f1 Rules violation:\par
+\cf1\b0\f1 Rules violation:\par
 \par
 The "Register in Windows Installed Programs" checkbox is created with BS_AUTOCHECKBOX (native Win32 button) \emdash  it should use CreateCustomCheckbox like every other checkbox in the app.\par
 Missing Inno Setup functionality:\par
 \par
 AppId / uninstall GUID \emdash  The most critical missing field. Inno uses AppId to identify the application for upgrades/reinstalls. Without a stable GUID, every reinstall creates a duplicate entry in "Add/Remove Programs". Should be auto-generated (e.g. a UUID) on project creation, stored in the DB, and shown here as a read-only field the developer can override. Without this, the generated .iss will be broken for upgrades.\par
-\par
-Per-entry "delete on uninstall" flags \emdash  Inno supports per-entry flags on [Registry] entries for uninstall behaviour. None are currently exposed:\par
+\cf0\par
+\cf1 Per-entry "delete on uninstall" flags \emdash  Inno supports per-entry flags on [Registry] entries for uninstall behaviour. None are currently exposed:\par
 \par
 deletevalue \emdash  delete this value at uninstall\par
 uninsdeletevalue \emdash  delete the value only if it was created by this installer\par
@@ -53,20 +53,20 @@ preservestringtype \emdash  when updating a string value, don't change its exist
 32-bit vs 64-bit registry view \emdash  Inno supports a Flags: 32bit or 64bit per [Registry] entry to explicitly target the 32-bit (HKLM\\SOFTWARE\\WOW6432Node\\...) or 64-bit view. No selector currently exists.\par
 \par
 Value types \emdash  the Add Value dialog shows a type combo. Need to verify all of these are available: REG_SZ, REG_EXPAND_SZ, REG_MULTI_SZ, REG_DWORD, REG_QWORD, REG_BINARY. If any are missing, the developer cannot create entries of that type.\par
+\cf0\par
+\cf1 Per-key/value component linkage \emdash  no way to say "only write this registry entry if component X was installed". Inno supports a Components: field on every [Registry] row.\cf0\par
 \par
-Per-key/value component linkage \emdash  no way to say "only write this registry entry if component X was installed". Inno supports a Components: field on every [Registry] row.\par
-\par
-Per-key/value "only if doesn't exist" \emdash  related to dontcreatekey above, but also for values: write the value only if it does not already exist (common for first-run defaults).\par
-\par
+\cf1 Per-key/value "only if doesn't exist" \emdash  related to dontcreatekey above, but also for values: write the value only if it does not already exist (common for first-run defaults).\cf0\par
+\cf1\par
 root: HKA shorthand \emdash  Inno has a special HKA pseudo-root that resolves to HKCU for per-user installs and HKLM for all-users installs. Without this, the developer has to manually duplicate entries for both UAC modes. No equivalent is exposed.\par
-\par
+\cf0\par
 \b\f0\par
 Page 2 \f1\emdash\f0  Shortcuts\par
 \b0\f1 What's already there: Desktop shortcut + opt-out, Start Menu tree with subfolders + "Add Shortcut Here", Pin to Start + opt-out, Pin to Taskbar + opt-out. The ShortcutDef struct has: name, exePath, workingDir, iconPath, iconIndex, runAsAdmin.\par
 \par
 Missing Inno Setup functionality:\par
 \par
-Arguments / Parameters \emdash  Inno's [Icons] section has a Parameters: field. There is no way to set command-line arguments for a shortcut (e.g. --portable, --no-splash). ShortcutDef has no arguments field.\par
+\cf1 Arguments / Parameters \emdash  Inno's [Icons] section has a Parameters: field. There is no way to set command-line arguments for a shortcut (e.g. --portable, --no-splash). ShortcutDef has no arguments field.\par
 \par
 Comment / Description \emdash  Inno's Comment: field sets the tooltip that appears when hovering the shortcut in Explorer/Start Menu. No field exists for this. ShortcutDef has no comment field.\par
 \par
@@ -83,22 +83,22 @@ AppUserModelID \emdash  Inno supports AppUserModelID: on shortcuts, which is req
 "Also create if already exists" vs "only if doesn't exist" \emdash  Inno Flags: createonlyiffileexists creates a shortcut only when the target exe actually exists after install. Useful for optional features. Not exposed.\par
 \par
 Start Menu folder "Programs" vs custom path \emdash  currently the developer builds a tree, but there is no explicit way to mark which node maps to \{group\} (the DefaultGroupName) vs a deeper subfolder. The distinction matters for the generated .iss.\par
-\par
+\cf0\par
 \par
 \b\f0 Page 3 \f1\emdash\f0  Dependencies\b0\f1\par
 What's already there: ExternalDep struct covers: display_name, is_required, delivery (bundled/auto-download/redirect-url/instructions-only), install_order (before/after welcome, before/after install, custom dialog), detect_reg_key, detect_file_path, min_version, architecture (any/x64/arm64), url, silent_args, sha256, license_path, license_text, credits_text, instructions_list, offline_behavior (abort/warn/continue/skip).\par
 \par
 This is the most complete page in the app. The list is short:\par
 \par
-Missing or worth adding:\par
+\cf1 Missing or worth adding:\par
 \par
 Download timeout \emdash  no field for how long the auto-download should wait before giving up. Without this, a slow or dead server hangs the installer indefinitely. A simple integer field in seconds (default e.g. 30) would cover it.\par
+\cf0\par
+\cf1 "Extract to temp then run" vs "run directly" \emdash  for DD_BUNDLED deps, the file is embedded in the installer. There is no toggle for whether it should be extracted to a temp folder and run from there, or streamed/run directly. Some installers (e.g. large MSIs) require a physical file on disk before they can be launched.\par
+\cf0\par
+\cf1 Expected exit codes \emdash  by default, a silent installer returning non-zero is treated as failure. Some legitimate installers return e.g. 3010 (reboot required) or 1641 (reboot initiated). No field exists for "these exit codes are also acceptable". Without this, the dep install step may incorrectly abort.\cf0\par
 \par
-"Extract to temp then run" vs "run directly" \emdash  for DD_BUNDLED deps, the file is embedded in the installer. There is no toggle for whether it should be extracted to a temp folder and run from there, or streamed/run directly. Some installers (e.g. large MSIs) require a physical file on disk before they can be launched.\par
-\par
-Expected exit codes \emdash  by default, a silent installer returning non-zero is treated as failure. Some legitimate installers return e.g. 3010 (reboot required) or 1641 (reboot initiated). No field exists for "these exit codes are also acceptable". Without this, the dep install step may incorrectly abort.\par
-\par
-Max version \emdash  min_version exists but there is no max_version. Needed when a dep is incompatible with versions that are too new (rare but real \emdash  e.g. targeting a specific runtime version range).\par
+\cf1 Max version \emdash  min_version exists but there is no max_version. Needed when a dep is incompatible with versions that are too new (rare but real \emdash  e.g. targeting a specific runtime version range).\cf0\par
 \par
 Per-dep component linkage \emdash  no way to say "only install this dependency if component X was selected". All deps are currently unconditional once included.\par
 \par

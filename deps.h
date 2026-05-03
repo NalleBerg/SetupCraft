@@ -91,6 +91,10 @@ struct ExternalDep {
     // Example: "3010 1641" — 3010 = reboot required, 1641 = reboot initiated.
     // SetupCraft detects these at install-time and prompts the user before any reboot occurs.
     std::wstring extra_exit_codes;            // DD_BUNDLED + DD_AUTO_DOWNLOAD only
+    // Space-separated component display names this dep is linked to.
+    // Empty = always install (unconditional, default). Only shown in the edit
+    // dialog when the project has components defined.
+    std::wstring required_components;
 };
 
 // ── Control IDs (range 6000–6099) ────────────────────────────────────────────

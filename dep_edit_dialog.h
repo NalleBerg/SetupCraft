@@ -21,13 +21,17 @@
 #include <windows.h>
 #include <string>
 #include <map>
+#include <vector>
 
 // Open the "Edit Dependency" modal dialog centred over hwndParent.
-// dep  — in/out: caller fills with initial values; written back on OK.
+// dep        — in/out: caller fills with initial values; written back on OK.
+// compNames  — project component display names (sorted). Empty = no component
+//              linkage section shown (good default when components aren't used).
 // Returns true when the user clicked OK; false when cancelled/closed.
 bool DEP_EditDialog(HWND hwndParent, HINSTANCE hInst,
                     const std::map<std::wstring, std::wstring>& locale,
-                    ExternalDep& dep);
+                    ExternalDep& dep,
+                    const std::vector<std::wstring>& compNames);
 
 // ── Dialog control IDs ────────────────────────────────────────────────────────
 // Scoped to the dep-edit dialog window; no conflict with page control IDs.
@@ -56,3 +60,5 @@ bool DEP_EditDialog(HWND hwndParent, HINSTANCE hInst,
 #define IDC_DEPDLG_EXIT_CODES       423   // acceptable exit codes edit (space-separated; DD_BUNDLED + DD_AUTO_DOWNLOAD)
 #define IDC_DEPDLG_EXIT_CODES_HELP  425   // icon-only help button: opens the common exit codes reference list
 #define IDC_DEPDLG_MAX_VER     424   // maximum allowed version edit (optional; empty = no upper bound)
+#define IDC_DEPDLG_COMP_EDIT   426   // read-only edit: space-separated linked component names
+#define IDC_DEPDLG_COMP_PICK   427   // "…" picker button: opens the component selector

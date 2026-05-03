@@ -389,7 +389,15 @@ bool DEP_OnCommand(HWND hwnd, int id, int event, HWND /*hCtrl*/)
 
     if (id == IDC_DEP_ADD && event == BN_CLICKED) {
         ExternalDep blank;
-        if (s_pLocale && DEP_EditDialog(hwnd, s_hInst, *s_pLocale, blank)) {
+        std::vector<std::wstring> compNames;
+        if (MainWindow::UseComponents()) {
+            for (const ComponentRow& c : MainWindow::GetComponents())
+                if (!c.display_name.empty())
+                    compNames.push_back(c.display_name);
+            std::sort(compNames.begin(), compNames.end());
+            compNames.erase(std::unique(compNames.begin(), compNames.end()), compNames.end());
+        }
+        if (s_pLocale && DEP_EditDialog(hwnd, s_hInst, *s_pLocale, blank, compNames)) {
             blank.id = s_nextDepId++;
             s_deps.push_back(blank);
             RefreshList();
@@ -407,7 +415,15 @@ bool DEP_OnCommand(HWND hwnd, int id, int event, HWND /*hCtrl*/)
         ExternalDep* dep = SelectedDep();
         if (!dep) return true;
         ExternalDep copy = *dep;
-        if (s_pLocale && DEP_EditDialog(hwnd, s_hInst, *s_pLocale, copy)) {
+        std::vector<std::wstring> compNames;
+        if (MainWindow::UseComponents()) {
+            for (const ComponentRow& c : MainWindow::GetComponents())
+                if (!c.display_name.empty())
+                    compNames.push_back(c.display_name);
+            std::sort(compNames.begin(), compNames.end());
+            compNames.erase(std::unique(compNames.begin(), compNames.end()), compNames.end());
+        }
+        if (s_pLocale && DEP_EditDialog(hwnd, s_hInst, *s_pLocale, copy, compNames)) {
             *dep = copy;
             RefreshList();
             MainWindow::MarkAsModified();

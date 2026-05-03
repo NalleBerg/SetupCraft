@@ -1,6 +1,12 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 03 May 2026 &mdash; v2026.05.03.13 (13:33)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 03 May 2026 &mdash; v2026.05.03.14 (14:02)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.05.03.14</span></h3>
+<p><strong>Dependencies &mdash; Per-dep component linkage (03.05.2026, 13:57&ndash;14:02):</strong></p>
+<ul>
+<li><strong>dep_edit_dialog / deps / db &mdash; Component linkage field (<code>IDC_DEPDLG_COMP_EDIT = 426</code>, <code>IDC_DEPDLG_COMP_PICK = 427</code>):</strong> New optional row visible for <strong>all</strong> delivery types whenever the project has at least one component defined. Shows which components must be selected by the user for this dependency to be installed; empty&thinsp;=&thinsp;install unconditionally (the default &mdash; zero behavior change for existing projects). The read-only edit displays the current space-separated component names; the adjacent <code>&hellip;</code> button opens a self-contained modal picker (<code>PickCompDlgProc</code>, <code>LBS_EXTENDEDSEL</code> listbox). The section is completely absent when the project has no components, preserving simplicity. Stored in <code>ExternalDep::required_components</code> (<code>std::wstring</code>). DB migration: <code>ALTER TABLE external_deps ADD COLUMN required_components TEXT DEFAULT ''</code> (idempotent). <code>InsertExternalDep</code> extended to 21 bound parameters; <code>GetExternalDepsForProject</code> SELECT extended to column 20. Locale keys: <code>dep_dlg_components</code>, <code>dep_dlg_comp_pick_title</code>. Component names sourced from <code>MainWindow::GetComponents()</code> at dialog-open time; sorted and deduplicated in <code>deps.cpp</code> before passing to <code>DEP_EditDialog</code>.</li>
+</ul>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.05.03.13</span></h3>
 <p><strong>Dependencies &mdash; Download timeout; exit codes; max version; help button (03.05.2026, 13:02&ndash;13:33):</strong></p>

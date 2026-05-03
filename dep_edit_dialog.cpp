@@ -65,6 +65,7 @@ struct DepDlgData {
     HINSTANCE   hInst;
     const std::map<std::wstring,std::wstring>* pLocale;
     bool        okPressed;
+    std::vector<std::wstring> compNames;  // project component display names; empty = no compLink section
 };
 
 static bool         s_depDlgOk      = false;
@@ -90,6 +91,7 @@ static DdSection s_secNetUrlOnly;   // (subset of Network) shown for DD_REDIRECT
 //   Note: DD_REDIRECT_URL shows only URL (row 0) and Offline (row 3) from the network
 //   block.  Rather than duplicating HWNDs we track sub-visibility inside Reflow().
 static DdSection s_secExitCodes;    // Acceptable exit codes: label + edit (DD_BUNDLED + DD_AUTO_DOWNLOAD)
+static DdSection s_secCompLink;     // Component linkage: label + read-only edit + "…" pick button (all delivery types when project has components)
 static DdSection s_secLicense;      // License section header + indicator + button + credits
 static DdSection s_secInstructions; // Instructions header + indicator + button (DD_INSTRUCTIONS_ONLY only)
 
@@ -173,10 +175,14 @@ static void Reflow(HWND hDlg, int deliveryVal)
                             deliveryVal == DD_AUTO_DOWNLOAD ||
                             deliveryVal == DD_REDIRECT_URL);
     bool hasInstructions = (deliveryVal == DD_INSTRUCTIONS_ONLY);
+    // Component linkage: visible for all real delivery types when the project has components.
+    DepDlgData* pDd = (DepDlgData*)GetWindowLongPtrW(hDlg, GWLP_USERDATA);
+    bool hasCompLink = hasAny && pDd && !pDd->compNames.empty();
 
     // ── Show/hide each section ────────────────────────────────────────────────
     ShowSection(s_secRequired,  hasRequired);
     ShowSection(s_secOrder,     hasOrder);
+    ShowSection(s_secCompLink,  hasCompLink);
     ShowSection(s_secDetection, hasDetection);
     ShowSection(s_secNetAll,    hasNetAll);
     ShowSection(s_secExitCodes, hasExitCodes);
@@ -280,6 +286,21 @@ static void Reflow(HWND hDlg, int deliveryVal)
     if (hasOrder && s_secOrder.ctrls.size() >= 2) {
         PlaceW(s_secOrder.ctrls[0], DD_LABEL_H, DD_GAP_SM, s_ddEW);
         PlaceW(s_secOrder.ctrls[1], DD_COMBO_H, DD_GAP,    s_ddEW);
+    }
+    // Component linkage (shown when project has components): label + read-only edit + "…" button
+    // [0]=label  [1]=read-only edit  [2]="…" pick button
+    if (hasCompLink && s_secCompLink.ctrls.size() >= 3) {
+        PlaceW(s_secCompLink.ctrls[0], DD_LABEL_H, DD_GAP_SM, s_ddEW); // label
+        // Edit and "…" button share one row at DD_EDIT_H height.
+        int pickW = S(28);
+        int editW = s_ddEW - pickW - S(DD_GAP_SM);
+        SetWindowPos(s_secCompLink.ctrls[1], NULL,
+            s_ddLX, y - s_depDlgScrollY, editW, S(DD_EDIT_H),
+            SWP_NOZORDER | SWP_NOACTIVATE);
+        SetWindowPos(s_secCompLink.ctrls[2], NULL,
+            s_ddLX + editW + S(DD_GAP_SM), y - s_depDlgScrollY, pickW, S(DD_EDIT_H),
+            SWP_NOZORDER | SWP_NOACTIVATE);
+        y += S(DD_EDIT_H) + S(DD_GAP);
     }
     // Detection: header, then 4× (label + edit): reg_key, file_path, min_version, max_version
     if (hasDetection && s_secDetection.ctrls.size() >= 9) {
@@ -545,6 +566,220 @@ static LRESULT CALLBACK InstrIconSubclassProc(HWND hwnd, UINT msg, WPARAM wParam
     return CallWindowProcW(ctx ? ctx->prevProc : DefWindowProcW, hwnd, msg, wParam, lParam);
 }
 
+// ── Component picker dialog ───────────────────────────────────────────────────
+// A small modal popup that lists all project components in an extended-selection
+// listbox. The developer picks which components this dep is linked to; an empty
+// selection means "install unconditionally" (the default).
+//
+// Control IDs are local to this dialog class and do not conflict with anything.
+#define IDC_PICKCOMP_LIST   2001
+#define IDC_PICKCOMP_OK     2002
+#define IDC_PICKCOMP_CANCEL 2003
+
+struct PickCompDlgData {
+    const std::vector<std::wstring>*              compNames;
+    const std::map<std::wstring,std::wstring>*    pLocale;
+    HFONT        hFont     = NULL;
+    HINSTANCE    hInst     = NULL;
+    std::wstring initial;       // current space-separated value
+    std::wstring result;        // space-separated on OK
+    bool         okPressed = false;
+};
+
+// Returns true if name is contained in a space-separated list.
+static bool IsInSpaceSep(const wchar_t* name, const std::wstring& list)
+{
+    const wchar_t* p = list.c_str();
+    while (*p) {
+        while (*p == L' ') p++;
+        const wchar_t* start = p;
+        while (*p && *p != L' ') p++;
+        if (p != start && std::wstring(start, p - start) == name) return true;
+    }
+    return false;
+}
+
+static LRESULT CALLBACK PickCompDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    PickCompDlgData* pd = (PickCompDlgData*)GetWindowLongPtrW(hDlg, GWLP_USERDATA);
+
+    switch (msg) {
+    case WM_CREATE: {
+        CREATESTRUCTW* cs = (CREATESTRUCTW*)lParam;
+        pd = (PickCompDlgData*)cs->lpCreateParams;
+        SetWindowLongPtrW(hDlg, GWLP_USERDATA, (LONG_PTR)pd);
+
+        RECT rc; GetClientRect(hDlg, &rc);
+        const int cW    = rc.right;
+        const int cH    = rc.bottom;
+        const int pad   = S(10);
+        const int btnH  = S(30);
+        const int btnW  = S(80);
+        const int listH = cH - pad * 3 - btnH;
+
+        HWND hList = CreateWindowExW(WS_EX_CLIENTEDGE, L"LISTBOX", NULL,
+            WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_TABSTOP |
+            LBS_EXTENDEDSEL | LBS_NOINTEGRALHEIGHT,
+            pad, pad, cW - pad * 2, listH,
+            hDlg, (HMENU)(UINT_PTR)IDC_PICKCOMP_LIST, pd->hInst, NULL);
+        if (pd->hFont) SendMessageW(hList, WM_SETFONT, (WPARAM)pd->hFont, TRUE);
+
+        // Populate and pre-select
+        for (const std::wstring& name : *pd->compNames) {
+            int idx = (int)SendMessageW(hList, LB_ADDSTRING, 0, (LPARAM)name.c_str());
+            if (idx >= 0 && IsInSpaceSep(name.c_str(), pd->initial))
+                SendMessageW(hList, LB_SETSEL, TRUE, (LPARAM)idx);
+        }
+
+        // OK / Cancel buttons
+        auto LF = [&](const wchar_t* key, const wchar_t* fb) -> std::wstring {
+            auto it = pd->pLocale->find(key);
+            return (it != pd->pLocale->end()) ? it->second : fb;
+        };
+        int bY = listH + pad * 2;
+        int bX = (cW - (btnW * 2 + pad)) / 2;
+
+        HWND hOk = CreateWindowExW(0, L"BUTTON", LF(L"ok", L"OK").c_str(),
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+            bX, bY, btnW, btnH,
+            hDlg, (HMENU)(UINT_PTR)IDC_PICKCOMP_OK, pd->hInst, NULL);
+        HWND hCnl = CreateWindowExW(0, L"BUTTON", LF(L"cancel", L"Cancel").c_str(),
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+            bX + btnW + pad, bY, btnW, btnH,
+            hDlg, (HMENU)(UINT_PTR)IDC_PICKCOMP_CANCEL, pd->hInst, NULL);
+        if (pd->hFont) {
+            SendMessageW(hOk,  WM_SETFONT, (WPARAM)pd->hFont, TRUE);
+            SendMessageW(hCnl, WM_SETFONT, (WPARAM)pd->hFont, TRUE);
+        }
+        return 0;
+    }
+    case WM_COMMAND: {
+        int wId = LOWORD(wParam);
+        if (wId == IDC_PICKCOMP_OK) {
+            HWND hList = GetDlgItem(hDlg, IDC_PICKCOMP_LIST);
+            std::wstring res;
+            int n = (int)SendMessageW(hList, LB_GETCOUNT, 0, 0);
+            for (int i = 0; i < n; i++) {
+                if (SendMessageW(hList, LB_GETSEL, (WPARAM)i, 0) > 0) {
+                    wchar_t buf[512] = {};
+                    SendMessageW(hList, LB_GETTEXT, (WPARAM)i, (LPARAM)buf);
+                    if (!res.empty()) res += L' ';
+                    res += buf;
+                }
+            }
+            pd->result    = res;
+            pd->okPressed = true;
+            DestroyWindow(hDlg);
+            return 0;
+        }
+        if (wId == IDC_PICKCOMP_CANCEL) {
+            DestroyWindow(hDlg);
+            return 0;
+        }
+        return 0;
+    }
+    case WM_KEYDOWN:
+        if (wParam == VK_ESCAPE)  { DestroyWindow(hDlg); return 0; }
+        if (wParam == VK_RETURN)  {
+            SendMessageW(hDlg, WM_COMMAND,
+                MAKEWPARAM(IDC_PICKCOMP_OK, BN_CLICKED), 0);
+            return 0;
+        }
+        break;
+    case WM_CLOSE:
+        DestroyWindow(hDlg);
+        return 0;
+    case WM_DESTROY:
+        return 0;
+    }
+    return DefWindowProcW(hDlg, msg, wParam, lParam);
+}
+
+// Opens the component picker modal.  Returns true if user pressed OK,
+// and sets outResult to the new space-separated component string.
+static bool RunPickCompDialog(HWND hwndParent, HINSTANCE hInst,
+    const std::wstring& current,
+    const std::vector<std::wstring>& compNames,
+    const std::map<std::wstring,std::wstring>& locale,
+    std::wstring& outResult)
+{
+    static bool s_pickClassReg = false;
+    if (!s_pickClassReg) {
+        WNDCLASSEXW wc = {};
+        wc.cbSize        = sizeof(wc);
+        wc.lpfnWndProc   = PickCompDlgProc;
+        wc.hInstance     = hInst;
+        wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+        wc.lpszClassName = L"DepPickCompDlg";
+        wc.hCursor       = LoadCursor(NULL, IDC_ARROW);
+        RegisterClassExW(&wc);
+        s_pickClassReg = true;
+    }
+
+    // Build font
+    NONCLIENTMETRICSW ncm = {}; ncm.cbSize = sizeof(ncm);
+    SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+    if (ncm.lfMessageFont.lfHeight < 0)
+        ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
+    HFONT hFont = CreateFontIndirectW(&ncm.lfMessageFont);
+
+    // Size: listbox to fit up to 8 items, capped at S(200).
+    const int nItems = (int)compNames.size();
+    const int itemH  = S(18);
+    const int listH  = std::min(nItems * itemH + S(8), S(200));
+    const int pad    = S(10);
+    const int btnH   = S(30);
+    const int cW     = S(320);
+    const int cH     = listH + pad * 3 + btnH;
+
+    auto it = locale.find(L"dep_dlg_comp_pick_title");
+    std::wstring title = (it != locale.end()) ? it->second : L"Select components";
+
+    PickCompDlgData data;
+    data.compNames = &compNames;
+    data.pLocale   = &locale;
+    data.hFont     = hFont;
+    data.hInst     = hInst;
+    data.initial   = current;
+
+    const DWORD style   = WS_POPUP | WS_CAPTION | WS_SYSMENU;
+    const DWORD exStyle = WS_EX_DLGMODALFRAME;
+    RECT rcAdj = { 0, 0, cW, cH };
+    AdjustWindowRectEx(&rcAdj, style, FALSE, exStyle);
+    int dlgW = rcAdj.right - rcAdj.left;
+    int dlgH = rcAdj.bottom - rcAdj.top;
+
+    RECT rcP; GetWindowRect(hwndParent, &rcP);
+    int dlgX = rcP.left + (rcP.right  - rcP.left  - dlgW) / 2;
+    int dlgY = rcP.top  + (rcP.bottom - rcP.top   - dlgH) / 2;
+
+    HWND hDlg = CreateWindowExW(exStyle, L"DepPickCompDlg", title.c_str(),
+        style, dlgX, dlgY, dlgW, dlgH,
+        hwndParent, NULL, hInst, &data);
+    if (!hDlg) { if (hFont) DeleteObject(hFont); return false; }
+
+    EnableWindow(hwndParent, FALSE);
+    ShowWindow(hDlg, SW_SHOW);
+    UpdateWindow(hDlg);
+
+    MSG msg = {};
+    while (IsWindow(hDlg)) {
+        BOOL bRet = GetMessageW(&msg, NULL, 0, 0);
+        if (bRet == 0) { PostQuitMessage((int)msg.wParam); break; }
+        if (bRet == -1) break;
+        if (!IsWindow(hDlg)) break;
+        TranslateMessage(&msg);
+        DispatchMessageW(&msg);
+    }
+
+    EnableWindow(hwndParent, TRUE);
+    SetForegroundWindow(hwndParent);
+    if (hFont) DeleteObject(hFont);
+
+    if (data.okPressed) { outResult = data.result; return true; }
+    return false;
+}
+
 // ── Dialog proc ───────────────────────────────────────────────────────────────
 
 static LRESULT CALLBACK DepDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
@@ -607,6 +842,16 @@ static LRESULT CALLBACK DepDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lP
                 L"0 is always success. For 3010/1641,\n"
                 L"SetupCraft will warn before reboot.");
             ShowValidationDialog(hDlg, title, body, *pData->pLocale);
+            return 0;
+        }
+
+        if (wmId == IDC_DEPDLG_COMP_PICK && wmEvent == BN_CLICKED) {
+            if (!pData || pData->compNames.empty()) return 0;
+            std::wstring current = GetEditText(hDlg, IDC_DEPDLG_COMP_EDIT);
+            std::wstring result;
+            if (RunPickCompDialog(hDlg, pData->hInst, current,
+                                  pData->compNames, *pData->pLocale, result))
+                SetDlgItemTextW(hDlg, IDC_DEPDLG_COMP_EDIT, result.c_str());
             return 0;
         }
 
@@ -747,6 +992,7 @@ static LRESULT CALLBACK DepDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lP
                 pData->dep.detect_file_path = GetEditText(hDlg, IDC_DEPDLG_DETECT_FILE);
                 pData->dep.min_version      = GetEditText(hDlg, IDC_DEPDLG_MIN_VER);
                 pData->dep.max_version      = GetEditText(hDlg, IDC_DEPDLG_MAX_VER);
+                pData->dep.required_components = GetEditText(hDlg, IDC_DEPDLG_COMP_EDIT);
                 pData->dep.instructions_list = s_depInstrList;
                 pData->dep.license_text     = s_depLicRtf;
                 pData->dep.license_path     = L"";
@@ -857,7 +1103,8 @@ static LRESULT CALLBACK DepDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lP
 
 bool DEP_EditDialog(HWND hwndParent, HINSTANCE hInst,
                     const std::map<std::wstring, std::wstring>& locale,
-                    ExternalDep& dep)
+                    ExternalDep& dep,
+                    const std::vector<std::wstring>& compNames)
 {
     s_depDlgOk    = false;
     s_depInstrList = dep.instructions_list;
@@ -868,6 +1115,7 @@ bool DEP_EditDialog(HWND hwndParent, HINSTANCE hInst,
     data.hInst     = hInst;
     data.pLocale   = &locale;
     data.okPressed = false;
+    data.compNames = compNames;
 
     // ── Register window class (once) ──────────────────────────────────────────
     static bool s_classRegistered = false;
@@ -940,6 +1188,7 @@ bool DEP_EditDialog(HWND hwndParent, HINSTANCE hInst,
     s_secDetection    = {};
     s_secNetAll       = {};
     s_secExitCodes    = {};
+    s_secCompLink     = {};
     s_secLicense      = {};
     s_secInstructions = {};
 
@@ -1100,6 +1349,24 @@ bool DEP_EditDialog(HWND hwndParent, HINSTANCE hInst,
               if (!sel) SendMessageW(hOrd, CB_SETCURSEL, 0, 0);
           } }
         SF(hOrd); s_secOrder.ctrls.push_back(hOrd);
+    }
+
+    // ── Component linkage section (hidden; shown when project has components) ─
+    // ctrls: [0]=label  [1]=read-only edit (space-separated names)  [2]="…" pick button
+    {
+        HWND hLbl = MkLabel(LS(L"dep_dlg_components", L"Required components (optional):"), false);
+        SF(hLbl); s_secCompLink.ctrls.push_back(hLbl);
+        HWND hEd = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT",
+            dep.required_components.c_str(),
+            WS_CHILD | WS_TABSTOP | WS_BORDER | ES_AUTOHSCROLL | ES_READONLY,
+            s_ddLX, y, s_ddEW, S(DD_EDIT_H), hDlg,
+            (HMENU)(UINT_PTR)IDC_DEPDLG_COMP_EDIT, hInst, NULL);
+        SF(hEd); s_secCompLink.ctrls.push_back(hEd);
+        HWND hBtn = CreateWindowExW(0, L"BUTTON", L"\u2026",
+            WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON,
+            s_ddLX, y, S(28), S(DD_EDIT_H), hDlg,
+            (HMENU)(UINT_PTR)IDC_DEPDLG_COMP_PICK, hInst, NULL);
+        SF(hBtn); s_secCompLink.ctrls.push_back(hBtn);
     }
 
     // ── Detection section (hidden) ────────────────────────────────────────────

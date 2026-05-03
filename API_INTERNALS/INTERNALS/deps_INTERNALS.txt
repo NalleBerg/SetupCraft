@@ -49,6 +49,12 @@ ExternalDep (declared in deps.h)
   max_version      wstring     maximum allowed version string; empty = no upper bound
                                visible for DD_AUTO_DOWNLOAD + DD_REDIRECT_URL (Detection section)
                                IDC_DEPDLG_MAX_VER=424
+  required_components wstring  space-separated component display names this dep is linked to.
+                               Empty = install unconditionally (default; zero behaviour change for
+                               existing projects). Visible for ALL delivery types when the project
+                               has at least one component; section hidden otherwise.
+                               IDC_DEPDLG_COMP_EDIT=426 (read-only edit)
+                               IDC_DEPDLG_COMP_PICK=427 ("…" picker button → PickCompDlgProc)
 
 ================================================================================
 MODULE STATE  (deps.cpp file-scope statics)
@@ -217,6 +223,8 @@ CONTROL ID RANGES
   IDC_DEPDLG_EXIT_CODES    423  acceptable exit codes edit (space-separated; DD_BUNDLED + DD_AUTO_DOWNLOAD)
   IDC_DEPDLG_MAX_VER       424  maximum allowed version edit (Detection section; empty = no upper bound)
   IDC_DEPDLG_EXIT_CODES_HELP 425  square help button (shell32 #23) — opens exit codes reference popup
+  IDC_DEPDLG_COMP_EDIT       426  read-only edit showing space-separated linked component names
+  IDC_DEPDLG_COMP_PICK       427  "…" button — opens PickCompDlgProc (LBS_EXTENDEDSEL listbox)
 
 ================================================================================
 DB TABLE  (external_deps)
@@ -244,6 +252,7 @@ DB TABLE  (external_deps)
     download_timeout_sec INTEGER DEFAULT 0,   -- 0 = no timeout; added by ALTER TABLE migration
     extra_exit_codes TEXT    DEFAULT '',       -- space-separated; added by ALTER TABLE migration
     max_version      TEXT    DEFAULT '',       -- empty = no upper bound; added by ALTER TABLE migration
+    required_components TEXT DEFAULT '',      -- space-separated component names; empty = install always; added by ALTER TABLE migration
     FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
   );
 
@@ -332,6 +341,9 @@ LOCALE KEYS
                              lists reboot codes 3010/1641 and other common codes 1/2/5/1602/1603/1618/1638
   dep_dlg_max_version      — dialog label: "Maximum allowed version (optional):"
                              (visible for DD_AUTO_DOWNLOAD + DD_REDIRECT_URL; IDC_DEPDLG_MAX_VER=424)
+  dep_dlg_components       — dialog label: "Required components (optional):"
+                             (visible for all delivery types when project has ≥1 component; IDC_DEPDLG_COMP_EDIT=426)
+  dep_dlg_comp_pick_title  — title for PickCompDlgProc picker: "Select Components"
   dep_dlg_credits          — dialog label: "Credits / attribution (optional):"
   dep_dlg_edit_lic         — Edit License button label: "Edit License…"
   dep_lic_none             — indicator when no license RTF: "(no license)"
