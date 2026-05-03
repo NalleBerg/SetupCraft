@@ -219,6 +219,7 @@ reg_regen_warn_title=Regenerate AppId?
 reg_regen_warn_msg=Changing the AppId will break uninstallation of previous versions of your software.\r\n\r\nOnly regenerate for a major new release or when starting fresh.\r\n\r\nAre you sure?
 reg_regen_warn_yes=Yes, regenerate
 reg_regen_warn_no=Cancel
+reg_hka_tooltip=Auto root — Inno Setup resolves HKA at install time:\n• HKCU for per-user (non-admin) installs\n• HKLM for all-users (admin) installs\n\nUse HKA instead of duplicating entries under both HKCU and HKLM.
 reg_flg_sec_uninstall=Uninstall behaviour
 reg_flg_sec_view=Registry view
 reg_flg_deletevalue=deletevalue — delete on uninstall

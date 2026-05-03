@@ -258,9 +258,28 @@
     Use CHK_H for custom checkboxes and RAD_H for radio-button rows. Both constants
     feed into the clientH formula so the outer dialog window is always sized exactly.
 
+  - TreeView pseudo-root with inline tooltip (TVS_INFOTIP + TVN_GETINFOTIP):
+    When a TreeView has a synthetic root item (one that does not map to a real
+    registry key or file path) add an inline hover tooltip to document its meaning:
+    1. Create the control with TVS_INFOTIP in the style flags.
+    2. Handle WM_NOTIFY / TVN_GETINFOTIP: check that the hovered item has no parent
+       (i.e. it IS a root) and that its label matches the pseudo-root name.
+    3. Copy the tip string into pgi->pszText (max pgi->cchTextMax chars).
+    Pattern (HKA root in the Registry page TreeView):
+      if (nmhdr->idFrom == IDC_REG_TREEVIEW && nmhdr->code == TVN_GETINFOTIP) {
+          LPNMTVGETINFOTIP pgi = (LPNMTVGETINFOTIP)lParam;
+          if (!TreeView_GetParent(hTree, pgi->hItem)) {
+              // is root
+              wchar_t name[8] = {};
+              TVITEMW tv = { TVIF_TEXT, pgi->hItem, 0, 0, name, 7 };
+              TreeView_GetItem(hTree, &tv);
+              if (wcscmp(name, L"HKA") == 0)
+                  wcsncpy_s(pgi->pszText, pgi->cchTextMax, tipText, _TRUNCATE);
+          }
+          return 0;
+      }
 
-    When a field must contain a space-separated set of names drawn from a hierarchical
-    data source, replace the plain EDIT with:
+  - Multi-select TreeView inline picker pattern (read-only EDIT + "…" button + modal tree):
     1. An ES_READONLY edit narrowed by (pickBtnW + gap).
     2. A small "…" BUTTON immediately to the right (IDC_PICK, AV_PICK_W = 30).
     3. A modal PickerDialogProc containing a TVS_FULLROWSELECT | TVS_HASBUTTONS |

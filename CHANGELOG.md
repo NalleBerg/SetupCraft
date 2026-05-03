@@ -4,9 +4,11 @@ All notable changes to SetupCraft will be documented in this file.
 
 ## [2026.05.03.11] - 2026-05-03
 
-### Registry page — Add/Edit Value dialog: hint label and checkbox row height fixes
+### Registry page — Add/Edit Value dialog layout fixes + HKA auto-root in TreeView
 - **mainwindow — syntax hint label no longer clipped (`AV_HINT_H` 14 → 20)**: The "Any text (Unicode string)" hint below the Data field was rendered at only 14 design-px — too short for the 1.2× scaled NONCLIENTMETRICS font; descenders (g, p, y) were clipped. `AV_HINT_H` raised to 20 px; both Add and Edit dialog height formulas inherit the change automatically.
 - **mainwindow — checkbox row height increased (`AV_CHK_H` 24 → 28) + separate `AV_RAD_H = 24` for radio rows**: Extra 4 px margin ensures descenders are never clipped and adds visual breathing room between flag rows. Radio-button rows in the Registry view section keep 24 px via new `AV_RAD_H` constant (short labels, never need extra space), keeping the overall dialog compact.
+- **mainwindow — HKA pseudo-root added to registry TreeView**: New **HKA** root node (first in list, expanded with `SOFTWARE → [Publisher] → [AppName]`) exposes Inno's auto-root: resolves to `HKCU` for per-user installs, `HKLM` for all-users. Eliminates the need to duplicate entries under both hives. Hover tooltip via `TVN_GETINFOTIP` (`TVS_INFOTIP` added). All persistence paths (custom keys/values, hive/path split) handle HKA transparently.
+- **Locale key added** (both `locale/en_GB.txt` files): `reg_hka_tooltip`.
 
 ## [2026.05.03.10] - 2026-05-03
 

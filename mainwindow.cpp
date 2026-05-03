@@ -1087,7 +1087,25 @@ static void CreateTemplateRegistryTree(HWND hTreeView, const std::wstring& proje
     tvis.item.mask = TVIF_TEXT | TVIF_STATE;
     tvis.item.stateMask = TVIS_EXPANDED;
     tvis.item.state = TVIS_EXPANDED;
-    
+
+    // ========== HKA — Inno Setup auto-root (HKCU for per-user / HKLM for all-users) ==========
+    // HKA is a pseudo-root: Inno resolves it at install time so the developer does not
+    // need to duplicate entries for both user-scoped and machine-wide install modes.
+    tvis.item.pszText = (LPWSTR)L"HKA";
+    HTREEITEM hHKA = TreeView_InsertItem(hTreeView, &tvis);
+
+    // HKA\SOFTWARE
+    std::wstring hkaSoftwarePath = L"SOFTWARE";
+    HTREEITEM hHKASoftware = InsertTreeItem(hHKA, L"SOFTWARE", &hkaSoftwarePath);
+
+    // HKA\SOFTWARE\[Publisher]
+    std::wstring hkaPublisherPath = L"SOFTWARE\\" + pub;
+    HTREEITEM hHKAPublisher = InsertTreeItem(hHKASoftware, pub, &hkaPublisherPath);
+
+    // HKA\SOFTWARE\[Publisher]\[AppName]
+    std::wstring hkaAppPath = L"SOFTWARE\\" + pub + L"\\" + app;
+    InsertTreeItem(hHKAPublisher, app, &hkaAppPath);
+
     // ========== HKEY_CLASSES_ROOT ==========
     tvis.item.pszText = (LPWSTR)L"HKEY_CLASSES_ROOT";
     HTREEITEM hHKCR = TreeView_InsertItem(hTreeView, &tvis);
@@ -2829,7 +2847,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         
         // TreeView for registry hive structure with horizontal scrolling
         s_hRegTreeView = CreateWindowExW(WS_EX_CLIENTEDGE, WC_TREEVIEW, L"",
-            WS_CHILD | WS_VISIBLE | WS_BORDER | TVS_HASLINES | TVS_HASBUTTONS | TVS_LINESATROOT | TVS_SHOWSELALWAYS | WS_VSCROLL | WS_HSCROLL,
+            WS_CHILD | WS_VISIBLE | WS_BORDER | TVS_HASLINES | TVS_HASBUTTONS | TVS_LINESATROOT | TVS_SHOWSELALWAYS | TVS_INFOTIP | WS_VSCROLL | WS_HSCROLL,
             S(20), currentY, treeWidth, paneHeight,
             hwnd, (HMENU)IDC_REG_TREEVIEW, hInst, NULL);
         if (s_scaledFont) SendMessageW(s_hRegTreeView, WM_SETFONT, (WPARAM)s_scaledFont, TRUE);
@@ -9701,6 +9719,33 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 // Force ListView to redraw
                 InvalidateRect(s_hRegListView, NULL, TRUE);
                 UpdateWindow(s_hRegListView);
+            }
+            return 0;
+        }
+
+        // Handle HKA tooltip: TVN_GETINFOTIP fires when the cursor hovers a tree item
+        // (requires TVS_INFOTIP on the control). We only fill the tip for the HKA root
+        // so developers can learn what the pseudo-root does without leaving the tool.
+        if (nmhdr->idFrom == IDC_REG_TREEVIEW && nmhdr->code == TVN_GETINFOTIP) {
+            LPNMTVGETINFOTIP pgi = (LPNMTVGETINFOTIP)lParam;
+            // Is the hovered item a root (no parent) named "HKA"?
+            if (s_hRegTreeView && !TreeView_GetParent(s_hRegTreeView, pgi->hItem)) {
+                wchar_t nameBuf[8] = {};
+                TVITEMW tv = {};
+                tv.mask = TVIF_TEXT;
+                tv.hItem = pgi->hItem;
+                tv.pszText = nameBuf;
+                tv.cchTextMax = 7;
+                TreeView_GetItem(s_hRegTreeView, &tv);
+                if (wcscmp(nameBuf, L"HKA") == 0) {
+                    auto itTip = s_locale.find(L"reg_hka_tooltip");
+                    const wchar_t* tip = (itTip != s_locale.end()) ? itTip->second.c_str()
+                        : L"Auto root \u2014 Inno Setup resolves HKA at install time:\n"
+                          L"\u2022 HKCU for per-user (non-admin) installs\n"
+                          L"\u2022 HKLM for all-users (admin) installs\n\n"
+                          L"Use HKA instead of duplicating entries under both HKCU and HKLM.";
+                    wcsncpy_s(pgi->pszText, pgi->cchTextMax, tip, _TRUNCATE);
+                }
             }
             return 0;
         }
