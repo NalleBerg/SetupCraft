@@ -434,6 +434,7 @@ static bool s_filesPageHasContent = false; // tracks whether Files page has any 
 #define IDC_ADDVAL_F_UNINSDELETEKEYIFEMPTY 5069
 #define IDC_ADDVAL_F_DONTCREATEKEY        5073
 #define IDC_ADDVAL_F_PRESERVESTRINGTYPE   5074
+#define IDC_ADDVAL_F_CREATEVALUEIFDOESNTEXIST 5081
 // Registry view radio buttons
 #define IDC_ADDVAL_F_ARCH_DEFAULT         5075
 #define IDC_ADDVAL_F_ARCH_32BIT           5076
@@ -4617,12 +4618,13 @@ static const int AV_ROW_H   = 28;  // row height (label/edit/combo)
 static const int AV_GAP_R1  = 16;  // vertical gap between rows 1 and 2
 static const int AV_GAP_R2  = 18;  // vertical gap between rows 2 and 3
 static const int AV_GAP_DH  =  3;  // gap between data edit and hint label
-static const int AV_HINT_H  = 14;  // syntax hint label height
+static const int AV_HINT_H  = 20;  // syntax hint label height
 static const int AV_GAP_RD  = 18;  // vertical gap between hint label and components row
 static const int AV_PICK_W  = 30;  // width of the Components picker button
 static const int AV_SEC_H   = 18;  // flags section header height
 static const int AV_GAP_SEC =  4;  // gap between section header and first control
-static const int AV_CHK_H   = 24;  // checkbox/radio row height
+static const int AV_CHK_H   = 28;  // checkbox row height (4 px margin so descenders never clip)
+static const int AV_RAD_H   = 24;  // radio-button row height (labels never wrap)
 static const int AV_GAP_BTW = 12;  // gap between sections
 static const int AV_GAP_RB  = 16;  // vertical gap between last section and buttons
 static const int AV_BTN_H   = 38;
@@ -4642,11 +4644,10 @@ static const wchar_t* GetRegTypeHint(const std::wstring& type) {
     return L"";
 }
 
-// Subclass proc for flag checkboxes/radios — shows the custom tooltip on hover
-static WNDPROC s_avPrevChkProc = NULL; // shared; only one control hovered at a time
-static bool    s_avChkTracking = false;
-
-static LRESULT CALLBACK AVFlag_SubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+// Subclass proc for flag checkboxes/radios — shows the custom tooltip on hover.
+// Uses SetWindowSubclass so it sits on top of (not instead of) CheckboxSubclassProc.
+static LRESULT CALLBACK AVFlag_SubclassProc(HWND hwnd, UINT msg, WPARAM wParam,
+                                             LPARAM lParam, UINT_PTR uId, DWORD_PTR) {
     switch (msg) {
     case WM_MOUSEMOVE: {
         if (!IsTooltipVisible()) {
@@ -4657,25 +4658,26 @@ static LRESULT CALLBACK AVFlag_SubclassProc(HWND hwnd, UINT msg, WPARAM wParam, 
                 ShowMultilingualTooltip(entries, rc.left, rc.bottom + 4, GetParent(hwnd));
             }
         }
-        if (!s_avChkTracking) {
+        if (!GetPropW(hwnd, L"avTracking")) {
             TRACKMOUSEEVENT tme = {};
-            tme.cbSize = sizeof(tme);
-            tme.dwFlags = TME_LEAVE;
+            tme.cbSize    = sizeof(tme);
+            tme.dwFlags   = TME_LEAVE;
             tme.hwndTrack = hwnd;
             TrackMouseEvent(&tme);
-            s_avChkTracking = true;
+            SetPropW(hwnd, L"avTracking", (HANDLE)(LONG_PTR)1);
         }
         break;
     }
     case WM_MOUSELEAVE:
         HideTooltip();
-        s_avChkTracking = false;
+        RemovePropW(hwnd, L"avTracking");
         break;
     case WM_NCDESTROY:
-        SetWindowLongPtrW(hwnd, GWLP_WNDPROC, (LONG_PTR)s_avPrevChkProc);
+        RemovePropW(hwnd, L"avTracking");
+        RemoveWindowSubclass(hwnd, AVFlag_SubclassProc, uId);
         break;
     }
-    return CallWindowProcW(s_avPrevChkProc, hwnd, msg, wParam, lParam);
+    return DefSubclassProc(hwnd, msg, wParam, lParam);
 }
 
 // ── Component picker dialog ───────────────────────────────────────────────────
@@ -4770,6 +4772,33 @@ static LRESULT CALLBACK PickTree_SubclassProc(HWND hTree, UINT msg,
         }
         InvalidateRect(hTree, NULL, FALSE);
         return 0;
+    } else if (msg == WM_RBUTTONUP) {
+        // WM_RBUTTONUP is reliable in the subclass; WM_CONTEXTMENU is forwarded
+        // to the parent by the native TreeView proc and never reaches us here.
+        POINT ptCli = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+        TVHITTESTINFO ht = {};
+        ht.pt = ptCli;
+        HTREEITEM hHit = TreeView_HitTest(hTree, &ht);
+        if (hHit && (ht.flags & (TVHT_ONITEMLABEL | TVHT_ONITEMICON
+                                 | TVHT_ONITEMINDENT | TVHT_ONITEMRIGHT))) {
+            TVITEMW tvi = {}; tvi.mask = TVIF_PARAM; tvi.hItem = hHit;
+            TreeView_GetItem(hTree, &tvi);
+            if (tvi.lParam != (LPARAM)-1) {
+                bool isSel = ctx->selected.count(hHit) > 0;
+                POINT ptScr = ptCli;
+                ClientToScreen(hTree, &ptScr);
+                HMENU hMenu = CreatePopupMenu();
+                AppendMenuW(hMenu, MF_STRING | (isSel ? 0 : MF_GRAYED), 1, L"Remove");
+                int cmd = TrackPopupMenu(hMenu, TPM_RETURNCMD | TPM_RIGHTBUTTON,
+                                         ptScr.x, ptScr.y, 0, hTree, NULL);
+                DestroyMenu(hMenu);
+                if (cmd == 1) {
+                    ctx->selected.erase(hHit);
+                    InvalidateRect(hTree, NULL, FALSE);
+                }
+                return 0;
+            }
+        }
     } else if (msg == WM_NCDESTROY) {
         // Remove property and restore original proc before the window is gone.
         RemovePropW(hTree, L"hPickCtx");
@@ -5217,6 +5246,10 @@ LRESULT CALLBACK AddValueDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 _loc(L"reg_flg_preservestringtype", L"preservestringtype"),
                 FlagsHas(flgs, L"preservestringtype"),
                 S(AV_PAD_H), y1, colW - S(4), S(AV_CHK_H), hInst); y1 += S(AV_CHK_H);
+            CreateCustomCheckbox(hwnd, IDC_ADDVAL_F_CREATEVALUEIFDOESNTEXIST,
+                _loc(L"reg_flg_createvalueifdoesntexist", L"createvalueifdoesntexist"),
+                FlagsHas(flgs, L"createvalueifdoesntexist"),
+                S(AV_PAD_H), y1, colW - S(4), S(AV_CHK_H), hInst); y1 += S(AV_CHK_H);
             // Column 2: key-level flags
             int y2 = y;
             CreateCustomCheckbox(hwnd, IDC_ADDVAL_F_DELETEKEY,
@@ -5231,7 +5264,7 @@ LRESULT CALLBACK AddValueDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 _loc(L"reg_flg_uninsdeletekeyifempty", L"uninsdeletekeyifempty"),
                 FlagsHas(flgs, L"uninsdeletekeyifempty"),
                 S(AV_PAD_H) + colW, y2, colW, S(AV_CHK_H), hInst); y2 += S(AV_CHK_H);
-            y += 4 * S(AV_CHK_H);
+            y += 5 * S(AV_CHK_H);
             pushBorderAV(sTop);
         }
         y += S(AV_GAP_BTW);
@@ -5249,22 +5282,22 @@ LRESULT CALLBACK AddValueDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             CreateWindowExW(0, L"BUTTON",
                 _loc(L"reg_flg_view_default", L"Default").c_str(),
                 WS_CHILD | WS_VISIBLE | BS_AUTORADIOBUTTON | WS_GROUP,
-                S(AV_PAD_H), y, radW, S(AV_CHK_H),
+                S(AV_PAD_H), y, radW, S(AV_RAD_H),
                 hwnd, (HMENU)(UINT_PTR)IDC_ADDVAL_F_ARCH_DEFAULT, hInst, NULL);
             CreateWindowExW(0, L"BUTTON",
                 _loc(L"reg_flg_view_32bit", L"32-bit").c_str(),
                 WS_CHILD | WS_VISIBLE | BS_AUTORADIOBUTTON,
-                S(AV_PAD_H) + radW, y, radW, S(AV_CHK_H),
+                S(AV_PAD_H) + radW, y, radW, S(AV_RAD_H),
                 hwnd, (HMENU)(UINT_PTR)IDC_ADDVAL_F_ARCH_32BIT, hInst, NULL);
             CreateWindowExW(0, L"BUTTON",
                 _loc(L"reg_flg_view_64bit", L"64-bit").c_str(),
                 WS_CHILD | WS_VISIBLE | BS_AUTORADIOBUTTON,
-                S(AV_PAD_H) + 2*radW, y, radW, S(AV_CHK_H),
+                S(AV_PAD_H) + 2*radW, y, radW, S(AV_RAD_H),
                 hwnd, (HMENU)(UINT_PTR)IDC_ADDVAL_F_ARCH_64BIT, hInst, NULL);
             int initRad = has32 ? IDC_ADDVAL_F_ARCH_32BIT
                         : (has64 ? IDC_ADDVAL_F_ARCH_64BIT : IDC_ADDVAL_F_ARCH_DEFAULT);
             SendMessageW(GetDlgItem(hwnd, initRad), BM_SETCHECK, BST_CHECKED, 0);
-            y += S(AV_CHK_H);
+            y += S(AV_RAD_H);
             pushBorderAV(sTop);
         }
         y += S(AV_GAP_RB);
@@ -5325,6 +5358,8 @@ LRESULT CALLBACK AddValueDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                   L"Does not create the registry key if it does not already exist.\nUse this to add values to a pre-existing key without\naccidentally creating it on machines where it is absent." },
                 { IDC_ADDVAL_F_PRESERVESTRINGTYPE,
                   L"When the registry value already exists as a string type\n(REG_SZ, REG_EXPAND_SZ or REG_MULTI_SZ), keeps its\ncurrent type instead of changing it to the type specified here." },
+                { IDC_ADDVAL_F_CREATEVALUEIFDOESNTEXIST,
+                  L"Writes this registry value only if it does not already exist.\nIdeal for first-run defaults: the value is created on a fresh install\nbut left untouched on upgrades or re-runs where the user may have changed it." },
                 { IDC_ADDVAL_F_DELETEKEY,
                   L"Deletes the entire registry key (and all its subkeys\nand values) during uninstall, regardless of who created them." },
                 { IDC_ADDVAL_F_UNINSDELETEKEY,
@@ -5342,7 +5377,8 @@ LRESULT CALLBACK AddValueDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 HWND hCtrl = GetDlgItem(hwnd, t.id);
                 if (!hCtrl) continue;
                 SetPropW(hCtrl, L"avTip", (HANDLE)t.tip);
-                s_avPrevChkProc = (WNDPROC)SetWindowLongPtrW(hCtrl, GWLP_WNDPROC, (LONG_PTR)AVFlag_SubclassProc);
+                // Use ID 2 — CheckboxSubclassProc already owns ID 1 on this HWND.
+                SetWindowSubclass(hCtrl, AVFlag_SubclassProc, 2, 0);
             }
         }
 
@@ -5406,6 +5442,7 @@ LRESULT CALLBACK AddValueDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 addFlg(IDC_ADDVAL_F_UNINSDELETEVALUE,     L"uninsdeletevalue");
                 addFlg(IDC_ADDVAL_F_DONTCREATEKEY,        L"dontcreatekey");
                 addFlg(IDC_ADDVAL_F_PRESERVESTRINGTYPE,   L"preservestringtype");
+                addFlg(IDC_ADDVAL_F_CREATEVALUEIFDOESNTEXIST, L"createvalueifdoesntexist");
                 addFlg(IDC_ADDVAL_F_DELETEKEY,            L"deletekey");
                 addFlg(IDC_ADDVAL_F_UNINSDELETEKEY,       L"uninsdeletekey");
                 addFlg(IDC_ADDVAL_F_UNINSDELETEKEYIFEMPTY, L"uninsdeletekeyifempty");
@@ -11438,8 +11475,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                           + S(AV_ROW_H)+S(AV_GAP_R2)         // type
                           + S(AV_ROW_H)+S(AV_GAP_DH)+S(AV_HINT_H)+S(AV_GAP_RD)  // data + hint
                           + S(AV_ROW_H)+S(AV_GAP_CF)                              // components
-                          + S(AV_SEC_H)+S(AV_GAP_SEC)+4*S(AV_CHK_H)+S(AV_GAP_BTW)  // uninstall section
-                          + S(AV_SEC_H)+S(AV_GAP_SEC)+S(AV_CHK_H) // view section
+                          + S(AV_SEC_H)+S(AV_GAP_SEC)+5*S(AV_CHK_H)+S(AV_GAP_BTW)  // uninstall section
+                          + S(AV_SEC_H)+S(AV_GAP_SEC)+S(AV_RAD_H) // view section (radios never wrap)
                           + S(AV_GAP_RB)
                           + S(AV_BTN_H)+S(AV_PAD_B);
             RECT wrcAV1 = {0,0,avClientW,avClientH};
@@ -11931,8 +11968,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                             + S(AV_ROW_H)+S(AV_GAP_R2)         // type
                             + S(AV_ROW_H)+S(AV_GAP_DH)+S(AV_HINT_H)+S(AV_GAP_RD)  // data + hint
                             + S(AV_ROW_H)+S(AV_GAP_CF)                              // components
-                            + S(AV_SEC_H)+S(AV_GAP_SEC)+4*S(AV_CHK_H)+S(AV_GAP_BTW)  // uninstall section
-                            + S(AV_SEC_H)+S(AV_GAP_SEC)+S(AV_CHK_H) // view section
+                            + S(AV_SEC_H)+S(AV_GAP_SEC)+5*S(AV_CHK_H)+S(AV_GAP_BTW)  // uninstall section
+                            + S(AV_SEC_H)+S(AV_GAP_SEC)+S(AV_RAD_H) // view section (radios never wrap)
                             + S(AV_GAP_RB)
                             + S(AV_BTN_H)+S(AV_PAD_B);
                 RECT wrc = {0,0,clientW,clientH};

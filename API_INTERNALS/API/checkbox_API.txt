@@ -50,10 +50,11 @@ Parameters
   initiallyChecked — true → box is ticked at creation. false → box is empty.
   x, y             — position in DPI-scaled pixels. Use S(designPx) for every
                      value so the layout is correct at all DPI settings.
-  width, height    — size. For a single-line label a height of S(22) is
-                     sufficient. For multi-line (word-wrapped) labels use S(34)
-                     or more; the box is top-aligned at +S(2) and the label
-                     wraps within the remaining rect.
+  width, height    — size. For a single-line label a height of S(24) is
+                     sufficient. For labels that may word-wrap (e.g. long flag
+                     names in a two-column layout), use at least S(28) to give
+                     descenders room; the box is top-aligned at +S(2) so it
+                     always tracks the first text line.
   hInst            — module instance (same as passed to CreateWindowExW).
 
 Returns  HWND of the new control, or NULL on failure.

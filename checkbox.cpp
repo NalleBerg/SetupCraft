@@ -255,9 +255,7 @@ BOOL DrawCustomCheckbox(LPDRAWITEMSTRUCT dis)
     FillRect(hdc, &rcAll, hPaneBr);
     DeleteObject(hPaneBr);
 
-    // 2. Box — S(15)×S(15), aligned with the top of the first text line.
-    // Top-aligning (S(2) inset) works for both single-line and word-wrapped
-    // multi-line checkboxes without needing to query font metrics.
+    // 2. Box — S(15)×S(15), top-aligned so it tracks line 1 when labels wrap.
     const int boxSz = S(15);
     const int boxX  = rcAll.left;
     const int boxY  = rcAll.top + S(2);

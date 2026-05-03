@@ -246,8 +246,19 @@
          clientH += S(GAP_DH) + S(HINT_H);
     The hint text function is a simple switch/if-chain returning static string literals
     — no allocation needed and safe to pass directly to SetWindowTextW.
+    Sizing: use HINT_H = 20 (design-px) so descenders in the 1.2× scaled
+    NONCLIENTMETRICS font are never clipped (14 px is too tight).
 
-  - Multi-select TreeView inline picker pattern (read-only EDIT + "…" button + modal tree):
+  - Separate CHK_H / RAD_H layout constants in flag-section dialogs:
+    When a dialog section mixes owner-drawn checkboxes (CreateCustomCheckbox, which
+    word-wraps) and native BS_AUTORADIOBUTTON rows (which never wrap), use two
+    separate row-height constants:
+      CHK_H = 28   — gives descenders room and a comfortable gap between rows
+      RAD_H = 24   — native radio labels are short; no extra space needed
+    Use CHK_H for custom checkboxes and RAD_H for radio-button rows. Both constants
+    feed into the clientH formula so the outer dialog window is always sized exactly.
+
+
     When a field must contain a space-separated set of names drawn from a hierarchical
     data source, replace the plain EDIT with:
     1. An ES_READONLY edit narrowed by (pickBtnW + gap).

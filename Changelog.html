@@ -1,6 +1,13 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 03 May 2026 &mdash; v2026.05.03.10 (10:02)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 03 May 2026 &mdash; v2026.05.03.11 (11:26)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.05.03.11</span></h3>
+<p><strong>Registry page &mdash; Add/Edit Value dialog: hint label and checkbox row height fixes (03.05.2026, 11:26):</strong></p>
+<ul>
+<li><strong>mainwindow &mdash; syntax hint label no longer clipped (<code>AV_HINT_H</code> 14&thinsp;&rarr;&thinsp;20):</strong> The &ldquo;Any text (Unicode string)&rdquo; hint below the Data field was rendered at only 14&thinsp;design-px, which is too short for the 1.2&times; scaled NONCLIENTMETRICS font &mdash; descenders (g, p, y) were clipped. <code>AV_HINT_H</code> raised to 20&thinsp;px; both the Add and Edit dialog height formulas inherit the change automatically.</li>
+<li><strong>mainwindow &mdash; checkbox row height increased (<code>AV_CHK_H</code> 24&thinsp;&rarr;&thinsp;28) + separate <code>AV_RAD_H&thinsp;=&thinsp;24</code> for radio rows:</strong> At 100&thinsp;% DPI the flag-checkbox labels were drawn within their control bounds; the extra 4&thinsp;px margin ensures descenders are never clipped and gives visual breathing room between rows. Radio-button rows in the Registry&thinsp;view section keep the original 24&thinsp;px height via the new <code>AV_RAD_H</code> constant (their labels are short and never need extra space), keeping the dialog compact.</li>
+</ul>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.05.03.10</span></h3>
 <p><strong>Components dialogs &mdash; centred dependency buttons + full RTF editor (03.05.2026, 10:02):</strong></p>

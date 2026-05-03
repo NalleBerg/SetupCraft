@@ -2,6 +2,12 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.05.03.11] - 2026-05-03
+
+### Registry page — Add/Edit Value dialog: hint label and checkbox row height fixes
+- **mainwindow — syntax hint label no longer clipped (`AV_HINT_H` 14 → 20)**: The "Any text (Unicode string)" hint below the Data field was rendered at only 14 design-px — too short for the 1.2× scaled NONCLIENTMETRICS font; descenders (g, p, y) were clipped. `AV_HINT_H` raised to 20 px; both Add and Edit dialog height formulas inherit the change automatically.
+- **mainwindow — checkbox row height increased (`AV_CHK_H` 24 → 28) + separate `AV_RAD_H = 24` for radio rows**: Extra 4 px margin ensures descenders are never clipped and adds visual breathing room between flag rows. Radio-button rows in the Registry view section keep 24 px via new `AV_RAD_H` constant (short labels, never need extra space), keeping the overall dialog compact.
+
 ## [2026.05.03.10] - 2026-05-03
 
 ### Components dialogs — centred dependency buttons + full RTF editor
