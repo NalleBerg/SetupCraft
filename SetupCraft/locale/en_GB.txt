@@ -191,6 +191,7 @@ reg_add_value_name=Value Name:
 reg_add_value_type=Type:
 reg_add_value_data=Data:
 reg_add_value_components=Components:
+pick_comp_title=Pick Components
 reg_add_key_title=Add Registry Key
 reg_edit_key_title=Edit Registry Key
 reg_add_key_name=Key Name:

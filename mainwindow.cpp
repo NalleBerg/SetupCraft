@@ -4683,25 +4683,120 @@ struct PickCompDialogData {
     bool          okClicked; // OUT
 };
 
-// Recursively walk the tree and collect display_names of checked items.
-static void PickComp_CollectChecked(HWND hTree, HTREEITEM hItem,
-                                    const std::vector<ComponentRow>& comps,
-                                    std::wstring& out)
+// Multi-select tracking for the picker TreeView.
+// Heap-allocated and stored as a TreeView property (L"hPickCtx").
+struct PickMultiCtx {
+    std::set<HTREEITEM> selected;   // all currently selected items
+    HTREEITEM           anchor;     // Shift-click anchor
+    WNDPROC             origProc;   // saved WndProc (for subclass chain)
+};
+
+// TreeView subclass proc — implements Ctrl+click (toggle), Shift+click (range),
+// plain click (single), and Ctrl+A (all).  Visual highlight is painted by
+// NM_CUSTOMDRAW in the parent; this proc only manages the selection set.
+static LRESULT CALLBACK PickTree_SubclassProc(HWND hTree, UINT msg,
+                                               WPARAM wParam, LPARAM lParam)
+{
+    PickMultiCtx* ctx = (PickMultiCtx*)GetPropW(hTree, L"hPickCtx");
+    if (!ctx) return DefWindowProcW(hTree, msg, wParam, lParam);
+
+    if (msg == WM_LBUTTONDOWN || msg == WM_LBUTTONDBLCLK) {
+        TVHITTESTINFO ht = {};
+        ht.pt = { (LONG)GET_X_LPARAM(lParam), (LONG)GET_Y_LPARAM(lParam) };
+        HTREEITEM hHit = TreeView_HitTest(hTree, &ht);
+        if (hHit && (ht.flags & (TVHT_ONITEMLABEL | TVHT_ONITEMICON
+                                 | TVHT_ONITEMINDENT | TVHT_ONITEMRIGHT))) {
+            TVITEMW tvi = {}; tvi.mask = TVIF_PARAM; tvi.hItem = hHit;
+            TreeView_GetItem(hTree, &tvi);
+            bool isHeader = (tvi.lParam == (LPARAM)-1);
+            bool ctrl  = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+            bool shift = (GetKeyState(VK_SHIFT)   & 0x8000) != 0;
+
+            if (isHeader) {
+                // Section header: clear selection on plain click; let original
+                // proc handle expand/collapse.
+                if (!ctrl && !shift) ctx->selected.clear();
+            } else if (ctrl && !shift) {
+                // Ctrl+click: toggle item without disturbing the others.
+                if (ctx->selected.count(hHit)) ctx->selected.erase(hHit);
+                else                            ctx->selected.insert(hHit);
+                ctx->anchor = hHit;
+                TreeView_SelectItem(hTree, hHit);
+                InvalidateRect(hTree, NULL, FALSE);
+                return 0;  // suppress default (would clear our multi-highlight)
+            } else if (shift && ctx->anchor) {
+                // Shift+click: select all visible items between anchor and hit.
+                std::vector<HTREEITEM> visible;
+                for (HTREEITEM h = TreeView_GetRoot(hTree); h;
+                     h = TreeView_GetNextVisible(hTree, h))
+                    visible.push_back(h);
+                int ai = -1, hi2 = -1;
+                for (int i = 0; i < (int)visible.size(); ++i) {
+                    if (visible[i] == ctx->anchor) ai  = i;
+                    if (visible[i] == hHit)        hi2 = i;
+                }
+                if (ai >= 0 && hi2 >= 0) {
+                    ctx->selected.clear();
+                    int lo = std::min(ai, hi2), hiIdx = std::max(ai, hi2);
+                    for (int i = lo; i <= hiIdx; ++i) {
+                        TVITEMW t = {}; t.mask = TVIF_PARAM; t.hItem = visible[i];
+                        TreeView_GetItem(hTree, &t);
+                        if (t.lParam != (LPARAM)-1) ctx->selected.insert(visible[i]);
+                    }
+                }
+                TreeView_SelectItem(hTree, hHit);
+                InvalidateRect(hTree, NULL, FALSE);
+                return 0;
+            } else {
+                // Plain click: select exactly this item.
+                ctx->selected.clear();
+                ctx->selected.insert(hHit);
+                ctx->anchor = hHit;
+            }
+            InvalidateRect(hTree, NULL, FALSE);
+        }
+    } else if (msg == WM_KEYDOWN && wParam == 'A'
+               && (GetKeyState(VK_CONTROL) & 0x8000)) {
+        // Ctrl+A: select all non-header visible items.
+        ctx->selected.clear();
+        for (HTREEITEM h = TreeView_GetRoot(hTree); h;
+             h = TreeView_GetNextVisible(hTree, h)) {
+            TVITEMW t = {}; t.mask = TVIF_PARAM; t.hItem = h;
+            TreeView_GetItem(hTree, &t);
+            if (t.lParam != (LPARAM)-1) ctx->selected.insert(h);
+        }
+        InvalidateRect(hTree, NULL, FALSE);
+        return 0;
+    } else if (msg == WM_NCDESTROY) {
+        // Remove property and restore original proc before the window is gone.
+        RemovePropW(hTree, L"hPickCtx");
+        WNDPROC orig = ctx->origProc;
+        delete ctx;
+        SetWindowLongPtrW(hTree, GWLP_WNDPROC, (LONG_PTR)orig);
+        return CallWindowProcW(orig, hTree, msg, wParam, lParam);
+    }
+    return CallWindowProcW(ctx->origProc, hTree, msg, wParam, lParam);
+}
+
+// Recursively walk the tree and collect display_names of all selected items
+// in tree order so the output string is stable.
+static void PickComp_CollectSelected(HWND hTree, HTREEITEM hItem,
+                                     const std::vector<ComponentRow>& comps,
+                                     const std::set<HTREEITEM>& sel,
+                                     std::wstring& out)
 {
     while (hItem) {
-        TVITEMW tv = {};
-        tv.mask      = TVIF_PARAM | TVIF_STATE;
-        tv.hItem     = hItem;
-        tv.stateMask = TVIS_STATEIMAGEMASK;
-        TreeView_GetItem(hTree, &tv);
-        int stateImg = (tv.state & TVIS_STATEIMAGEMASK) >> 12;
-        // lParam >= 0 → valid component index (section headers have lParam == -1)
-        if (tv.lParam >= 0 && (int)tv.lParam < (int)comps.size() && stateImg == 2) {
-            if (!out.empty()) out += L' ';
-            out += comps[(int)tv.lParam].display_name;
+        if (sel.count(hItem)) {
+            TVITEMW tv = {}; tv.mask = TVIF_PARAM; tv.hItem = hItem;
+            TreeView_GetItem(hTree, &tv);
+            int idx = (int)tv.lParam;
+            if (idx >= 0 && idx < (int)comps.size()) {
+                if (!out.empty()) out += L' ';
+                out += comps[idx].display_name;
+            }
         }
         HTREEITEM hChild = TreeView_GetChild(hTree, hItem);
-        if (hChild) PickComp_CollectChecked(hTree, hChild, comps, out);
+        if (hChild) PickComp_CollectSelected(hTree, hChild, comps, sel, out);
         hItem = TreeView_GetNextSibling(hTree, hItem);
     }
 }
@@ -4716,56 +4811,88 @@ static LRESULT CALLBACK PickCompDialogProc(HWND hwnd, UINT msg, WPARAM wParam, L
 
         RECT rc; GetClientRect(hwnd, &rc);
         int cW = rc.right, cH = rc.bottom;
-        int pad = 10, btnH = 32, btnW = 100, gap = 8;
+        int pad  = S(10), btnH = S(32), btnW = S(110), gap = S(8);
         int treeH = cH - 2*pad - btnH - gap;
 
+        // TreeView: no TVS_CHECKBOXES — selection is shown via NM_CUSTOMDRAW.
+        // TVS_FULLROWSELECT gives the Windows Explorer full-row highlight.
         HWND hTree = CreateWindowExW(WS_EX_CLIENTEDGE, WC_TREEVIEWW, L"",
-            WS_CHILD | WS_VISIBLE | TVS_HASLINES | TVS_LINESATROOT |
-            TVS_HASBUTTONS | TVS_CHECKBOXES | TVS_SHOWSELALWAYS,
+            WS_CHILD | WS_VISIBLE | WS_VSCROLL |
+            TVS_HASBUTTONS | TVS_SHOWSELALWAYS | TVS_FULLROWSELECT,
             pad, pad, cW - 2*pad, treeH,
             hwnd, (HMENU)IDC_PCD_TREE, cs->hInstance, NULL);
 
-        // Build set of currently-selected component names.
-        std::set<std::wstring> sel;
+        // Attach the system small-icon image list so items get real file icons.
+        // The shell owns this list; do NOT call ImageList_Destroy on it.
+        {
+            SHFILEINFOW sfi = {};
+            HIMAGELIST hSys = (HIMAGELIST)SHGetFileInfoW(L"C:\\", 0, &sfi,
+                sizeof(sfi), SHGFI_SYSICONINDEX | SHGFI_SMALLICON);
+            if (hSys) TreeView_SetImageList(hTree, hSys, TVSIL_NORMAL);
+        }
+
+        // Helper: get the system image-list icon index for a path/attributes.
+        // Tries the actual path first; falls back to extension lookup.
+        auto sysIconIdx = [](const std::wstring& path, DWORD attr) -> int {
+            SHFILEINFOW sfi = {};
+            if (!path.empty() &&
+                GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES) {
+                if (SHGetFileInfoW(path.c_str(), 0, &sfi, sizeof(sfi),
+                                   SHGFI_SYSICONINDEX | SHGFI_SMALLICON))
+                    return sfi.iIcon;
+            }
+            SHGetFileInfoW(path.c_str(), attr, &sfi, sizeof(sfi),
+                SHGFI_SYSICONINDEX | SHGFI_SMALLICON | SHGFI_USEFILEATTRIBUTES);
+            return sfi.iIcon;
+        };
+
+        // Generic folder icon for section headers.
+        int iFolderIcon;
+        {
+            SHFILEINFOW sfi = {};
+            SHGetFileInfoW(L"", FILE_ATTRIBUTE_DIRECTORY, &sfi, sizeof(sfi),
+                SHGFI_SYSICONINDEX | SHGFI_SMALLICON | SHGFI_USEFILEATTRIBUTES);
+            iFolderIcon = sfi.iIcon;
+        }
+
+        // Build the set of currently-selected component names (space-separated).
+        std::set<std::wstring> curSel;
         {
             std::wstring cur = pd->current;
-            size_t start = 0;
-            while (start < cur.size()) {
+            for (size_t start = 0; start < cur.size(); ) {
                 size_t sp = cur.find(L' ', start);
                 if (sp == std::wstring::npos) sp = cur.size();
                 std::wstring tok = cur.substr(start, sp - start);
-                if (!tok.empty()) sel.insert(tok);
+                if (!tok.empty()) curSel.insert(tok);
                 start = sp + 1;
             }
         }
 
-        // Helper: insert one tree item and apply checkbox state.
-        // lp < 0 → section header (no checkbox shown, state image 0).
+        // Subclass the TreeView and attach multi-select context as a property.
+        PickMultiCtx* ctx = new PickMultiCtx();
+        ctx->anchor   = nullptr;
+        ctx->origProc = (WNDPROC)SetWindowLongPtrW(hTree, GWLP_WNDPROC,
+                                                    (LONG_PTR)PickTree_SubclassProc);
+        SetPropW(hTree, L"hPickCtx", (HANDLE)ctx);
+
+        // Helper: insert one tree item with a normal-image-list icon.
         auto insertNode = [&](HTREEITEM hParent, const wchar_t* text,
-                              LPARAM lp, bool checked) -> HTREEITEM
+                               LPARAM lp, int iImage) -> HTREEITEM
         {
             TVINSERTSTRUCTW tv = {};
             tv.hParent      = hParent;
             tv.hInsertAfter = TVI_LAST;
-            tv.item.mask    = TVIF_TEXT | TVIF_PARAM;
+            tv.item.mask    = TVIF_TEXT | TVIF_PARAM | TVIF_IMAGE | TVIF_SELECTEDIMAGE;
             tv.item.pszText = const_cast<LPWSTR>(text);
             tv.item.lParam  = lp;
-            HTREEITEM h = TreeView_InsertItem(hTree, &tv);
-            if (h) {
-                TVITEMW tvi = {};
-                tvi.mask      = TVIF_STATE;
-                tvi.hItem     = h;
-                tvi.stateMask = TVIS_STATEIMAGEMASK;
-                // 0=no checkbox, 1=unchecked, 2=checked
-                tvi.state = INDEXTOSTATEIMAGEMASK(lp < 0 ? 0 : (checked ? 2 : 1));
-                TreeView_SetItem(hTree, &tvi);
-            }
-            return h;
+            tv.item.iImage         = iImage;
+            tv.item.iSelectedImage = iImage;
+            return TreeView_InsertItem(hTree, &tv);
         };
 
         const auto& comps = s_components;
 
-        // Collect unique sections in order of first appearance.
+        // Collect unique section names in first-appearance order.
         std::vector<std::wstring> sections;
         {
             std::set<std::wstring> seen;
@@ -4776,20 +4903,22 @@ static LRESULT CALLBACK PickCompDialogProc(HWND hwnd, UINT msg, WPARAM wParam, L
         }
 
         for (const auto& sec : sections) {
-            HTREEITEM hSec = insertNode(TVI_ROOT, sec.c_str(), (LPARAM)-1, false);
+            HTREEITEM hSec = insertNode(TVI_ROOT, sec.c_str(), (LPARAM)-1, iFolderIcon);
             if (!hSec) continue;
 
-            // First pass: folder-type components in this section.
+            // Folder-type components in this section.
             for (int fi = 0; fi < (int)comps.size(); ++fi) {
                 const auto& fc = comps[fi];
                 if ((fc.dest_path.empty() ? L"Other" : fc.dest_path) != sec) continue;
                 if (fc.source_type != L"folder") continue;
 
+                int iIco = sysIconIdx(fc.source_path, FILE_ATTRIBUTE_DIRECTORY);
                 HTREEITEM hFolder = insertNode(hSec, fc.display_name.c_str(),
-                                               (LPARAM)fi, sel.count(fc.display_name) > 0);
+                                               (LPARAM)fi, iIco);
                 if (!hFolder) continue;
+                if (curSel.count(fc.display_name)) ctx->selected.insert(hFolder);
 
-                // Children: file components whose source_path falls inside this folder.
+                // File children whose source_path is inside this folder.
                 for (int ci = 0; ci < (int)comps.size(); ++ci) {
                     const auto& cc = comps[ci];
                     if ((cc.dest_path.empty() ? L"Other" : cc.dest_path) != sec) continue;
@@ -4800,13 +4929,16 @@ static LRESULT CALLBACK PickCompDialogProc(HWND hwnd, UINT msg, WPARAM wParam, L
                                   fc.source_path.c_str(),
                                   fc.source_path.size()) != 0) continue;
                     if (cc.source_path[fc.source_path.size()] != L'\\') continue;
-                    insertNode(hFolder, cc.display_name.c_str(),
-                               (LPARAM)ci, sel.count(cc.display_name) > 0);
+                    int iFile = sysIconIdx(cc.source_path, FILE_ATTRIBUTE_NORMAL);
+                    HTREEITEM hFile = insertNode(hFolder, cc.display_name.c_str(),
+                                                 (LPARAM)ci, iFile);
+                    if (hFile && curSel.count(cc.display_name))
+                        ctx->selected.insert(hFile);
                 }
                 TreeView_Expand(hTree, hFolder, TVE_EXPAND);
             }
 
-            // Second pass: file-type components with no matching folder parent.
+            // Orphan file components (no matching folder parent in this section).
             for (int ci = 0; ci < (int)comps.size(); ++ci) {
                 const auto& cc = comps[ci];
                 if ((cc.dest_path.empty() ? L"Other" : cc.dest_path) != sec) continue;
@@ -4822,26 +4954,44 @@ static LRESULT CALLBACK PickCompDialogProc(HWND hwnd, UINT msg, WPARAM wParam, L
                         hasParent = true; break;
                     }
                 }
-                if (!hasParent)
-                    insertNode(hSec, cc.display_name.c_str(),
-                               (LPARAM)ci, sel.count(cc.display_name) > 0);
+                if (!hasParent) {
+                    int iFile = sysIconIdx(cc.source_path, FILE_ATTRIBUTE_NORMAL);
+                    HTREEITEM hFile = insertNode(hSec, cc.display_name.c_str(),
+                                                 (LPARAM)ci, iFile);
+                    if (hFile && curSel.count(cc.display_name))
+                        ctx->selected.insert(hFile);
+                }
             }
             TreeView_Expand(hTree, hSec, TVE_EXPAND);
         }
 
-        // OK / Cancel buttons.
-        int btnY = cH - pad - btnH;
-        int bx   = (cW - (2*btnW + gap)) / 2;
-        CreateWindowExW(0, L"BUTTON", L"OK",
-            WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
-            bx, btnY, btnW, btnH, hwnd, (HMENU)IDC_PCD_OK, cs->hInstance, NULL);
-        CreateWindowExW(0, L"BUTTON", L"Cancel",
-            WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-            bx + btnW + gap, btnY, btnW, btnH, hwnd, (HMENU)IDC_PCD_CANCEL, cs->hInstance, NULL);
+        // Move native focus to the first pre-selected item (if any).
+        if (!ctx->selected.empty()) {
+            ctx->anchor = *ctx->selected.begin();
+            TreeView_SelectItem(hTree, ctx->anchor);
+        }
 
-        // Apply message font.
+        // OK (green, checkmark) and Cancel (red, X) custom icon buttons.
+        const auto& loc = MainWindow::GetLocale();
+        auto getLoc = [&](const wchar_t* key, const wchar_t* def) -> std::wstring {
+            auto it = loc.find(key); return (it != loc.end()) ? it->second : def;
+        };
+        int btnY     = cH - pad - btnH;
+        int totalBtnW = 2 * btnW + gap;
+        int bx        = (cW - totalBtnW) / 2;
+        CreateCustomButtonWithIcon(hwnd, IDC_PCD_OK,     getLoc(L"ok",     L"OK"),
+            ButtonColor::Green, L"imageres.dll", 89,
+            bx,            btnY, btnW, btnH, cs->hInstance);
+        CreateCustomButtonWithIcon(hwnd, IDC_PCD_CANCEL, getLoc(L"cancel", L"Cancel"),
+            ButtonColor::Red,   L"shell32.dll",  131,
+            bx + btnW + gap, btnY, btnW, btnH, cs->hInstance);
+
+        // Apply message font to all controls.
         NONCLIENTMETRICSW ncm = {}; ncm.cbSize = sizeof(ncm);
         SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+        if (ncm.lfMessageFont.lfHeight < 0)
+            ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
+        ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
         HFONT hFont = CreateFontIndirectW(&ncm.lfMessageFont);
         if (hFont) {
             SetPropW(hwnd, L"hPCFont", hFont);
@@ -4851,26 +5001,73 @@ static LRESULT CALLBACK PickCompDialogProc(HWND hwnd, UINT msg, WPARAM wParam, L
         }
         return 0;
     }
+
+    case WM_DRAWITEM: {
+        // Let custom buttons paint themselves.
+        LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
+        if (dis->CtlID == IDC_PCD_OK || dis->CtlID == IDC_PCD_CANCEL) {
+            ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
+            NONCLIENTMETRICSW ncm = {}; ncm.cbSize = sizeof(ncm);
+            SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+            if (ncm.lfMessageFont.lfHeight < 0)
+                ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
+            ncm.lfMessageFont.lfWeight  = FW_BOLD;
+            ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+            HFONT hF = CreateFontIndirectW(&ncm.lfMessageFont);
+            LRESULT res = DrawCustomButton(dis, color, hF);
+            if (hF) DeleteObject(hF);
+            return res;
+        }
+        break;
+    }
+
+    case WM_NOTIFY: {
+        // Paint multi-selection highlight via NM_CUSTOMDRAW.
+        NMHDR* nm = (NMHDR*)lParam;
+        if (nm->idFrom == IDC_PCD_TREE && nm->code == NM_CUSTOMDRAW) {
+            NMTVCUSTOMDRAW* cd = (NMTVCUSTOMDRAW*)lParam;
+            switch (cd->nmcd.dwDrawStage) {
+            case CDDS_PREPAINT:
+                return CDRF_NOTIFYITEMDRAW;
+            case CDDS_ITEMPREPAINT: {
+                PickMultiCtx* ctx = (PickMultiCtx*)GetPropW(nm->hwndFrom, L"hPickCtx");
+                if (ctx && ctx->selected.count((HTREEITEM)cd->nmcd.dwItemSpec)) {
+                    cd->clrTextBk = GetSysColor(COLOR_HIGHLIGHT);
+                    cd->clrText   = GetSysColor(COLOR_HIGHLIGHTTEXT);
+                    return CDRF_NEWFONT;
+                }
+                return CDRF_DODEFAULT;
+            }
+            }
+        }
+        break;
+    }
+
     case WM_COMMAND: {
         int id = LOWORD(wParam);
         if (id == IDC_PCD_OK) {
             PickCompDialogData* pd = (PickCompDialogData*)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
             HWND hTree = GetDlgItem(hwnd, IDC_PCD_TREE);
             if (pd && hTree) {
+                PickMultiCtx* ctx = (PickMultiCtx*)GetPropW(hTree, L"hPickCtx");
                 std::wstring out;
-                PickComp_CollectChecked(hTree, TreeView_GetRoot(hTree), s_components, out);
+                if (ctx)
+                    PickComp_CollectSelected(hTree, TreeView_GetRoot(hTree),
+                                             s_components, ctx->selected, out);
                 pd->result    = out;
                 pd->okClicked = true;
             }
             DestroyWindow(hwnd);
             return 0;
         }
-        if (id == IDC_PCD_CANCEL) { DestroyWindow(hwnd); return 0; }
+        if (id == IDC_PCD_CANCEL || id == IDCANCEL) { DestroyWindow(hwnd); return 0; }
         break;
     }
+
     case WM_DESTROY: {
         HFONT hFont = (HFONT)GetPropW(hwnd, L"hPCFont");
         if (hFont) { DeleteObject(hFont); RemovePropW(hwnd, L"hPCFont"); }
+        // PickMultiCtx is freed via WM_NCDESTROY in PickTree_SubclassProc.
         break;
     }
     case WM_CLOSE:
@@ -5267,9 +5464,12 @@ LRESULT CALLBACK AddValueDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             if (py + dlgH > rcWA.bottom) py = rcWA.bottom - dlgH;
             if (py < rcWA.top)           py = rcWA.top;
 
+            const auto& loc2 = MainWindow::GetLocale();
+            auto it2 = loc2.find(L"pick_comp_title");
+            std::wstring pickerTitle = (it2 != loc2.end()) ? it2->second : L"Pick Components";
             HWND hPicker = CreateWindowExW(
                 WS_EX_DLGMODALFRAME | WS_EX_TOPMOST,
-                L"PickCompDialog", L"Pick Components",
+                L"PickCompDialog", pickerTitle.c_str(),
                 WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
                 px, py, dlgW, dlgH, hwnd, NULL, GetModuleHandleW(NULL), &pd);
             if (hPicker) {

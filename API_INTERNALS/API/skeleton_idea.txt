@@ -244,37 +244,53 @@
     The hint text function is a simple switch/if-chain returning static string literals
     — no allocation needed and safe to pass directly to SetWindowTextW.
 
-  - TVS_CHECKBOXES inline picker pattern (read-only EDIT + "…" button + modal tree):
-    When a field in a dialog must contain a space-separated set of names drawn from
-    a hierarchical data source, replace the plain EDIT with:
-    1. An ES_READONLY edit narrowed by (pickBtnW + gap) to the left.
+  - Multi-select TreeView inline picker pattern (read-only EDIT + "…" button + modal tree):
+    When a field must contain a space-separated set of names drawn from a hierarchical
+    data source, replace the plain EDIT with:
+    1. An ES_READONLY edit narrowed by (pickBtnW + gap).
     2. A small "…" BUTTON immediately to the right (IDC_PICK, AV_PICK_W = 30).
-    3. A modal PickerDialogProc window containing a TVS_CHECKBOXES | TVS_HASLINES |
-       TVS_HASBUTTONS | TVS_SHOWSELALWAYS TREEVIEW.
+    3. A modal PickerDialogProc containing a TVS_FULLROWSELECT | TVS_HASBUTTONS |
+       TVS_SHOWSELALWAYS TREEVIEW with the system image list for real file icons.
     Construction:
-    - Tree items are inserted with TVIF_PARAM; section headers get lParam=-1.
-    - Each leaf carries its index into the source vector as lParam.
-    - Checkbox state: INDEXTOSTATEIMAGEMASK(0=no box, 1=unchecked, 2=checked).
-      Apply immediately after TreeView_InsertItem via a TVIF_STATE|TVIS_STATEIMAGEMASK
-      SetItem call (TVS_CHECKBOXES does not set state to 1 automatically until the
-      first WM_PAINT; pre-seeding with SetItem is reliable).
-    - Pre-check items by matching against the current space-split token set.
+    - Attach system small-icon list: SHGetFileInfoW(..., SHGFI_SYSICONINDEX|SHGFI_SMALLICON).
+      TreeView_SetImageList(hTree, hSys, TVSIL_NORMAL). Shell owns the list; never destroy it.
+    - Per-item icon: sysIconIdx(path, attr) — try real path first; SHGFI_USEFILEATTRIBUTES fallback.
+    - TVIF_PARAM | TVIF_IMAGE | TVIF_SELECTEDIMAGE on insert; section headers lParam=-1.
+    - Pre-highlight items by matching against the current space-split token set.
     - Expand all section and folder nodes after population.
+    Multi-select via PickMultiCtx + subclass:
+      struct PickMultiCtx { std::set<HTREEITEM> selected; HTREEITEM anchor; WNDPROC origProc; };
+      // stored as TreeView property L"hPickCtx"; deleted in WM_NCDESTROY.
+      Subclass proc intercepts WM_LBUTTONDOWN:
+        - plain click   → selected = { hit }; anchor = hit
+        - Ctrl+click    → toggle hit; anchor = hit; return 0 (suppress default)
+        - Shift+click   → walk TreeView_GetNextVisible to build range lo..hi from anchor;
+                          selected = all non-header items in range; return 0
+        - header click  → clear selected if plain click
+      WM_KEYDOWN 'A' + Ctrl → select all non-header visible items.
+      WM_NCDESTROY → RemoveProp, delete ctx, restore origProc, call origProc.
+    Highlight via NM_CUSTOMDRAW in parent:
+      case CDDS_PREPAINT: return CDRF_NOTIFYITEMDRAW;
+      case CDDS_ITEMPREPAINT:
+        if (ctx->selected.count(cd->nmcd.dwItemSpec)) {
+          cd->clrTextBk = GetSysColor(COLOR_HIGHLIGHT);
+          cd->clrText   = GetSysColor(COLOR_HIGHLIGHTTEXT);
+          return CDRF_NEWFONT; }
     Collection on OK:
-      static void CollectChecked(HWND hTree, HTREEITEM h, vector& out) {
+      void CollectSelected(HWND hTree, HTREEITEM h, const set<HTREEITEM>& sel, wstring& out) {
           while (h) {
-              TVITEMW tv = { TVIF_PARAM|TVIF_STATE, h, 0, TVIS_STATEIMAGEMASK };
-              TreeView_GetItem(hTree, &tv);
-              int state = (tv.state & TVIS_STATEIMAGEMASK) >> 12;
-              if (tv.lParam >= 0 && state == 2) out += source[tv.lParam].name + L' ';
-              CollectChecked(hTree, TreeView_GetChild(hTree, h), out);
-              h = TreeView_GetNextSibling(hTree, h);
-          }
-      }
+              if (sel.count(h)) { TVITEMW tv={TVIF_PARAM,h}; TreeView_GetItem(hTree,&tv);
+                  if (tv.lParam>=0) out += source[tv.lParam].name + L' '; }
+              CollectSelected(hTree, TreeView_GetChild(hTree,h), sel, out);
+              h = TreeView_GetNextSibling(hTree,h); } }
+    Buttons: CreateCustomButtonWithIcon (Green OK imageres#89 / Red Cancel shell32#131)
+             + WM_DRAWITEM handler that calls DrawCustomButton.
     Window: WS_POPUP | WS_CAPTION | WS_SYSMENU, WS_EX_DLGMODALFRAME.
-    Modal loop: EnableWindow(parent, FALSE) → GetMessageW pump → EnableWindow(parent,TRUE).
-    Size: fixed (e.g. 400×500) rather than dynamic — the tree has a scrollbar.
-    Positioning: try right of the "…" button; clamp to work area; fall back to
-    centred over the parent dialog if the button is near the screen edge.
+    Modal loop: EnableWindow(parent,FALSE) → GetMessageW pump → EnableWindow(parent,TRUE).
+    Size: fixed (e.g. 400×500) — tree has a scrollbar.
+    Positioning: try right of "…" button; clamp to work area; fall back to centred.
+    NOTE: The earlier version used TVS_CHECKBOXES with INDEXTOSTATEIMAGEMASK for the
+    state images. That approach works but does not allow multi-select; it is superseded
+    by the subclass pattern above for all new pickers.
 
 ================================================================================

@@ -213,11 +213,20 @@
                                                 L"avTip" pattern); Components row:
                                                 ES_READONLY edit (IDC_ADDVAL_COMPONENTS=5079)
                                                 + "…" button (IDC_ADDVAL_COMP_PICK=5080,
-                                                AV_PICK_W=30). PickCompDialogProc opens a
-                                                400×500 TVS_CHECKBOXES tree (section roots →
-                                                folder components → file components by
-                                                source_path prefix); PickComp_CollectChecked
-                                                recursively collects checked items on OK.
+                                                AV_PICK_W=30). PickCompDialogProc: no
+                                                TVS_CHECKBOXES; uses TVS_FULLROWSELECT +
+                                                system image list (SHGetFileInfoW
+                                                SHGFI_SYSICONINDEX) for real file icons.
+                                                Multi-select via PickMultiCtx (heap struct,
+                                                prop L"hPickCtx") + PickTree_SubclassProc:
+                                                plain click = single, Ctrl+click = toggle,
+                                                Shift+click = range, Ctrl+A = all.
+                                                NM_CUSTOMDRAW/CDDS_ITEMPREPAINT paints
+                                                COLOR_HIGHLIGHT. PickComp_CollectSelected
+                                                collects in tree order. Custom icon buttons
+                                                (Green OK imageres#89 / Red Cancel
+                                                shell32#131). Localized title:
+                                                pick_comp_title locale key.
                                                 Layout constants: AV_PAD_H/T/B, AV_LBL_W,
                                                 AV_FLD_GAP, AV_EDIT_W, AV_ROW_H, AV_GAP_R1/R2,
                                                 AV_GAP_DH, AV_HINT_H, AV_GAP_RD(=18),

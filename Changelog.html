@@ -1,6 +1,15 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 02 May 2026 &mdash; v2026.05.02.15 (15:11)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 03 May 2026 &mdash; v2026.05.03.09 (09:02)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.05.03.09</span></h3>
+<p><strong>Registry page &mdash; Components picker redesigned: multi-select tree with real file icons (03.05.2026, 09:02):</strong></p>
+<ul>
+<li><strong>mainwindow &mdash; <code>PickCompDialogProc</code> redesigned (multi-select + real icons):</strong> <code>TVS_CHECKBOXES</code> removed in favour of <code>TVS_FULLROWSELECT | TVS_SHOWSELALWAYS</code>. The system small-icon image list (<code>SHGetFileInfoW SHGFI_SYSICONINDEX</code>) is attached so every item displays its real Windows file/folder icon. Section headers, folder components, and file components each get the correct icon (actual disk path used first; extension-based fallback if the path is missing). Multi-select is driven by <code>PickMultiCtx</code> (heap struct, stored as TreeView property <code>L&quot;hPickCtx&quot;</code>) and <code>PickTree_SubclassProc</code>: plain click &rarr; single selection; Ctrl+click &rarr; toggle; Shift+click &rarr; contiguous visible range from anchor; Ctrl+A &rarr; all non-header items. Visual highlight drawn via <code>NM_CUSTOMDRAW / CDDS_ITEMPREPAINT</code> with <code>COLOR_HIGHLIGHT / COLOR_HIGHLIGHTTEXT</code>, identical to Windows Explorer. Previously-selected items are pre-highlighted on open. Collection walks tree in order via <code>PickComp_CollectSelected</code>.</li>
+<li><strong>mainwindow &mdash; custom icon buttons:</strong> Plain <code>BS_PUSHBUTTON</code> OK / Cancel replaced with <code>CreateCustomButtonWithIcon</code> (Green OK / Red Cancel) matching the rest of the app. <code>WM_DRAWITEM</code> handler added. Button widths use <code>S(110)</code> with <code>S()</code>-scaled spacing.</li>
+<li><strong>mainwindow &mdash; localized title:</strong> Picker window title now reads from locale key <code>pick_comp_title</code> (default <em>&ldquo;Pick Components&rdquo;</em>). Look-up performed at window creation time in the <code>IDC_ADDVAL_COMP_PICK</code> handler.</li>
+<li><strong>Locale keys added</strong> (both <code>locale/en_GB.txt</code> files): <code>pick_comp_title=Pick Components</code>.</li>
+</ul>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.05.02.15</span></h3>
 <p><strong>Registry page &mdash; Add/Edit Value dialog: Components field UX (02.05.2026, 15:11):</strong></p>

@@ -2,6 +2,14 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.05.03.09] - 2026-05-03
+
+### Registry page — Components picker redesigned: multi-select tree with real file icons
+- **mainwindow — `PickCompDialogProc` redesigned**: `TVS_CHECKBOXES` removed in favour of `TVS_FULLROWSELECT | TVS_SHOWSELALWAYS`. System small-icon image list (`SHGetFileInfoW SHGFI_SYSICONINDEX`) attached — every item shows its real Windows file/folder icon (actual path tried first, extension fallback). Multi-select driven by `PickMultiCtx` heap struct + `PickTree_SubclassProc` subclass: plain click → single; Ctrl+click → toggle; Shift+click → contiguous range from anchor; Ctrl+A → all non-header visible items. Highlight drawn via `NM_CUSTOMDRAW / CDDS_ITEMPREPAINT` with `COLOR_HIGHLIGHT`. Previously-selected items pre-highlighted. `PickComp_CollectSelected` collects in tree order.
+- **mainwindow — custom icon buttons**: Plain `BS_PUSHBUTTON` OK/Cancel replaced with `CreateCustomButtonWithIcon` (Green OK / Red Cancel) + `WM_DRAWITEM` handler. Widths `S(110)` with `S()`-scaled gap.
+- **mainwindow — localized picker title**: `pick_comp_title` locale key looked up in `IDC_ADDVAL_COMP_PICK` handler; window title localized.
+- **Locale keys added** (both `locale/en_GB.txt` files): `pick_comp_title`.
+
 ## [2026.05.02.15] - 2026-05-02
 
 ### Registry page — Add/Edit Value dialog: Components field UX
