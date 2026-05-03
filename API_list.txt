@@ -339,9 +339,16 @@
                                                 InstrIconCtx / WM_DEPINSTR_REMOVE, install order
                                                 as named dropdown combo), download timeout field
                                                 (IDC_DEPDLG_TIMEOUT=422, ES_NUMBER, 0=no timeout,
-                                                DD_AUTO_DOWNLOAD only), DB table schema and
-                                                CRUD API, control ID ranges, locale key table,
-                                                and mainwindow.cpp wiring guide.
+                                                DD_AUTO_DOWNLOAD only), acceptable exit codes field
+                                                (IDC_DEPDLG_EXIT_CODES=423, space-separated,
+                                                DD_BUNDLED + DD_AUTO_DOWNLOAD), exit codes help
+                                                button (IDC_DEPDLG_EXIT_CODES_HELP=425, shell32 #23,
+                                                ShowValidationDialog reference popup), max version
+                                                field (IDC_DEPDLG_MAX_VER=424, Detection section,
+                                                empty = no upper bound), Reflow detection-guard
+                                                fix (7→9), DB table schema and CRUD API,
+                                                control ID ranges, locale key table, and
+                                                mainwindow.cpp wiring guide.
 
   API_INTERNALS\INTERNALS\scrollbar_reopen_INTERNALS.txt
                                                 MSB lifecycle across project-close/reopen and

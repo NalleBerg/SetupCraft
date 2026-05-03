@@ -65,6 +65,8 @@
 
   Index   Description                          Where used
   ──────────────────────────────────────────────────────────────────────────────
+   23     Question mark / Help (blue ?)        dep_edit_dialog exit codes help button
+                                               IDC_DEPDLG_EXIT_CODES_HELP (425)
     3     Closed folder (yellow)               Files page TreeView image list
     4     Closed folder (yellow) — alt size    Files page TreeView image list
                                                Comp page TreeView image list

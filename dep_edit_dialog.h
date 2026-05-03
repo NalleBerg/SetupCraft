@@ -53,3 +53,6 @@ bool DEP_EditDialog(HWND hwndParent, HINSTANCE hInst,
 #define IDC_DEPDLG_EDIT_LIC     420   // "Edit License…" button
 #define IDC_DEPDLG_INSTR_ICON   421   // SS_NOTIFY icon (shell32 #70) shown when instructions exist
 #define IDC_DEPDLG_TIMEOUT     422   // download timeout edit (seconds; 0 = no timeout)
+#define IDC_DEPDLG_EXIT_CODES       423   // acceptable exit codes edit (space-separated; DD_BUNDLED + DD_AUTO_DOWNLOAD)
+#define IDC_DEPDLG_EXIT_CODES_HELP  425   // icon-only help button: opens the common exit codes reference list
+#define IDC_DEPDLG_MAX_VER     424   // maximum allowed version edit (optional; empty = no upper bound)

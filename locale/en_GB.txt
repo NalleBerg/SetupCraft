@@ -421,11 +421,16 @@ dep_install_order_custom_dialog=At a custom dialog step
 dep_dlg_detect_reg=Registry key (HKLM path to detect existing install):
 dep_dlg_detect_file=File path (to detect existing install):
 dep_dlg_min_version=Minimum required version (optional):
+dep_dlg_max_version=Maximum allowed version (optional):
 dep_dlg_url=Download / redirect URL:
 dep_dlg_silent_args=Silent install arguments (optional):
 dep_dlg_sha256=SHA-256 hash (hex, optional):
 dep_dlg_offline=If offline:
 dep_dlg_timeout=Download timeout (seconds, 0 = no timeout):
+dep_dlg_exit_codes=Acceptable exit codes beyond 0 (space-separated, e.g. 3010 1641):
+dep_dlg_exit_codes_help_tip=Common exit codes reference
+dep_dlg_exit_codes_ref_title=Common Exit Codes
+dep_dlg_exit_codes_ref_body=Reboot codes (safe to add):\n  3010 — Reboot required (success)\n  1641 — Reboot initiated (success)\n\nOther common codes (reference):\n  1 — General error\n  2 — File not found\n  5 — Access denied\n  1602 — User cancelled\n  1603 — Fatal install error\n  1618 — Another install running\n  1638 — Another version installed\n\n0 is always success. For 3010/1641,\nSetupCraft will warn before reboot.
 dep_dlg_lic_browse=Browse…
 dep_dlg_credits=Credits / attribution (optional):
 dep_section_detection=Detection

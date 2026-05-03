@@ -75,7 +75,8 @@ struct ExternalDep {
     int          install_order  = (int)DIO_BEFORE_INSTALL; // named install stage (DepInstallOrder)
     std::wstring detect_reg_key;                // HKLM path; empty = no registry check
     std::wstring detect_file_path;              // path check; empty = no file check
-    std::wstring min_version;                   // minimum acceptable version string
+    std::wstring min_version;                   // minimum acceptable version string; empty = no lower bound
+    std::wstring max_version;                   // maximum acceptable version string; empty = no upper bound
     DepArch      architecture   = DA_X64;  // app is 64-bit only
     std::wstring url;                           // download or redirect URL
     std::wstring silent_args;                   // e.g. "/quiet /norestart"
@@ -86,6 +87,10 @@ struct ExternalDep {
     std::vector<std::wstring> instructions_list; // manual-install guidance pages (RTF), in order
     DepOffline   offline_behavior = DO_ABORT;
     int          download_timeout_sec = 0;   // 0 = no timeout (wait forever); DD_AUTO_DOWNLOAD only
+    // Space-separated list of exit codes that should be treated as success in addition to 0.
+    // Example: "3010 1641" — 3010 = reboot required, 1641 = reboot initiated.
+    // SetupCraft detects these at install-time and prompts the user before any reboot occurs.
+    std::wstring extra_exit_codes;            // DD_BUNDLED + DD_AUTO_DOWNLOAD only
 };
 
 // ── Control IDs (range 6000–6099) ────────────────────────────────────────────

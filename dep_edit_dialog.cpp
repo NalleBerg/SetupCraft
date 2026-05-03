@@ -89,6 +89,7 @@ static DdSection s_secNetAll;       // Network header + URL + silent-args + SHA-
 static DdSection s_secNetUrlOnly;   // (subset of Network) shown for DD_REDIRECT_URL
 //   Note: DD_REDIRECT_URL shows only URL (row 0) and Offline (row 3) from the network
 //   block.  Rather than duplicating HWNDs we track sub-visibility inside Reflow().
+static DdSection s_secExitCodes;    // Acceptable exit codes: label + edit (DD_BUNDLED + DD_AUTO_DOWNLOAD)
 static DdSection s_secLicense;      // License section header + indicator + button + credits
 static DdSection s_secInstructions; // Instructions header + indicator + button (DD_INSTRUCTIONS_ONLY only)
 
@@ -167,6 +168,7 @@ static void Reflow(HWND hDlg, int deliveryVal)
                             deliveryVal == DD_REDIRECT_URL);
     bool hasNetAll       = (deliveryVal == DD_AUTO_DOWNLOAD);
     bool hasNetUrlOnly   = (deliveryVal == DD_REDIRECT_URL);
+    bool hasExitCodes    = (deliveryVal == DD_BUNDLED || deliveryVal == DD_AUTO_DOWNLOAD);
     bool hasLicense      = (deliveryVal == DD_BUNDLED ||
                             deliveryVal == DD_AUTO_DOWNLOAD ||
                             deliveryVal == DD_REDIRECT_URL);
@@ -177,6 +179,7 @@ static void Reflow(HWND hDlg, int deliveryVal)
     ShowSection(s_secOrder,     hasOrder);
     ShowSection(s_secDetection, hasDetection);
     ShowSection(s_secNetAll,    hasNetAll);
+    ShowSection(s_secExitCodes, hasExitCodes);
     // For Redirect URL the Network block reuses s_secNetAll HWNDs but only shows
     // the URL row (index 0,1) and Offline row (index 6,7) — pairs: label+ctrl.
     // Indices: 0=netHdr, 1=urlLbl, 2=urlEdit, 3=argsLbl, 4=argsEdit,
@@ -278,15 +281,17 @@ static void Reflow(HWND hDlg, int deliveryVal)
         PlaceW(s_secOrder.ctrls[0], DD_LABEL_H, DD_GAP_SM, s_ddEW);
         PlaceW(s_secOrder.ctrls[1], DD_COMBO_H, DD_GAP,    s_ddEW);
     }
-    // Detection: header, then 3× (label + edit)
-    if (hasDetection && s_secDetection.ctrls.size() >= 7) {
+    // Detection: header, then 4× (label + edit): reg_key, file_path, min_version, max_version
+    if (hasDetection && s_secDetection.ctrls.size() >= 9) {
         PlaceW(s_secDetection.ctrls[0], DD_MLABEL_H, DD_GAP_SM, s_ddEW); // header
-        PlaceW(s_secDetection.ctrls[1], DD_LABEL_H,  DD_GAP_SM, s_ddEW);
-        PlaceW(s_secDetection.ctrls[2], DD_EDIT_H,   DD_GAP,    s_ddEW);
-        PlaceW(s_secDetection.ctrls[3], DD_LABEL_H,  DD_GAP_SM, s_ddEW);
-        PlaceW(s_secDetection.ctrls[4], DD_EDIT_H,   DD_GAP,    s_ddEW);
-        PlaceW(s_secDetection.ctrls[5], DD_LABEL_H,  DD_GAP_SM, s_ddEW);
-        PlaceW(s_secDetection.ctrls[6], DD_EDIT_H,   DD_GAP,    s_ddEW);
+        PlaceW(s_secDetection.ctrls[1], DD_LABEL_H,  DD_GAP_SM, s_ddEW); // reg lbl
+        PlaceW(s_secDetection.ctrls[2], DD_EDIT_H,   DD_GAP,    s_ddEW); // reg edit
+        PlaceW(s_secDetection.ctrls[3], DD_LABEL_H,  DD_GAP_SM, s_ddEW); // file lbl
+        PlaceW(s_secDetection.ctrls[4], DD_EDIT_H,   DD_GAP,    s_ddEW); // file edit
+        PlaceW(s_secDetection.ctrls[5], DD_LABEL_H,  DD_GAP_SM, s_ddEW); // min_ver lbl
+        PlaceW(s_secDetection.ctrls[6], DD_EDIT_H,   DD_GAP,    s_ddEW); // min_ver edit
+        PlaceW(s_secDetection.ctrls[7], DD_LABEL_H,  DD_GAP_SM, s_ddEW); // max_ver lbl
+        PlaceW(s_secDetection.ctrls[8], DD_EDIT_H,   DD_GAP,    s_ddEW); // max_ver edit
     }
     // Network (DD_AUTO_DOWNLOAD: all 4 rows; DD_REDIRECT_URL: URL + offline only)
     if ((hasNetAll || hasNetUrlOnly) && s_secNetAll.ctrls.size() >= 9) {
@@ -304,6 +309,25 @@ static void Reflow(HWND hDlg, int deliveryVal)
         if (hasNetAll && (int)s_secNetAll.ctrls.size() >= 11) {
             PlaceW(s_secNetAll.ctrls[9],  DD_LABEL_H, DD_GAP_SM, s_ddEW); // timeout lbl
             PlaceW(s_secNetAll.ctrls[10], DD_EDIT_H,  DD_GAP,    s_ddEW); // timeout edit
+        }
+    }
+    // Exit codes (DD_BUNDLED + DD_AUTO_DOWNLOAD)
+    // [0]=label  [1]=edit (narrowed)  [2]=helpBtn (square, opens reference list)
+    if (hasExitCodes && s_secExitCodes.ctrls.size() >= 3) {
+        PlaceW(s_secExitCodes.ctrls[0], DD_LABEL_H, DD_GAP_SM, s_ddEW); // label
+        // Edit + help button share a single row; button is taller so it sets the row height.
+        {
+            int btnW   = S(DD_BTN_H);
+            int editW  = s_ddEW - btnW - S(DD_GAP_SM);
+            int rowH   = S(DD_BTN_H);
+            int editOY = (rowH - S(DD_EDIT_H)) / 2; // vertically centre the edit
+            SetWindowPos(s_secExitCodes.ctrls[1], NULL,
+                s_ddLX, y - s_depDlgScrollY + editOY, editW, S(DD_EDIT_H),
+                SWP_NOZORDER | SWP_NOACTIVATE);
+            SetWindowPos(s_secExitCodes.ctrls[2], NULL,
+                s_ddLX + editW + S(DD_GAP_SM), y - s_depDlgScrollY, btnW, rowH,
+                SWP_NOZORDER | SWP_NOACTIVATE);
+            y += rowH + S(DD_GAP);
         }
     }
     // License: header + indicator + button + credits label + credits edit
@@ -540,7 +564,8 @@ static LRESULT CALLBACK DepDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lP
         LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
         if (DrawCustomCheckbox(dis)) return TRUE;
         if (dis->CtlID == IDC_DEPDLG_OK || dis->CtlID == IDC_DEPDLG_CANCEL ||
-            dis->CtlID == IDC_DEPDLG_EDIT_LIC || dis->CtlID == IDC_DEPDLG_EDIT_INSTR) {
+            dis->CtlID == IDC_DEPDLG_EDIT_LIC || dis->CtlID == IDC_DEPDLG_EDIT_INSTR ||
+            dis->CtlID == IDC_DEPDLG_EXIT_CODES_HELP) {
             ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
             HFONT hFont = CreateFontW(-S(12), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
                 DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
@@ -559,6 +584,29 @@ static LRESULT CALLBACK DepDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lP
         if (wmId == IDC_DEPDLG_DELIVERY && wmEvent == CBN_SELCHANGE) {
             int choice = GetDeliveryChoice(hDlg);
             Reflow(hDlg, choice);
+            return 0;
+        }
+
+        if (wmId == IDC_DEPDLG_EXIT_CODES_HELP && wmEvent == BN_CLICKED) {
+            // Show the common exit codes reference list.
+            std::wstring title = DL(pData, L"dep_dlg_exit_codes_ref_title", L"Common Exit Codes");
+            std::wstring body  = DL(pData, L"dep_dlg_exit_codes_ref_body",
+                L"Reboot codes (safe to add):\n"
+                L"  3010 \u2014 Reboot required (success)\n"
+                L"  1641 \u2014 Reboot initiated (success)\n"
+                L"\n"
+                L"Other common codes (reference):\n"
+                L"  1 \u2014 General error\n"
+                L"  2 \u2014 File not found\n"
+                L"  5 \u2014 Access denied\n"
+                L"  1602 \u2014 User cancelled\n"
+                L"  1603 \u2014 Fatal install error\n"
+                L"  1618 \u2014 Another install running\n"
+                L"  1638 \u2014 Another version installed\n"
+                L"\n"
+                L"0 is always success. For 3010/1641,\n"
+                L"SetupCraft will warn before reboot.");
+            ShowValidationDialog(hDlg, title, body, *pData->pLocale);
             return 0;
         }
 
@@ -694,9 +742,11 @@ static LRESULT CALLBACK DepDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lP
                 pData->dep.silent_args      = GetEditText(hDlg, IDC_DEPDLG_SILENT_ARGS);
                 pData->dep.sha256           = GetEditText(hDlg, IDC_DEPDLG_SHA256);
                 pData->dep.download_timeout_sec = _wtoi(GetEditText(hDlg, IDC_DEPDLG_TIMEOUT).c_str());
+                pData->dep.extra_exit_codes     = GetEditText(hDlg, IDC_DEPDLG_EXIT_CODES);
                 pData->dep.detect_reg_key   = GetEditText(hDlg, IDC_DEPDLG_DETECT_REG);
                 pData->dep.detect_file_path = GetEditText(hDlg, IDC_DEPDLG_DETECT_FILE);
                 pData->dep.min_version      = GetEditText(hDlg, IDC_DEPDLG_MIN_VER);
+                pData->dep.max_version      = GetEditText(hDlg, IDC_DEPDLG_MAX_VER);
                 pData->dep.instructions_list = s_depInstrList;
                 pData->dep.license_text     = s_depLicRtf;
                 pData->dep.license_path     = L"";
@@ -889,6 +939,7 @@ bool DEP_EditDialog(HWND hwndParent, HINSTANCE hInst,
     s_secOrder        = {};
     s_secDetection    = {};
     s_secNetAll       = {};
+    s_secExitCodes    = {};
     s_secLicense      = {};
     s_secInstructions = {};
 
@@ -1066,6 +1117,7 @@ bool DEP_EditDialog(HWND hwndParent, HINSTANCE hInst,
         DetRow(L"dep_dlg_detect_reg",  L"Registry key (HKLM):", IDC_DEPDLG_DETECT_REG,  dep.detect_reg_key);
         DetRow(L"dep_dlg_detect_file", L"File path to detect:", IDC_DEPDLG_DETECT_FILE,  dep.detect_file_path);
         DetRow(L"dep_dlg_min_version", L"Minimum required version (optional):", IDC_DEPDLG_MIN_VER, dep.min_version);
+        DetRow(L"dep_dlg_max_version", L"Maximum allowed version (optional):",  IDC_DEPDLG_MAX_VER, dep.max_version);
     }
 
     // ── Network section (hidden) ──────────────────────────────────────────────
@@ -1108,6 +1160,26 @@ bool DEP_EditDialog(HWND hwndParent, HINSTANCE hInst,
             s_ddLX, y, s_ddEW, S(DD_EDIT_H),
             hDlg, (HMENU)(UINT_PTR)IDC_DEPDLG_TIMEOUT, hInst, NULL);
         SF(hTmo); s_secNetAll.ctrls.push_back(hTmo);
+    }
+
+    // ── Exit codes section (hidden) ────────────────────────────────────────
+    // Shown for DD_BUNDLED and DD_AUTO_DOWNLOAD (modes where an exe is actually run).
+    // Developer lists space-separated exit codes that are acceptable beyond 0, e.g. "3010 1641".
+    // 3010 = ERROR_SUCCESS_REBOOT_REQUIRED, 1641 = ERROR_SUCCESS_REBOOT_INITIATED.
+    // SetupCraft detects these at install-time and prompts the user before any reboot.
+    // ctrls order: [0]=label  [1]=edit  [2]=helpBtn (shell32 #23; opens code reference list)
+    {
+        HWND hExL = MkLabel(LS(L"dep_dlg_exit_codes", L"Acceptable exit codes beyond 0 (space-separated):"), false);
+        SF(hExL); s_secExitCodes.ctrls.push_back(hExL);
+        HWND hEx  = MkEdit(IDC_DEPDLG_EXIT_CODES, dep.extra_exit_codes, false);
+        SF(hEx);  s_secExitCodes.ctrls.push_back(hEx);
+        HWND hExHelp = CreateCustomButtonWithIcon(
+            hDlg, IDC_DEPDLG_EXIT_CODES_HELP, L"",
+            ButtonColor::Blue, L"shell32.dll", 23,
+            s_ddLX, y, S(DD_BTN_H), S(DD_BTN_H), hInst);
+        SF(hExHelp); s_secExitCodes.ctrls.push_back(hExHelp);
+        SetButtonTooltip(hExHelp,
+            LS(L"dep_dlg_exit_codes_help_tip", L"Common exit codes reference").c_str());
     }
 
     // ── License section (hidden) ──────────────────────────────────────────────

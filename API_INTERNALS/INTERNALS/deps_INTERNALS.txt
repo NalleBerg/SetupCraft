@@ -39,6 +39,16 @@ ExternalDep (declared in deps.h)
   offline_behavior DepOffline  0=abort, 1=warn_continue, 2=skip_if_optional
   download_timeout_sec int     seconds to wait before giving up on download; 0=no timeout (wait forever)
                                visible only for DD_AUTO_DOWNLOAD; IDC_DEPDLG_TIMEOUT=422
+  extra_exit_codes wstring     space-separated exit codes treated as success in addition to 0
+                               e.g. "3010 1641" (3010=ERROR_SUCCESS_REBOOT_REQUIRED,
+                               1641=ERROR_SUCCESS_REBOOT_INITIATED); SetupCraft detects
+                               reboot codes at install-time and prompts before rebooting.
+                               Visible for DD_BUNDLED + DD_AUTO_DOWNLOAD; IDC_DEPDLG_EXIT_CODES=423
+                               Help button IDC_DEPDLG_EXIT_CODES_HELP=425 (shell32 #23) opens
+                               a reference popup via ShowValidationDialog.
+  max_version      wstring     maximum allowed version string; empty = no upper bound
+                               visible for DD_AUTO_DOWNLOAD + DD_REDIRECT_URL (Detection section)
+                               IDC_DEPDLG_MAX_VER=424
 
 ================================================================================
 MODULE STATE  (deps.cpp file-scope statics)
@@ -145,9 +155,9 @@ EDIT DIALOG  (dep_edit_dialog.cpp)
   Progressive disclosure (Reflow):
     Called once on creation and on every CBN_SELCHANGE for the Delivery combo.
     Each delivery type reveals a different set of sections:
-      DD_BUNDLED:            Required · Order · License · Credits
-      DD_AUTO_DOWNLOAD:      Required · Order · Detection (optional) · Network(all) · License · Credits
-      DD_REDIRECT_URL:       Required · Order · Detection (optional) · Network(URL+offline) · License · Credits
+      DD_BUNDLED:            Required · Order · Exit codes · License · Credits
+      DD_AUTO_DOWNLOAD:      Required · Order · Detection (optional: reg key, file path, min version, max version) · Network(all) · Exit codes · License · Credits
+      DD_REDIRECT_URL:       Required · Order · Detection (optional: reg key, file path, min version, max version) · Network(URL+offline) · License · Credits
       DD_INSTRUCTIONS_ONLY:  Required · Order · Instructions
     When DD_INSTRUCTIONS_ONLY is active, the DIO_BEFORE_WELCOME item is removed
     from the Install step combo (silent pre-welcome install requires no user
@@ -203,6 +213,10 @@ CONTROL ID RANGES
   IDC_DEPDLG_EDIT_LIC     420   dialog: "Edit License…" button (custom, Blue)
   IDC_DEPDLG_INSTR_ICON   421   base ID for instruction-page icon statics
                                (actual IDs = IDC_DEPDLG_INSTR_ICON + page index)
+  IDC_DEPDLG_TIMEOUT       422  download timeout integer edit (ES_NUMBER, DD_AUTO_DOWNLOAD only)
+  IDC_DEPDLG_EXIT_CODES    423  acceptable exit codes edit (space-separated; DD_BUNDLED + DD_AUTO_DOWNLOAD)
+  IDC_DEPDLG_MAX_VER       424  maximum allowed version edit (Detection section; empty = no upper bound)
+  IDC_DEPDLG_EXIT_CODES_HELP 425  square help button (shell32 #23) — opens exit codes reference popup
 
 ================================================================================
 DB TABLE  (external_deps)
@@ -228,6 +242,8 @@ DB TABLE  (external_deps)
     instructions      TEXT    DEFAULT '',   -- legacy column; new pages in dep_instructions
     offline_behavior  INTEGER DEFAULT 0,
     download_timeout_sec INTEGER DEFAULT 0,   -- 0 = no timeout; added by ALTER TABLE migration
+    extra_exit_codes TEXT    DEFAULT '',       -- space-separated; added by ALTER TABLE migration
+    max_version      TEXT    DEFAULT '',       -- empty = no upper bound; added by ALTER TABLE migration
     FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
   );
 
@@ -308,6 +324,14 @@ LOCALE KEYS
   dep_dlg_offline          — dialog label: "If offline:"
   dep_dlg_timeout          — dialog label: "Download timeout (seconds, 0 = no timeout):"
                              (visible only for DD_AUTO_DOWNLOAD; IDC_DEPDLG_TIMEOUT=422)
+  dep_dlg_exit_codes       — dialog label: "Acceptable exit codes (space-separated, in addition to 0):"
+                             (visible for DD_BUNDLED + DD_AUTO_DOWNLOAD; IDC_DEPDLG_EXIT_CODES=423)
+  dep_dlg_exit_codes_help_tip — tooltip for the help button: e.g. "Common exit codes reference"
+  dep_dlg_exit_codes_ref_title — title of the ShowValidationDialog reference popup
+  dep_dlg_exit_codes_ref_body  — body of the reference popup (\n expanded by ExpandEscapes);
+                             lists reboot codes 3010/1641 and other common codes 1/2/5/1602/1603/1618/1638
+  dep_dlg_max_version      — dialog label: "Maximum allowed version (optional):"
+                             (visible for DD_AUTO_DOWNLOAD + DD_REDIRECT_URL; IDC_DEPDLG_MAX_VER=424)
   dep_dlg_credits          — dialog label: "Credits / attribution (optional):"
   dep_dlg_edit_lic         — Edit License button label: "Edit License…"
   dep_lic_none             — indicator when no license RTF: "(no license)"
