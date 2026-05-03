@@ -276,10 +276,25 @@
 
   API_INTERNALS\INTERNALS\sc_shortcut_dialog_INTERNALS.txt
                                                 Configure Shortcut modal dialog — SC_EditShortcutDialog()
-                                                API, ScDlgData heap struct, modal message-loop pattern,
-                                                ScIconPreviewProc subclass, icon file picker filter
-                                                (*.ico;*.exe;*.dll), layout constants, locale keys,
-                                                and caller wiring from shortcuts.cpp.
+                                                full signature (hwndParent, hInst, type, smPath,
+                                                initName, initExePath, initWorkingDir, initArguments,
+                                                initComment, initIconPath, initIconIndex, initRunAsAdmin,
+                                                locale, out); ScDlgData heap struct (all fields:
+                                                name/exePath/workingDir/arguments/comment/iconPath/
+                                                iconIndex/runAsAdmin/hInst/pLocale/hCurrentIcon/
+                                                okPressed); ScDlgResult struct (same writable fields);
+                                                UI order: Executable+browse → Name → WorkDir+browse →
+                                                Arguments → Comment → SM path label (SCT_STARTMENU) →
+                                                Icon preview+picker → Run as admin → OK/Cancel;
+                                                IDC range 5200–5239; ScIconPreviewProc subclass;
+                                                LoadPreviewIcon (PrivateExtractIconsW → ExtractIconExW);
+                                                icon file picker filter (*.ico;*.exe;*.dll);
+                                                modal message loop pattern; WM_CTLCOLORSTATIC;
+                                                WM_DRAWITEM routing (DrawCustomCheckbox first,
+                                                DrawCustomButton fallback); caller wiring from
+                                                shortcuts.cpp (Desktop + SM add/edit; Pin buttons
+                                                have NO context menu — they pin, not configure);
+                                                all locale keys listed in INTERNALS file.
 
   API_INTERNALS\INTERNALS\comp_deps_INTERNALS.txt
                                                 Component dependency-summary panel — two-column

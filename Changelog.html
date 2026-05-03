@@ -1,6 +1,14 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 03 May 2026 &mdash; v2026.05.03.11 (11:36)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 03 May 2026 &mdash; v2026.05.03.12 (12:06)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.05.03.12</span></h3>
+<p><strong>Shortcuts &mdash; Arguments and Comment fields; Pin button context-menu cleanup (03.05.2026, 12:06):</strong></p>
+<ul>
+<li><strong>sc_shortcut_dialog / shortcuts &mdash; Arguments field (<code>IDC_SCDLG_ARGUMENTS = 5230</code>):</strong> New full-width text edit below &ldquo;Run in folder:&rdquo; in the Configure Shortcut dialog. Maps directly to Inno&rsquo;s <code>Parameters:</code> field &mdash; command-line arguments passed to the target executable at launch. Stored in <code>ShortcutDef::arguments</code> / <code>ScShortcutRow::arguments</code>. DB migration: <code>ALTER TABLE sc_shortcuts ADD COLUMN arguments TEXT DEFAULT ''</code> (idempotent). All 4 call sites in shortcuts.cpp wired; save/load paths updated. Locale keys: <code>scdlg_arguments_label</code>, <code>scdlg_arguments_tooltip</code>.</li>
+<li><strong>sc_shortcut_dialog / shortcuts &mdash; Comment field (<code>IDC_SCDLG_COMMENT = 5231</code>):</strong> New full-width text edit below Arguments. Maps to Inno&rsquo;s <code>Comment:</code> field &mdash; sets the tooltip shown when the user hovers the shortcut in Windows Explorer or the Start Menu. Stored in <code>ShortcutDef::comment</code> / <code>ScShortcutRow::comment</code>. DB migration: <code>ALTER TABLE sc_shortcuts ADD COLUMN comment TEXT DEFAULT ''</code> (idempotent). All 4 call sites wired; save/load paths updated. Locale keys: <code>scdlg_comment_label</code>, <code>scdlg_comment_tooltip</code>.</li>
+<li><strong>shortcuts &mdash; Pin to Start / Taskbar buttons context-menu stub removed:</strong> Right-clicking the 64&times;64 Pin to Start or Pin to Taskbar icon buttons previously showed a greyed-out &ldquo;Configure shortcut&hellip;&rdquo; context-menu stub left over from the initial right-click infrastructure. The stub is removed; the right-click context menu now appears only on the Desktop icon button, which is the only one that currently opens a shortcut configuration dialog.</li>
+</ul>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.05.03.11</span></h3>
 <p><strong>Registry page &mdash; Add/Edit Value dialog layout fixes + HKA auto-root in TreeView (03.05.2026, 11:36):</strong></p>

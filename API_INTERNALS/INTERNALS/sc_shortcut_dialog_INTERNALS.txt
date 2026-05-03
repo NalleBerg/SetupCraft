@@ -20,12 +20,19 @@
         HWND hwndParent, HINSTANCE hInst,
         int type, const std::wstring& smPath,
         const std::wstring& initName,
+        const std::wstring& initExePath,
+        const std::wstring& initWorkingDir,
+        const std::wstring& initArguments,
+        const std::wstring& initComment,
         const std::wstring& initIconPath, int initIconIndex,
         bool initRunAsAdmin,
         const std::map<std::wstring,std::wstring>& locale,
         ScDlgResult& out);
 
-    struct ScDlgResult { name, iconPath, iconIndex, runAsAdmin };
+    struct ScDlgResult {
+        name, exePath, workingDir, arguments, comment,
+        iconPath, iconIndex, runAsAdmin
+    };
 
     Returns true when the user clicked OK; false when closed or Escaped.
     On false the 'out' struct is not modified.
@@ -73,8 +80,10 @@
   Destroyed (delete) by SC_EditShortcutDialog() after the modal loop ends.
   Fields:
     type, smPath      — shortcut type + Start Menu path string
-    name              — shortcut display name (read/write)
-    iconPath          — path to .ico/.exe/.dll (read/write)
+    name              — shortcut display name (read/write)    exePath           — path to the target executable (read/write)
+    workingDir        — working directory / "Start in" folder (read/write)
+    arguments         — command-line arguments (Inno Parameters:) (read/write)
+    comment           — hover tooltip in Explorer/Start Menu (Inno Comment:) (read/write)    iconPath          — path to .ico/.exe/.dll (read/write)
     iconIndex         — icon index within that file (read/write)
     runAsAdmin        — run-as-admin toggle (read/write)
     hInst             — application HINSTANCE
@@ -84,13 +93,40 @@
 
   Controls and IDs
   ─────────────────
-    IDC_SCDLG_NAME          EDIT        Shortcut display name
-    IDC_SCDLG_ICON_PREVIEW  STATIC      48×48 subclassed icon preview
-    IDC_SCDLG_ICON_ADD      BS_OWNERDRAW Blue "Change Icon…" button
-    IDC_SCDLG_RUN_AS_ADMIN  BS_OWNERDRAW Custom checkbox (owner-drawn)
-    IDC_SCDLG_OK            BS_OWNERDRAW Green OK button
-    IDC_SCDLG_CANCEL        BS_OWNERDRAW Red Cancel button
-  All IDs are defined in shortcuts.h (range 5220–5225).
+    IDC_SCDLG_EXE              EDIT        Executable path (full-width with browse)
+    IDC_SCDLG_EXE_BROWSE       BS_OWNERDRAW Blue folder browse button
+    IDC_SCDLG_NAME             EDIT        Shortcut display name
+    IDC_SCDLG_WORKDIR          EDIT        Working directory / "Start in" (with browse)
+    IDC_SCDLG_WORKDIR_BROWSE   BS_OWNERDRAW Blue folder browse button
+    IDC_SCDLG_ARGUMENTS        EDIT        Command-line arguments (Inno Parameters:)
+    IDC_SCDLG_COMMENT          EDIT        Explorer hover tooltip (Inno Comment:)
+    IDC_SCDLG_ICON_PREVIEW     STATIC      48×48 subclassed icon preview
+    IDC_SCDLG_ICON_ADD         BS_OWNERDRAW Blue “Change Icon…” button
+    IDC_SCDLG_RUN_AS_ADMIN     BS_OWNERDRAW Custom checkbox (owner-drawn)
+    IDC_SCDLG_OK               BS_OWNERDRAW Green OK button
+    IDC_SCDLG_CANCEL           BS_OWNERDRAW Red Cancel button
+  All IDs are defined in shortcuts.h (range 5200–5239).
+
+  UI layout order in WM_CREATE:
+    1. Executable (edit + browse)
+    2. Shortcut name (full-width edit)
+    3. Run in folder (edit + browse)
+    4. Arguments (full-width edit)
+    5. Comment (full-width edit)
+    6. Start Menu path label (SCT_STARTMENU only, when smPath is non-empty)
+    7. Icon (preview square + Change Icon… button)
+    8. Run as administrator (checkbox)
+    9. OK / Cancel buttons
+
+  Locale keys:
+    scdlg_exe_label           scdlg_exe_tooltip
+    scdlg_name_label          scdlg_name_tooltip
+    scdlg_workdir_label       scdlg_workdir_tooltip      scdlg_workdir_picker_title
+    scdlg_arguments_label     scdlg_arguments_tooltip
+    scdlg_comment_label       scdlg_comment_tooltip
+    scdlg_sm_path_label
+    scdlg_icon_label          scdlg_icon_filter_label
+    scdlg_run_as_admin_label  scdlg_run_as_admin_tooltip
 
   Icon preview subclass (ScIconPreviewProc)
   ──────────────────────────────────────────
@@ -143,11 +179,14 @@
 
   Caller wiring (shortcuts.cpp)
   ──────────────────────────────
-  SC_OnCommand for IDC_SC_DESKTOP_BTN, IDC_SC_PINSTART_BTN,
-  IDC_SC_PINTASKBAR_BTN calls SC_EditShortcutDialog() after looking up
-  or default-constructing the matching ShortcutDef in s_scShortcuts.
-  SC_OnContextMenu for the three icon buttons and Start Menu tree nodes
-  calls SC_EditShortcutDialog() via IDM_SC_CTX_EDIT_SC.
+  SC_OnCommand for IDC_SC_DESKTOP_BTN calls SC_EditShortcutDialog() after
+  looking up or default-constructing the matching ShortcutDef in s_scShortcuts.
+  SC_OnCommand for IDC_SC_SM_ADDSC and shortcut-leaf double-click
+  calls SC_EditShortcutDialog() for Start Menu shortcuts.
+  SC_OnContextMenu for the Desktop icon button and Start Menu tree nodes
+  calls SC_EditShortcutDialog() via IDM_SC_CTX_EDIT_SC / IDM_SC_CTX_EDIT_DSK.
+  Pin to Start and Pin to Taskbar icon buttons have NO context menu and do NOT
+  open SC_EditShortcutDialog (they pin existing shortcuts, not configure new ones).
   On true return: update the ShortcutDef fields + call
   MainWindow::MarkAsModified().
 

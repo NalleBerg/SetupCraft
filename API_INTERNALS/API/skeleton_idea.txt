@@ -326,4 +326,35 @@
     state images. That approach works but does not allow multi-select; it is superseded
     by the subclass pattern above for all new pickers.
 
+  - Adding a plain text-field row to an existing dialog (label + full-width edit):
+    The simplest field expansion pattern — no browse button, no picker, just a label
+    and an edit.  Used for Arguments and Comment in sc_shortcut_dialog.cpp.
+    1. Add a field to the data struct (ScDlgData / ScDlgResult / ShortcutDef /
+       ScShortcutRow) and the public function signature.
+    2. In clientH formula add +S(ROW_H) once per new row.
+       ROW_H = SCDLG_LABEL_H + SCDLG_GAP_SM + SCDLG_EDIT_H + SCDLG_GAP.
+    3. In WM_CREATE, after incrementing y past the previous row:
+         // Label
+         CreateWindowExW(0, L"STATIC", DLoc(pD, L"key_label", L"Label:").c_str(),
+             WS_CHILD|WS_VISIBLE|SS_LEFT,
+             x0, y, cntW, S(SCDLG_LABEL_H), hDlg, NULL, hInst, NULL);
+         y += S(SCDLG_LABEL_H) + S(SCDLG_GAP_SM);
+         // Edit
+         HWND hEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", pD->field.c_str(),
+             WS_CHILD|WS_VISIBLE|ES_AUTOHSCROLL,
+             x0, y, cntW, S(SCDLG_EDIT_H), hDlg, (HMENU)IDC_FIELD, hInst, NULL);
+         SetButtonTooltip(hEdit, DLoc(pD, L"key_tooltip", L"Fallback tip").c_str());
+         y += S(SCDLG_EDIT_H) + S(SCDLG_GAP);
+    4. In the OK handler, harvest:
+         int n = GetWindowTextLengthW(GetDlgItem(hDlg, IDC_FIELD));
+         std::wstring buf(n, L'\0');
+         GetWindowTextW(GetDlgItem(hDlg, IDC_FIELD), buf.data(), n+1);
+         pD->field = buf;
+    5. After the modal loop, copy pD->field into the ScDlgResult out struct.
+    6. Add DB migration in InitDb (idempotent):
+         DB::ExecSql("ALTER TABLE t ADD COLUMN col TEXT DEFAULT ''");
+    7. Update InsertXxx SQL + GetXxx SELECT + row-read column indices.
+    8. Wire all call sites: pass new param, copy result field back into ShortcutDef.
+    9. Add locale keys to locale/en_GB.txt (both copies): key_label, key_tooltip.
+
 ================================================================================

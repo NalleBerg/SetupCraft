@@ -46,6 +46,8 @@ struct ScDlgData {
     std::wstring exePath;
     std::wstring workingDir;
     bool         workingDirIsAuto; // true = still tracking exe directory; auto-update on exe pick
+    std::wstring arguments;
+    std::wstring comment;
     std::wstring iconPath;
     int          iconIndex;
     bool         runAsAdmin;
@@ -222,6 +224,50 @@ static LRESULT CALLBACK ScShortcutDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LP
         }
         y += S(SCDLG_EDIT_H) + S(SCDLG_GAP);
 
+        // ── Arguments label + edit ────────────────────────────────────────────
+        {
+            std::wstring lbl = DLoc(pD, L"scdlg_arguments_label", L"Arguments:");
+            HWND h = CreateWindowExW(0, L"STATIC", lbl.c_str(),
+                WS_CHILD | WS_VISIBLE | SS_LEFT,
+                x0, y, cntW, S(SCDLG_LABEL_H),
+                hDlg, NULL, hInst, NULL);
+            SendMessageW(h, WM_SETFONT, (WPARAM)hFont, TRUE);
+        }
+        y += S(SCDLG_LABEL_H) + S(SCDLG_GAP_SM);
+        {
+            HWND hEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", pD->arguments.c_str(),
+                WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL,
+                x0, y, cntW, S(SCDLG_EDIT_H),
+                hDlg, (HMENU)IDC_SCDLG_ARGUMENTS, hInst, NULL);
+            SendMessageW(hEdit, WM_SETFONT, (WPARAM)hFont, TRUE);
+            SetButtonTooltip(hEdit,
+                DLoc(pD, L"scdlg_arguments_tooltip",
+                    L"Command-line arguments to pass to the target executable at launch").c_str());
+        }
+        y += S(SCDLG_EDIT_H) + S(SCDLG_GAP);
+
+        // ── Comment label + edit ──────────────────────────────────────────────
+        {
+            std::wstring lbl = DLoc(pD, L"scdlg_comment_label", L"Comment:");
+            HWND h = CreateWindowExW(0, L"STATIC", lbl.c_str(),
+                WS_CHILD | WS_VISIBLE | SS_LEFT,
+                x0, y, cntW, S(SCDLG_LABEL_H),
+                hDlg, NULL, hInst, NULL);
+            SendMessageW(h, WM_SETFONT, (WPARAM)hFont, TRUE);
+        }
+        y += S(SCDLG_LABEL_H) + S(SCDLG_GAP_SM);
+        {
+            HWND hEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", pD->comment.c_str(),
+                WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL,
+                x0, y, cntW, S(SCDLG_EDIT_H),
+                hDlg, (HMENU)IDC_SCDLG_COMMENT, hInst, NULL);
+            SendMessageW(hEdit, WM_SETFONT, (WPARAM)hFont, TRUE);
+            SetButtonTooltip(hEdit,
+                DLoc(pD, L"scdlg_comment_tooltip",
+                    L"Tooltip text shown when hovering the shortcut in Explorer or the Start Menu").c_str());
+        }
+        y += S(SCDLG_EDIT_H) + S(SCDLG_GAP);
+
         // ── Start Menu path (SCT_STARTMENU only) ──────────────────────────────
         if (pD->type == SCT_STARTMENU && !pD->smPath.empty()) {
             {
@@ -345,6 +391,20 @@ static LRESULT CALLBACK ScShortcutDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LP
                 int len = GetWindowTextLengthW(hWdEdit);
                 pD->workingDir.assign(len, L'\0');
                 if (len > 0) GetWindowTextW(hWdEdit, &pD->workingDir[0], len + 1);
+            }
+            // Harvest arguments.
+            HWND hArgsEdit = GetDlgItem(hDlg, IDC_SCDLG_ARGUMENTS);
+            if (hArgsEdit) {
+                int len = GetWindowTextLengthW(hArgsEdit);
+                pD->arguments.assign(len, L'\0');
+                if (len > 0) GetWindowTextW(hArgsEdit, &pD->arguments[0], len + 1);
+            }
+            // Harvest comment.
+            HWND hCmtEdit = GetDlgItem(hDlg, IDC_SCDLG_COMMENT);
+            if (hCmtEdit) {
+                int len = GetWindowTextLengthW(hCmtEdit);
+                pD->comment.assign(len, L'\0');
+                if (len > 0) GetWindowTextW(hCmtEdit, &pD->comment[0], len + 1);
             }
             // Harvest name from edit control.
             HWND hEdit = GetDlgItem(hDlg, IDC_SCDLG_NAME);
@@ -565,6 +625,8 @@ bool SC_EditShortcutDialog(
     const std::wstring& initName,
     const std::wstring& initExePath,
     const std::wstring& initWorkingDir,
+    const std::wstring& initArguments,
+    const std::wstring& initComment,
     const std::wstring& initIconPath,
     int initIconIndex,
     bool initRunAsAdmin,
@@ -594,6 +656,8 @@ bool SC_EditShortcutDialog(
                 + S(ROW_H)                                           // exe
                 + S(ROW_H)                                           // name
                 + S(ROW_H)                                           // workdir
+                + S(ROW_H)                                           // arguments
+                + S(ROW_H)                                           // comment
                 + S(SCDLG_LABEL_H) + S(SCDLG_GAP_SM)               // icon label
                 + S(SCDLG_ICON_SZ) + S(SCDLG_GAP)                   // icon row
                 + S(SCDLG_CB_H)    + S(SCDLG_GAP)                   // run-as-admin
@@ -647,6 +711,8 @@ bool SC_EditShortcutDialog(
     pData->exePath            = initExePath;
     pData->workingDir         = resolvedWorkDir;
     pData->workingDirIsAuto   = autoWorkDir;
+    pData->arguments          = initArguments;
+    pData->comment            = initComment;
     pData->iconPath           = initIconPath;
     pData->iconIndex          = initIconIndex;
     pData->runAsAdmin         = initRunAsAdmin;
@@ -690,6 +756,8 @@ bool SC_EditShortcutDialog(
         out.name        = pData->name;
         out.exePath     = pData->exePath;
         out.workingDir  = pData->workingDir;
+        out.arguments   = pData->arguments;
+        out.comment     = pData->comment;
         out.iconPath    = pData->iconPath;
         out.iconIndex   = pData->iconIndex;
         out.runAsAdmin  = pData->runAsAdmin;

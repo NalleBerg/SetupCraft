@@ -171,6 +171,8 @@ bool DB::InitDb() {
     // Add pin columns to sc_shortcuts for existing databases (ALTER TABLE ignores error if already present)
     p_exec(db, "ALTER TABLE sc_shortcuts ADD COLUMN pin_to_start INTEGER DEFAULT 0;", NULL, NULL, &errmsg);
     p_exec(db, "ALTER TABLE sc_shortcuts ADD COLUMN pin_to_taskbar INTEGER DEFAULT 0;", NULL, NULL, &errmsg);
+    p_exec(db, "ALTER TABLE sc_shortcuts ADD COLUMN arguments TEXT DEFAULT '';", NULL, NULL, &errmsg);
+    p_exec(db, "ALTER TABLE sc_shortcuts ADD COLUMN comment TEXT DEFAULT '';", NULL, NULL, &errmsg);
     // External dependencies table
     p_exec(db, "CREATE TABLE IF NOT EXISTS external_deps ("
         "id INTEGER PRIMARY KEY AUTOINCREMENT, "
@@ -1061,8 +1063,8 @@ bool DB::InsertScShortcut(int projectId, const DB::ScShortcutRow& sc) {
     void *db = NULL; int flags = 0x00000002 | 0x00000004;
     if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return false;
     const char *sql = "INSERT OR REPLACE INTO sc_shortcuts "
-        "(id, project_id, type, sm_node_id, name, exe_path, working_dir, icon_path, icon_index, run_as_admin, pin_to_start, pin_to_taskbar) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?);";
+        "(id, project_id, type, sm_node_id, name, exe_path, working_dir, arguments, comment, icon_path, icon_index, run_as_admin, pin_to_start, pin_to_taskbar) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?);";
     void *stmt = NULL;
     if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return false; }
     std::string sId   = std::to_string(sc.id);
@@ -1072,6 +1074,8 @@ bool DB::InsertScShortcut(int projectId, const DB::ScShortcutRow& sc) {
     std::string sName = WToUtf8(sc.name);
     std::string sExe  = WToUtf8(sc.exe_path);
     std::string sWd   = WToUtf8(sc.working_dir);
+    std::string sArgs = WToUtf8(sc.arguments);
+    std::string sCmt  = WToUtf8(sc.comment);
     std::string sIcoP = WToUtf8(sc.icon_path);
     std::string sIcoI = std::to_string(sc.icon_index);
     std::string sAdm  = std::to_string(sc.run_as_admin);
@@ -1084,11 +1088,13 @@ bool DB::InsertScShortcut(int projectId, const DB::ScShortcutRow& sc) {
     if (p_bind_text) p_bind_text(stmt,  5, sName.c_str(), -1, NULL);
     if (p_bind_text) p_bind_text(stmt,  6, sExe.c_str(),  -1, NULL);
     if (p_bind_text) p_bind_text(stmt,  7, sWd.c_str(),   -1, NULL);
-    if (p_bind_text) p_bind_text(stmt,  8, sIcoP.c_str(), -1, NULL);
-    if (p_bind_text) p_bind_text(stmt,  9, sIcoI.c_str(), -1, NULL);
-    if (p_bind_text) p_bind_text(stmt, 10, sAdm.c_str(),  -1, NULL);
-    if (p_bind_text) p_bind_text(stmt, 11, sPinS.c_str(), -1, NULL);
-    if (p_bind_text) p_bind_text(stmt, 12, sPinT.c_str(), -1, NULL);
+    if (p_bind_text) p_bind_text(stmt,  8, sArgs.c_str(), -1, NULL);
+    if (p_bind_text) p_bind_text(stmt,  9, sCmt.c_str(),  -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 10, sIcoP.c_str(), -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 11, sIcoI.c_str(), -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 12, sAdm.c_str(),  -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 13, sPinS.c_str(), -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 14, sPinT.c_str(), -1, NULL);
     p_step(stmt);
     if (p_finalize) p_finalize(stmt);
     p_close(db); return true;
@@ -1115,7 +1121,7 @@ std::vector<DB::ScShortcutRow> DB::GetScShortcutsForProject(int projectId) {
     std::string dbPathUtf8 = WToUtf8(dbPath);
     void *db = NULL; int flags = 0x00000002 | 0x00000004;
     if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return out;
-    const char *sql = "SELECT id, type, sm_node_id, name, exe_path, working_dir, "
+    const char *sql = "SELECT id, type, sm_node_id, name, exe_path, working_dir, arguments, comment, "
         "icon_path, icon_index, run_as_admin, pin_to_start, pin_to_taskbar FROM sc_shortcuts WHERE project_id=? ORDER BY id ASC;";
     void *stmt = NULL;
     if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return out; }
@@ -1131,14 +1137,18 @@ std::vector<DB::ScShortcutRow> DB::GetScShortcutsForProject(int projectId) {
         const unsigned char *c4 = p_col_text(stmt, 4);
         const unsigned char *c5 = p_col_text(stmt, 5);
         const unsigned char *c6 = p_col_text(stmt, 6);
+        const unsigned char *c7 = p_col_text(stmt, 7);
+        const unsigned char *c8 = p_col_text(stmt, 8);
         r.name        = Utf8ToW(c3 ? (const char*)c3 : "");
         r.exe_path    = Utf8ToW(c4 ? (const char*)c4 : "");
         r.working_dir = Utf8ToW(c5 ? (const char*)c5 : "");
-        r.icon_path   = Utf8ToW(c6 ? (const char*)c6 : "");
-        r.icon_index  = (int)p_col_int64(stmt, 7);
-        r.run_as_admin = (int)p_col_int64(stmt, 8);
-        r.pin_to_start   = (int)p_col_int64(stmt, 9);
-        r.pin_to_taskbar = (int)p_col_int64(stmt, 10);
+        r.arguments   = Utf8ToW(c6 ? (const char*)c6 : "");
+        r.comment     = Utf8ToW(c7 ? (const char*)c7 : "");
+        r.icon_path   = Utf8ToW(c8 ? (const char*)c8 : "");
+        r.icon_index  = (int)p_col_int64(stmt, 9);
+        r.run_as_admin = (int)p_col_int64(stmt, 10);
+        r.pin_to_start   = (int)p_col_int64(stmt, 11);
+        r.pin_to_taskbar = (int)p_col_int64(stmt, 12);
         out.push_back(r);
     }
     if (p_finalize) p_finalize(stmt);

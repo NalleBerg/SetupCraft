@@ -1438,13 +1438,15 @@ bool SC_OnCommand(HWND hwnd, int id, int wmEvent, HWND hCtrl)
         ScDlgResult result;
         HINSTANCE hInst = (HINSTANCE)GetWindowLongPtrW(hwnd, GWLP_HINSTANCE);
         if (SC_EditShortcutDialog(hwnd, hInst, SCT_DESKTOP, L"",
-                tmpSc.name, tmpSc.exePath, tmpSc.workingDir,
+                tmpSc.name, tmpSc.exePath, tmpSc.workingDir, tmpSc.arguments, tmpSc.comment,
                 tmpSc.iconPath, tmpSc.iconIndex, tmpSc.runAsAdmin,
                 locMap, result))
         {
             tmpSc.name       = result.name;
             tmpSc.exePath    = result.exePath;
             tmpSc.workingDir = result.workingDir;
+            tmpSc.arguments  = result.arguments;
+            tmpSc.comment    = result.comment;
             tmpSc.iconPath   = result.iconPath;
             tmpSc.iconIndex  = result.iconIndex;
             tmpSc.runAsAdmin = result.runAsAdmin;
@@ -1569,13 +1571,15 @@ bool SC_OnCommand(HWND hwnd, int id, int wmEvent, HWND hCtrl)
         ScDlgResult result;
         HINSTANCE hInst = (HINSTANCE)GetWindowLongPtrW(hwnd, GWLP_HINSTANCE);
         if (SC_EditShortcutDialog(hwnd, hInst, SCT_STARTMENU, smPath,
-                tmpSc.name, tmpSc.exePath, tmpSc.workingDir,
+                tmpSc.name, tmpSc.exePath, tmpSc.workingDir, tmpSc.arguments, tmpSc.comment,
                 tmpSc.iconPath, tmpSc.iconIndex, tmpSc.runAsAdmin,
                 MainWindow::GetLocale(), result))
         {
             tmpSc.name       = result.name;
             tmpSc.exePath    = result.exePath;
             tmpSc.workingDir = result.workingDir;
+            tmpSc.arguments  = result.arguments;
+            tmpSc.comment    = result.comment;
             tmpSc.iconPath   = result.iconPath;
             tmpSc.iconIndex  = result.iconIndex;
             tmpSc.runAsAdmin = result.runAsAdmin;
@@ -1649,13 +1653,15 @@ bool SC_OnCommand(HWND hwnd, int id, int wmEvent, HWND hCtrl)
         ScDlgResult result;
         HINSTANCE hInst = (HINSTANCE)GetWindowLongPtrW(hwnd, GWLP_HINSTANCE);
         if (SC_EditShortcutDialog(hwnd, hInst, SCT_STARTMENU, smPath,
-                pSc->name, pSc->exePath, pSc->workingDir,
+                pSc->name, pSc->exePath, pSc->workingDir, pSc->arguments, pSc->comment,
                 pSc->iconPath, pSc->iconIndex, pSc->runAsAdmin,
                 MainWindow::GetLocale(), result))
         {
             pSc->name       = result.name;
             pSc->exePath    = result.exePath;
             pSc->workingDir = result.workingDir;
+            pSc->arguments  = result.arguments;
+            pSc->comment    = result.comment;
             pSc->iconPath   = result.iconPath;
             pSc->iconIndex  = result.iconIndex;
             pSc->runAsAdmin = result.runAsAdmin;
@@ -1705,13 +1711,15 @@ bool SC_OnCommand(HWND hwnd, int id, int wmEvent, HWND hCtrl)
             ScDlgResult result;
             HINSTANCE hInst = (HINSTANCE)GetWindowLongPtrW(hwnd, GWLP_HINSTANCE);
             if (SC_EditShortcutDialog(hwnd, hInst, SCT_DESKTOP, L"",
-                    pSc->name, pSc->exePath, pSc->workingDir,
+                    pSc->name, pSc->exePath, pSc->workingDir, pSc->arguments, pSc->comment,
                     pSc->iconPath, pSc->iconIndex, pSc->runAsAdmin,
                     locMap, result))
             {
                 pSc->name       = result.name;
                 pSc->exePath    = result.exePath;
                 pSc->workingDir = result.workingDir;
+                pSc->arguments  = result.arguments;
+                pSc->comment    = result.comment;
                 pSc->iconPath   = result.iconPath;
                 pSc->iconIndex  = result.iconIndex;
                 pSc->runAsAdmin = result.runAsAdmin;
@@ -1796,25 +1804,16 @@ bool SC_OnContextMenu(HWND hwnd, HWND hCtrl, int x, int y)
         return true;
     }
 
-    // Right-click on any of the shortcut row buttons (Desktop, Pin to Start/Taskbar).
-    // The shortcut config dialog is not yet implemented; show a greyed-out stub so
-    // the right-click infrastructure is in place for the next development session.
-    HWND hDesktopBtn    = GetDlgItem(hwnd, IDC_SC_DESKTOP_BTN);
-    HWND hPinStartBtn   = GetDlgItem(hwnd, IDC_SC_PINSTART_BTN);
-    HWND hPinTaskbarBtn = GetDlgItem(hwnd, IDC_SC_PINTASKBAR_BTN);
+    // Right-click on the Desktop add-shortcut button — context menu for the
+    // selected desktop shortcut (edit will be wired when implemented).
+    HWND hDesktopBtn = GetDlgItem(hwnd, IDC_SC_DESKTOP_BTN);
 
-    if ((hDesktopBtn    && hCtrl == hDesktopBtn)    ||
-        (hPinStartBtn   && hCtrl == hPinStartBtn)   ||
-        (hPinTaskbarBtn && hCtrl == hPinTaskbarBtn))
+    if (hDesktopBtn && hCtrl == hDesktopBtn)
     {
         const auto& locMap = MainWindow::GetLocale();
         auto locS = [&](const wchar_t* k, const wchar_t* fb) -> std::wstring {
             auto it = locMap.find(k); return (it != locMap.end()) ? it->second : fb;
         };
-        // Determine which type this control corresponds to.
-        int ctxType = SCT_DESKTOP;
-        if (hCtrl == hPinStartBtn)   ctxType = SCT_PIN_START;
-        if (hCtrl == hPinTaskbarBtn) ctxType = SCT_PIN_TASKBAR;
 
         HMENU hMenu = CreatePopupMenu();
         AppendMenuW(hMenu, MF_STRING, IDM_SC_CTX_EDIT_SC,
@@ -1824,13 +1823,8 @@ bool SC_OnContextMenu(HWND hwnd, HWND hCtrl, int x, int y)
             x, y, 0, hwnd, NULL);
         DestroyMenu(hMenu);
 
-        if (cmd == IDM_SC_CTX_EDIT_SC) {
-            // Dispatch through the same SC_OnCommand handler so logic is shared.
-            int ctrlId = IDC_SC_DESKTOP_BTN;
-            if (ctxType == SCT_PIN_START)   ctrlId = IDC_SC_PINSTART_BTN;
-            if (ctxType == SCT_PIN_TASKBAR) ctrlId = IDC_SC_PINTASKBAR_BTN;
-            SendMessageW(hwnd, WM_COMMAND, MAKEWPARAM(ctrlId, 0), 0);
-        }
+        if (cmd == IDM_SC_CTX_EDIT_SC)
+            SendMessageW(hwnd, WM_COMMAND, MAKEWPARAM(IDC_SC_DESKTOP_BTN, 0), 0);
         return true;
     }
 
@@ -1872,6 +1866,8 @@ void SC_SaveToDb(int projectId)
         r.name        = sc.name;
         r.exe_path    = sc.exePath;
         r.working_dir = sc.workingDir;
+        r.arguments   = sc.arguments;
+        r.comment     = sc.comment;
         r.icon_path   = sc.iconPath;
         r.icon_index  = sc.iconIndex;
         r.run_as_admin  = sc.runAsAdmin  ? 1 : 0;
@@ -1918,6 +1914,8 @@ void SC_LoadFromDb(int projectId)
         sc.name        = r.name;
         sc.exePath     = r.exe_path;
         sc.workingDir  = r.working_dir;
+        sc.arguments   = r.arguments;
+        sc.comment     = r.comment;
         sc.iconPath    = r.icon_path;
         sc.iconIndex   = r.icon_index;
         sc.runAsAdmin  = (r.run_as_admin  != 0);

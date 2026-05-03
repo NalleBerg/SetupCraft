@@ -31,7 +31,7 @@
 #define IDI_TRASHCAN  2   // icons/trashcan_empty.ico — multi-size 16‥128 px
 
 // ── Control IDs ───────────────────────────────────────────────────────────────
-// Range 5200–5229 is reserved for the Shortcuts page.
+// Range 5200–5239 is reserved for the Shortcuts page.
 // imageres.dll index 105 = Desktop/monitor icon (verified with IconViewer.exe).
 #define IDC_SC_DESKTOP_BTN      5200   // "Desktop" row button
 #define IDC_SC_DESKTOP_OPT      5201   // "Allow user to opt out" checkbox
@@ -62,7 +62,8 @@
 #define IDC_SCDLG_EXE_BROWSE    5227   // Browse executable button
 #define IDC_SCDLG_WORKDIR       5228   // Working directory path edit
 #define IDC_SCDLG_WORKDIR_BROWSE 5229  // Browse working directory button
-
+#define IDC_SCDLG_ARGUMENTS      5230   // Command-line arguments edit
+#define IDC_SCDLG_COMMENT        5231   // Shortcut comment / description edit
 // Context menu command IDs for Shortcuts page right-click menus.
 #define IDM_SC_CTX_ADD_SUBFOLDER 6300  // SM tree: "Add Subfolder"
 #define IDM_SC_CTX_REMOVE_FOLDER 6301  // SM tree: "Remove Subfolder"
@@ -101,6 +102,8 @@ struct ShortcutDef {
     std::wstring name;        // shortcut display name (default: exe name without ext)
     std::wstring exePath;     // target executable (.exe) path
     std::wstring workingDir;  // working directory; defaults to exe's directory
+    std::wstring arguments;   // command-line arguments passed to the shortcut target
+    std::wstring comment;     // tooltip shown when hovering the shortcut (Inno Comment: field)
     std::wstring iconPath;    // .ico / .exe / .dll to extract icon from; empty = exe
     int          iconIndex;   // icon index within iconPath (0 = first icon)
     bool         runAsAdmin;  // create shortcut with "Run as administrator" elevation

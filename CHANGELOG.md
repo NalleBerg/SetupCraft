@@ -2,6 +2,13 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.05.03.12] - 2026-05-03
+
+### Shortcuts — Arguments and Comment fields; Pin button context-menu cleanup
+- **sc_shortcut_dialog / shortcuts — Arguments field (`IDC_SCDLG_ARGUMENTS = 5230`)**: New full-width text edit below "Run in folder:" in the Configure Shortcut dialog. Maps to Inno's `Parameters:` field — command-line arguments passed to the target executable at launch. Stored in `ShortcutDef::arguments` / `ScShortcutRow::arguments`. DB migration: `ALTER TABLE sc_shortcuts ADD COLUMN arguments TEXT DEFAULT ''` (idempotent). All 4 call sites in shortcuts.cpp wired; save/load paths updated. Locale keys: `scdlg_arguments_label`, `scdlg_arguments_tooltip`.
+- **sc_shortcut_dialog / shortcuts — Comment field (`IDC_SCDLG_COMMENT = 5231`)**: New full-width text edit below Arguments. Maps to Inno's `Comment:` field — sets the tooltip shown when the user hovers the shortcut in Windows Explorer or the Start Menu. Stored in `ShortcutDef::comment` / `ScShortcutRow::comment`. DB migration: `ALTER TABLE sc_shortcuts ADD COLUMN comment TEXT DEFAULT ''` (idempotent). All 4 call sites wired; save/load paths updated. Locale keys: `scdlg_comment_label`, `scdlg_comment_tooltip`.
+- **shortcuts — Pin to Start / Taskbar buttons context-menu stub removed**: Right-clicking the Pin to Start or Pin to Taskbar icon buttons previously showed a greyed-out "Configure shortcut…" context-menu stub left over from the initial right-click infrastructure. The stub is removed; the right-click context menu now appears only on the Desktop icon button.
+
 ## [2026.05.03.11] - 2026-05-03
 
 ### Registry page — Add/Edit Value dialog layout fixes + HKA auto-root in TreeView
