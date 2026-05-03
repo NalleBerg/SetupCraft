@@ -37,6 +37,8 @@ ExternalDep (declared in deps.h)
                                (replaces the former single `instructions wstring`;
                                 stored in the separate dep_instructions table)
   offline_behavior DepOffline  0=abort, 1=warn_continue, 2=skip_if_optional
+  download_timeout_sec int     seconds to wait before giving up on download; 0=no timeout (wait forever)
+                               visible only for DD_AUTO_DOWNLOAD; IDC_DEPDLG_TIMEOUT=422
 
 ================================================================================
 MODULE STATE  (deps.cpp file-scope statics)
@@ -225,6 +227,7 @@ DB TABLE  (external_deps)
     credits_text      TEXT    DEFAULT '',
     instructions      TEXT    DEFAULT '',   -- legacy column; new pages in dep_instructions
     offline_behavior  INTEGER DEFAULT 0,
+    download_timeout_sec INTEGER DEFAULT 0,   -- 0 = no timeout; added by ALTER TABLE migration
     FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
   );
 
@@ -303,6 +306,8 @@ LOCALE KEYS
   dep_dlg_silent_args      — dialog label: "Silent install arguments (optional):"
   dep_dlg_sha256           — dialog label: "SHA-256 hash (hex, optional):"
   dep_dlg_offline          — dialog label: "If offline:"
+  dep_dlg_timeout          — dialog label: "Download timeout (seconds, 0 = no timeout):"
+                             (visible only for DD_AUTO_DOWNLOAD; IDC_DEPDLG_TIMEOUT=422)
   dep_dlg_credits          — dialog label: "Credits / attribution (optional):"
   dep_dlg_edit_lic         — Edit License button label: "Edit License…"
   dep_lic_none             — indicator when no license RTF: "(no license)"

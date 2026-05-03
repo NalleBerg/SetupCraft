@@ -1,6 +1,12 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 03 May 2026 &mdash; v2026.05.03.12 (12:06)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 03 May 2026 &mdash; v2026.05.03.13 (13:02)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.05.03.13</span></h3>
+<p><strong>Dependencies &mdash; Download timeout field (03.05.2026, 13:02):</strong></p>
+<ul>
+<li><strong>dep_edit_dialog / deps / db &mdash; Download timeout field (<code>IDC_DEPDLG_TIMEOUT = 422</code>):</strong> New integer edit below &ldquo;If offline:&rdquo; in the Edit Dependency dialog, visible only for <strong>Auto-download</strong> delivery mode. Accepts the number of seconds to wait before giving up on a download; <code>0</code>&thinsp;=&thinsp;no timeout (wait forever). Created with <code>ES_NUMBER</code> via direct <code>CreateWindowExW</code> (bypasses the <code>MkEdit</code> lambda which lacks <code>ES_NUMBER</code>). Stored in <code>ExternalDep::download_timeout_sec</code> (default&thinsp;0). DB migration: <code>ALTER TABLE external_deps ADD COLUMN download_timeout_sec INTEGER DEFAULT 0</code> (idempotent). <code>InsertExternalDep</code> extended to 18 bound parameters; <code>GetExternalDepsForProject</code> SELECT extended to column 17. Locale key: <code>dep_dlg_timeout</code>.</li>
+</ul>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.05.03.12</span></h3>
 <p><strong>Shortcuts &mdash; Arguments and Comment fields; Pin button context-menu cleanup (03.05.2026, 12:06):</strong></p>

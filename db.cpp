@@ -174,6 +174,7 @@ bool DB::InitDb() {
     p_exec(db, "ALTER TABLE sc_shortcuts ADD COLUMN arguments TEXT DEFAULT '';", NULL, NULL, &errmsg);
     p_exec(db, "ALTER TABLE sc_shortcuts ADD COLUMN comment TEXT DEFAULT '';", NULL, NULL, &errmsg);
     p_exec(db, "ALTER TABLE sc_shortcuts ADD COLUMN hotkey TEXT DEFAULT '';", NULL, NULL, &errmsg);
+    p_exec(db, "ALTER TABLE external_deps ADD COLUMN download_timeout_sec INTEGER DEFAULT 0;", NULL, NULL, &errmsg);
     // External dependencies table
     p_exec(db, "CREATE TABLE IF NOT EXISTS external_deps ("
         "id INTEGER PRIMARY KEY AUTOINCREMENT, "
@@ -1174,8 +1175,8 @@ int DB::InsertExternalDep(int projectId, const ExternalDep& dep)
         "INSERT INTO external_deps (project_id, display_name, is_required, delivery, "
         "install_order, detect_reg_key, detect_file_path, min_version, architecture, "
         "url, silent_args, sha256, license_path, license_text, credits_text, "
-        "instructions, offline_behavior) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);";
+        "instructions, offline_behavior, download_timeout_sec) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);";
     void *stmt = NULL;
     if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return -1; }
 
@@ -1196,6 +1197,7 @@ int DB::InsertExternalDep(int projectId, const ExternalDep& dep)
     std::string sCredits    = WToUtf8(dep.credits_text);
     std::string sInstr      = "";  // instructions stored in dep_instructions table
     std::string sOffline    = std::to_string((int)dep.offline_behavior);
+    std::string sTimeout    = std::to_string(dep.download_timeout_sec);
 
     p_bind_text(stmt,  1, sPid.c_str(),       -1, NULL);
     p_bind_text(stmt,  2, sName.c_str(),      -1, NULL);
@@ -1214,6 +1216,7 @@ int DB::InsertExternalDep(int projectId, const ExternalDep& dep)
     p_bind_text(stmt, 15, sCredits.c_str(),   -1, NULL);
     p_bind_text(stmt, 16, sInstr.c_str(),     -1, NULL);
     p_bind_text(stmt, 17, sOffline.c_str(),   -1, NULL);
+    p_bind_text(stmt, 18, sTimeout.c_str(),   -1, NULL);
     p_step(stmt);
     if (p_finalize) p_finalize(stmt);
 
@@ -1290,7 +1293,7 @@ std::vector<ExternalDep> DB::GetExternalDepsForProject(int projectId)
         "SELECT id, display_name, is_required, delivery, install_order, "
         "detect_reg_key, detect_file_path, min_version, architecture, "
         "url, silent_args, sha256, license_path, license_text, "
-        "credits_text, instructions, offline_behavior "
+        "credits_text, instructions, offline_behavior, download_timeout_sec "
         "FROM external_deps WHERE project_id=? ORDER BY install_order ASC, id ASC;";
     void *stmt = NULL;
     if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return out; }
@@ -1319,7 +1322,8 @@ std::vector<ExternalDep> DB::GetExternalDepsForProject(int projectId)
         d.license_path     = T(12);
         d.license_text     = T(13);
         d.credits_text     = T(14);
-        d.offline_behavior = (DepOffline)(int)p_col_int64(stmt, 16);
+        d.offline_behavior        = (DepOffline)(int)p_col_int64(stmt, 16);
+        d.download_timeout_sec    = (int)p_col_int64(stmt, 17);
         // instructions_list populated below after we know d.id
         out.push_back(d);
     }

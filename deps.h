@@ -85,6 +85,7 @@ struct ExternalDep {
     std::wstring credits_text;                  // short attribution line
     std::vector<std::wstring> instructions_list; // manual-install guidance pages (RTF), in order
     DepOffline   offline_behavior = DO_ABORT;
+    int          download_timeout_sec = 0;   // 0 = no timeout (wait forever); DD_AUTO_DOWNLOAD only
 };
 
 // ── Control IDs (range 6000–6099) ────────────────────────────────────────────

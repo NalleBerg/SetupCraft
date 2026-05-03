@@ -301,6 +301,10 @@ static void Reflow(HWND hDlg, int deliveryVal)
         }
         PlaceW(s_secNetAll.ctrls[7], DD_LABEL_H,  DD_GAP_SM, s_ddEW); // offline lbl
         PlaceW(s_secNetAll.ctrls[8], DD_COMBO_H,  DD_GAP,    s_ddEW); // offline combo
+        if (hasNetAll && (int)s_secNetAll.ctrls.size() >= 11) {
+            PlaceW(s_secNetAll.ctrls[9],  DD_LABEL_H, DD_GAP_SM, s_ddEW); // timeout lbl
+            PlaceW(s_secNetAll.ctrls[10], DD_EDIT_H,  DD_GAP,    s_ddEW); // timeout edit
+        }
     }
     // License: header + indicator + button + credits label + credits edit
     if (hasLicense && s_secLicense.ctrls.size() >= 5) {
@@ -689,6 +693,7 @@ static LRESULT CALLBACK DepDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lP
                 pData->dep.url              = GetEditText(hDlg, IDC_DEPDLG_URL);
                 pData->dep.silent_args      = GetEditText(hDlg, IDC_DEPDLG_SILENT_ARGS);
                 pData->dep.sha256           = GetEditText(hDlg, IDC_DEPDLG_SHA256);
+                pData->dep.download_timeout_sec = _wtoi(GetEditText(hDlg, IDC_DEPDLG_TIMEOUT).c_str());
                 pData->dep.detect_reg_key   = GetEditText(hDlg, IDC_DEPDLG_DETECT_REG);
                 pData->dep.detect_file_path = GetEditText(hDlg, IDC_DEPDLG_DETECT_FILE);
                 pData->dep.min_version      = GetEditText(hDlg, IDC_DEPDLG_MIN_VER);
@@ -1066,6 +1071,7 @@ bool DEP_EditDialog(HWND hwndParent, HINSTANCE hInst,
     // ── Network section (hidden) ──────────────────────────────────────────────
     // ctrls order: [0]=header [1]=urlLbl [2]=urlEdit [3]=argsLbl [4]=argsEdit
     //              [5]=shaLbl [6]=shaEdit [7]=offlineLbl [8]=offlineCombo
+    //              [9]=timeoutLbl [10]=timeoutEdit  (DD_AUTO_DOWNLOAD only)
     {
         HWND hHdr = MkSection(LS(L"dep_section_network", L"Network"), false);
         s_secNetAll.ctrls.push_back(hHdr);
@@ -1093,6 +1099,15 @@ bool DEP_EditDialog(HWND hwndParent, HINSTANCE hInst,
         SendMessageW(hOff, CB_ADDSTRING, 0, (LPARAM)LS(L"dep_offline_skip_opt", L"Skip if optional").c_str());
         SendMessageW(hOff, CB_SETCURSEL, (WPARAM)dep.offline_behavior, 0);
         SF(hOff);  s_secNetAll.ctrls.push_back(hOff);
+
+        HWND hTmoL = MkLabel(LS(L"dep_dlg_timeout", L"Download timeout (seconds, 0 = no timeout):"), false);
+        SF(hTmoL); s_secNetAll.ctrls.push_back(hTmoL);
+        HWND hTmo = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT",
+            std::to_wstring(dep.download_timeout_sec).c_str(),
+            WS_CHILD | WS_TABSTOP | WS_BORDER | ES_AUTOHSCROLL | ES_NUMBER,
+            s_ddLX, y, s_ddEW, S(DD_EDIT_H),
+            hDlg, (HMENU)(UINT_PTR)IDC_DEPDLG_TIMEOUT, hInst, NULL);
+        SF(hTmo); s_secNetAll.ctrls.push_back(hTmo);
     }
 
     // ── License section (hidden) ──────────────────────────────────────────────

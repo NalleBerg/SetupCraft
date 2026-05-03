@@ -2,6 +2,11 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.05.03.13] - 2026-05-03
+
+### Dependencies — Download timeout field
+- **dep_edit_dialog / deps / db — Download timeout field (`IDC_DEPDLG_TIMEOUT = 422`)**: New integer edit below "If offline:" in the Edit Dependency dialog, visible only for **Auto-download** delivery mode. Accepts seconds to wait before giving up on a download; `0` = no timeout (wait forever). Created with `ES_NUMBER` via direct `CreateWindowExW` (bypasses the `MkEdit` lambda which lacks `ES_NUMBER`). Stored in `ExternalDep::download_timeout_sec` (default 0). DB migration: `ALTER TABLE external_deps ADD COLUMN download_timeout_sec INTEGER DEFAULT 0` (idempotent). `InsertExternalDep` extended to 18 bound params; `GetExternalDepsForProject` SELECT extended to column 17. Locale key: `dep_dlg_timeout`.
+
 ## [2026.05.03.12] - 2026-05-03
 
 ### Shortcuts — Arguments and Comment fields; Pin button context-menu cleanup

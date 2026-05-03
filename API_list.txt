@@ -337,7 +337,9 @@
                                                 right-click context menu, modal measure-then-
                                                 create edit dialog (instructions icon-grid with
                                                 InstrIconCtx / WM_DEPINSTR_REMOVE, install order
-                                                as named dropdown combo), DB table schema and
+                                                as named dropdown combo), download timeout field
+                                                (IDC_DEPDLG_TIMEOUT=422, ES_NUMBER, 0=no timeout,
+                                                DD_AUTO_DOWNLOAD only), DB table schema and
                                                 CRUD API, control ID ranges, locale key table,
                                                 and mainwindow.cpp wiring guide.
 

@@ -425,6 +425,7 @@ dep_dlg_url=Download / redirect URL:
 dep_dlg_silent_args=Silent install arguments (optional):
 dep_dlg_sha256=SHA-256 hash (hex, optional):
 dep_dlg_offline=If offline:
+dep_dlg_timeout=Download timeout (seconds, 0 = no timeout):
 dep_dlg_lic_browse=Browse…
 dep_dlg_credits=Credits / attribution (optional):
 dep_section_detection=Detection

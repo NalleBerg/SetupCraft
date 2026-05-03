@@ -52,3 +52,4 @@ bool DEP_EditDialog(HWND hwndParent, HINSTANCE hInst,
 #define IDC_DEPDLG_EDIT_INSTR   419   // "Add Instructions…" button
 #define IDC_DEPDLG_EDIT_LIC     420   // "Edit License…" button
 #define IDC_DEPDLG_INSTR_ICON   421   // SS_NOTIFY icon (shell32 #70) shown when instructions exist
+#define IDC_DEPDLG_TIMEOUT     422   // download timeout edit (seconds; 0 = no timeout)
