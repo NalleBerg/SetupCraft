@@ -102,6 +102,7 @@ namespace DB {
         std::wstring working_dir;
         std::wstring arguments;
         std::wstring comment;
+        std::wstring hotkey;
         std::wstring icon_path;
         int icon_index = 0;
         int run_as_admin = 0;

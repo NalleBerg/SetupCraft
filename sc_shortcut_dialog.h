@@ -35,6 +35,7 @@ struct ScDlgResult {
     std::wstring workingDir;         // working directory (defaults to exe directory)
     std::wstring arguments;          // command-line arguments passed to the shortcut target
     std::wstring comment;            // tooltip shown when hovering the shortcut (Inno Comment:)
+    std::wstring hotkey;             // global keyboard shortcut, e.g. "ctrl+alt+h" (Inno HotKey:)
     std::wstring iconPath;           // path of .ico / .exe / .dll; empty = use app exe
     int          iconIndex = 0;      // icon index within iconPath
     bool         runAsAdmin = false; // launch shortcut with administrator elevation
@@ -53,6 +54,7 @@ struct ScDlgResult {
 //   initWorkingDir  — pre-filled working directory (may be empty; auto = exe dir)
 //   initArguments   — pre-filled command-line arguments (may be empty)
 //   initComment     — pre-filled shortcut comment / tooltip text (may be empty)
+//   initHotKey      — pre-filled Inno HotKey string, e.g. "ctrl+alt+h" (may be empty)
 //   initIconPath    — pre-filled icon file path (may be empty)
 //   initIconIndex   — pre-filled icon index within initIconPath
 //   initRunAsAdmin  — pre-filled Run-as-administrator checkbox state
@@ -70,6 +72,7 @@ bool SC_EditShortcutDialog(
     const std::wstring& initWorkingDir,
     const std::wstring& initArguments,
     const std::wstring& initComment,
+    const std::wstring& initHotKey,
     const std::wstring& initIconPath,
     int initIconIndex,
     bool initRunAsAdmin,

@@ -1439,7 +1439,7 @@ bool SC_OnCommand(HWND hwnd, int id, int wmEvent, HWND hCtrl)
         HINSTANCE hInst = (HINSTANCE)GetWindowLongPtrW(hwnd, GWLP_HINSTANCE);
         if (SC_EditShortcutDialog(hwnd, hInst, SCT_DESKTOP, L"",
                 tmpSc.name, tmpSc.exePath, tmpSc.workingDir, tmpSc.arguments, tmpSc.comment,
-                tmpSc.iconPath, tmpSc.iconIndex, tmpSc.runAsAdmin,
+                tmpSc.hotkey, tmpSc.iconPath, tmpSc.iconIndex, tmpSc.runAsAdmin,
                 locMap, result))
         {
             tmpSc.name       = result.name;
@@ -1447,6 +1447,7 @@ bool SC_OnCommand(HWND hwnd, int id, int wmEvent, HWND hCtrl)
             tmpSc.workingDir = result.workingDir;
             tmpSc.arguments  = result.arguments;
             tmpSc.comment    = result.comment;
+            tmpSc.hotkey     = result.hotkey;
             tmpSc.iconPath   = result.iconPath;
             tmpSc.iconIndex  = result.iconIndex;
             tmpSc.runAsAdmin = result.runAsAdmin;
@@ -1572,7 +1573,7 @@ bool SC_OnCommand(HWND hwnd, int id, int wmEvent, HWND hCtrl)
         HINSTANCE hInst = (HINSTANCE)GetWindowLongPtrW(hwnd, GWLP_HINSTANCE);
         if (SC_EditShortcutDialog(hwnd, hInst, SCT_STARTMENU, smPath,
                 tmpSc.name, tmpSc.exePath, tmpSc.workingDir, tmpSc.arguments, tmpSc.comment,
-                tmpSc.iconPath, tmpSc.iconIndex, tmpSc.runAsAdmin,
+                tmpSc.hotkey, tmpSc.iconPath, tmpSc.iconIndex, tmpSc.runAsAdmin,
                 MainWindow::GetLocale(), result))
         {
             tmpSc.name       = result.name;
@@ -1580,6 +1581,7 @@ bool SC_OnCommand(HWND hwnd, int id, int wmEvent, HWND hCtrl)
             tmpSc.workingDir = result.workingDir;
             tmpSc.arguments  = result.arguments;
             tmpSc.comment    = result.comment;
+            tmpSc.hotkey     = result.hotkey;
             tmpSc.iconPath   = result.iconPath;
             tmpSc.iconIndex  = result.iconIndex;
             tmpSc.runAsAdmin = result.runAsAdmin;
@@ -1654,7 +1656,7 @@ bool SC_OnCommand(HWND hwnd, int id, int wmEvent, HWND hCtrl)
         HINSTANCE hInst = (HINSTANCE)GetWindowLongPtrW(hwnd, GWLP_HINSTANCE);
         if (SC_EditShortcutDialog(hwnd, hInst, SCT_STARTMENU, smPath,
                 pSc->name, pSc->exePath, pSc->workingDir, pSc->arguments, pSc->comment,
-                pSc->iconPath, pSc->iconIndex, pSc->runAsAdmin,
+                pSc->hotkey, pSc->iconPath, pSc->iconIndex, pSc->runAsAdmin,
                 MainWindow::GetLocale(), result))
         {
             pSc->name       = result.name;
@@ -1662,6 +1664,7 @@ bool SC_OnCommand(HWND hwnd, int id, int wmEvent, HWND hCtrl)
             pSc->workingDir = result.workingDir;
             pSc->arguments  = result.arguments;
             pSc->comment    = result.comment;
+            pSc->hotkey     = result.hotkey;
             pSc->iconPath   = result.iconPath;
             pSc->iconIndex  = result.iconIndex;
             pSc->runAsAdmin = result.runAsAdmin;
@@ -1712,7 +1715,7 @@ bool SC_OnCommand(HWND hwnd, int id, int wmEvent, HWND hCtrl)
             HINSTANCE hInst = (HINSTANCE)GetWindowLongPtrW(hwnd, GWLP_HINSTANCE);
             if (SC_EditShortcutDialog(hwnd, hInst, SCT_DESKTOP, L"",
                     pSc->name, pSc->exePath, pSc->workingDir, pSc->arguments, pSc->comment,
-                    pSc->iconPath, pSc->iconIndex, pSc->runAsAdmin,
+                    pSc->hotkey, pSc->iconPath, pSc->iconIndex, pSc->runAsAdmin,
                     locMap, result))
             {
                 pSc->name       = result.name;
@@ -1720,6 +1723,7 @@ bool SC_OnCommand(HWND hwnd, int id, int wmEvent, HWND hCtrl)
                 pSc->workingDir = result.workingDir;
                 pSc->arguments  = result.arguments;
                 pSc->comment    = result.comment;
+                pSc->hotkey     = result.hotkey;
                 pSc->iconPath   = result.iconPath;
                 pSc->iconIndex  = result.iconIndex;
                 pSc->runAsAdmin = result.runAsAdmin;
@@ -1868,6 +1872,7 @@ void SC_SaveToDb(int projectId)
         r.working_dir = sc.workingDir;
         r.arguments   = sc.arguments;
         r.comment     = sc.comment;
+        r.hotkey      = sc.hotkey;
         r.icon_path   = sc.iconPath;
         r.icon_index  = sc.iconIndex;
         r.run_as_admin  = sc.runAsAdmin  ? 1 : 0;
@@ -1916,6 +1921,7 @@ void SC_LoadFromDb(int projectId)
         sc.workingDir  = r.working_dir;
         sc.arguments   = r.arguments;
         sc.comment     = r.comment;
+        sc.hotkey      = r.hotkey;
         sc.iconPath    = r.icon_path;
         sc.iconIndex   = r.icon_index;
         sc.runAsAdmin  = (r.run_as_admin  != 0);

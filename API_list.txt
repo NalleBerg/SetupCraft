@@ -278,16 +278,17 @@
                                                 Configure Shortcut modal dialog — SC_EditShortcutDialog()
                                                 full signature (hwndParent, hInst, type, smPath,
                                                 initName, initExePath, initWorkingDir, initArguments,
-                                                initComment, initIconPath, initIconIndex, initRunAsAdmin,
-                                                locale, out); ScDlgData heap struct (all fields:
-                                                name/exePath/workingDir/arguments/comment/iconPath/
-                                                iconIndex/runAsAdmin/hInst/pLocale/hCurrentIcon/
-                                                okPressed); ScDlgResult struct (same writable fields);
-                                                UI order: Executable+browse → Name → WorkDir+browse →
-                                                Arguments → Comment → SM path label (SCT_STARTMENU) →
-                                                Icon preview+picker → Run as admin → OK/Cancel;
-                                                IDC range 5200–5239; ScIconPreviewProc subclass;
-                                                LoadPreviewIcon (PrivateExtractIconsW → ExtractIconExW);
+                                                initComment, initHotKey, initIconPath, initIconIndex,
+                                                initRunAsAdmin, locale, out); ScDlgData heap struct
+                                                (all fields: name/exePath/workingDir/arguments/comment/
+                                                hotkey/iconPath/iconIndex/runAsAdmin/hInst/pLocale/
+                                                hCurrentIcon/okPressed); ScDlgResult struct (same
+                                                writable fields); UI order: Executable+browse → Name →
+                                                WorkDir+browse → Arguments → Comment → HotKey+Clear →
+                                                SM path label (SCT_STARTMENU) → Icon preview+picker →
+                                                Run as admin → OK/Cancel; IDC range 5200–5239;
+                                                InnoHotKeyToWord/WordToInnoHotKey helpers;
+                                                ScIconPreviewProc subclass; LoadPreviewIcon;
                                                 icon file picker filter (*.ico;*.exe;*.dll);
                                                 modal message loop pattern; WM_CTLCOLORSTATIC;
                                                 WM_DRAWITEM routing (DrawCustomCheckbox first,

@@ -48,6 +48,7 @@ struct ScDlgData {
     bool         workingDirIsAuto; // true = still tracking exe directory; auto-update on exe pick
     std::wstring arguments;
     std::wstring comment;
+    std::wstring hotkey;
     std::wstring iconPath;
     int          iconIndex;
     bool         runAsAdmin;
@@ -65,6 +66,82 @@ static bool s_scDlgOk = false;
 static std::wstring DLoc(const ScDlgData* d, const wchar_t* key, const wchar_t* fb) {
     auto it = d->pLocale->find(key);
     return (it != d->pLocale->end()) ? it->second : fb;
+}
+
+// ── Inno HotKey string ↔ HOTKEY_CLASS WORD converters ───────────────────────
+// WORD: LOBYTE = VK code, HIBYTE = HOTKEYF_* modifier flags.
+static WORD InnoHotKeyToWord(const std::wstring& s) {
+    if (s.empty()) return 0;
+    BYTE vk = 0, mod = 0;
+    size_t pos = 0;
+    while (pos <= s.size()) {
+        size_t next = s.find(L'+', pos);
+        if (next == std::wstring::npos) next = s.size();
+        std::wstring p = s.substr(pos, next - pos);
+        for (wchar_t& c : p) c = towlower(c);
+        if      (p == L"ctrl")   mod |= HOTKEYF_CONTROL;
+        else if (p == L"alt")    mod |= HOTKEYF_ALT;
+        else if (p == L"shift")  mod |= HOTKEYF_SHIFT;
+        else if (p.size() == 1 && p[0] >= L'a' && p[0] <= L'z')
+            vk = (BYTE)(L'A' + (p[0] - L'a'));
+        else if (p.size() == 1 && p[0] >= L'0' && p[0] <= L'9')
+            vk = (BYTE)p[0];
+        else if (p.size() >= 2 && p[0] == L'f') {
+            int n = _wtoi(p.c_str() + 1);
+            if (n >= 1 && n <= 24) vk = (BYTE)(VK_F1 + n - 1);
+        }
+        else if (p == L"left")      vk = VK_LEFT;
+        else if (p == L"right")     vk = VK_RIGHT;
+        else if (p == L"up")        vk = VK_UP;
+        else if (p == L"down")      vk = VK_DOWN;
+        else if (p == L"home")      vk = VK_HOME;
+        else if (p == L"end")       vk = VK_END;
+        else if (p == L"insert")    vk = VK_INSERT;
+        else if (p == L"delete")    vk = VK_DELETE;
+        else if (p == L"next")      vk = VK_NEXT;
+        else if (p == L"prior")     vk = VK_PRIOR;
+        else if (p == L"enter")     vk = VK_RETURN;
+        else if (p == L"tab")       vk = VK_TAB;
+        else if (p == L"space")     vk = VK_SPACE;
+        else if (p == L"backspace") vk = VK_BACK;
+        else if (p == L"esc")       vk = VK_ESCAPE;
+        pos = next + 1;
+    }
+    return MAKEWORD(vk, mod);
+}
+
+static std::wstring WordToInnoHotKey(WORD w) {
+    BYTE vk  = LOBYTE(w);
+    BYTE mod = HIBYTE(w);
+    if (vk == 0) return L"";
+    std::wstring r;
+    if (mod & HOTKEYF_CONTROL) r += L"ctrl+";
+    if (mod & HOTKEYF_ALT)     r += L"alt+";
+    if (mod & HOTKEYF_SHIFT)   r += L"shift+";
+    if      (vk >= VK_F1  && vk <= VK_F24)  r += L"F" + std::to_wstring(vk - VK_F1 + 1);
+    else if (vk >= 'A'    && vk <= 'Z')      r += (wchar_t)(L'a' + vk - 'A');
+    else if (vk >= '0'    && vk <= '9')      r += (wchar_t)vk;
+    else {
+        switch (vk) {
+        case VK_LEFT:    r += L"left";      break;
+        case VK_RIGHT:   r += L"right";     break;
+        case VK_UP:      r += L"up";        break;
+        case VK_DOWN:    r += L"down";      break;
+        case VK_HOME:    r += L"home";      break;
+        case VK_END:     r += L"end";       break;
+        case VK_INSERT:  r += L"insert";    break;
+        case VK_DELETE:  r += L"delete";    break;
+        case VK_NEXT:    r += L"next";      break;
+        case VK_PRIOR:   r += L"prior";     break;
+        case VK_RETURN:  r += L"enter";     break;
+        case VK_TAB:     r += L"tab";       break;
+        case VK_SPACE:   r += L"space";     break;
+        case VK_BACK:    r += L"backspace"; break;
+        case VK_ESCAPE:  r += L"esc";       break;
+        default:         return L"";  // unknown — treat as cleared
+        }
+    }
+    return r;
 }
 
 // ── Icon preview subclass ─────────────────────────────────────────────────────
@@ -268,6 +345,38 @@ static LRESULT CALLBACK ScShortcutDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LP
         }
         y += S(SCDLG_EDIT_H) + S(SCDLG_GAP);
 
+        // ── Hot key label + HOTKEY_CLASS control + Clear button ────────────────────
+        {
+            std::wstring lbl = DLoc(pD, L"scdlg_hotkey_label", L"Hot key:");
+            HWND h = CreateWindowExW(0, L"STATIC", lbl.c_str(),
+                WS_CHILD | WS_VISIBLE | SS_LEFT,
+                x0, y, cntW, S(SCDLG_LABEL_H),
+                hDlg, NULL, hInst, NULL);
+            SendMessageW(h, WM_SETFONT, (WPARAM)hFont, TRUE);
+        }
+        y += S(SCDLG_LABEL_H) + S(SCDLG_GAP_SM);
+        {
+            const int hkEditW = cntW - S(SCDLG_GAP_SM) - S(SCDLG_BROWSE_W);
+            HWND hHk = CreateWindowExW(WS_EX_CLIENTEDGE, L"msctls_hotkey32", NULL,
+                WS_CHILD | WS_VISIBLE,
+                x0, y, hkEditW, S(SCDLG_EDIT_H),
+                hDlg, (HMENU)IDC_SCDLG_HOTKEY, hInst, NULL);
+            SendMessageW(hHk, WM_SETFONT, (WPARAM)hFont, TRUE);
+            if (!pD->hotkey.empty())
+                SendMessageW(hHk, HKM_SETHOTKEY, InnoHotKeyToWord(pD->hotkey), 0);
+            SetButtonTooltip(hHk,
+                DLoc(pD, L"scdlg_hotkey_tooltip",
+                    L"Press the desired key combination. Leave empty for no shortcut.").c_str());
+            HWND hClearBtn = CreateCustomButtonWithIcon(
+                hDlg, IDC_SCDLG_HOTKEY_CLEAR, L"", ButtonColor::Red,
+                L"shell32.dll", 131,
+                x0 + hkEditW + S(SCDLG_GAP_SM), y,
+                S(SCDLG_BROWSE_W), S(SCDLG_EDIT_H), hInst);
+            SetButtonTooltip(hClearBtn,
+                DLoc(pD, L"scdlg_hotkey_clear_tooltip", L"Clear the hot key").c_str());
+        }
+        y += S(SCDLG_EDIT_H) + S(SCDLG_GAP);
+
         // ── Start Menu path (SCT_STARTMENU only) ──────────────────────────────
         if (pD->type == SCT_STARTMENU && !pD->smPath.empty()) {
             {
@@ -406,6 +515,12 @@ static LRESULT CALLBACK ScShortcutDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LP
                 pD->comment.assign(len, L'\0');
                 if (len > 0) GetWindowTextW(hCmtEdit, &pD->comment[0], len + 1);
             }
+            // Harvest hot key.
+            HWND hHkCtrl = GetDlgItem(hDlg, IDC_SCDLG_HOTKEY);
+            if (hHkCtrl) {
+                WORD hkWord = (WORD)SendMessageW(hHkCtrl, HKM_GETHOTKEY, 0, 0);
+                pD->hotkey  = WordToInnoHotKey(hkWord);
+            }
             // Harvest name from edit control.
             HWND hEdit = GetDlgItem(hDlg, IDC_SCDLG_NAME);
             if (hEdit) {
@@ -425,6 +540,12 @@ static LRESULT CALLBACK ScShortcutDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LP
         if (ctrlId == IDC_SCDLG_CANCEL) {
             s_scDlgOk = false;
             DestroyWindow(hDlg);
+            return 0;
+        }
+
+        if (ctrlId == IDC_SCDLG_HOTKEY_CLEAR) {
+            HWND hHk = GetDlgItem(hDlg, IDC_SCDLG_HOTKEY);
+            if (hHk) SendMessageW(hHk, HKM_SETHOTKEY, 0, 0);
             return 0;
         }
 
@@ -627,6 +748,7 @@ bool SC_EditShortcutDialog(
     const std::wstring& initWorkingDir,
     const std::wstring& initArguments,
     const std::wstring& initComment,
+    const std::wstring& initHotKey,
     const std::wstring& initIconPath,
     int initIconIndex,
     bool initRunAsAdmin,
@@ -658,6 +780,7 @@ bool SC_EditShortcutDialog(
                 + S(ROW_H)                                           // workdir
                 + S(ROW_H)                                           // arguments
                 + S(ROW_H)                                           // comment
+                + S(ROW_H)                                           // hotkey
                 + S(SCDLG_LABEL_H) + S(SCDLG_GAP_SM)               // icon label
                 + S(SCDLG_ICON_SZ) + S(SCDLG_GAP)                   // icon row
                 + S(SCDLG_CB_H)    + S(SCDLG_GAP)                   // run-as-admin
@@ -713,6 +836,7 @@ bool SC_EditShortcutDialog(
     pData->workingDirIsAuto   = autoWorkDir;
     pData->arguments          = initArguments;
     pData->comment            = initComment;
+    pData->hotkey             = initHotKey;
     pData->iconPath           = initIconPath;
     pData->iconIndex          = initIconIndex;
     pData->runAsAdmin         = initRunAsAdmin;
@@ -758,6 +882,7 @@ bool SC_EditShortcutDialog(
         out.workingDir  = pData->workingDir;
         out.arguments   = pData->arguments;
         out.comment     = pData->comment;
+        out.hotkey      = pData->hotkey;
         out.iconPath    = pData->iconPath;
         out.iconIndex   = pData->iconIndex;
         out.runAsAdmin  = pData->runAsAdmin;

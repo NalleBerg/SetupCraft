@@ -24,13 +24,14 @@
         const std::wstring& initWorkingDir,
         const std::wstring& initArguments,
         const std::wstring& initComment,
+        const std::wstring& initHotKey,
         const std::wstring& initIconPath, int initIconIndex,
         bool initRunAsAdmin,
         const std::map<std::wstring,std::wstring>& locale,
         ScDlgResult& out);
 
     struct ScDlgResult {
-        name, exePath, workingDir, arguments, comment,
+        name, exePath, workingDir, arguments, comment, hotkey,
         iconPath, iconIndex, runAsAdmin
     };
 
@@ -83,7 +84,8 @@
     name              — shortcut display name (read/write)    exePath           — path to the target executable (read/write)
     workingDir        — working directory / "Start in" folder (read/write)
     arguments         — command-line arguments (Inno Parameters:) (read/write)
-    comment           — hover tooltip in Explorer/Start Menu (Inno Comment:) (read/write)    iconPath          — path to .ico/.exe/.dll (read/write)
+    comment           — hover tooltip in Explorer/Start Menu (Inno Comment:) (read/write)
+    hotkey            — global keyboard shortcut string, e.g. "ctrl+alt+h" (Inno HotKey:) (read/write)    iconPath          — path to .ico/.exe/.dll (read/write)
     iconIndex         — icon index within that file (read/write)
     runAsAdmin        — run-as-admin toggle (read/write)
     hInst             — application HINSTANCE
@@ -100,6 +102,8 @@
     IDC_SCDLG_WORKDIR_BROWSE   BS_OWNERDRAW Blue folder browse button
     IDC_SCDLG_ARGUMENTS        EDIT        Command-line arguments (Inno Parameters:)
     IDC_SCDLG_COMMENT          EDIT        Explorer hover tooltip (Inno Comment:)
+    IDC_SCDLG_HOTKEY           msctls_hotkey32  Global keyboard shortcut (Inno HotKey:)
+    IDC_SCDLG_HOTKEY_CLEAR     BS_OWNERDRAW Red Clear button for the hot-key control
     IDC_SCDLG_ICON_PREVIEW     STATIC      48×48 subclassed icon preview
     IDC_SCDLG_ICON_ADD         BS_OWNERDRAW Blue “Change Icon…” button
     IDC_SCDLG_RUN_AS_ADMIN     BS_OWNERDRAW Custom checkbox (owner-drawn)
@@ -113,10 +117,11 @@
     3. Run in folder (edit + browse)
     4. Arguments (full-width edit)
     5. Comment (full-width edit)
-    6. Start Menu path label (SCT_STARTMENU only, when smPath is non-empty)
-    7. Icon (preview square + Change Icon… button)
-    8. Run as administrator (checkbox)
-    9. OK / Cancel buttons
+    6. Hot key (msctls_hotkey32 + red Clear button)
+    7. Start Menu path label (SCT_STARTMENU only, when smPath is non-empty)
+    8. Icon (preview square + Change Icon… button)
+    9. Run as administrator (checkbox)
+   10. OK / Cancel buttons
 
   Locale keys:
     scdlg_exe_label           scdlg_exe_tooltip
@@ -124,6 +129,7 @@
     scdlg_workdir_label       scdlg_workdir_tooltip      scdlg_workdir_picker_title
     scdlg_arguments_label     scdlg_arguments_tooltip
     scdlg_comment_label       scdlg_comment_tooltip
+    scdlg_hotkey_label        scdlg_hotkey_tooltip        scdlg_hotkey_clear_tooltip
     scdlg_sm_path_label
     scdlg_icon_label          scdlg_icon_filter_label
     scdlg_run_as_admin_label  scdlg_run_as_admin_tooltip

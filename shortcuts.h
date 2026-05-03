@@ -64,6 +64,9 @@
 #define IDC_SCDLG_WORKDIR_BROWSE 5229  // Browse working directory button
 #define IDC_SCDLG_ARGUMENTS      5230   // Command-line arguments edit
 #define IDC_SCDLG_COMMENT        5231   // Shortcut comment / description edit
+#define IDC_SCDLG_HOTKEY         5232   // Hot-key HOTKEY_CLASS control
+#define IDC_SCDLG_HOTKEY_CLEAR   5233   // Clear hot-key button
+// IDC_SCDLG range: 5200–5239
 // Context menu command IDs for Shortcuts page right-click menus.
 #define IDM_SC_CTX_ADD_SUBFOLDER 6300  // SM tree: "Add Subfolder"
 #define IDM_SC_CTX_REMOVE_FOLDER 6301  // SM tree: "Remove Subfolder"
@@ -104,6 +107,7 @@ struct ShortcutDef {
     std::wstring workingDir;  // working directory; defaults to exe's directory
     std::wstring arguments;   // command-line arguments passed to the shortcut target
     std::wstring comment;     // tooltip shown when hovering the shortcut (Inno Comment: field)
+    std::wstring hotkey;      // global keyboard shortcut string, e.g. "ctrl+alt+h" (Inno HotKey:)
     std::wstring iconPath;    // .ico / .exe / .dll to extract icon from; empty = exe
     int          iconIndex;   // icon index within iconPath (0 = first icon)
     bool         runAsAdmin;  // create shortcut with "Run as administrator" elevation

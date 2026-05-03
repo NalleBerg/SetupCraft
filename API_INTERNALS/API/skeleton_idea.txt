@@ -357,4 +357,50 @@
     8. Wire all call sites: pass new param, copy result field back into ShortcutDef.
     9. Add locale keys to locale/en_GB.txt (both copies): key_label, key_tooltip.
 
+  - Adding a Win32 HOTKEY_CLASS control row to an existing dialog (label + msctls_hotkey32 + Clear button):
+    Used for the HotKey field in sc_shortcut_dialog.cpp (IDC_SCDLG_HOTKEY = 5232,
+    IDC_SCDLG_HOTKEY_CLEAR = 5233).  The control captures a key combination directly
+    (no free-text typing).  Two conversion helpers bridge to Inno's HotKey: string
+    format (e.g. "ctrl+alt+h").
+    1. Add hotkey field (std::wstring) to data struct / result / ShortcutDef /
+       ScShortcutRow and function signature.
+    2. Add static helpers before the dialog proc:
+         InnoHotKeyToWord(const std::wstring&) → WORD
+           Parses modifiers (ctrl/alt/shift) and key name; returns MAKEWORD(vk, mod).
+         WordToInnoHotKey(WORD) → std::wstring
+           Converts LOBYTE (VK code) + HIBYTE (HOTKEYF_* flags) back to Inno string.
+           Returns L"" for VK==0 (cleared / none).
+    3. In clientH, add +S(ROW_H) for the hotkey row.
+    4. In WM_CREATE:
+         // Label
+         CreateWindowExW(0, L"STATIC", L"Hot key:", WS_CHILD|WS_VISIBLE|SS_LEFT,
+             x0, y, cntW, S(SCDLG_LABEL_H), hDlg, NULL, hInst, NULL);
+         y += S(SCDLG_LABEL_H) + S(SCDLG_GAP_SM);
+         // HOTKEY_CLASS control (note: use class string "msctls_hotkey32" — WC_HOTKEY
+         // may not be defined in older MinGW headers)
+         HWND hHk = CreateWindowExW(WS_EX_CLIENTEDGE, L"msctls_hotkey32", NULL,
+             WS_CHILD|WS_VISIBLE,
+             x0, y, cntW - S(SCDLG_GAP_SM) - S(SCDLG_BROWSE_W), S(SCDLG_EDIT_H),
+             hDlg, (HMENU)IDC_SCDLG_HOTKEY, hInst, NULL);
+         SendMessageW(hHk, HKM_SETHOTKEY, InnoHotKeyToWord(pD->hotkey), 0);
+         // Red Clear button
+         HWND hClr = CreateCustomButtonWithIcon(hDlg, IDC_SCDLG_HOTKEY_CLEAR,
+             L"", ButtonColor::Red, L"shell32.dll", 131,
+             x0 + cntW - S(SCDLG_BROWSE_W), y,
+             S(SCDLG_BROWSE_W), S(SCDLG_EDIT_H), hInst);
+         y += S(SCDLG_EDIT_H) + S(SCDLG_GAP);
+    5. In WM_COMMAND, add Clear handler:
+         if (ctrlId == IDC_SCDLG_HOTKEY_CLEAR) {
+             HWND hHk = GetDlgItem(hDlg, IDC_SCDLG_HOTKEY);
+             if (hHk) SendMessageW(hHk, HKM_SETHOTKEY, 0, 0);
+             return 0;
+         }
+    6. In OK handler, harvest:
+         WORD w = (WORD)SendMessageW(GetDlgItem(hDlg, IDC_SCDLG_HOTKEY), HKM_GETHOTKEY, 0, 0);
+         pD->hotkey = WordToInnoHotKey(w);
+    7. Follow the same DB migration / INSERT / SELECT / call-site wiring steps as
+       the plain text-field pattern above.
+    8. Add locale keys to locale/en_GB.txt (both copies):
+         scdlg_hotkey_label, scdlg_hotkey_tooltip, scdlg_hotkey_clear_tooltip.
+
 ================================================================================
