@@ -492,6 +492,7 @@ CMakeFiles/SkeletonApp.dir/mainwindow.cpp.obj: \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\dragdrop.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\checkbox.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\notes_editor.h \
+ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\edit_rtf.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\shortcuts.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\dialogs.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\scripts.h \

@@ -1,6 +1,14 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 03 May 2026 &mdash; v2026.05.03.09 (09:02)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 03 May 2026 &mdash; v2026.05.03.10 (10:02)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.05.03.10</span></h3>
+<p><strong>Components dialogs &mdash; centred dependency buttons + full RTF editor (03.05.2026, 10:02):</strong></p>
+<ul>
+<li><strong>mainwindow &mdash; Edit Folder dialog: Remove / Choose buttons centred:</strong> The <code>IDC_FOLDER_DLG_REMOVE_DEPS</code> (Remove) and <code>IDC_FOLDER_DLG_CHOOSE_DEPS</code> (Choose&hellip;) buttons below the dependencies list in <code>CompFolderEditDlgProc</code> were right-aligned. Both are now centred in the content area, consistent with the OK&thinsp;/&thinsp;Cancel row below them.</li>
+<li><strong>mainwindow &mdash; Edit Component dialog: Remove / Choose buttons centred:</strong> Same fix applied to <code>CompEditDlgProc</code> &mdash; the <code>IDC_COMPDLG_REMOVE_DEPS</code> / <code>IDC_COMPDLG_CHOOSE_DEPS</code> pair is now centred rather than right-aligned.</li>
+<li><strong>mainwindow &mdash; Notes editor upgraded to full RTF editor:</strong> Both dialogs previously called <code>OpenNotesEditor</code> (the lightweight fixed-size popup). The Notes&thinsp;/&thinsp;Description button now opens <code>OpenRtfEditor</code> (full-featured resizable RTF editor with 19-control toolbar: Bold&thinsp;/&thinsp;Italic&thinsp;/&thinsp;Underline&thinsp;/&thinsp;Strikethrough&thinsp;/&thinsp;Sub&thinsp;/&thinsp;Super&thinsp;/&thinsp;Font&thinsp;Face&thinsp;/&thinsp;Font&thinsp;Size&thinsp;/&thinsp;Align&thinsp;L&thinsp;/&thinsp;C&thinsp;/&thinsp;R&thinsp;/&thinsp;J&thinsp;/&thinsp;Bullet&thinsp;/&thinsp;Numbered&thinsp;/&thinsp;Text&thinsp;colour&thinsp;/&thinsp;Highlight&thinsp;/&thinsp;Insert&thinsp;Image&thinsp;/&thinsp;Open&thinsp;file&thinsp;/&thinsp;Insert&thinsp;table). <code>#include &ldquo;edit_rtf.h&rdquo;</code> added to <code>mainwindow.cpp</code>; <code>pLocale</code> wired to the application locale map so all editor tooltip strings are localised.</li>
+</ul>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.05.03.09</span></h3>
 <p><strong>Registry page &mdash; Components picker redesigned: multi-select tree with real file icons (03.05.2026, 09:02):</strong></p>

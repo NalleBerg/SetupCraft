@@ -6091,6 +6091,7 @@ CMakeFiles/SkeletonApp.dir/mainwindow.cpp.obj: C:/Users/NalleBerg/Documents/C++/
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/dialogs.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/dpi.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/dragdrop.h \
+  C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/edit_rtf.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/mainwindow.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/my_scrollbar_hscroll.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/my_scrollbar_vscroll.h \

@@ -22,6 +22,7 @@
 #include "dragdrop.h"
 #include "checkbox.h"
 #include "notes_editor.h"
+#include "edit_rtf.h"
 #include "shortcuts.h"
 #include "deps.h"
 #include "dialogs.h"
@@ -299,7 +300,9 @@ static bool s_filesPageHasContent = false; // tracks whether Files page has any 
 #define IDC_COMPDLG_DST      306
 #define IDC_COMPDLG_OK       307
 #define IDC_COMPDLG_CANCEL   308
-#define IDC_COMPDLG_DEPS     309   // multi-select listbox for dependencies
+#define IDC_COMPDLG_DEPS_LIST   309   // deps ListView (Name | Type columns)
+#define IDC_COMPDLG_CHOOSE_DEPS 310   // Choose… button (opens dep picker tree)
+#define IDC_COMPDLG_REMOVE_DEPS 311   // Remove selected deps button
 
 // VFS Picker dialog control IDs (scoped to VFSPickerDlg window)
 #define IDC_VFSPICKER_TREE   6100
@@ -5180,6 +5183,11 @@ LRESULT CALLBACK AddValueDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
                 editX + compEditW + S(4), y, pickW, S(AV_ROW_H),
                 hwnd, (HMENU)IDC_ADDVAL_COMP_PICK, hInst, NULL);
+            // Disable the whole row when the Components feature is turned off
+            if (!MainWindow::UseComponents()) {
+                EnableWindow(GetDlgItem(hwnd, IDC_ADDVAL_COMPONENTS), FALSE);
+                EnableWindow(GetDlgItem(hwnd, IDC_ADDVAL_COMP_PICK),  FALSE);
+            }
         }
         y += S(AV_ROW_H) + S(AV_GAP_CF);
 
@@ -7915,15 +7923,16 @@ LRESULT CALLBACK CompFolderEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
         }
         y += S(CFE_DEPLIST_H) + S(CFE_GAP_LB);
 
-        // Dep action buttons — right-aligned below list: [Remove] [Choose…]
+        // Dep action buttons — centred below list: [Remove] [Choose…]
         {
             const auto& locB = MainWindow::GetLocale();
             auto locSB = [&](const wchar_t* k, const wchar_t* fb) -> std::wstring {
                 auto it = locB.find(k); return (it != locB.end()) ? it->second : fb;
             };
             int cW2 = S(120), rW = S(100), btnGap = S(6);
-            int cX  = S(CFE_PAD_H) + contW - cW2;
-            int rX  = cX - btnGap - rW;
+            int totalW = rW + btnGap + cW2;
+            int rX = S(CFE_PAD_H) + (contW - totalW) / 2;
+            int cX = rX + rW + btnGap;
             std::wstring chooseT = pData->chooseDepsText.empty()
                 ? locSB(L"comp_choose_deps", L"Choose\u2026") : pData->chooseDepsText;
             std::wstring removeT = locSB(L"comp_deps_remove", L"Remove");
@@ -8009,14 +8018,14 @@ LRESULT CALLBACK CompFolderEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
             DestroyWindow(hwnd); return 0;
         }
         if (wmId == IDC_FOLDER_DLG_NOTES) {
-            NotesEditorData nd;
-            nd.initRtf      = pData->outNotesRtf;
-            nd.titleText    = L"Edit Notes";
-            nd.okText       = L"Save";
-            nd.cancelText   = L"Cancel";
-            nd.charsLeftFmt = L"%d characters left";
-            if (OpenNotesEditor(hwnd, nd))
-                pData->outNotesRtf = nd.outRtf;
+            RtfEditorData ed;
+            ed.initRtf    = pData->outNotesRtf;
+            ed.titleText  = L"Edit Notes";
+            ed.okText     = L"Save";
+            ed.cancelText = L"Cancel";
+            ed.pLocale    = &MainWindow::GetLocale();
+            if (OpenRtfEditor(hwnd, ed))
+                pData->outNotesRtf = ed.outRtf;
             return 0;
         }
         if (wmId == IDC_FOLDER_DLG_REMOVE_DEPS) {
@@ -8746,6 +8755,59 @@ struct CompDlgData {
     std::wstring outNotesRtf;
 };
 
+// ── CompEditDlg layout constants (design-px at 96 DPI) ──────────────────────
+static constexpr int CED_PAD_H      = 20;
+static constexpr int CED_PAD_T      = 16;
+static constexpr int CED_PAD_B      = 16;
+static constexpr int CED_LBL_W      = 150;
+static constexpr int CED_EDIT_X     = 175;
+static constexpr int CED_EDIT_W     = 370;   // client W = EDIT_X + EDIT_W + PAD_H = 565
+static constexpr int CED_ROW_H      = 26;
+static constexpr int CED_ROW_GAP    = 10;
+static constexpr int CED_BROWSE_W   = 80;
+static constexpr int CED_DEP_H      = 90;    // deps ListView height
+static constexpr int CED_DEP_BTN_H  = 30;
+static constexpr int CED_DEP_BTN_GAP= 6;
+static constexpr int CED_NOTE_H     = 30;
+static constexpr int CED_BTN_H      = 34;
+static constexpr int CED_BTN_GAP    = 8;
+
+// ── Helper: populate / refresh the deps ListView in CompEditDlgProc ──────────
+static void RefreshCompEditDepsListbox(HWND hwndDlg, CompDlgData* pData)
+{
+    HWND hList = GetDlgItem(hwndDlg, IDC_COMPDLG_DEPS_LIST);
+    if (!hList) return;
+    ListView_DeleteAllItems(hList);
+    const auto& loc = MainWindow::GetLocale();
+    auto locStr = [&](const wchar_t* k, const wchar_t* fb) -> std::wstring {
+        auto it = loc.find(k); return (it != loc.end()) ? it->second : fb;
+    };
+    std::wstring lblFolder = locStr(L"comp_type_folder", L"Folder");
+    std::wstring lblFile   = locStr(L"comp_type_file",   L"File");
+    int row = 0;
+    for (int depId : pData->outDependencyIds) {
+        for (const auto& oc : pData->otherComponents) {
+            if (oc.id != depId) continue;
+            LVITEMW lvi = {}; lvi.mask = LVIF_TEXT | LVIF_PARAM;
+            lvi.iItem = row; lvi.iSubItem = 0;
+            lvi.pszText = const_cast<LPWSTR>(oc.display_name.c_str());
+            lvi.lParam  = (LPARAM)depId;
+            ListView_InsertItem(hList, &lvi);
+            std::wstring typeStr = (oc.source_type == L"folder") ? lblFolder : lblFile;
+            ListView_SetItemText(hList, row, 1, const_cast<LPWSTR>(typeStr.c_str()));
+            ++row; break;
+        }
+    }
+    if (row == 0) {
+        std::wstring noneStr = locStr(L"comp_deps_none", L"(none)");
+        LVITEMW lvi = {}; lvi.mask = LVIF_TEXT | LVIF_PARAM;
+        lvi.iItem = 0; lvi.iSubItem = 0;
+        lvi.pszText = const_cast<LPWSTR>(noneStr.c_str());
+        lvi.lParam  = 0;
+        ListView_InsertItem(hList, &lvi);
+    }
+}
+
 LRESULT CALLBACK CompEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
     case WM_CREATE: {
@@ -8753,90 +8815,141 @@ LRESULT CALLBACK CompEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
         HINSTANCE hInst = cs->hInstance;
         CompDlgData *pData = (CompDlgData *)cs->lpCreateParams;
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)pData);
-        // Initialise working notes from initNotesRtf
-        pData->outNotesRtf = pData->initNotesRtf;
+        pData->outNotesRtf      = pData->initNotesRtf;
+        pData->outDependencyIds = pData->initDependencyIds;
 
-        int y = 20;
-        int labelW = 150, editX = 175, editW = 400;
+        RECT rcC; GetClientRect(hwnd, &rcC);
+        int cW      = rcC.right;
+        int contW   = cW - 2*S(CED_PAD_H);
+        int padL    = S(CED_PAD_H);
+        int editX   = S(CED_EDIT_X);
+        int editW   = S(CED_EDIT_W);
+        int lblW    = S(CED_LBL_W);
+        int rowH    = S(CED_ROW_H);
+        int rowGap  = S(CED_ROW_GAP);
+        int y = S(CED_PAD_T);
 
         // Display Name
         CreateWindowExW(0, L"STATIC", pData->nameLabel.c_str(),
-            WS_CHILD | WS_VISIBLE | SS_LEFT,
-            20, y, labelW, 24, hwnd, NULL, hInst, NULL);
+            WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
+            padL, y, lblW, rowH, hwnd, NULL, hInst, NULL);
         CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", pData->initName.c_str(),
-            WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL,
-            editX, y, editW, 28, hwnd, (HMENU)IDC_COMPDLG_NAME, hInst, NULL);
-        y += 38;
+            WS_CHILD | WS_VISIBLE | ES_LEFT | ES_AUTOHSCROLL,
+            editX, y, editW, rowH, hwnd, (HMENU)IDC_COMPDLG_NAME, hInst, NULL);
+        y += rowH + rowGap;
 
         // Description
         CreateWindowExW(0, L"STATIC", pData->descLabel.c_str(),
-            WS_CHILD | WS_VISIBLE | SS_LEFT,
-            20, y, labelW, 24, hwnd, NULL, hInst, NULL);
+            WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
+            padL, y, lblW, rowH, hwnd, NULL, hInst, NULL);
         CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", pData->initDesc.c_str(),
-            WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL,
-            editX, y, editW, 28, hwnd, (HMENU)IDC_COMPDLG_DESC, hInst, NULL);
-        y += 38;
+            WS_CHILD | WS_VISIBLE | ES_LEFT | ES_AUTOHSCROLL,
+            editX, y, editW, rowH, hwnd, (HMENU)IDC_COMPDLG_DESC, hInst, NULL);
+        y += rowH + rowGap;
 
         // Required checkbox
         HWND hReq = CreateWindowExW(0, L"BUTTON", pData->requiredLabel.c_str(),
             WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
-            editX, y, editW, 26, hwnd, (HMENU)IDC_COMPDLG_REQUIRED, hInst, NULL);
+            editX, y, editW, rowH, hwnd, (HMENU)IDC_COMPDLG_REQUIRED, hInst, NULL);
         if (pData->initRequired) SendMessageW(hReq, BM_SETCHECK, BST_CHECKED, 0);
-        y += 36;
+        y += rowH + rowGap;
 
         // Source Path
+        int browseW = S(CED_BROWSE_W);
         CreateWindowExW(0, L"STATIC", pData->sourceLabel.c_str(),
-            WS_CHILD | WS_VISIBLE | SS_LEFT,
-            20, y, labelW, 24, hwnd, NULL, hInst, NULL);
+            WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
+            padL, y, lblW, rowH, hwnd, NULL, hInst, NULL);
         CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", pData->initSourcePath.c_str(),
-            WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL | ES_READONLY,
-            editX, y, editW - 85, 28, hwnd, (HMENU)IDC_COMPDLG_SRC, hInst, NULL);
+            WS_CHILD | WS_VISIBLE | ES_LEFT | ES_AUTOHSCROLL | ES_READONLY,
+            editX, y, editW - browseW - S(CED_BTN_GAP), rowH,
+            hwnd, (HMENU)IDC_COMPDLG_SRC, hInst, NULL);
         CreateWindowExW(0, L"BUTTON", pData->browseText.c_str(),
             WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-            editX + editW - 80, y, 78, 28, hwnd, (HMENU)IDC_COMPDLG_BROWSE, hInst, NULL);
-        y += 44;
+            editX + editW - browseW, y, browseW, rowH,
+            hwnd, (HMENU)IDC_COMPDLG_BROWSE, hInst, NULL);
+        y += rowH + rowGap;
 
-        // Dependencies — multi-select listbox of other components
+        // Dependencies panel (only when there are other components to pick from)
         if (!pData->otherComponents.empty()) {
-            CreateWindowExW(0, L"STATIC", pData->depsLabel.c_str(),
+            // Label
+            std::wstring depsLbl = pData->depsLabel.empty() ? L"Requires:" : pData->depsLabel;
+            CreateWindowExW(0, L"STATIC", depsLbl.c_str(),
                 WS_CHILD | WS_VISIBLE | SS_LEFT,
-                20, y, labelW, 24, hwnd, NULL, hInst, NULL);
-            int listH = 100;
-            HWND hDeps = CreateWindowExW(WS_EX_CLIENTEDGE, L"LISTBOX", L"",
-                WS_CHILD | WS_VISIBLE | LBS_MULTIPLESEL | WS_VSCROLL | LBS_NOTIFY,
-                editX, y, editW, listH, hwnd, (HMENU)IDC_COMPDLG_DEPS, hInst, NULL);
-            for (int ci = 0; ci < (int)pData->otherComponents.size(); ++ci) {
-                SendMessageW(hDeps, LB_ADDSTRING, 0,
-                    (LPARAM)pData->otherComponents[ci].display_name.c_str());
-                // Pre-select if this comp is in initDependencyIds
-                int depId = pData->otherComponents[ci].id;
-                for (int dId : pData->initDependencyIds) {
-                    if (dId == depId) { SendMessageW(hDeps, LB_SETSEL, TRUE, ci); break; }
-                }
+                padL, y, contW, S(20), hwnd, NULL, hInst, NULL);
+            y += S(20) + S(4);
+
+            // ListView — Name | Type columns
+            HWND hDL = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEW, L"",
+                WS_CHILD | WS_VISIBLE | WS_VSCROLL |
+                LVS_REPORT | LVS_NOSORTHEADER | LVS_SHOWSELALWAYS,
+                padL, y, contW, S(CED_DEP_H),
+                hwnd, (HMENU)IDC_COMPDLG_DEPS_LIST, hInst, NULL);
+            if (hDL) {
+                ListView_SetExtendedListViewStyle(hDL, LVS_EX_FULLROWSELECT);
+                const auto& locC = MainWindow::GetLocale();
+                LVCOLUMNW col = {}; col.mask = LVCF_TEXT | LVCF_WIDTH | LVCF_FMT; col.fmt = LVCFMT_LEFT;
+                auto itN = locC.find(L"comp_deps_col_name");
+                std::wstring cnN = (itN != locC.end()) ? itN->second : L"Name";
+                col.cx = (contW * 3) / 4; col.pszText = const_cast<LPWSTR>(cnN.c_str());
+                ListView_InsertColumn(hDL, 0, &col);
+                auto itT = locC.find(L"comp_deps_col_type");
+                std::wstring cnT = (itT != locC.end()) ? itT->second : L"Type";
+                col.cx = contW - (contW * 3) / 4; col.pszText = const_cast<LPWSTR>(cnT.c_str());
+                ListView_InsertColumn(hDL, 1, &col);
             }
-            y += listH + 10;
+            y += S(CED_DEP_H) + S(6);
+
+            // Choose / Remove buttons — centred below list
+            {
+                const auto& locB = MainWindow::GetLocale();
+                auto lB = [&](const wchar_t* k, const wchar_t* fb) -> std::wstring {
+                    auto it = locB.find(k); return (it != locB.end()) ? it->second : fb;
+                };
+                int cBW = S(110), rBW = S(90);
+                int depBtnH = S(CED_DEP_BTN_H);
+                int totalBW = rBW + S(CED_DEP_BTN_GAP) + cBW;
+                int rBX = padL + (contW - totalBW) / 2;
+                int cBX = rBX + rBW + S(CED_DEP_BTN_GAP);
+                CreateCustomButtonWithIcon(hwnd, IDC_COMPDLG_CHOOSE_DEPS,
+                    lB(L"comp_choose_deps", L"Choose\u2026"),
+                    ButtonColor::Blue, L"shell32.dll", 87,
+                    cBX, y, cBW, depBtnH, hInst);
+                HWND hRemBtn = CreateCustomButtonWithIcon(hwnd, IDC_COMPDLG_REMOVE_DEPS,
+                    lB(L"comp_deps_remove", L"Remove"),
+                    ButtonColor::Red, L"shell32.dll", 131,
+                    rBX, y, rBW, depBtnH, hInst);
+                EnableWindow(hRemBtn, FALSE);
+            }
+            y += S(CED_DEP_BTN_H) + rowGap;
         }
-        y += 10;
 
-        // OK / Cancel
-        CreateCustomButtonWithIcon(hwnd, IDC_COMPDLG_OK, pData->okText.c_str(), ButtonColor::Green,
-            L"imageres.dll", 89, 20, y, 140, 38, hInst);
-        CreateCustomButtonWithIcon(hwnd, IDC_COMPDLG_CANCEL, pData->cancelText.c_str(), ButtonColor::Red,
-            L"shell32.dll", 131, 175, y, 150, 38, hInst);
-
-        // Notes button
+        // Notes button (own row)
         {
-            int notesX = 175 + 150 + 14;
             HWND hNotesBtn = CreateWindowExW(0, L"BUTTON", L"Notes / Description...",
-                WS_CHILD|WS_VISIBLE|BS_PUSHBUTTON,
-                notesX, y, 180, 38, hwnd, (HMENU)IDC_COMPDLG_NOTES, hInst, NULL);
+                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+                editX, y, S(190), S(CED_NOTE_H),
+                hwnd, (HMENU)IDC_COMPDLG_NOTES, hInst, NULL);
             SetButtonTooltip(hNotesBtn, L"Edit rich-text notes shown as a tooltip during installation (max 500 characters)");
         }
+        y += S(CED_NOTE_H) + rowGap;
 
-        // Apply system font
+        // OK / Cancel — centred
         {
-            NONCLIENTMETRICSW ncm = {};
-            ncm.cbSize = sizeof(ncm);
+            int wOK  = MeasureButtonWidth(pData->okText,     true);
+            int wCnl = MeasureButtonWidth(pData->cancelText, true);
+            int totalBtnW = wOK + S(CED_BTN_GAP) + wCnl;
+            int startX    = (cW - totalBtnW) / 2;
+            CreateCustomButtonWithIcon(hwnd, IDC_COMPDLG_OK, pData->okText.c_str(),
+                ButtonColor::Green, L"imageres.dll", 89,
+                startX, y, wOK, S(CED_BTN_H), hInst);
+            CreateCustomButtonWithIcon(hwnd, IDC_COMPDLG_CANCEL, pData->cancelText.c_str(),
+                ButtonColor::Red, L"shell32.dll", 131,
+                startX + wOK + S(CED_BTN_GAP), y, wCnl, S(CED_BTN_H), hInst);
+        }
+
+        // Apply system font to all children
+        {
+            NONCLIENTMETRICSW ncm = {}; ncm.cbSize = sizeof(ncm);
             SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
             if (ncm.lfMessageFont.lfHeight < 0)
                 ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
@@ -8844,12 +8957,16 @@ LRESULT CALLBACK CompEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
             HFONT hCtrlFont = CreateFontIndirectW(&ncm.lfMessageFont);
             if (hCtrlFont) {
                 EnumChildWindows(hwnd, [](HWND hChild, LPARAM lp) -> BOOL {
-                    SendMessageW(hChild, WM_SETFONT, (WPARAM)(HFONT)lp, TRUE);
-                    return TRUE;
+                    SendMessageW(hChild, WM_SETFONT, (WPARAM)(HFONT)lp, TRUE); return TRUE;
                 }, (LPARAM)hCtrlFont);
                 SetPropW(hwnd, L"hCtrlFont", (HANDLE)hCtrlFont);
             }
         }
+
+        // Populate deps list with initial selection
+        if (!pData->otherComponents.empty())
+            RefreshCompEditDepsListbox(hwnd, pData);
+
         return 0;
     }
 
@@ -8907,34 +9024,82 @@ LRESULT CALLBACK CompEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
             GetDlgItemTextW(hwnd, IDC_COMPDLG_DESC, buf, 512); pData->outDesc = buf;
             pData->outRequired = (SendDlgItemMessageW(hwnd, IDC_COMPDLG_REQUIRED, BM_GETCHECK, 0, 0) == BST_CHECKED) ? 1 : 0;
             GetDlgItemTextW(hwnd, IDC_COMPDLG_SRC, buf, 512); pData->outSourcePath = buf;
-            // Collect selected dependencies
-            HWND hDeps = GetDlgItem(hwnd, IDC_COMPDLG_DEPS);
-            if (hDeps) {
-                int selCount = (int)SendMessageW(hDeps, LB_GETSELCOUNT, 0, 0);
-                if (selCount > 0) {
-                    std::vector<int> selIdx(selCount);
-                    SendMessageW(hDeps, LB_GETSELITEMS, selCount, (LPARAM)selIdx.data());
-                    for (int si : selIdx) {
-                        if (si >= 0 && si < (int)pData->otherComponents.size())
-                            pData->outDependencyIds.push_back(pData->otherComponents[si].id);
-                    }
-                }
-            }
-            // outNotesRtf is already updated by IDC_COMPDLG_NOTES handler
+            // outDependencyIds maintained by Choose/Remove handlers
+            // outNotesRtf already updated by IDC_COMPDLG_NOTES handler
             pData->okClicked = true;
             DestroyWindow(hwnd);
             return 0;
         }
 
+        if (wmId == IDC_COMPDLG_CHOOSE_DEPS) {
+            CompFolderDepPickerData pickerData;
+            pickerData.components  = &pData->otherComponents;
+            pickerData.initDeps    = pData->outDependencyIds;
+            pickerData.excludeNode = nullptr;
+            pickerData.projectId   = 0;  // no auto-file creation needed from Edit dialog
+            WNDCLASSEXW wcPk2 = {}; wcPk2.cbSize = sizeof(wcPk2);
+            if (!GetClassInfoExW(GetModuleHandleW(NULL), L"CompFolderDepPicker", &wcPk2)) {
+                wcPk2.lpfnWndProc   = CompFolderDepPickerDlgProc;
+                wcPk2.hInstance     = GetModuleHandleW(NULL);
+                wcPk2.lpszClassName = L"CompFolderDepPicker";
+                wcPk2.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
+                wcPk2.hCursor       = LoadCursor(NULL, IDC_ARROW);
+                RegisterClassExW(&wcPk2);
+            }
+            int pkW = S(420), pkH = S(380);
+            RECT rcP; GetWindowRect(hwnd, &rcP);
+            int xPk = rcP.left + (rcP.right - rcP.left - pkW) / 2;
+            int yPk = rcP.top  + (rcP.bottom - rcP.top  - pkH) / 2;
+            const auto& loc2 = MainWindow::GetLocale();
+            auto it2 = loc2.find(L"comp_select_deps_title");
+            std::wstring pkTitle = (it2 != loc2.end()) ? it2->second : L"Select Dependencies";
+            HWND hPk = CreateWindowExW(WS_EX_DLGMODALFRAME,
+                L"CompFolderDepPicker", pkTitle.c_str(),
+                WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
+                xPk, yPk, pkW, pkH, hwnd, NULL, GetModuleHandleW(NULL), &pickerData);
+            MSG msgPk;
+            while (GetMessageW(&msgPk, NULL, 0, 0) > 0) {
+                if (!IsWindow(hPk)) break;
+                TranslateMessage(&msgPk); DispatchMessageW(&msgPk);
+            }
+            if (pickerData.okClicked) {
+                pData->outDependencyIds = pickerData.outDeps;
+                RefreshCompEditDepsListbox(hwnd, pData);
+            }
+            return 0;
+        }
+
+        if (wmId == IDC_COMPDLG_REMOVE_DEPS) {
+            HWND hLV = GetDlgItem(hwnd, IDC_COMPDLG_DEPS_LIST);
+            if (hLV) {
+                std::vector<int> toRemove;
+                int idx = ListView_GetNextItem(hLV, -1, LVNI_SELECTED);
+                while (idx >= 0) {
+                    LVITEMW lvi = {}; lvi.mask = LVIF_PARAM; lvi.iItem = idx;
+                    ListView_GetItem(hLV, &lvi);
+                    if ((int)lvi.lParam > 0) toRemove.push_back((int)lvi.lParam);
+                    idx = ListView_GetNextItem(hLV, idx, LVNI_SELECTED);
+                }
+                for (int rid : toRemove)
+                    pData->outDependencyIds.erase(
+                        std::remove(pData->outDependencyIds.begin(),
+                                    pData->outDependencyIds.end(), rid),
+                        pData->outDependencyIds.end());
+                RefreshCompEditDepsListbox(hwnd, pData);
+                EnableWindow(GetDlgItem(hwnd, IDC_COMPDLG_REMOVE_DEPS), FALSE);
+            }
+            return 0;
+        }
+
         if (wmId == IDC_COMPDLG_NOTES) {
-            NotesEditorData nd;
-            nd.initRtf      = pData->outNotesRtf;
-            nd.titleText    = L"Edit Notes";
-            nd.okText       = L"Save";
-            nd.cancelText   = L"Cancel";
-            nd.charsLeftFmt = L"%d characters left";
-            if (OpenNotesEditor(hwnd, nd))
-                pData->outNotesRtf = nd.outRtf;
+            RtfEditorData ed;
+            ed.initRtf    = pData->outNotesRtf;
+            ed.titleText  = L"Edit Notes";
+            ed.okText     = L"Save";
+            ed.cancelText = L"Cancel";
+            ed.pLocale    = &MainWindow::GetLocale();
+            if (OpenRtfEditor(hwnd, ed))
+                pData->outNotesRtf = ed.outRtf;
             return 0;
         }
 
@@ -8946,9 +9111,21 @@ LRESULT CALLBACK CompEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
         break;
     }
 
+    case WM_NOTIFY: {
+        NMHDR* pnm = (NMHDR*)lParam;
+        if (pnm->idFrom == IDC_COMPDLG_DEPS_LIST && pnm->code == LVN_ITEMCHANGED) {
+            HWND hLV  = GetDlgItem(hwnd, IDC_COMPDLG_DEPS_LIST);
+            HWND hRem = GetDlgItem(hwnd, IDC_COMPDLG_REMOVE_DEPS);
+            if (hLV && hRem)
+                EnableWindow(hRem, (ListView_GetSelectedCount(hLV) > 0) ? TRUE : FALSE);
+        }
+        break;
+    }
+
     case WM_DRAWITEM: {
         LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
-        if (dis->CtlID == IDC_COMPDLG_OK || dis->CtlID == IDC_COMPDLG_CANCEL) {
+        if (dis->CtlID == IDC_COMPDLG_OK     || dis->CtlID == IDC_COMPDLG_CANCEL ||
+            dis->CtlID == IDC_COMPDLG_CHOOSE_DEPS || dis->CtlID == IDC_COMPDLG_REMOVE_DEPS) {
             ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
             NONCLIENTMETRICSW ncm = {};
             ncm.cbSize = sizeof(ncm);
@@ -8963,6 +9140,13 @@ LRESULT CALLBACK CompEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
             return result;
         }
         break;
+    }
+
+    case WM_CTLCOLORSTATIC: {
+        HDC hdc = (HDC)wParam;
+        SetBkColor(hdc, GetSysColor(COLOR_WINDOW));
+        SetTextColor(hdc, GetSysColor(COLOR_WINDOWTEXT));
+        return (LRESULT)GetSysColorBrush(COLOR_WINDOW);
     }
 
     case WM_DESTROY: {
@@ -12109,23 +12293,43 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 wcComp2.lpfnWndProc = CompEditDlgProc;
                 wcComp2.hInstance = GetModuleHandleW(NULL);
                 wcComp2.lpszClassName = L"CompEditDialog";
-                wcComp2.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
+                wcComp2.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
                 wcComp2.hCursor = LoadCursor(NULL, IDC_ARROW);
                 RegisterClassExW(&wcComp2);
             }
-            RECT rcMain2; GetWindowRect(hwnd, &rcMain2);
-            int dlgW2 = 620;
-            int dlgH2 = otherComps.empty() ? 420 : 540;
-            HWND hDlg2 = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
-                L"CompEditDialog", dlgData2.titleText.c_str(),
-                WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
-                rcMain2.left + ((rcMain2.right - rcMain2.left) - dlgW2) / 2,
-                rcMain2.top  + ((rcMain2.bottom - rcMain2.top) - dlgH2) / 2,
-                dlgW2, dlgH2, hwnd, NULL, GetModuleHandleW(NULL), &dlgData2);
-            MSG msgComp2;
-            while (GetMessageW(&msgComp2, NULL, 0, 0) > 0) {
-                if (!IsWindow(hDlg2)) break;
-                TranslateMessage(&msgComp2); DispatchMessageW(&msgComp2);
+            {
+                // Compute exact outer window size from layout constants
+                int clientW = S(CED_EDIT_X + CED_EDIT_W + CED_PAD_H);
+                int clientH;
+                if (otherComps.empty())
+                    clientH = S(CED_PAD_T
+                        + 4*(CED_ROW_H + CED_ROW_GAP)
+                        + CED_NOTE_H + CED_ROW_GAP
+                        + CED_BTN_H  + CED_PAD_B);
+                else
+                    clientH = S(CED_PAD_T
+                        + 4*(CED_ROW_H + CED_ROW_GAP)
+                        + 20 + 4           // deps label
+                        + CED_DEP_H + 6    // deps ListView
+                        + CED_DEP_BTN_H + CED_ROW_GAP
+                        + CED_NOTE_H + CED_ROW_GAP
+                        + CED_BTN_H  + CED_PAD_B);
+                RECT wrc = {0, 0, clientW, clientH};
+                AdjustWindowRectEx(&wrc, WS_POPUP | WS_CAPTION | WS_SYSMENU, FALSE, WS_EX_DLGMODALFRAME);
+                int dlgW2 = wrc.right  - wrc.left;
+                int dlgH2 = wrc.bottom - wrc.top;
+                RECT rcMain2; GetWindowRect(hwnd, &rcMain2);
+                HWND hDlg2 = CreateWindowExW(WS_EX_DLGMODALFRAME,
+                    L"CompEditDialog", dlgData2.titleText.c_str(),
+                    WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
+                    rcMain2.left + ((rcMain2.right - rcMain2.left) - dlgW2) / 2,
+                    rcMain2.top  + ((rcMain2.bottom - rcMain2.top) - dlgH2) / 2,
+                    dlgW2, dlgH2, hwnd, NULL, GetModuleHandleW(NULL), &dlgData2);
+                MSG msgComp2;
+                while (GetMessageW(&msgComp2, NULL, 0, 0) > 0) {
+                    if (!IsWindow(hDlg2)) break;
+                    TranslateMessage(&msgComp2); DispatchMessageW(&msgComp2);
+                }
             }
             if (dlgData2.okClicked) {
                 // Update in memory only — written to DB on Save.

@@ -2,6 +2,13 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.05.03.10] - 2026-05-03
+
+### Components dialogs — centred dependency buttons + full RTF editor
+- **mainwindow — Edit Folder dialog: Remove / Choose buttons centred**: `IDC_FOLDER_DLG_REMOVE_DEPS` (Remove) and `IDC_FOLDER_DLG_CHOOSE_DEPS` (Choose…) buttons below the dependencies list in `CompFolderEditDlgProc` were right-aligned. Both are now centred in the content area, consistent with the OK / Cancel row below them.
+- **mainwindow — Edit Component dialog: Remove / Choose buttons centred**: Same fix applied to `CompEditDlgProc` — `IDC_COMPDLG_REMOVE_DEPS` / `IDC_COMPDLG_CHOOSE_DEPS` pair is now centred rather than right-aligned.
+- **mainwindow — Notes editor upgraded to full RTF editor**: Both dialogs previously called `OpenNotesEditor` (the lightweight fixed-size popup). The Notes / Description button now opens `OpenRtfEditor` (full-featured resizable RTF editor with 19-control toolbar: Bold / Italic / Underline / Strikethrough / Sub / Super / Font Face / Font Size / Align L/C/R/J / Bullet / Numbered / Text colour / Highlight / Insert Image / Open file / Insert table). `#include "edit_rtf.h"` added to `mainwindow.cpp`; `pLocale` wired to the application locale map so all editor tooltip strings are localised.
+
 ## [2026.05.03.09] - 2026-05-03
 
 ### Registry page — Components picker redesigned: multi-select tree with real file icons

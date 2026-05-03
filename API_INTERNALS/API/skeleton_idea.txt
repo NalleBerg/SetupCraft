@@ -40,8 +40,11 @@
     [ ] checkbox            — theme-aware custom checkbox + TreeView states
     [ ] dragdrop            — TreeView/ListView drag-and-drop
     [ ] spinner_dialog      — modal progress/spinner dialog
-    [ ] edit_rtf            — resizable RTF editor modal
-    [ ] notes_editor        — lightweight RTF notes popup
+    [ ] edit_rtf            — resizable RTF editor modal (19-control toolbar;
+                              use OpenRtfEditor for any notes/description field
+                              without a hard character limit; notes_editor is
+                              still useful for char-capped fields)
+    [ ] notes_editor        — lightweight RTF notes popup (500-char limit only)
     [ ] vfs_picker          — VFS-backed file/folder picker dialog
     [ ] ctrlw               — custom modal dialogs: ShowQuitDialog,
                               ShowCloseProjectDialog, ShowConfirmDeleteDialog,
