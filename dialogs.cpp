@@ -38,6 +38,7 @@ extern "C" __declspec(dllimport) UINT WINAPI PrivateExtractIconsW(
 
 static InstallerDialog s_dialogs[IDLG_COUNT];  // in-memory RTF content
 static int s_idlgScrollOffset = 0;             // vertical scroll offset (px) while Dialogs page is visible
+static bool s_licenseMustAccept = true;        // true → preview shows I accept/I do not accept radio pair
 
 static HINSTANCE  s_hInst      = NULL;
 static HFONT      s_hGuiFont   = NULL;
@@ -525,11 +526,31 @@ static void PopulateExtras(HWND hwnd, PreviewData* pd, InstallerDialogType newTy
     if (pd->hExtrasLabel && IsWindow(pd->hExtrasLabel))
         ShowWindow(pd->hExtrasLabel, SW_HIDE);
 
-    if (newType == IDLG_FOR_ME_ALL) {
+    if (newType == IDLG_LICENSE && s_licenseMustAccept) {
+        pd->showExtras = true;
+        if (pd->hExtrasLabel && IsWindow(pd->hExtrasLabel))
+            SetWindowTextW(pd->hExtrasLabel, L"");
+        // Reuse hRadioMe/hRadioAll with acceptance-specific text and default to "do not accept".
+        SetWindowTextW(pd->hRadioMe,
+            L10n(L"idlg_lic_accept", L"I accept the license agreement").c_str());
+        SetWindowTextW(pd->hRadioAll,
+            L10n(L"idlg_lic_no_accept", L"I do not accept the license agreement").c_str());
+        SendMessageW(pd->hRadioMe,  BM_SETCHECK, BST_UNCHECKED, 0);  // default: do not accept
+        SendMessageW(pd->hRadioAll, BM_SETCHECK, BST_CHECKED,   0);
+        ShowWindow(pd->hRadioMe,  SW_SHOW);
+        ShowWindow(pd->hRadioAll, SW_SHOW);
+
+    } else if (newType == IDLG_FOR_ME_ALL) {
         pd->showExtras = true;
         // The radio buttons are self-explanatory; no separate label is needed.
         if (pd->hExtrasLabel && IsWindow(pd->hExtrasLabel))
             SetWindowTextW(pd->hExtrasLabel, L"");
+        SetWindowTextW(pd->hRadioMe,
+            L10n(L"idlg_prv_scope_me", L"Install just for me (current user)").c_str());
+        SetWindowTextW(pd->hRadioAll,
+            L10n(L"idlg_prv_scope_all", L"Install for all users (requires administrator)").c_str());
+        SendMessageW(pd->hRadioMe,  BM_SETCHECK, BST_CHECKED,   0);  // default: for me
+        SendMessageW(pd->hRadioAll, BM_SETCHECK, BST_UNCHECKED, 0);
         ShowWindow(pd->hRadioMe,  SW_SHOW);
         ShowWindow(pd->hRadioAll, SW_SHOW);
 
@@ -1992,6 +2013,7 @@ void IDLG_Reset()
     s_installTitle     = L"";
     s_previewAppName   = L"";
     s_installIconPath  = L"";
+    s_licenseMustAccept = true;
     memset(s_previewUserSized, 0, sizeof(s_previewUserSized));
     // s_hInstallIcon and s_hInstIconPreview are managed by BuildPage/TearDown.
 }
@@ -2209,6 +2231,20 @@ int IDLG_BuildPage(HWND hwnd, HINSTANCE hInst,
         }
 
         y += rowH + gap;
+
+        // ── License-row sub-controls ──────────────────────────────────────
+        if (type == IDLG_LICENSE) {
+            const int chkH    = S(24);
+            const int chkIndent = padH + iconSz + gap;
+            HWND hChk = CreateCustomCheckbox(hwnd, IDC_IDLG_LICENSE_ACCEPT,
+                L10n(L"idlg_license_must_accept",
+                     L"Require license acceptance (end user must choose \u201cI accept\u201d before proceeding)"),
+                s_licenseMustAccept,
+                chkIndent, y, clientWidth - chkIndent - padH, chkH,
+                hInst);
+            if (hGuiFont) SendMessageW(hChk, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+            y += chkH + gap;
+        }
     }
 
     return y;  // absolute Y of first pixel below page content (used for scrollbar sizing)
@@ -2265,6 +2301,14 @@ bool IDLG_OnCommand(HWND hwnd, int wmId, int wmEvent, HWND /*hCtrl*/)
 
     // ── Dialog-row buttons ────────────────────────────────────────────────────
     if (wmEvent != BN_CLICKED) return false;
+
+    // License must-accept toggle
+    if (wmId == IDC_IDLG_LICENSE_ACCEPT) {
+        HWND hChk = GetDlgItem(hwnd, IDC_IDLG_LICENSE_ACCEPT);
+        if (hChk) s_licenseMustAccept = (SendMessageW(hChk, BM_GETCHECK, 0, 0) == BST_CHECKED);
+        MainWindow::MarkAsModified();
+        return true;
+    }
 
     int base = wmId - IDC_IDLG_ROW_BASE;
     if (base < 0 || base >= IDLG_COUNT * 4) return false;
@@ -2434,6 +2478,7 @@ void IDLG_SaveToDb(int projectId)
     std::wstring pid = std::to_wstring(projectId);
     DB::SetSetting(L"installer_title_" + pid, s_installTitle);
     DB::SetSetting(L"installer_icon_"  + pid, s_installIconPath);
+    DB::SetSetting(L"installer_license_must_accept_" + pid, s_licenseMustAccept ? L"1" : L"0");
     DB::SetSetting(L"installer_preview_w_" + pid, std::to_wstring(s_previewLogW));
     DB::SetSetting(L"installer_preview_h_" + pid, std::to_wstring(s_previewLogH));
     // Save all per-type user-sized flags as a compact string (one '0'/'1' per type).
@@ -2462,11 +2507,13 @@ void IDLG_LoadFromDb(int projectId)
     // Only override if a value was actually stored (preserves the default project
     // name on the very first open before a Save has occurred).
     std::wstring pid = std::to_wstring(projectId);
-    std::wstring savedTitle, savedIcon;
+    std::wstring savedTitle, savedIcon, savedLicAccept;
     if (DB::GetSetting(L"installer_title_" + pid, savedTitle))
         s_installTitle = savedTitle;
     if (DB::GetSetting(L"installer_icon_"  + pid, savedIcon))
         s_installIconPath = savedIcon;
+    if (DB::GetSetting(L"installer_license_must_accept_" + pid, savedLicAccept))
+        s_licenseMustAccept = (savedLicAccept == L"1");
     std::wstring sPrevW, sPrevH, sPrevSized;
     if (DB::GetSetting(L"installer_preview_w_" + pid, sPrevW) && !sPrevW.empty()) s_previewLogW = _wtoi(sPrevW.c_str());
     if (DB::GetSetting(L"installer_preview_h_" + pid, sPrevH) && !sPrevH.empty()) s_previewLogH = _wtoi(sPrevH.c_str());
@@ -2500,4 +2547,6 @@ std::wstring IDLG_GetInstallerIconPath() { return s_installIconPath; }
 
 void IDLG_SetScrollOffset(int off) { s_idlgScrollOffset = off; }
 int  IDLG_GetScrollOffset()        { return s_idlgScrollOffset; }
+
+bool IDLG_GetLicenseMustAccept()   { return s_licenseMustAccept; }
 

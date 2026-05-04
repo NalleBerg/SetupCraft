@@ -65,6 +65,9 @@ struct InstallerDialog {
 // Maximum ID used: 7010 + 8*4 + 3 = 7045
 #define IDC_IDLG_ROW_BASE    7010
 
+// License-row sub-controls
+#define IDC_IDLG_LICENSE_ACCEPT 7046   // checkbox: require end-user acceptance before Next
+
 // Preview dialog internal controls (range 7100–7109)
 #define IDC_IDLG_PRV_CONTENT      7100   // RichEdit showing dialog content
 #define IDC_IDLG_PRV_BACK         7101   // "◀ Back" button (disabled on first visible dialog)
@@ -154,3 +157,7 @@ std::wstring IDLG_GetInstallerIconPath();
 // is visible.  IDLG_TearDown resets the offset to 0 on page switch.
 void IDLG_SetScrollOffset(int off);
 int  IDLG_GetScrollOffset();
+
+// Returns true when the developer has enabled required license acceptance on
+// this project (License preview shows the I accept / I do not accept radio pair).
+bool IDLG_GetLicenseMustAccept();

@@ -393,10 +393,19 @@
                                                 (48×48 icon preview, OFN_EXPLORER .ico picker,
                                                 title edit field, IDLG_SetInstallerInfo /
                                                 IDLG_GetInstallerTitle / IDLG_GetInstallerIconPath),
-                                                control ID ranges (7000–7123), module-private
-                                                state variables, IDLG_OnCommand dispatch cases,
-                                                preview dialog PreviewWndProc (BS_PUSHBUTTON
-                                                ◀/▶ glyph buttons, MeasureButtonWidth sizing),
+                                                control ID ranges (7000–7127), license
+                                                acceptance toggle (IDC_IDLG_LICENSE_ACCEPT=7046,
+                                                custom checkbox below License row; s_licenseMustAccept
+                                                bool; preview shows I accept/I do not accept radio
+                                                pair in split layout when enabled; persisted via
+                                                DB::SetSetting installer_license_must_accept_<pid>;
+                                                IDLG_GetLicenseMustAccept() public accessor),
+                                                module-private state variables, IDLG_OnCommand
+                                                dispatch cases, preview dialog PreviewWndProc
+                                                (BS_PUSHBUTTON ◀/▶ glyph buttons,
+                                                MeasureButtonWidth sizing, hRadioMe/hRadioAll
+                                                reused by both IDLG_FOR_ME_ALL and IDLG_LICENSE
+                                                with text set dynamically in PopulateExtras),
                                                 vertical scrollbar (IDLG_BuildPage int return,
                                                 IDLG_SetScrollOffset / IDLG_GetScrollOffset,
                                                 WS_CLIPSIBLINGS, IDLG_TearDown cleanup),

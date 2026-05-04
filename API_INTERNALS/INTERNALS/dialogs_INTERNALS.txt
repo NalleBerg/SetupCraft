@@ -19,6 +19,15 @@
     ROW_BASE + i*4 + 1  = name STATIC    (label)
     ROW_BASE + i*4 + 2  = "Edit Content…" button (BS_OWNERDRAW)
     ROW_BASE + i*4 + 3  = "Preview…" button (BS_OWNERDRAW)
+  Maximum row ID: 7010 + 8*4 + 3 = 7045
+
+  IDC_IDLG_LICENSE_ACCEPT     7046    custom checkbox below License row:
+                                        "Require license acceptance (end user must
+                                        choose 'I accept' before proceeding)"
+                                        State stored in s_licenseMustAccept (bool).
+                                        When checked the preview for IDLG_LICENSE
+                                        shows a radio-button pair in PopulateExtras
+                                        (reuses hRadioMe/hRadioAll with updated text).
 
   IDC_IDLG_INST_ICON_PREVIEW  7110    48×48 SS_ICON STATIC — shows chosen icon
   IDC_IDLG_INST_CHANGE_ICON   7111    "Change Icon…" BS_OWNERDRAW button
@@ -91,6 +100,20 @@
       // DB persistence uses IDLG_COMPONENTS slot only (backward-compat);
       // other per-type values reset to false on every open (auto-fit reruns).
 
+  License acceptance flag:
+    static bool s_licenseMustAccept = false   // installer_license_must_accept_<id>
+      // Toggled by IDC_IDLG_LICENSE_ACCEPT custom checkbox.
+      // When true: IDLG_LICENSE preview uses split layout with radio pair
+      //   "I accept the license agreement"         (hRadioMe,  default UNCHECKED)
+      //   "I do not accept the license agreement"  (hRadioAll, default CHECKED)
+      // Both IDLG_LICENSE and IDLG_FOR_ME_ALL reuse hRadioMe/hRadioAll;
+      //   PopulateExtras sets the text with SetWindowTextW so navigating
+      //   between these dialog types updates the labels correctly.
+      // Reset to false by IDLG_Reset().
+      // Persisted by IDLG_SaveToDb / loaded by IDLG_LoadFromDb via
+      //   DB::SetSetting / DB::GetSetting key "installer_license_must_accept_<pid>".
+      // Public accessor: IDLG_GetLicenseMustAccept() for script generation.
+
   Active control HWNDs (valid between BuildPage and TearDown):
     static HWND s_hRowIcon[IDLG_COUNT]
     static HWND s_hRowName[IDLG_COUNT]
@@ -158,10 +181,14 @@
               DestroyIcon on previous s_hInstallIcon
               s_hInstallIcon = hIco; s_installIconPath = path
 
-  c) BN_CLICKED on IDC_IDLG_ROW_BASE + i*4 + 2  ("Edit Content…")
+  c) BN_CLICKED on IDC_IDLG_LICENSE_ACCEPT  (custom checkbox)
+       BM_GETCHECK → update s_licenseMustAccept
+       MarkAsModified()
+
+  d) BN_CLICKED on IDC_IDLG_ROW_BASE + i*4 + 2  ("Edit Content…")
        Opens OpenRtfEditor() with the RTF for that dialog type.
 
-  d) BN_CLICKED on IDC_IDLG_ROW_BASE + i*4 + 3  ("Preview…")
+  e) BN_CLICKED on IDC_IDLG_ROW_BASE + i*4 + 3  ("Preview…")
        Creates PreviewWndProc modeless window (see §6).
 
 --------------------------------------------------------------------------------
