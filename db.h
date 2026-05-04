@@ -123,6 +123,13 @@ namespace DB {
     std::vector<std::pair<int,std::wstring>> GetInstallerDialogsForProject(int projectId);
     // Returns all (dialog_type, content_rtf) default templates from dialog_defaults table.
     std::vector<std::pair<int,std::wstring>> GetAllDialogDefaults();
+    // License template helpers.
+    // GetAllLicenseTemplates: returns (id, display_name) pairs ordered by id.
+    // GetLicenseTemplateRtf:  returns the RTF content for a given template id,
+    //                         or an empty string if the id is not found.
+    struct LicenseTemplateInfo { int id; std::wstring name; std::wstring img_file; };
+    std::vector<LicenseTemplateInfo> GetAllLicenseTemplates();
+    std::wstring GetLicenseTemplateRtf(int id);
     // Script persistence
     struct ScriptRow {
         int          id                  = 0;

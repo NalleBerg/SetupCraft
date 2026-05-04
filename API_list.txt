@@ -394,12 +394,26 @@
                                                 title edit field, IDLG_SetInstallerInfo /
                                                 IDLG_GetInstallerTitle / IDLG_GetInstallerIconPath),
                                                 control ID ranges (7000–7127), license
-                                                acceptance toggle (IDC_IDLG_LICENSE_ACCEPT=7046,
+                                                template selector (IDC_IDLG_LICENSE_TEMPLATE=7047
+                                                CBS_DROPDOWNLIST combo + IDC_IDLG_LICENSE_TEMPLATE_LBL
+                                                =7048; populated from DB::GetAllLicenseTemplates();
+                                                CBN_SELCHANGE loads RTF via GetLicenseTemplateRtf
+                                                with <<AppName>>+<<Year>> substitution; persisted
+                                                via DB::SetSetting installer_license_template_<pid>;
+                                                s_licenseTemplateId int; 19 templates seeded in
+                                                license_templates table — see below),
+                                                license acceptance toggle (IDC_IDLG_LICENSE_ACCEPT=7046,
                                                 custom checkbox below License row; s_licenseMustAccept
                                                 bool; preview shows I accept/I do not accept radio
                                                 pair in split layout when enabled; persisted via
                                                 DB::SetSetting installer_license_must_accept_<pid>;
                                                 IDLG_GetLicenseMustAccept() public accessor),
+                                                license_templates DB table (id PK, name, spdx_id,
+                                                img_file, content_rtf; INSERT OR IGNORE seed for 19
+                                                licences id 0–18; DB::GetAllLicenseTemplates() /
+                                                DB::GetLicenseTemplateRtf(int id) accessors),
+                                                LicenseImg\ deployment folder (logo PNGs/BMP keyed
+                                                by img_file column; GNU licences share GnuLogo.bmp),
                                                 module-private state variables, IDLG_OnCommand
                                                 dispatch cases, preview dialog PreviewWndProc
                                                 (BS_PUSHBUTTON ◀/▶ glyph buttons,

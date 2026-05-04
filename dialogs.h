@@ -62,11 +62,13 @@ struct InstallerDialog {
 //   offset 1 → name label STATIC
 //   offset 2 → "Edit Content…" button
 //   offset 3 → "Preview…" button
-// Maximum ID used: 7010 + 8*4 + 3 = 7045
+// Maximum ID used: 7010 + 8*4 + 3 = 7045; license sub-controls: 7046–7048
 #define IDC_IDLG_ROW_BASE    7010
 
 // License-row sub-controls
-#define IDC_IDLG_LICENSE_ACCEPT 7046   // checkbox: require end-user acceptance before Next
+#define IDC_IDLG_LICENSE_ACCEPT        7046   // checkbox: require end-user acceptance before Next
+#define IDC_IDLG_LICENSE_TEMPLATE      7047   // combobox: choose a license template to load
+#define IDC_IDLG_LICENSE_TEMPLATE_LBL  7048   // static label: "License template:"
 
 // Preview dialog internal controls (range 7100–7109)
 #define IDC_IDLG_PRV_CONTENT      7100   // RichEdit showing dialog content

@@ -39,6 +39,7 @@ extern "C" __declspec(dllimport) UINT WINAPI PrivateExtractIconsW(
 static InstallerDialog s_dialogs[IDLG_COUNT];  // in-memory RTF content
 static int s_idlgScrollOffset = 0;             // vertical scroll offset (px) while Dialogs page is visible
 static bool s_licenseMustAccept = true;        // true → preview shows I accept/I do not accept radio pair
+static int  s_licenseTemplateId = 0;           // id into license_templates table; 0 = The Unlicense
 
 static HINSTANCE  s_hInst      = NULL;
 static HFONT      s_hGuiFont   = NULL;
@@ -2014,6 +2015,7 @@ void IDLG_Reset()
     s_previewAppName   = L"";
     s_installIconPath  = L"";
     s_licenseMustAccept = true;
+    s_licenseTemplateId = 0;
     memset(s_previewUserSized, 0, sizeof(s_previewUserSized));
     // s_hInstallIcon and s_hInstIconPreview are managed by BuildPage/TearDown.
 }
@@ -2234,8 +2236,42 @@ int IDLG_BuildPage(HWND hwnd, HINSTANCE hInst,
 
         // ── License-row sub-controls ──────────────────────────────────────
         if (type == IDLG_LICENSE) {
-            const int chkH    = S(24);
             const int chkIndent = padH + iconSz + gap;
+            const int lblH  = S(20);
+            const int cmbH  = S(24);
+            const int chkH  = S(24);
+
+            // Label: "License template:"
+            HWND hLbl = CreateWindowExW(0, L"Static",
+                L10n(L"idlg_license_template_label", L"License template:").c_str(),
+                WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
+                chkIndent, y, clientWidth - chkIndent - padH, lblH,
+                hwnd, (HMENU)IDC_IDLG_LICENSE_TEMPLATE_LBL, hInst, NULL);
+            if (hGuiFont) SendMessageW(hLbl, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+            y += lblH + S(2);
+
+            // Combo: one item per license template loaded from DB
+            HWND hCmb = CreateWindowExW(0, WC_COMBOBOXW, NULL,
+                WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
+                chkIndent, y, clientWidth - chkIndent - padH, cmbH * 16,
+                hwnd, (HMENU)IDC_IDLG_LICENSE_TEMPLATE, hInst, NULL);
+            if (hGuiFont) SendMessageW(hCmb, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+            {
+                auto templates = DB::GetAllLicenseTemplates();
+                int selIdx = 0;
+                for (int ti = 0; ti < (int)templates.size(); ti++) {
+                    int cbIdx = (int)SendMessageW(hCmb, CB_ADDSTRING, 0,
+                        (LPARAM)templates[ti].name.c_str());
+                    SendMessageW(hCmb, CB_SETITEMDATA, cbIdx,
+                        (LPARAM)(LONG_PTR)templates[ti].id);
+                    if (templates[ti].id == s_licenseTemplateId)
+                        selIdx = cbIdx;
+                }
+                SendMessageW(hCmb, CB_SETCURSEL, selIdx, 0);
+            }
+            y += cmbH + gap;
+
+            // Checkbox: require acceptance
             HWND hChk = CreateCustomCheckbox(hwnd, IDC_IDLG_LICENSE_ACCEPT,
                 L10n(L"idlg_license_must_accept",
                      L"Require license acceptance (end user must choose \u201cI accept\u201d before proceeding)"),
@@ -2300,6 +2336,38 @@ bool IDLG_OnCommand(HWND hwnd, int wmId, int wmEvent, HWND /*hCtrl*/)
     }
 
     // ── Dialog-row buttons ────────────────────────────────────────────────────
+
+    // License template selector: load chosen RTF into the in-memory license slot.
+    if (wmId == IDC_IDLG_LICENSE_TEMPLATE && wmEvent == CBN_SELCHANGE) {
+        HWND hCmb = GetDlgItem(hwnd, IDC_IDLG_LICENSE_TEMPLATE);
+        if (hCmb) {
+            int selIdx = (int)SendMessageW(hCmb, CB_GETCURSEL, 0, 0);
+            if (selIdx != CB_ERR) {
+                int tmplId = (int)(LONG_PTR)SendMessageW(hCmb, CB_GETITEMDATA, selIdx, 0);
+                s_licenseTemplateId = tmplId;
+                std::wstring rtf = DB::GetLicenseTemplateRtf(tmplId);
+                if (!rtf.empty()) {
+                    // Substitute <<AppName>> and <<Year>> before storing in memory.
+                    std::wstring appName = s_previewAppName.empty() ? L"<<AppName>>" : s_previewAppName;
+                    SYSTEMTIME st = {}; GetLocalTime(&st);
+                    std::wstring year = std::to_wstring(st.wYear);
+                    auto replaceAll = [](std::wstring& str, const std::wstring& from, const std::wstring& to) {
+                        size_t pos = 0;
+                        while ((pos = str.find(from, pos)) != std::wstring::npos) {
+                            str.replace(pos, from.size(), to);
+                            pos += to.size();
+                        }
+                    };
+                    replaceAll(rtf, L"<<AppName>>", appName);
+                    replaceAll(rtf, L"<<Year>>",    year);
+                    s_dialogs[IDLG_LICENSE].content_rtf = rtf;
+                    MainWindow::MarkAsModified();
+                }
+            }
+        }
+        return true;
+    }
+
     if (wmEvent != BN_CLICKED) return false;
 
     // License must-accept toggle
@@ -2479,6 +2547,7 @@ void IDLG_SaveToDb(int projectId)
     DB::SetSetting(L"installer_title_" + pid, s_installTitle);
     DB::SetSetting(L"installer_icon_"  + pid, s_installIconPath);
     DB::SetSetting(L"installer_license_must_accept_" + pid, s_licenseMustAccept ? L"1" : L"0");
+    DB::SetSetting(L"installer_license_template_" + pid, std::to_wstring(s_licenseTemplateId));
     DB::SetSetting(L"installer_preview_w_" + pid, std::to_wstring(s_previewLogW));
     DB::SetSetting(L"installer_preview_h_" + pid, std::to_wstring(s_previewLogH));
     // Save all per-type user-sized flags as a compact string (one '0'/'1' per type).
@@ -2514,6 +2583,9 @@ void IDLG_LoadFromDb(int projectId)
         s_installIconPath = savedIcon;
     if (DB::GetSetting(L"installer_license_must_accept_" + pid, savedLicAccept))
         s_licenseMustAccept = (savedLicAccept == L"1");
+    std::wstring savedTmpl;
+    if (DB::GetSetting(L"installer_license_template_" + pid, savedTmpl) && !savedTmpl.empty())
+        s_licenseTemplateId = _wtoi(savedTmpl.c_str());
     std::wstring sPrevW, sPrevH, sPrevSized;
     if (DB::GetSetting(L"installer_preview_w_" + pid, sPrevW) && !sPrevW.empty()) s_previewLogW = _wtoi(sPrevW.c_str());
     if (DB::GetSetting(L"installer_preview_h_" + pid, sPrevH) && !sPrevH.empty()) s_previewLogH = _wtoi(sPrevH.c_str());
