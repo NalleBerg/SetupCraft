@@ -357,7 +357,7 @@ bool DB::InitDb() {
             },
 
             // ── 1: MIT ──────────────────────────────────────────────────────
-            { 1, "MIT License", "MIT", "MIT-cropped-OSI-horizontal-large.png",
+            { 1, "MIT License", "MIT", "OpeenSourceInitiative.png",
               LT_HEAD
               LT_TITLE("MIT License")
               LT_SUB("SPDX: MIT")
