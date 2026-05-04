@@ -52,6 +52,16 @@ enum DepOffline {
     DO_SKIP_OPTIONAL = 2,  // silently skip if the dep is marked optional
 };
 
+// ── Version check source ──────────────────────────────────────────────────────
+// Tells the generated installer where to read the version string that gets
+// compared against min_version / max_version.  When DVS_NONE, the version
+// fields are stored but ignored at install time (no version comparison done).
+enum DepVersionSource {
+    DVS_NONE     = 0,  // no version check; min/max ignored at runtime
+    DVS_REGISTRY = 1,  // read version from the registry key's value data
+    DVS_FILE     = 2,  // read version from the detected file's FileVersion resource
+};
+
 // ── Install order ─────────────────────────────────────────────────────────────
 // Named stage in the installer wizard at which this dependency is installed.
 // DIO_UNSPECIFIED means the developer left the step unset; "nothing chosen" is
@@ -77,6 +87,7 @@ struct ExternalDep {
     std::wstring detect_file_path;              // path check; empty = no file check
     std::wstring min_version;                   // minimum acceptable version string; empty = no lower bound
     std::wstring max_version;                   // maximum acceptable version string; empty = no upper bound
+    DepVersionSource detect_version_source = DVS_NONE; // where to read the version for min/max comparison
     DepArch      architecture   = DA_X64;  // app is 64-bit only
     std::wstring url;                           // download or redirect URL
     std::wstring silent_args;                   // e.g. "/quiet /norestart"

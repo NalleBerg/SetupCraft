@@ -62,3 +62,4 @@ bool DEP_EditDialog(HWND hwndParent, HINSTANCE hInst,
 #define IDC_DEPDLG_MAX_VER     424   // maximum allowed version edit (optional; empty = no upper bound)
 #define IDC_DEPDLG_COMP_EDIT   426   // read-only edit: space-separated linked component names
 #define IDC_DEPDLG_COMP_PICK   427   // "…" picker button: opens the component selector
+#define IDC_DEPDLG_VER_SOURCE  428   // combo: where the version string is read from (DepVersionSource)

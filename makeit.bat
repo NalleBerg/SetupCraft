@@ -3,6 +3,8 @@ setlocal
 
 REM Kill any running SetupCraft.exe processes before building
 taskkill /IM SetupCraft.exe /F >nul 2>&1
+REM Give Windows a moment to release file handles after the kill
+ping -n 2 127.0.0.1 >nul 2>&1
 
 REM Simple build helper for the Skeleton project
 REM Usage: makeit.bat [generator] [config]

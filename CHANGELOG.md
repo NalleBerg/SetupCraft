@@ -2,6 +2,13 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.05.04.11] - 2026-05-04
+
+### Dependencies — Version check source; UAC fix; makeit kill fix
+- **dep_edit_dialog / deps / db — Version check source field (`IDC_DEPDLG_VER_SOURCE = 428`)**: New combo in the Detection section (between "File path to detect" and "Minimum required version") that disambiguates where the version string is read for `min_version`/`max_version` comparison. Options: *(no version check)* (default), *Registry key value*, *File version resource*. Stored in `ExternalDep::detect_version_source` (`DepVersionSource` enum: `DVS_NONE=0`, `DVS_REGISTRY=1`, `DVS_FILE=2`). DB migration: `ALTER TABLE external_deps ADD COLUMN detect_version_source INTEGER DEFAULT 0` (idempotent). `InsertExternalDep` extended to 22 bound params; `GetExternalDepsForProject` SELECT extended to column 21. Reflow guard raised from `>=9` to `>=11`; combo at indices [5–6], min/max shifted to [7–10]. Locale keys: `dep_dlg_ver_source`, `dep_ver_source_none`, `dep_ver_source_registry`, `dep_ver_source_file`.
+- **app.manifest — UAC elevation fixed (`requestedExecutionLevel level="asInvoker"`)**: Windows' installer-detection heuristic auto-elevates executables whose name contains "Setup". Added an explicit `<trustInfo>` block with `level="asInvoker" uiAccess="false"` to opt out. SetupCraft.exe now launches without a UAC prompt.
+- **makeit.bat — process-kill timing fix**: Added `ping -n 2 127.0.0.1` delay after `taskkill` to give Windows time to release file handles before the package folder is wiped and the new exe copied in.
+
 ## [2026.05.03.14] - 2026-05-03
 
 ### Dependencies — Per-dep component linkage

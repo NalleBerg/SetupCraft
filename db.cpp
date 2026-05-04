@@ -178,6 +178,7 @@ bool DB::InitDb() {
     p_exec(db, "ALTER TABLE external_deps ADD COLUMN extra_exit_codes TEXT DEFAULT '';", NULL, NULL, &errmsg);
     p_exec(db, "ALTER TABLE external_deps ADD COLUMN max_version TEXT DEFAULT '';", NULL, NULL, &errmsg);
     p_exec(db, "ALTER TABLE external_deps ADD COLUMN required_components TEXT DEFAULT '';", NULL, NULL, &errmsg);
+    p_exec(db, "ALTER TABLE external_deps ADD COLUMN detect_version_source INTEGER DEFAULT 0;", NULL, NULL, &errmsg);
     // External dependencies table
     p_exec(db, "CREATE TABLE IF NOT EXISTS external_deps ("
         "id INTEGER PRIMARY KEY AUTOINCREMENT, "
@@ -1178,8 +1179,8 @@ int DB::InsertExternalDep(int projectId, const ExternalDep& dep)
         "INSERT INTO external_deps (project_id, display_name, is_required, delivery, "
         "install_order, detect_reg_key, detect_file_path, min_version, architecture, "
         "url, silent_args, sha256, license_path, license_text, credits_text, "
-        "instructions, offline_behavior, download_timeout_sec, extra_exit_codes, max_version, required_components) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);";
+        "instructions, offline_behavior, download_timeout_sec, extra_exit_codes, max_version, required_components, detect_version_source) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);";
     void *stmt = NULL;
     if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return -1; }
 
@@ -1204,6 +1205,7 @@ int DB::InsertExternalDep(int projectId, const ExternalDep& dep)
     std::string sExitCodes  = WToUtf8(dep.extra_exit_codes);
     std::string sMaxVer     = WToUtf8(dep.max_version);
     std::string sReqComp    = WToUtf8(dep.required_components);
+    std::string sVerSrc    = std::to_string((int)dep.detect_version_source);
 
     p_bind_text(stmt,  1, sPid.c_str(),       -1, NULL);
     p_bind_text(stmt,  2, sName.c_str(),      -1, NULL);
@@ -1226,6 +1228,7 @@ int DB::InsertExternalDep(int projectId, const ExternalDep& dep)
     p_bind_text(stmt, 19, sExitCodes.c_str(),  -1, NULL);
     p_bind_text(stmt, 20, sMaxVer.c_str(),      -1, NULL);
     p_bind_text(stmt, 21, sReqComp.c_str(),     -1, NULL);
+    p_bind_text(stmt, 22, sVerSrc.c_str(),      -1, NULL);
     p_step(stmt);
     if (p_finalize) p_finalize(stmt);
 
@@ -1302,8 +1305,8 @@ std::vector<ExternalDep> DB::GetExternalDepsForProject(int projectId)
         "SELECT id, display_name, is_required, delivery, install_order, "
         "detect_reg_key, detect_file_path, min_version, architecture, "
         "url, silent_args, sha256, license_path, license_text, "
-        "credits_text, instructions, offline_behavior, download_timeout_sec, extra_exit_codes, max_version, required_components "
-        "FROM external_deps WHERE project_id=? ORDER BY install_order ASC, id ASC;";
+        "credits_text, instructions, offline_behavior, download_timeout_sec, extra_exit_codes, max_version, required_components, detect_version_source "
+        "FROM external_deps WHERE project_id=? ORDER BY install_order ASC, id ASC";
     void *stmt = NULL;
     if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return out; }
     std::string sPid = std::to_string(projectId);
@@ -1336,6 +1339,7 @@ std::vector<ExternalDep> DB::GetExternalDepsForProject(int projectId)
         d.extra_exit_codes        = T(18);
         d.max_version             = T(19);
         d.required_components     = T(20);
+        d.detect_version_source   = (DepVersionSource)(int)p_col_int64(stmt, 21);
         // instructions_list populated below after we know d.id
         out.push_back(d);
     }

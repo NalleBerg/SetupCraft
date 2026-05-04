@@ -32,4 +32,15 @@
     </windowsSettings>
   </application>
 
+  <!-- Explicitly opt out of Windows installer-detection heuristics.
+       Without this, the "Setup" prefix in SetupCraft.exe triggers automatic
+       UAC elevation even though this app needs no admin rights. -->
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v2">
+    <security>
+      <requestedPrivileges>
+        <requestedExecutionLevel level="asInvoker" uiAccess="false"/>
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+
 </assembly>

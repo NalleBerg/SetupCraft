@@ -302,17 +302,19 @@ static void Reflow(HWND hDlg, int deliveryVal)
             SWP_NOZORDER | SWP_NOACTIVATE);
         y += S(DD_EDIT_H) + S(DD_GAP);
     }
-    // Detection: header, then 4× (label + edit): reg_key, file_path, min_version, max_version
-    if (hasDetection && s_secDetection.ctrls.size() >= 9) {
-        PlaceW(s_secDetection.ctrls[0], DD_MLABEL_H, DD_GAP_SM, s_ddEW); // header
-        PlaceW(s_secDetection.ctrls[1], DD_LABEL_H,  DD_GAP_SM, s_ddEW); // reg lbl
-        PlaceW(s_secDetection.ctrls[2], DD_EDIT_H,   DD_GAP,    s_ddEW); // reg edit
-        PlaceW(s_secDetection.ctrls[3], DD_LABEL_H,  DD_GAP_SM, s_ddEW); // file lbl
-        PlaceW(s_secDetection.ctrls[4], DD_EDIT_H,   DD_GAP,    s_ddEW); // file edit
-        PlaceW(s_secDetection.ctrls[5], DD_LABEL_H,  DD_GAP_SM, s_ddEW); // min_ver lbl
-        PlaceW(s_secDetection.ctrls[6], DD_EDIT_H,   DD_GAP,    s_ddEW); // min_ver edit
-        PlaceW(s_secDetection.ctrls[7], DD_LABEL_H,  DD_GAP_SM, s_ddEW); // max_ver lbl
-        PlaceW(s_secDetection.ctrls[8], DD_EDIT_H,   DD_GAP,    s_ddEW); // max_ver edit
+    // Detection: header, then 5× (label + edit/combo): reg_key, file_path, ver_source, min_version, max_version
+    if (hasDetection && s_secDetection.ctrls.size() >= 11) {
+        PlaceW(s_secDetection.ctrls[0],  DD_MLABEL_H, DD_GAP_SM, s_ddEW); // header
+        PlaceW(s_secDetection.ctrls[1],  DD_LABEL_H,  DD_GAP_SM, s_ddEW); // reg lbl
+        PlaceW(s_secDetection.ctrls[2],  DD_EDIT_H,   DD_GAP,    s_ddEW); // reg edit
+        PlaceW(s_secDetection.ctrls[3],  DD_LABEL_H,  DD_GAP_SM, s_ddEW); // file lbl
+        PlaceW(s_secDetection.ctrls[4],  DD_EDIT_H,   DD_GAP,    s_ddEW); // file edit
+        PlaceW(s_secDetection.ctrls[5],  DD_LABEL_H,  DD_GAP_SM, s_ddEW); // ver_source lbl
+        PlaceW(s_secDetection.ctrls[6],  DD_COMBO_H,  DD_GAP,    s_ddEW); // ver_source combo
+        PlaceW(s_secDetection.ctrls[7],  DD_LABEL_H,  DD_GAP_SM, s_ddEW); // min_ver lbl
+        PlaceW(s_secDetection.ctrls[8],  DD_EDIT_H,   DD_GAP,    s_ddEW); // min_ver edit
+        PlaceW(s_secDetection.ctrls[9],  DD_LABEL_H,  DD_GAP_SM, s_ddEW); // max_ver lbl
+        PlaceW(s_secDetection.ctrls[10], DD_EDIT_H,   DD_GAP,    s_ddEW); // max_ver edit
     }
     // Network (DD_AUTO_DOWNLOAD: all 4 rows; DD_REDIRECT_URL: URL + offline only)
     if ((hasNetAll || hasNetUrlOnly) && s_secNetAll.ctrls.size() >= 9) {
@@ -992,6 +994,7 @@ static LRESULT CALLBACK DepDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lP
                 pData->dep.detect_file_path = GetEditText(hDlg, IDC_DEPDLG_DETECT_FILE);
                 pData->dep.min_version      = GetEditText(hDlg, IDC_DEPDLG_MIN_VER);
                 pData->dep.max_version      = GetEditText(hDlg, IDC_DEPDLG_MAX_VER);
+                pData->dep.detect_version_source = (DepVersionSource)GetComboSel(hDlg, IDC_DEPDLG_VER_SOURCE);
                 pData->dep.required_components = GetEditText(hDlg, IDC_DEPDLG_COMP_EDIT);
                 pData->dep.instructions_list = s_depInstrList;
                 pData->dep.license_text     = s_depLicRtf;
@@ -1383,6 +1386,17 @@ bool DEP_EditDialog(HWND hwndParent, HINSTANCE hInst,
         };
         DetRow(L"dep_dlg_detect_reg",  L"Registry key (HKLM):", IDC_DEPDLG_DETECT_REG,  dep.detect_reg_key);
         DetRow(L"dep_dlg_detect_file", L"File path to detect:", IDC_DEPDLG_DETECT_FILE,  dep.detect_file_path);
+        // Version check source: label + combo [5,6]
+        {
+            HWND hLbl = MkLabel(LS(L"dep_dlg_ver_source", L"Version check source:"), false);
+            SF(hLbl); s_secDetection.ctrls.push_back(hLbl);
+            HWND hCmb = MkCombo(IDC_DEPDLG_VER_SOURCE, false);
+            SendMessageW(hCmb, CB_ADDSTRING, 0, (LPARAM)LS(L"dep_ver_source_none",     L"(no version check)").c_str());
+            SendMessageW(hCmb, CB_ADDSTRING, 0, (LPARAM)LS(L"dep_ver_source_registry", L"Registry key value").c_str());
+            SendMessageW(hCmb, CB_ADDSTRING, 0, (LPARAM)LS(L"dep_ver_source_file",     L"File version resource").c_str());
+            SendMessageW(hCmb, CB_SETCURSEL, (WPARAM)(int)dep.detect_version_source, 0);
+            SF(hCmb); s_secDetection.ctrls.push_back(hCmb);
+        }
         DetRow(L"dep_dlg_min_version", L"Minimum required version (optional):", IDC_DEPDLG_MIN_VER, dep.min_version);
         DetRow(L"dep_dlg_max_version", L"Maximum allowed version (optional):",  IDC_DEPDLG_MAX_VER, dep.max_version);
     }

@@ -5837,3 +5837,56 @@
 [13:58:15.905] Create() RETURN
 [13:58:17.253] SwitchPage(3) START
 [13:58:17.284] SwitchPage(3) DONE
+[07:50:49.700] Create() ENTRY
+[07:50:49.735] Create() before CreateWindowExW
+[07:50:49.736] WM_CREATE START
+[07:50:49.737] WM_CREATE before CreateMenuBar
+[07:50:49.742] WM_CREATE before CreateToolbar
+[07:50:49.748] WM_CREATE before CreateStatusBar
+[07:50:49.750] WM_CREATE before SwitchPage(0)
+[07:50:49.750] SwitchPage(0) START
+[07:50:49.803] SwitchPage(0) DONE
+[07:50:49.804] WM_CREATE after SwitchPage(0)
+[07:50:49.804] WM_CREATE DONE
+[07:50:49.804] Create() CreateWindowExW OK
+[07:50:49.805] Create() before ShowWindow
+[07:50:49.829] Create() after ShowWindow
+[07:50:49.896] Create() RETURN
+[07:50:52.491] SwitchPage(2) START
+[07:50:52.815] SwitchPage(2) DONE
+[10:57:44.709] Create() ENTRY
+[10:57:44.731] Create() before CreateWindowExW
+[10:57:44.731] WM_CREATE START
+[10:57:44.731] WM_CREATE before CreateMenuBar
+[10:57:44.736] WM_CREATE before CreateToolbar
+[10:57:44.743] WM_CREATE before CreateStatusBar
+[10:57:44.743] WM_CREATE before SwitchPage(0)
+[10:57:44.743] SwitchPage(0) START
+[10:57:44.769] SwitchPage(0) DONE
+[10:57:44.769] WM_CREATE after SwitchPage(0)
+[10:57:44.769] WM_CREATE DONE
+[10:57:44.769] Create() CreateWindowExW OK
+[10:57:44.776] Create() before ShowWindow
+[10:57:44.788] Create() after ShowWindow
+[10:57:44.806] Create() RETURN
+[10:57:50.061] SwitchPage(3) START
+[10:57:50.080] SwitchPage(3) DONE
+[10:58:43.418] Create() ENTRY
+[10:58:43.439] Create() before CreateWindowExW
+[10:58:43.440] WM_CREATE START
+[10:58:43.441] WM_CREATE before CreateMenuBar
+[10:58:43.443] WM_CREATE before CreateToolbar
+[10:58:43.449] WM_CREATE before CreateStatusBar
+[10:58:43.450] WM_CREATE before SwitchPage(0)
+[10:58:43.450] SwitchPage(0) START
+[10:58:43.459] SwitchPage(0) DONE
+[10:58:43.459] WM_CREATE after SwitchPage(0)
+[10:58:43.459] WM_CREATE DONE
+[10:58:43.459] Create() CreateWindowExW OK
+[10:58:43.459] Create() before ShowWindow
+[10:58:43.474] Create() after ShowWindow
+[10:58:43.492] Create() RETURN
+[10:59:04.379] SwitchPage(3) START
+[10:59:04.386] SwitchPage(3) DONE
+[11:00:08.573] WM_DESTROY START
+[11:00:08.573] WM_DESTROY DONE

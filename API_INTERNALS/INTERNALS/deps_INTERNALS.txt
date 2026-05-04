@@ -49,6 +49,9 @@ ExternalDep (declared in deps.h)
   max_version      wstring     maximum allowed version string; empty = no upper bound
                                visible for DD_AUTO_DOWNLOAD + DD_REDIRECT_URL (Detection section)
                                IDC_DEPDLG_MAX_VER=424
+  detect_version_source DepVersionSource  where the version string is read for min/max comparison:
+                               DVS_NONE=0 (no check; default), DVS_REGISTRY=1 (registry key value),
+                               DVS_FILE=2 (file FileVersion resource); IDC_DEPDLG_VER_SOURCE=428
   required_components wstring  space-separated component display names this dep is linked to.
                                Empty = install unconditionally (default; zero behaviour change for
                                existing projects). Visible for ALL delivery types when the project
@@ -162,8 +165,8 @@ EDIT DIALOG  (dep_edit_dialog.cpp)
     Called once on creation and on every CBN_SELCHANGE for the Delivery combo.
     Each delivery type reveals a different set of sections:
       DD_BUNDLED:            Required · Order · Exit codes · License · Credits
-      DD_AUTO_DOWNLOAD:      Required · Order · Detection (optional: reg key, file path, min version, max version) · Network(all) · Exit codes · License · Credits
-      DD_REDIRECT_URL:       Required · Order · Detection (optional: reg key, file path, min version, max version) · Network(URL+offline) · License · Credits
+      DD_AUTO_DOWNLOAD:      Required · Order · Detection (optional: reg key, file path, ver source, min version, max version) · Network(all) · Exit codes · License · Credits
+      DD_REDIRECT_URL:       Required · Order · Detection (optional: reg key, file path, ver source, min version, max version) · Network(URL+offline) · License · Credits
       DD_INSTRUCTIONS_ONLY:  Required · Order · Instructions
     When DD_INSTRUCTIONS_ONLY is active, the DIO_BEFORE_WELCOME item is removed
     from the Install step combo (silent pre-welcome install requires no user
@@ -224,8 +227,7 @@ CONTROL ID RANGES
   IDC_DEPDLG_MAX_VER       424  maximum allowed version edit (Detection section; empty = no upper bound)
   IDC_DEPDLG_EXIT_CODES_HELP 425  square help button (shell32 #23) — opens exit codes reference popup
   IDC_DEPDLG_COMP_EDIT       426  read-only edit showing space-separated linked component names
-  IDC_DEPDLG_COMP_PICK       427  "…" button — opens PickCompDlgProc (LBS_EXTENDEDSEL listbox)
-
+  IDC_DEPDLG_COMP_PICK       427  "…" button — opens PickCompDlgProc (LBS_EXTENDEDSEL listbox)  IDC_DEPDLG_VER_SOURCE      428  combo: version check source — DVS_NONE/DVS_REGISTRY/DVS_FILE
 ================================================================================
 DB TABLE  (external_deps)
 ================================================================================
@@ -253,6 +255,7 @@ DB TABLE  (external_deps)
     extra_exit_codes TEXT    DEFAULT '',       -- space-separated; added by ALTER TABLE migration
     max_version      TEXT    DEFAULT '',       -- empty = no upper bound; added by ALTER TABLE migration
     required_components TEXT DEFAULT '',      -- space-separated component names; empty = install always; added by ALTER TABLE migration
+    detect_version_source INTEGER DEFAULT 0,  -- 0=none,1=registry,2=file; added by ALTER TABLE migration
     FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
   );
 
@@ -341,6 +344,11 @@ LOCALE KEYS
                              lists reboot codes 3010/1641 and other common codes 1/2/5/1602/1603/1618/1638
   dep_dlg_max_version      — dialog label: "Maximum allowed version (optional):"
                              (visible for DD_AUTO_DOWNLOAD + DD_REDIRECT_URL; IDC_DEPDLG_MAX_VER=424)
+  dep_dlg_ver_source       — dialog label: "Version check source:"
+                             (visible in Detection section for DD_AUTO_DOWNLOAD + DD_REDIRECT_URL; IDC_DEPDLG_VER_SOURCE=428)
+  dep_ver_source_none      — combo item: "(no version check)"  [DVS_NONE=0]
+  dep_ver_source_registry  — combo item: "Registry key value"  [DVS_REGISTRY=1]
+  dep_ver_source_file      — combo item: "File version resource"  [DVS_FILE=2]
   dep_dlg_components       — dialog label: "Required components (optional):"
                              (visible for all delivery types when project has ≥1 component; IDC_DEPDLG_COMP_EDIT=426)
   dep_dlg_comp_pick_title  — title for PickCompDlgProc picker: "Select Components"
