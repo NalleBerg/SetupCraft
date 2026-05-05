@@ -427,6 +427,17 @@
                                                 IDLG_GetFinishLaunchDesc()/
                                                 IDLG_GetFinishLaunchDefaultChecked();
                                                 preview shows launch checkbox in extras panel),
+                                                Ready-row summary sub-section
+                                                (IDC_IDLG_READY_SHOW_DIR=7074 checkbox;
+                                                IDC_IDLG_READY_SHOW_GROUP=7075 checkbox;
+                                                both default true matching Inno defaults;
+                                                emit AlwaysShowDirOnReadyPage=yes and
+                                                AlwaysShowGroupOnReadyPage=yes in [Setup];
+                                                s_readyShowDir/s_readyShowGroup state;
+                                                persisted as installer_ready_show_dir_<pid>
+                                                and installer_ready_show_group_<pid>;
+                                                public accessors IDLG_GetReadyShowDir()/
+                                                IDLG_GetReadyShowGroup()),
                                                 license source selector (IDC_IDLG_LICENSE_SRC=7050
                                                 CBS_DROPDOWNLIST: 0=Built-in RTF editor,
                                                 1=External file; CBN_SELCHANGE shows/hides

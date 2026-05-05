@@ -30,7 +30,7 @@
  * ── Architecture notes ────────────────────────────────────────────────────────
  *   Full implementation in dialogs.cpp, including the inline preview dialog.
  *   Control IDs range: 7000–7127; enable checkboxes: 7060–7068;
- *   finish launch section: 7070–7073.
+ *   finish launch section: 7070–7073; ready summary: 7074–7075.
  */
 
 #include <windows.h>
@@ -87,6 +87,12 @@ struct InstallerDialog {
 #define IDC_IDLG_FINISH_LAUNCH_DESC_LBL 7071  // static label: "Description text:"
 #define IDC_IDLG_FINISH_LAUNCH_DESC     7072  // edit field: text shown next to launch checkbox
 #define IDC_IDLG_FINISH_LAUNCH_DEFCHK   7073  // checkbox: launch checkbox is checked by default
+
+// Ready-row sub-controls — "show summary of choices" section
+// These map directly to Inno [Setup] keys AlwaysShowDirOnReadyPage and
+// AlwaysShowGroupOnReadyPage (both default to yes/true in Inno).
+#define IDC_IDLG_READY_SHOW_DIR   7074  // checkbox: AlwaysShowDirOnReadyPage
+#define IDC_IDLG_READY_SHOW_GROUP 7075  // checkbox: AlwaysShowGroupOnReadyPage
 
 // License-row sub-controls
 #define IDC_IDLG_LICENSE_SRC_LBL       7049   // static label: "License source:"
@@ -215,3 +221,11 @@ std::wstring IDLG_GetFinishLaunchDesc();
 // Returns true when the launch-app checkbox should be pre-checked in the installer
 // (omit Flags: unchecked).  Returns false when the end user should have to opt in.
 bool IDLG_GetFinishLaunchDefaultChecked();
+
+// Returns true when AlwaysShowDirOnReadyPage=yes should be emitted in [Setup].
+// Defaults to true (matching Inno's built-in default).
+bool IDLG_GetReadyShowDir();
+
+// Returns true when AlwaysShowGroupOnReadyPage=yes should be emitted in [Setup].
+// Defaults to true (matching Inno's built-in default).
+bool IDLG_GetReadyShowGroup();

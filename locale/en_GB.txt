@@ -520,6 +520,10 @@ idlg_license_file_label=File path:
 idlg_license_file_browse=Browse\u2026
 idlg_license_template_label=License template:
 idlg_license_must_accept=Require license acceptance (end user must choose "I accept" before proceeding)
+idlg_ready_show_dir=Always show destination directory in the Ready page summary
+idlg_ready_show_dir_tip=Sets AlwaysShowDirOnReadyPage=yes in [Setup]. When checked, the Ready page always lists the destination directory even when the user was not shown the directory-selection page.
+idlg_ready_show_group=Always show Start Menu group in the Ready page summary
+idlg_ready_show_group_tip=Sets AlwaysShowGroupOnReadyPage=yes in [Setup]. When checked, the Ready page always lists the Start Menu group name even when the user was not shown the group-selection page.
 idlg_lic_accept=I accept the license agreement
 idlg_lic_no_accept=I do not accept the license agreement
 idlg_default_welcome_title=Welcome to <<AppNameAndVersion>>

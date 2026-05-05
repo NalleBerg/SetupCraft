@@ -65,6 +65,10 @@ static bool s_finishLaunchEnabled    = false;                  // main toggle
 static std::wstring s_finishLaunchDesc = L"Launch {#MyAppName}"; // Description= text in [Run] entry
 static bool s_finishLaunchDefChecked = true;                   // false → Inno emits Flags: unchecked
 
+// Ready-page "show summary of choices" state.
+static bool s_readyShowDir   = true;   // AlwaysShowDirOnReadyPage   (yes by default, matching Inno)
+static bool s_readyShowGroup = true;   // AlwaysShowGroupOnReadyPage (yes by default, matching Inno)
+
 static HINSTANCE  s_hInst      = NULL;
 static HFONT      s_hGuiFont   = NULL;
 static HFONT      s_hTitleFont = NULL;
@@ -2072,6 +2076,8 @@ void IDLG_Reset()
     s_finishLaunchEnabled    = false;
     s_finishLaunchDesc       = L"Launch {#MyAppName}";
     s_finishLaunchDefChecked = true;
+    s_readyShowDir   = true;
+    s_readyShowGroup = true;
     memset(s_previewUserSized, 0, sizeof(s_previewUserSized));
     // s_hInstallIcon and s_hInstIconPreview are managed by BuildPage/TearDown.
 }
@@ -2624,6 +2630,20 @@ bool IDLG_OnCommand(HWND hwnd, int wmId, int wmEvent, HWND /*hCtrl*/)
         return true;
     }
 
+    // Ready-page summary checkboxes (AlwaysShowDirOnReadyPage / AlwaysShowGroupOnReadyPage)
+    if (wmId == IDC_IDLG_READY_SHOW_DIR) {
+        HWND hChk = GetDlgItem(hwnd, IDC_IDLG_READY_SHOW_DIR);
+        if (hChk) s_readyShowDir = (SendMessageW(hChk, BM_GETCHECK, 0, 0) == BST_CHECKED);
+        MainWindow::MarkAsModified();
+        return true;
+    }
+    if (wmId == IDC_IDLG_READY_SHOW_GROUP) {
+        HWND hChk = GetDlgItem(hwnd, IDC_IDLG_READY_SHOW_GROUP);
+        if (hChk) s_readyShowGroup = (SendMessageW(hChk, BM_GETCHECK, 0, 0) == BST_CHECKED);
+        MainWindow::MarkAsModified();
+        return true;
+    }
+
     // Finish-page "launch app when done" controls
     if (wmId == IDC_IDLG_FINISH_LAUNCH) {
         HWND hChk = GetDlgItem(hwnd, IDC_IDLG_FINISH_LAUNCH);
@@ -2848,6 +2868,9 @@ void IDLG_SaveToDb(int projectId)
     DB::SetSetting(L"installer_finish_launch_"        + pid, s_finishLaunchEnabled    ? L"1" : L"0");
     DB::SetSetting(L"installer_finish_launch_desc_"   + pid, s_finishLaunchDesc);
     DB::SetSetting(L"installer_finish_launch_defchk_" + pid, s_finishLaunchDefChecked ? L"1" : L"0");
+    // Ready-page summary settings
+    DB::SetSetting(L"installer_ready_show_dir_"   + pid, s_readyShowDir   ? L"1" : L"0");
+    DB::SetSetting(L"installer_ready_show_group_" + pid, s_readyShowGroup ? L"1" : L"0");
 }
 
 // ── IDLG_LoadFromDb ───────────────────────────────────────────────────────────
@@ -2909,6 +2932,12 @@ void IDLG_LoadFromDb(int projectId)
         s_finishLaunchDesc = sLaunchDesc;
     if (DB::GetSetting(L"installer_finish_launch_defchk_" + pid, sLaunchDef))
         s_finishLaunchDefChecked = (sLaunchDef != L"0");
+    // Ready-page summary settings
+    std::wstring sReadyDir, sReadyGroup;
+    if (DB::GetSetting(L"installer_ready_show_dir_"   + pid, sReadyDir))
+        s_readyShowDir   = (sReadyDir != L"0");
+    if (DB::GetSetting(L"installer_ready_show_group_" + pid, sReadyGroup))
+        s_readyShowGroup = (sReadyGroup != L"0");
 }
 
 // ── IDLG_SetInstallerInfo ─────────────────────────────────────────────────────
@@ -2938,6 +2967,9 @@ std::wstring IDLG_GetLicenseFilePath()  { return s_licenseFilePath; }
 bool         IDLG_GetFinishLaunchEnabled()       { return s_finishLaunchEnabled; }
 std::wstring IDLG_GetFinishLaunchDesc()          { return s_finishLaunchDesc.empty() ? std::wstring(L"Launch {#MyAppName}") : s_finishLaunchDesc; }
 bool         IDLG_GetFinishLaunchDefaultChecked() { return s_finishLaunchDefChecked; }
+
+bool IDLG_GetReadyShowDir()   { return s_readyShowDir; }
+bool IDLG_GetReadyShowGroup() { return s_readyShowGroup; }
 
 bool IDLG_IsDialogEnabled(InstallerDialogType t)
 {

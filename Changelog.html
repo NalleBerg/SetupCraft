@@ -1,8 +1,14 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 05 May 2026 &mdash; v2026.05.05.12 (12:26)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 05 May 2026 &mdash; v2026.05.05.12 (12:45)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.05.05.12</span></h3>
+<p><strong>dialogs &mdash; Ready page: &ldquo;Show summary of choices&rdquo; section (05.05.2026, 12:45):</strong></p>
+<ul>
+<li><strong>dialogs &mdash; &ldquo;Always show destination directory&rdquo; checkbox (<code>IDC_IDLG_READY_SHOW_DIR = 7074</code>):</strong> New sub-section below the Ready to Install row. When checked (the default, matching Inno&rsquo;s own default), SetupCraft emits <code>AlwaysShowDirOnReadyPage=yes</code> in the Inno <code>[Setup]</code> section so the Ready page always lists the chosen destination directory, even when the developer has hidden the directory-selection page. When unchecked, the directive is omitted and Inno falls back to only showing the directory when the user was given a choice. Persisted via <code>DB::SetSetting</code> key <code>installer_ready_show_dir_&lt;pid&gt;</code>.</li>
+<li><strong>dialogs &mdash; &ldquo;Always show Start Menu group&rdquo; checkbox (<code>IDC_IDLG_READY_SHOW_GROUP = 7075</code>):</strong> Same pattern for the Start Menu group name. When checked (default), emits <code>AlwaysShowGroupOnReadyPage=yes</code>. When unchecked, the directive is omitted. Persisted via <code>DB::SetSetting</code> key <code>installer_ready_show_group_&lt;pid&gt;</code>.</li>
+<li><strong>dialogs &mdash; Public accessors:</strong> <code>IDLG_GetReadyShowDir()</code> and <code>IDLG_GetReadyShowGroup()</code> for script generation. Both exported from <code>dialogs.h</code>.</li>
+</ul>
 <p><strong>dialogs &mdash; Finish page: &ldquo;Launch app when done&rdquo; section (05.05.2026, 12:26):</strong></p>
 <ul>
 <li><strong>dialogs &mdash; &ldquo;Launch app when the installer finishes&rdquo; checkbox (<code>IDC_IDLG_FINISH_LAUNCH = 7070</code>):</strong> New sub-section below the Finish row. When the main toggle is enabled, SetupCraft will emit a <code>[Run]</code> entry in the Inno script: <code>Filename: "{app}\{#MyAppExeName}"; Description: &quot;&hellip;&quot;; Flags: nowait postinstall shellexec skipifsilent</code>. This is the standard Inno mechanism for the &ldquo;Launch <em>AppName</em> now&rdquo; checkbox that appears on the Finish page. The feature is entirely self-contained on the Dialogs page &mdash; no need to visit the Scripts page and know about <code>SWR_FINISH_OPTOUT</code>.</li>

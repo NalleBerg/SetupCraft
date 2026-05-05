@@ -4,6 +4,11 @@ All notable changes to SetupCraft will be documented in this file.
 
 ## [2026.05.05.12] - 2026-05-05
 
+### dialogs — Ready page: “Show summary of choices” section
+- **dialogs — “Always show destination directory” checkbox (`IDC_IDLG_READY_SHOW_DIR = 7074`)**: New sub-section below the Ready to Install row. When checked (the default, matching Inno’s own default), emits `AlwaysShowDirOnReadyPage=yes` in Inno `[Setup]` so the Ready page always lists the chosen destination directory even when the directory-selection page is hidden. When unchecked, the directive is omitted. Persisted as `installer_ready_show_dir_<pid>` via `DB::SetSetting`.
+- **dialogs — “Always show Start Menu group” checkbox (`IDC_IDLG_READY_SHOW_GROUP = 7075`)**: Same pattern for the Start Menu group name. Emits `AlwaysShowGroupOnReadyPage=yes` when checked (default). Persisted as `installer_ready_show_group_<pid>`.
+- **dialogs — Public accessors**: `IDLG_GetReadyShowDir()` and `IDLG_GetReadyShowGroup()` in `dialogs.h` for script generation.
+
 ### dialogs — Finish page: “Launch app when done” section
 - **dialogs — “Launch app when the installer finishes” checkbox (`IDC_IDLG_FINISH_LAUNCH = 7070`)**: New sub-section below the Finish row on the Dialogs page. When enabled, emits a `[Run]` entry in the Inno script: `Filename: "{app}\{#MyAppExeName}"; Description: "..."; Flags: nowait postinstall shellexec skipifsilent`. This is the standard Inno mechanism for the “Launch AppName now” checkbox on the Finish page — surfaced directly on the Dialogs page rather than requiring the developer to know about `SWR_FINISH_OPTOUT` on the Scripts page.
 - **dialogs — Description text edit (`IDC_IDLG_FINISH_LAUNCH_DESC = 7072`)**: Editable label shown next to the checkbox in the installer. Defaults to `Launch {#MyAppName}`. Inno macros expanded at compile time. Disabled when main toggle is off. Persisted as `installer_finish_launch_desc_<pid>` via `DB::SetSetting`.

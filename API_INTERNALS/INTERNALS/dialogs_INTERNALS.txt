@@ -32,6 +32,26 @@
     BN_CLICKED → updates s_dialogEnabled[i] + MarkAsModified().
     Tooltip key: idlg_enable_tip.
 
+  IDC_IDLG_READY_SHOW_DIR      7074  Custom checkbox below the READY row:
+                                        "Always show destination directory in the Ready
+                                        page summary".
+                                        Default on (s_readyShowDir = true, matching Inno).
+                                        BN_CLICKED → update s_readyShowDir + MarkAsModified.
+                                        Inno output: AlwaysShowDirOnReadyPage=yes in [Setup]
+                                        when true; directive omitted when false.
+                                        Locale keys: idlg_ready_show_dir,
+                                        idlg_ready_show_dir_tip.
+
+  IDC_IDLG_READY_SHOW_GROUP    7075  Custom checkbox below the READY row:
+                                        "Always show Start Menu group in the Ready page
+                                        summary".
+                                        Default on (s_readyShowGroup = true, matching Inno).
+                                        BN_CLICKED → update s_readyShowGroup + MarkAsModified.
+                                        Inno output: AlwaysShowGroupOnReadyPage=yes in [Setup]
+                                        when true; directive omitted when false.
+                                        Locale keys: idlg_ready_show_group,
+                                        idlg_ready_show_group_tip.
+
   IDC_IDLG_FINISH_LAUNCH          7070  Main enable checkbox below the FINISH row:\n                                        "Launch app when the installer finishes"\n                                        Default off (s_finishLaunchEnabled = false).\n                                        BN_CLICKED → update s_finishLaunchEnabled;\n                                        EnableWindow the three sub-controls accordingly.\n  IDC_IDLG_FINISH_LAUNCH_DESC_LBL 7071  "Description text:" STATIC label (sub-control).\n                                        Grayed when LAUNCH is unchecked.\n  IDC_IDLG_FINISH_LAUNCH_DESC     7072  Edit field: Description= text for the [Run]\n                                        entry. Default "Launch {#MyAppName}".\n                                        EN_CHANGE → update s_finishLaunchDesc.\n                                        Grayed when LAUNCH is unchecked.\n  IDC_IDLG_FINISH_LAUNCH_DEFCHK   7073  "Default checked" checkbox (sub-control).\n                                        When checked (default): the installer pre-ticks\n                                        the launch checkbox. When unchecked: Inno appends\n                                        the unchecked flag to the [Run] Flags line.\n                                        BN_CLICKED → update s_finishLaunchDefChecked.\n                                        Grayed when LAUNCH is unchecked.\n  Inno output (when LAUNCH enabled):\n    [Run]\n    Filename: "{app}\\{#MyAppExeName}"; Description: "<s_finishLaunchDesc>";\n    Flags: nowait postinstall shellexec skipifsilent[  unchecked]\n  Locale keys: idlg_finish_launch, idlg_finish_launch_tip,\n               idlg_finish_launch_desc_lbl, idlg_finish_launch_desc_tip,\n               idlg_finish_launch_defchk, idlg_finish_launch_defchk_tip.\n\n  IDC_IDLG_LICENSE_SRC_LBL      7049  "License source:" STATIC label.
 
   IDC_IDLG_LICENSE_SRC           7050  CBS_DROPDOWNLIST combo at the top of the
@@ -138,6 +158,13 @@
       // All three reset to defaults in IDLG_Reset(); persisted/restored in Save/LoadFromDb.
       // Public accessors: IDLG_GetFinishLaunchEnabled() / IDLG_GetFinishLaunchDesc()
       //                   IDLG_GetFinishLaunchDefaultChecked()
+
+  Ready-page summary settings:
+    static bool s_readyShowDir   = true    // installer_ready_show_dir_<pid>    default true (matches Inno)
+    static bool s_readyShowGroup = true    // installer_ready_show_group_<pid>  default true (matches Inno)
+      // Both reset to true in IDLG_Reset(); persisted/restored in Save/LoadFromDb.
+      // Public accessors: IDLG_GetReadyShowDir() / IDLG_GetReadyShowGroup()
+
   Each dialog type's RTF content:
     static std::wstring s_rtfContent[IDLG_COUNT]  // in-memory only; DB on Save
 
@@ -614,6 +641,10 @@
   idlg_preview_next       Next
   idlg_preview_cancel     Cancel
   idlg_enable_tip         Include this dialog in the installer (uncheck to omit it)
+  idlg_ready_show_dir          Always show destination directory in the Ready page summary
+  idlg_ready_show_dir_tip      Sets AlwaysShowDirOnReadyPage=yes in [Setup]. When checked, the Ready page always lists the destination directory even when the user was not shown the directory-selection page.
+  idlg_ready_show_group        Always show Start Menu group in the Ready page summary
+  idlg_ready_show_group_tip    Sets AlwaysShowGroupOnReadyPage=yes in [Setup]. When checked, the Ready page always lists the Start Menu group name even when the user was not shown the group-selection page.
   idlg_finish_launch           Launch app when the installer finishes
   idlg_finish_launch_tip       Adds a launch checkbox to the Finish page ([Run] Filename: ...; Flags: nowait postinstall shellexec skipifsilent).
   idlg_finish_launch_desc_lbl  Description text:
