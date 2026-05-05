@@ -16,10 +16,21 @@
 
   IDC_IDLG_ROW_BASE           7010    stride 4; layout per row (i = 0..8):
     ROW_BASE + i*4 + 0  = icon STATIC    (32×32, SS_ICON)
-    ROW_BASE + i*4 + 1  = name STATIC    (label)
+    ROW_BASE + i*4 + 1  = name STATIC    (label) — only for conditional rows;
+                           WELCOME/LICENSE/READY/FINISH use enable checkbox below
     ROW_BASE + i*4 + 2  = "Edit Content…" button (BS_OWNERDRAW)
     ROW_BASE + i*4 + 3  = "Preview…" button (BS_OWNERDRAW)
   Maximum row ID: 7010 + 8*4 + 3 = 7045
+
+  IDC_IDLG_ROW_ENABLE_BASE    7060    enable checkbox per always-present dialog:
+    ENABLE_BASE + i   where i = InstallerDialogType.
+    Only four are created: WELCOME(0), LICENSE(1), READY(6), FINISH(8).
+    DEPENDENCIES(2), FOR_ME_ALL(3), COMPONENTS(4), SHORTCUTS(5): keep plain
+    STATIC label at ROW_BASE+i*4+1 — they are governed by project-state logic.
+    INSTALL(7): always active, no toggle, keeps plain STATIC label.
+    Custom checkbox (CreateCustomCheckbox); replaces the STATIC name label.
+    BN_CLICKED → updates s_dialogEnabled[i] + MarkAsModified().
+    Tooltip key: idlg_enable_tip.
 
   IDC_IDLG_LICENSE_SRC_LBL      7049  "License source:" STATIC label.
 
@@ -110,6 +121,16 @@
 --------------------------------------------------------------------------------
 3. MODULE-PRIVATE STATE
 --------------------------------------------------------------------------------
+
+  Enable flags for always-present dialogs:
+    static bool s_dialogEnabled[IDLG_COUNT]  // installer_dialog_enabled_<pid>
+      // All true by default; persisted as a compact 9-char '0'/'1' string.
+      // Reset to all-true by IDLG_Reset() on project switch / new project.
+      // Checkbox BN_CLICKED for WELCOME/LICENSE/READY/FINISH updates this array.
+      // IDLG_INSTALL is never toggled (always treated as true).
+      // IDLG_LoadFromDb restores from DB::GetSetting("installer_dialog_enabled_<pid>").
+      // IDLG_SaveToDb writes DB::SetSetting("installer_dialog_enabled_<pid>", str).
+      // Public accessor: IDLG_IsDialogEnabled(InstallerDialogType) for script generation.
 
   Each dialog type's RTF content:
     static std::wstring s_rtfContent[IDLG_COUNT]  // in-memory only; DB on Save
@@ -223,7 +244,12 @@
       3. Row loop (i = 0..IDLG_COUNT-1):
            if !IsDialogVisible(i) → skip
            load icon via PrivateExtractIconsW, store to s_hRowIcons[i]
-           create icon STATIC, name STATIC, Edit button, Preview button
+           create icon STATIC
+           if i == WELCOME/LICENSE/READY/FINISH:
+             CreateCustomCheckbox(IDC_IDLG_ROW_ENABLE_BASE+i, s_dialogEnabled[i])
+           else:
+             create name STATIC at ROW_BASE+i*4+1
+           create Edit button, Preview button
            SetButtonTooltip(hEdit, L(idlg_btn_edit_tip))
            SetButtonTooltip(hPreview, L(idlg_btn_preview_tip))
 
@@ -255,7 +281,12 @@
               DestroyIcon on previous s_hInstallIcon
               s_hInstallIcon = hIco; s_installIconPath = path
 
-  c) BN_CLICKED on IDC_IDLG_LICENSE_ACCEPT  (custom checkbox)
+  c) BN_CLICKED on IDC_IDLG_ROW_ENABLE_BASE + i  (enable checkbox, i = 0..8)
+       Only WELCOME(0), LICENSE(1), READY(6), FINISH(8) can fire this.
+       BM_GETCHECK → update s_dialogEnabled[i]
+       MarkAsModified()
+
+  d) BN_CLICKED on IDC_IDLG_LICENSE_ACCEPT  (custom checkbox)
        BM_GETCHECK → update s_licenseMustAccept
        MarkAsModified()
 
@@ -465,6 +496,9 @@
   [5] WM_DRAWITEM condition — must include ALL IDLG custom-draw buttons:
         (id >= IDC_IDLG_ROW_BASE && id < IDC_IDLG_ROW_BASE + IDLG_COUNT * 4) ||
         id == IDC_IDLG_INST_CHANGE_ICON
+      Note: the enable checkboxes (IDC_IDLG_ROW_ENABLE_BASE + i) are drawn by
+      CreateCustomCheckbox's owner-draw handler; they do NOT need a separate
+      WM_DRAWITEM case because they are wired through CheckboxWndProc.
 
   [6] WM_COMMAND dispatch:
         if (IDLG_OnCommand(hwnd, wParam, lParam)) return 0;
@@ -573,6 +607,7 @@
   idlg_preview_back       Back
   idlg_preview_next       Next
   idlg_preview_cancel     Cancel
+  idlg_enable_tip         Include this dialog in the installer (uncheck to omit it)
 
   (Unicode glyphs ◀ and ▶ are embedded in C++ string literals, not locale keys,
    so they display correctly regardless of locale file encoding.)

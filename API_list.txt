@@ -396,8 +396,21 @@
                                                 (48×48 icon preview, OFN_EXPLORER .ico picker,
                                                 title edit field, IDLG_SetInstallerInfo /
                                                 IDLG_GetInstallerTitle / IDLG_GetInstallerIconPath),
-                                                control ID ranges (7000-7127), license
-                                                source selector (IDC_IDLG_LICENSE_SRC=7050
+                                                control ID ranges (7000-7127; enable checkboxes
+                                                7060-7068), per-dialog enable toggles
+                                                (IDC_IDLG_ROW_ENABLE_BASE=7060; WELCOME/LICENSE/
+                                                READY/FINISH rows each carry a custom checkbox
+                                                replacing the plain label; s_dialogEnabled[9]
+                                                bool array; IsDialogActiveInInstaller() combines
+                                                IsDialogVisible()+s_dialogEnabled[]; Next/
+                                                PrevVisibleType use IsDialogActiveInInstaller;
+                                                IDLG_IsDialogEnabled() public accessor for
+                                                script generation — emit DisableWelcomePage=yes/
+                                                DisableReadyPage=yes/DisableFinishedPage=yes;
+                                                persisted as installer_dialog_enabled_<pid>
+                                                compact 9-char string; reset to all-true in
+                                                IDLG_Reset(); INSTALL row always active),
+                                                license source selector (IDC_IDLG_LICENSE_SRC=7050
                                                 CBS_DROPDOWNLIST: 0=Built-in RTF editor,
                                                 1=External file; CBN_SELCHANGE shows/hides
                                                 template vs file-path branch and enables/

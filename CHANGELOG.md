@@ -2,6 +2,14 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.05.05.12] - 2026-05-05
+
+### dialogs — Per-dialog enabled toggle for always-visible installer pages
+- **dialogs — Per-dialog enable checkbox (`IDC_IDLG_ROW_ENABLE_BASE = 7060`)**: The four always-present installer dialog rows — Welcome, License, Ready to Install, and Finish — now each carry a custom checkbox in place of the plain name label. When unchecked, the dialog is excluded from the generated installer script and skipped during preview Back/Next navigation. The Install (progress bar) dialog cannot be disabled. Conditional rows (Dependencies, For Me/All Users, Components, Shortcuts) retain their existing label. Control IDs: `IDC_IDLG_ROW_ENABLE_BASE + InstallerDialogType` (range 7060–7068; only four created). Tooltip key: `idlg_enable_tip`.
+- **dialogs — `s_dialogEnabled[IDLG_COUNT]` state array**: New `bool s_dialogEnabled[IDLG_COUNT]`, all `true` by default. Reset to all-`true` in `IDLG_Reset()`. Persisted per-project via `DB::SetSetting` key `installer_dialog_enabled_<pid>` as a compact 9-char string. Restored in `IDLG_LoadFromDb()`.
+- **dialogs — `IsDialogActiveInInstaller()` helper**: New module-private predicate combining `IsDialogVisible()` with `s_dialogEnabled[]`. `NextVisibleType()` and `PrevVisibleType()` updated to use it so disabled pages are skipped in preview navigation. `IDLG_INSTALL` is always active.
+- **dialogs — `IDLG_IsDialogEnabled(InstallerDialogType)` public accessor**: New public function in `dialogs.h`. Returns `true` when the dialog is developer-enabled. Always `true` for `IDLG_INSTALL`. For script generation: emit `DisableWelcomePage=yes`, `DisableReadyPage=yes`, or `DisableFinishedPage=yes` in the Inno `[Setup]` section when the corresponding type is disabled.
+
 ## [2026.05.05.11] - 2026-05-05
 
 ### edit_rtf — Word-wrap-to-window mode; license editor uses it

@@ -38,6 +38,23 @@ extern "C" __declspec(dllimport) UINT WINAPI PrivateExtractIconsW(
 
 static InstallerDialog s_dialogs[IDLG_COUNT];  // in-memory RTF content
 static int s_idlgScrollOffset = 0;             // vertical scroll offset (px) while Dialogs page is visible
+
+// Enable flags for always-present dialogs (WELCOME, LICENSE, READY, FINISH).
+// When false the dialog is omitted from the installer script and skipped during
+// preview navigation.  IDLG_INSTALL is always enabled (cannot be toggled off).
+// All flags default to true; persisted per-project via DB::SetSetting.
+static bool s_dialogEnabled[IDLG_COUNT] = {
+    true,  // IDLG_WELCOME
+    true,  // IDLG_LICENSE
+    true,  // IDLG_DEPENDENCIES  (no toggle — governed by DEP_HasAny())
+    true,  // IDLG_FOR_ME_ALL    (no toggle — governed by AskAtInstallEnabled())
+    true,  // IDLG_COMPONENTS    (no toggle — governed by UseComponents())
+    true,  // IDLG_SHORTCUTS     (no toggle — governed by SC_HasOptOut())
+    true,  // IDLG_READY
+    true,  // IDLG_INSTALL       (cannot be disabled)
+    true,  // IDLG_FINISH
+};
+
 static bool s_licenseMustAccept = true;        // true → preview shows I accept/I do not accept radio pair
 static int  s_licenseTemplateId = 0;           // id into license_templates table; 0 = The Unlicense
 static int  s_licenseSource     = 0;           // 0 = built-in RTF editor, 1 = external file
@@ -128,6 +145,16 @@ static bool IsDialogVisible(InstallerDialogType type)
         return SC_HasOptOut();
     }
     return false;
+}
+
+// Return true if the dialog is both visible (project state) AND enabled by the
+// developer toggle.  Used for preview Back/Next navigation and installer script
+// generation.  IDLG_INSTALL is always active (cannot be disabled by the developer).
+static bool IsDialogActiveInInstaller(InstallerDialogType type)
+{
+    if (!IsDialogVisible(type)) return false;
+    if (type == IDLG_INSTALL)  return true;   // always active
+    return s_dialogEnabled[(int)type];
 }
 
 // ── Row icon subclass proc ─────────────────────────────────────────────────────
@@ -262,17 +289,17 @@ struct SizerData {
 static InstallerDialogType NextVisibleType(InstallerDialogType cur)
 {
     for (int i = (int)cur + 1; i < IDLG_COUNT; i++)
-        if (IsDialogVisible((InstallerDialogType)i))
+        if (IsDialogActiveInInstaller((InstallerDialogType)i))
             return (InstallerDialogType)i;
-    return cur; // already at the last visible
+    return cur; // already at the last active
 }
 
 static InstallerDialogType PrevVisibleType(InstallerDialogType cur)
 {
     for (int i = (int)cur - 1; i >= 0; i--)
-        if (IsDialogVisible((InstallerDialogType)i))
+        if (IsDialogActiveInInstaller((InstallerDialogType)i))
             return (InstallerDialogType)i;
-    return cur; // already at the first visible
+    return cur; // already at the first active
 }
 
 // ── Layout helper — positions all interior controls from the current client rect ──
@@ -2012,6 +2039,7 @@ void IDLG_Reset()
     for (int i = 0; i < IDLG_COUNT; i++) {
         s_dialogs[i].type        = (InstallerDialogType)i;
         s_dialogs[i].content_rtf = L"";
+        s_dialogEnabled[i]       = true;
     }
     s_installTitle     = L"";
     s_previewAppName   = L"";
@@ -2201,13 +2229,34 @@ int IDLG_BuildPage(HWND hwnd, HINSTANCE hInst,
             hIcon, GWLP_WNDPROC, (LONG_PTR)RowIconSubclassProc);
         if (!s_origIconProc) s_origIconProc = prev;
 
-        // ── Name label ────────────────────────────────────────────────────────
-        HWND hName = CreateWindowExW(0, L"STATIC",
-            L10n(kDialogNameKeys[i], kDialogNameFallbacks[i]).c_str(),
-            WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
-            padH + iconSz + gap, nameY, nameW, rowH,
-            hwnd, (HMENU)(UINT_PTR)(IDC_IDLG_ROW_BASE + i * 4 + 1), hInst, NULL);
-        if (hGuiFont) SendMessageW(hName, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+        // ── Name label or enable checkbox ────────────────────────────────────
+        // WELCOME, LICENSE, READY, and FINISH have a developer-facing on/off
+        // toggle: the name label is replaced by a checkbox.  When unchecked the
+        // dialog is excluded from the installer and skipped in preview navigation.
+        // The other types (DEPENDENCIES, FOR_ME_ALL, COMPONENTS, SHORTCUTS,
+        // INSTALL) are governed by their own project-state logic and never get a
+        // manual enable toggle, so they keep a plain STATIC name label.
+        bool hasEnableToggle = (type == IDLG_WELCOME  || type == IDLG_LICENSE ||
+                                type == IDLG_READY    || type == IDLG_FINISH);
+        if (hasEnableToggle) {
+            HWND hChk = CreateCustomCheckbox(hwnd,
+                IDC_IDLG_ROW_ENABLE_BASE + i,
+                L10n(kDialogNameKeys[i], kDialogNameFallbacks[i]),
+                s_dialogEnabled[i],
+                padH + iconSz + gap, nameY, nameW, rowH,
+                hInst);
+            if (hGuiFont) SendMessageW(hChk, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+            SetButtonTooltip(hChk, L10n(L"idlg_enable_tip",
+                L"Include this dialog in the installer. "
+                L"Uncheck to omit it from the generated script.").c_str());
+        } else {
+            HWND hName = CreateWindowExW(0, L"STATIC",
+                L10n(kDialogNameKeys[i], kDialogNameFallbacks[i]).c_str(),
+                WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
+                padH + iconSz + gap, nameY, nameW, rowH,
+                hwnd, (HMENU)(UINT_PTR)(IDC_IDLG_ROW_BASE + i * 4 + 1), hInst, NULL);
+            if (hGuiFont) SendMessageW(hName, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+        }
 
         // ── "Edit Content…" button ────────────────────────────────────────────
         int editX = padH + iconSz + gap + nameW + gap;
@@ -2475,6 +2524,20 @@ bool IDLG_OnCommand(HWND hwnd, int wmId, int wmEvent, HWND /*hCtrl*/)
         return true;
     }
 
+    // Enable checkbox for WELCOME / LICENSE / READY / FINISH
+    {
+        int enableIdx = wmId - IDC_IDLG_ROW_ENABLE_BASE;
+        if (enableIdx >= 0 && enableIdx < IDLG_COUNT) {
+            HWND hChk = GetDlgItem(hwnd, IDC_IDLG_ROW_ENABLE_BASE + enableIdx);
+            if (hChk) {
+                s_dialogEnabled[enableIdx] =
+                    (SendMessageW(hChk, BM_GETCHECK, 0, 0) == BST_CHECKED);
+                MainWindow::MarkAsModified();
+            }
+            return true;
+        }
+    }
+
     int base = wmId - IDC_IDLG_ROW_BASE;
     if (base < 0 || base >= IDLG_COUNT * 4) return false;
 
@@ -2657,6 +2720,10 @@ void IDLG_SaveToDb(int projectId)
     std::wstring userSizedStr(IDLG_COUNT, L'0');
     for (int i = 0; i < IDLG_COUNT; i++) userSizedStr[i] = s_previewUserSized[i] ? L'1' : L'0';
     DB::SetSetting(L"installer_preview_user_sized_" + pid, userSizedStr);
+    // Save per-type enabled flags (one '0'/'1' per type).
+    std::wstring enabledStr(IDLG_COUNT, L'0');
+    for (int i = 0; i < IDLG_COUNT; i++) enabledStr[i] = s_dialogEnabled[i] ? L'1' : L'0';
+    DB::SetSetting(L"installer_dialog_enabled_" + pid, enabledStr);
 }
 
 // ── IDLG_LoadFromDb ───────────────────────────────────────────────────────────
@@ -2705,6 +2772,11 @@ void IDLG_LoadFromDb(int projectId)
                 s_previewUserSized[i] = (sPrevSized[i] == L'1');
         }
     }
+    std::wstring sEnabled;
+    if (DB::GetSetting(L"installer_dialog_enabled_" + pid, sEnabled) && !sEnabled.empty()) {
+        for (int i = 0; i < IDLG_COUNT && i < (int)sEnabled.size(); i++)
+            s_dialogEnabled[i] = (sEnabled[i] != L'0');
+    }
 }
 
 // ── IDLG_SetInstallerInfo ─────────────────────────────────────────────────────
@@ -2730,4 +2802,11 @@ int  IDLG_GetScrollOffset()        { return s_idlgScrollOffset; }
 bool         IDLG_GetLicenseMustAccept() { return s_licenseMustAccept; }
 int          IDLG_GetLicenseSource()    { return s_licenseSource; }
 std::wstring IDLG_GetLicenseFilePath()  { return s_licenseFilePath; }
+
+bool IDLG_IsDialogEnabled(InstallerDialogType t)
+{
+    if (t == IDLG_INSTALL) return true;  // always active
+    if (t < 0 || t >= IDLG_COUNT) return true;
+    return s_dialogEnabled[(int)t];
+}
 

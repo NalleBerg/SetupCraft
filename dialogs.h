@@ -22,9 +22,14 @@
  *     IDLG_SHORTCUTS    — shown when any shortcut opt-out checkbox is enabled
  *   These rows appear/disappear instantly: IDLG_BuildPage reads live state.
  *
+ *   The always-present rows (WELCOME, LICENSE, READY, FINISH) each have an
+ *   enable checkbox (IDC_IDLG_ROW_ENABLE_BASE + type).  When unchecked, the
+ *   dialog is omitted from the installer script and skipped during preview
+ *   navigation.  INSTALL cannot be disabled.
+ *
  * ── Architecture notes ────────────────────────────────────────────────────────
  *   Full implementation in dialogs.cpp, including the inline preview dialog.
- *   Control IDs range: 7000–7109.
+ *   Control IDs range: 7000–7109; enable checkboxes: 7060–7068.
  */
 
 #include <windows.h>
@@ -59,11 +64,18 @@ struct InstallerDialog {
 
 // Per-row controls: IDC_IDLG_ROW_BASE + (type * 4) + offset
 //   offset 0 → 32×32 icon STATIC (owner-drawn)
-//   offset 1 → name label STATIC
+//   offset 1 → name label STATIC  (or absent when an enable checkbox is used)
 //   offset 2 → "Edit Content…" button
 //   offset 3 → "Preview…" button
 // Maximum ID used: 7010 + 8*4 + 3 = 7045; license sub-controls: 7046–7053
 #define IDC_IDLG_ROW_BASE    7010
+
+// Per-row enable checkboxes (WELCOME/LICENSE/READY/FINISH only):
+//   IDC_IDLG_ROW_ENABLE_BASE + InstallerDialogType  (range 7060–7068)
+// When unchecked the dialog is excluded from the installer and skipped during
+// preview Back/Next navigation.  The row itself always remains visible so the
+// developer can re-enable it at any time.
+#define IDC_IDLG_ROW_ENABLE_BASE  7060
 
 // License-row sub-controls
 #define IDC_IDLG_LICENSE_SRC_LBL       7049   // static label: "License source:"
@@ -175,3 +187,8 @@ int IDLG_GetLicenseSource();
 // Returns the absolute path to the external license file (only meaningful when
 // IDLG_GetLicenseSource() returns 1). Empty string when source is built-in.
 std::wstring IDLG_GetLicenseFilePath();
+
+// Returns true when the developer has enabled this dialog page for the installer.
+// Always returns true for IDLG_INSTALL (the progress dialog cannot be disabled).
+// Only WELCOME, LICENSE, READY, and FINISH have user-facing enable toggles.
+bool IDLG_IsDialogEnabled(InstallerDialogType t);
