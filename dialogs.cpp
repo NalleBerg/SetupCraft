@@ -40,6 +40,8 @@ static InstallerDialog s_dialogs[IDLG_COUNT];  // in-memory RTF content
 static int s_idlgScrollOffset = 0;             // vertical scroll offset (px) while Dialogs page is visible
 static bool s_licenseMustAccept = true;        // true → preview shows I accept/I do not accept radio pair
 static int  s_licenseTemplateId = 0;           // id into license_templates table; 0 = The Unlicense
+static int  s_licenseSource     = 0;           // 0 = built-in RTF editor, 1 = external file
+static std::wstring s_licenseFilePath;         // absolute path when s_licenseSource == 1
 
 static HINSTANCE  s_hInst      = NULL;
 static HFONT      s_hGuiFont   = NULL;
@@ -2016,6 +2018,8 @@ void IDLG_Reset()
     s_installIconPath  = L"";
     s_licenseMustAccept = true;
     s_licenseTemplateId = 0;
+    s_licenseSource     = 0;
+    s_licenseFilePath.clear();
     memset(s_previewUserSized, 0, sizeof(s_previewUserSized));
     // s_hInstallIcon and s_hInstIconPreview are managed by BuildPage/TearDown.
 }
@@ -2237,23 +2241,45 @@ int IDLG_BuildPage(HWND hwnd, HINSTANCE hInst,
         // ── License-row sub-controls ──────────────────────────────────────
         if (type == IDLG_LICENSE) {
             const int chkIndent = padH + iconSz + gap;
-            const int lblH  = S(20);
-            const int cmbH  = S(24);
-            const int chkH  = S(24);
+            const int lblH   = S(20);
+            const int cmbH   = S(24);
+            const int chkH   = S(24);
+            const int browseW = S(80);
+            const bool builtin = (s_licenseSource == 0);
 
-            // Label: "License template:"
-            HWND hLbl = CreateWindowExW(0, L"Static",
-                L10n(L"idlg_license_template_label", L"License template:").c_str(),
+            // "License source:" label
+            HWND hSrcLbl = CreateWindowExW(0, L"Static",
+                L10n(L"idlg_license_src_label", L"License source:").c_str(),
                 WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
                 chkIndent, y, clientWidth - chkIndent - padH, lblH,
-                hwnd, (HMENU)IDC_IDLG_LICENSE_TEMPLATE_LBL, hInst, NULL);
-            if (hGuiFont) SendMessageW(hLbl, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+                hwnd, (HMENU)IDC_IDLG_LICENSE_SRC_LBL, hInst, NULL);
+            if (hGuiFont) SendMessageW(hSrcLbl, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
             y += lblH + S(2);
 
-            // Combo: one item per license template loaded from DB
-            HWND hCmb = CreateWindowExW(0, WC_COMBOBOXW, NULL,
+            // Source combo: Built-in RTF editor / External file
+            HWND hSrcCmb = CreateWindowExW(0, WC_COMBOBOXW, NULL,
                 WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
-                chkIndent, y, clientWidth - chkIndent - padH, cmbH * 16,
+                chkIndent, y, clientWidth - chkIndent - padH, cmbH * 4,
+                hwnd, (HMENU)IDC_IDLG_LICENSE_SRC, hInst, NULL);
+            if (hGuiFont) SendMessageW(hSrcCmb, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+            SendMessageW(hSrcCmb, CB_ADDSTRING, 0,
+                (LPARAM)L10n(L"idlg_license_src_builtin", L"Built-in RTF editor").c_str());
+            SendMessageW(hSrcCmb, CB_ADDSTRING, 0,
+                (LPARAM)L10n(L"idlg_license_src_external", L"External file (.rtf or .txt)").c_str());
+            SendMessageW(hSrcCmb, CB_SETCURSEL, s_licenseSource, 0);
+            y += cmbH + gap;
+
+            // ── Built-in branch: template label + combo (hidden when external) ──
+            HWND hTmplLbl = CreateWindowExW(0, L"Static",
+                L10n(L"idlg_license_template_label", L"License template:").c_str(),
+                WS_CHILD | (builtin ? WS_VISIBLE : 0u) | SS_LEFT | SS_CENTERIMAGE,
+                chkIndent, y, clientWidth - chkIndent - padH, lblH,
+                hwnd, (HMENU)IDC_IDLG_LICENSE_TEMPLATE_LBL, hInst, NULL);
+            if (hGuiFont) SendMessageW(hTmplLbl, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+
+            HWND hCmb = CreateWindowExW(0, WC_COMBOBOXW, NULL,
+                WS_CHILD | (builtin ? WS_VISIBLE : 0u) | CBS_DROPDOWNLIST | WS_VSCROLL,
+                chkIndent, y + lblH + S(2), clientWidth - chkIndent - padH, cmbH * 16,
                 hwnd, (HMENU)IDC_IDLG_LICENSE_TEMPLATE, hInst, NULL);
             if (hGuiFont) SendMessageW(hCmb, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
             {
@@ -2269,7 +2295,35 @@ int IDLG_BuildPage(HWND hwnd, HINSTANCE hInst,
                 }
                 SendMessageW(hCmb, CB_SETCURSEL, selIdx, 0);
             }
-            y += cmbH + gap;
+
+            // ── External branch: "File path:" label, read-only edit, Browse button ──
+            //    All three are created at the same y as the template row and toggled
+            //    with ShowWindow so the overall sub-section height never changes.
+            HWND hFileLbl = CreateWindowExW(0, L"Static",
+                L10n(L"idlg_license_file_label", L"File path:").c_str(),
+                WS_CHILD | (builtin ? 0u : WS_VISIBLE) | SS_LEFT | SS_CENTERIMAGE,
+                chkIndent, y, clientWidth - chkIndent - padH, lblH,
+                hwnd, (HMENU)IDC_IDLG_LICENSE_FILE_LBL, hInst, NULL);
+            if (hGuiFont) SendMessageW(hFileLbl, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+
+            HWND hFileEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT",
+                s_licenseFilePath.c_str(),
+                WS_CHILD | (builtin ? 0u : WS_VISIBLE) | ES_READONLY | ES_AUTOHSCROLL,
+                chkIndent, y + lblH + S(2),
+                clientWidth - chkIndent - padH - browseW - gap, cmbH,
+                hwnd, (HMENU)IDC_IDLG_LICENSE_FILE_EDIT, hInst, NULL);
+            if (hGuiFont) SendMessageW(hFileEdit, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+
+            HWND hBrowse = CreateCustomButtonWithIcon(
+                hwnd, IDC_IDLG_LICENSE_FILE_BROWSE,
+                L10n(L"idlg_license_file_browse", L"Browse\u2026"),
+                ButtonColor::Blue, L"shell32.dll", 4,
+                clientWidth - padH - browseW, y + lblH + S(2), browseW, cmbH, hInst);
+            if (!builtin) {  /* already visible */ }
+            else { ShowWindow(hBrowse, SW_HIDE); }
+
+            // Both branches occupy the same vertical space (label row + combo/edit row).
+            y += lblH + S(2) + cmbH + gap;
 
             // Checkbox: require acceptance
             HWND hChk = CreateCustomCheckbox(hwnd, IDC_IDLG_LICENSE_ACCEPT,
@@ -2337,6 +2391,28 @@ bool IDLG_OnCommand(HWND hwnd, int wmId, int wmEvent, HWND /*hCtrl*/)
 
     // ── Dialog-row buttons ────────────────────────────────────────────────────
 
+    // License source selector: toggle built-in vs external file UI.
+    if (wmId == IDC_IDLG_LICENSE_SRC && wmEvent == CBN_SELCHANGE) {
+        HWND hSrcCmb = GetDlgItem(hwnd, IDC_IDLG_LICENSE_SRC);
+        if (!hSrcCmb) return true;
+        int newSrc = (int)SendMessageW(hSrcCmb, CB_GETCURSEL, 0, 0);
+        if (newSrc == CB_ERR) return true;
+        s_licenseSource = newSrc;
+        bool builtin = (newSrc == 0);
+        // Show/hide template branch
+        ShowWindow(GetDlgItem(hwnd, IDC_IDLG_LICENSE_TEMPLATE_LBL), builtin ? SW_SHOW : SW_HIDE);
+        ShowWindow(GetDlgItem(hwnd, IDC_IDLG_LICENSE_TEMPLATE),     builtin ? SW_SHOW : SW_HIDE);
+        // Show/hide external file branch
+        ShowWindow(GetDlgItem(hwnd, IDC_IDLG_LICENSE_FILE_LBL),    builtin ? SW_HIDE : SW_SHOW);
+        ShowWindow(GetDlgItem(hwnd, IDC_IDLG_LICENSE_FILE_EDIT),   builtin ? SW_HIDE : SW_SHOW);
+        ShowWindow(GetDlgItem(hwnd, IDC_IDLG_LICENSE_FILE_BROWSE), builtin ? SW_HIDE : SW_SHOW);
+        // Disable "Edit Content…" on the License row when pointing at an external file.
+        HWND hEditBtn = GetDlgItem(hwnd, IDC_IDLG_ROW_BASE + IDLG_LICENSE * 4 + 2);
+        if (hEditBtn) EnableWindow(hEditBtn, builtin ? TRUE : FALSE);
+        MainWindow::MarkAsModified();
+        return true;
+    }
+
     // License template selector: load chosen RTF into the in-memory license slot.
     if (wmId == IDC_IDLG_LICENSE_TEMPLATE && wmEvent == CBN_SELCHANGE) {
         HWND hCmb = GetDlgItem(hwnd, IDC_IDLG_LICENSE_TEMPLATE);
@@ -2369,6 +2445,27 @@ bool IDLG_OnCommand(HWND hwnd, int wmId, int wmEvent, HWND /*hCtrl*/)
     }
 
     if (wmEvent != BN_CLICKED) return false;
+
+    // Browse for external license file (.rtf or .txt).
+    if (wmId == IDC_IDLG_LICENSE_FILE_BROWSE) {
+        OPENFILENAMEW ofn = {};
+        wchar_t szFile[MAX_PATH] = {};
+        if (!s_licenseFilePath.empty())
+            wcsncpy_s(szFile, s_licenseFilePath.c_str(), _TRUNCATE);
+        ofn.lStructSize = sizeof(ofn);
+        ofn.hwndOwner   = hwnd;
+        ofn.lpstrFilter = L"License files (*.rtf, *.txt)\0*.rtf;*.txt\0All files (*.*)\0*.*\0";
+        ofn.lpstrFile   = szFile;
+        ofn.nMaxFile    = MAX_PATH;
+        ofn.Flags       = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_EXPLORER;
+        if (GetOpenFileNameW(&ofn)) {
+            s_licenseFilePath = szFile;
+            HWND hEdit = GetDlgItem(hwnd, IDC_IDLG_LICENSE_FILE_EDIT);
+            if (hEdit) SetWindowTextW(hEdit, s_licenseFilePath.c_str());
+            MainWindow::MarkAsModified();
+        }
+        return true;
+    }
 
     // License must-accept toggle
     if (wmId == IDC_IDLG_LICENSE_ACCEPT) {
@@ -2547,7 +2644,9 @@ void IDLG_SaveToDb(int projectId)
     DB::SetSetting(L"installer_title_" + pid, s_installTitle);
     DB::SetSetting(L"installer_icon_"  + pid, s_installIconPath);
     DB::SetSetting(L"installer_license_must_accept_" + pid, s_licenseMustAccept ? L"1" : L"0");
-    DB::SetSetting(L"installer_license_template_" + pid, std::to_wstring(s_licenseTemplateId));
+    DB::SetSetting(L"installer_license_template_"    + pid, std::to_wstring(s_licenseTemplateId));
+    DB::SetSetting(L"installer_license_source_"      + pid, std::to_wstring(s_licenseSource));
+    DB::SetSetting(L"installer_license_file_"        + pid, s_licenseFilePath);
     DB::SetSetting(L"installer_preview_w_" + pid, std::to_wstring(s_previewLogW));
     DB::SetSetting(L"installer_preview_h_" + pid, std::to_wstring(s_previewLogH));
     // Save all per-type user-sized flags as a compact string (one '0'/'1' per type).
@@ -2583,9 +2682,13 @@ void IDLG_LoadFromDb(int projectId)
         s_installIconPath = savedIcon;
     if (DB::GetSetting(L"installer_license_must_accept_" + pid, savedLicAccept))
         s_licenseMustAccept = (savedLicAccept == L"1");
-    std::wstring savedTmpl;
+    std::wstring savedTmpl, savedSrc, savedFilePath;
     if (DB::GetSetting(L"installer_license_template_" + pid, savedTmpl) && !savedTmpl.empty())
         s_licenseTemplateId = _wtoi(savedTmpl.c_str());
+    if (DB::GetSetting(L"installer_license_source_" + pid, savedSrc) && !savedSrc.empty())
+        s_licenseSource = _wtoi(savedSrc.c_str());
+    if (DB::GetSetting(L"installer_license_file_" + pid, savedFilePath))
+        s_licenseFilePath = savedFilePath;
     std::wstring sPrevW, sPrevH, sPrevSized;
     if (DB::GetSetting(L"installer_preview_w_" + pid, sPrevW) && !sPrevW.empty()) s_previewLogW = _wtoi(sPrevW.c_str());
     if (DB::GetSetting(L"installer_preview_h_" + pid, sPrevH) && !sPrevH.empty()) s_previewLogH = _wtoi(sPrevH.c_str());
@@ -2620,5 +2723,7 @@ std::wstring IDLG_GetInstallerIconPath() { return s_installIconPath; }
 void IDLG_SetScrollOffset(int off) { s_idlgScrollOffset = off; }
 int  IDLG_GetScrollOffset()        { return s_idlgScrollOffset; }
 
-bool IDLG_GetLicenseMustAccept()   { return s_licenseMustAccept; }
+bool         IDLG_GetLicenseMustAccept() { return s_licenseMustAccept; }
+int          IDLG_GetLicenseSource()    { return s_licenseSource; }
+std::wstring IDLG_GetLicenseFilePath()  { return s_licenseFilePath; }
 

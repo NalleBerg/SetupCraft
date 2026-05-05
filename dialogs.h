@@ -62,10 +62,15 @@ struct InstallerDialog {
 //   offset 1 → name label STATIC
 //   offset 2 → "Edit Content…" button
 //   offset 3 → "Preview…" button
-// Maximum ID used: 7010 + 8*4 + 3 = 7045; license sub-controls: 7046–7048
+// Maximum ID used: 7010 + 8*4 + 3 = 7045; license sub-controls: 7046–7053
 #define IDC_IDLG_ROW_BASE    7010
 
 // License-row sub-controls
+#define IDC_IDLG_LICENSE_SRC_LBL       7049   // static label: "License source:"
+#define IDC_IDLG_LICENSE_SRC           7050   // combobox: Built-in RTF editor / External file
+#define IDC_IDLG_LICENSE_FILE_LBL      7051   // static label: "File path:" (visible when external)
+#define IDC_IDLG_LICENSE_FILE_EDIT     7052   // read-only edit: path to external .rtf/.txt file
+#define IDC_IDLG_LICENSE_FILE_BROWSE   7053   // "Browse…" button to pick the external file
 #define IDC_IDLG_LICENSE_ACCEPT        7046   // checkbox: require end-user acceptance before Next
 #define IDC_IDLG_LICENSE_TEMPLATE      7047   // combobox: choose a license template to load
 #define IDC_IDLG_LICENSE_TEMPLATE_LBL  7048   // static label: "License template:"
@@ -163,3 +168,10 @@ int  IDLG_GetScrollOffset();
 // Returns true when the developer has enabled required license acceptance on
 // this project (License preview shows the I accept / I do not accept radio pair).
 bool IDLG_GetLicenseMustAccept();
+
+// Returns 0 when using the built-in RTF editor, 1 when pointing at an external file.
+int IDLG_GetLicenseSource();
+
+// Returns the absolute path to the external license file (only meaningful when
+// IDLG_GetLicenseSource() returns 1). Empty string when source is built-in.
+std::wstring IDLG_GetLicenseFilePath();

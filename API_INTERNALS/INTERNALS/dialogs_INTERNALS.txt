@@ -21,7 +21,31 @@
     ROW_BASE + i*4 + 3  = "Preview…" button (BS_OWNERDRAW)
   Maximum row ID: 7010 + 8*4 + 3 = 7045
 
-  IDC_IDLG_LICENSE_ACCEPT     7046    custom checkbox below License row:
+  IDC_IDLG_LICENSE_SRC_LBL      7049  "License source:" STATIC label.
+
+  IDC_IDLG_LICENSE_SRC           7050  CBS_DROPDOWNLIST combo at the top of the
+                                        License sub-section.  Two items (index 0/1):
+                                          0 = "Built-in RTF editor" (default)
+                                          1 = "External file (.rtf or .txt)"
+                                        CBN_SELCHANGE toggles the two branches below
+                                        and enables/disables the "Edit Content…"
+                                        row button for IDLG_LICENSE.
+                                        State stored in s_licenseSource (int).
+
+  IDC_IDLG_LICENSE_FILE_LBL      7051  "File path:" STATIC label (external branch).
+                                        Shown when s_licenseSource == 1,
+                                        hidden when s_licenseSource == 0.
+
+  IDC_IDLG_LICENSE_FILE_EDIT     7052  ES_READONLY edit showing the chosen path
+                                        (external branch).  Updated on Browse.
+                                        State stored in s_licenseFilePath (wstring).
+
+  IDC_IDLG_LICENSE_FILE_BROWSE   7053  Blue "Browse…" button (shell32 icon #4).
+                                        Opens OFN_EXPLORER GetOpenFileNameW with
+                                        filter "*.rtf;*.txt" and updates
+                                        s_licenseFilePath + IDC_IDLG_LICENSE_FILE_EDIT.
+
+  IDC_IDLG_LICENSE_ACCEPT        7046    custom checkbox below License row:
                                         "Require license acceptance (end user must
                                         choose 'I accept' before proceeding)"
                                         State stored in s_licenseMustAccept (bool).
@@ -109,6 +133,24 @@
       // Reset to all-false by IDLG_Reset() on project switch / new project.
       // DB persistence uses IDLG_COMPONENTS slot only (backward-compat);
       // other per-type values reset to false on every open (auto-fit reruns).
+
+  License source selector:
+    static int s_licenseSource = 0             // installer_license_source_<pid>
+      // 0 = built-in RTF editor (default), 1 = external file.
+      // When 1: template combo + label are hidden; file label, edit and Browse
+      //   button are shown; "Edit Content…" button for IDLG_LICENSE is disabled.
+      // When 0: template combo/label visible; file controls hidden; Edit Content… enabled.
+      // Reset to 0 by IDLG_Reset().
+      // Persisted via DB::SetSetting / DB::GetSetting key "installer_license_source_<pid>".
+      // Public accessor: IDLG_GetLicenseSource() for script generation.
+
+  External license file path:
+    static std::wstring s_licenseFilePath      // installer_license_file_<pid>
+      // Absolute path to the .rtf or .txt file chosen by the developer.
+      // Only meaningful when s_licenseSource == 1.
+      // Reset to L"" by IDLG_Reset().
+      // Persisted via DB::SetSetting / DB::GetSetting key "installer_license_file_<pid>".
+      // Public accessor: IDLG_GetLicenseFilePath() for script generation.
 
   License acceptance flag:
     static bool s_licenseMustAccept = false   // installer_license_must_accept_<id>

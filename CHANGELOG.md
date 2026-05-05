@@ -2,6 +2,11 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.05.05.08] - 2026-05-05
+
+### Dialogs — License file type selector
+- **dialogs — License source selector (`IDC_IDLG_LICENSE_SRC = 7050`)**: New "License source:" label and combo at the top of the License row sub-section. Two options: *Built-in RTF editor* (default — unchanged behaviour) and *External file (.rtf or .txt)* (developer points at an existing file on disk). Switching to External hides the template combo and shows a "File path:" label (`IDC_IDLG_LICENSE_FILE_LBL = 7051`), a read-only path edit (`IDC_IDLG_LICENSE_FILE_EDIT = 7052`), and a "Browse…" button (`IDC_IDLG_LICENSE_FILE_BROWSE = 7053`) filtered to `*.rtf;*.txt`. "Edit Content…" is disabled when External is selected. State in `s_licenseSource` (int) + `s_licenseFilePath` (wstring); persisted as `installer_license_source_<pid>` / `installer_license_file_<pid>`. New public accessors: `IDLG_GetLicenseSource()` / `IDLG_GetLicenseFilePath()`. Locale keys: `idlg_license_src_label`, `idlg_license_src_builtin`, `idlg_license_src_external`, `idlg_license_file_label`, `idlg_license_file_browse`.
+
 ## [2026.05.04.14] - 2026-05-04
 
 ### Dialogs — License template selector

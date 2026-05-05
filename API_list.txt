@@ -1,4 +1,4 @@
-================================================================================
+﻿================================================================================
   SetupCraft — Documentation Index
 ================================================================================
 
@@ -393,8 +393,16 @@
                                                 (48×48 icon preview, OFN_EXPLORER .ico picker,
                                                 title edit field, IDLG_SetInstallerInfo /
                                                 IDLG_GetInstallerTitle / IDLG_GetInstallerIconPath),
-                                                control ID ranges (7000–7127), license
-                                                template selector (IDC_IDLG_LICENSE_TEMPLATE=7047
+                                                control ID ranges (7000-7127), license
+                                                source selector (IDC_IDLG_LICENSE_SRC=7050
+                                                CBS_DROPDOWNLIST: 0=Built-in RTF editor,
+                                                1=External file; CBN_SELCHANGE shows/hides
+                                                template vs file-path branch and enables/
+                                                disables "Edit Content..." for IDLG_LICENSE;
+                                                s_licenseSource int; IDLG_GetLicenseSource()
+                                                + IDLG_GetLicenseFilePath() accessors; file
+                                                branch IDs 7051-7053 OFN .rtf/.txt picker),
+                                                license template selector (IDC_IDLG_LICENSE_TEMPLATE=7047
                                                 CBS_DROPDOWNLIST combo + IDC_IDLG_LICENSE_TEMPLATE_LBL
                                                 =7048; populated from DB::GetAllLicenseTemplates();
                                                 CBN_SELCHANGE loads RTF via GetLicenseTemplateRtf
