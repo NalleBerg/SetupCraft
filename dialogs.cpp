@@ -548,10 +548,8 @@ static void LayoutPreviewControls(HWND hwnd, PreviewData* pd)
             if (overflow)
                 pd->hContentSB = msb_attach(pd->hContent, MSB_VERTICAL);
         }
-        if (!pd->hContentSBH)
-            pd->hContentSBH = msb_attach(pd->hContent, MSB_HORIZONTAL);
-        else
-            msb_sync(pd->hContentSBH);
+        // Horizontal scrollbar intentionally omitted — RichEdit wraps to its
+        // control width (EM_SETTARGETDEVICE 0) so there is no horizontal overflow.
     }
 
     // Force the parent to repaint vacated areas when controls shift position
@@ -1138,6 +1136,7 @@ static void NavigateTo(HWND hwnd, PreviewData* pd, InstallerDialogType newType)
             std::wstring ph = L10n(L"idlg_preview_no_content", L"(No content defined for this dialog yet)");
             SetWindowTextW(pd->hContent, ph.c_str());
         }
+        SendMessageW(pd->hContent, EM_SETTARGETDEVICE, 0, 0); // wrap to control width
         SendMessageW(pd->hContent, EM_SETREADONLY, TRUE, 0);
         SendMessageW(pd->hContent, EM_SETSEL, 0, 0);
         SendMessageW(pd->hContent, EM_SCROLLCARET, 0, 0);
@@ -1218,7 +1217,7 @@ static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
         // internally; the custom scrollbar (my_scrollbar) hides the native gutter
         // and replaces it when SyncContentScrollbar (called from LayoutPreviewControls)
         // detects overflow after the window is sized.
-        DWORD reStyle = WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL | WS_HSCROLL;
+        DWORD reStyle = WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL;
         pd->hContent = CreateWindowExW(0, reClass, L"",
             reStyle, 0, 0, 10, 10,
             hwnd, (HMENU)(UINT_PTR)IDC_IDLG_PRV_CONTENT, cs->hInstance, NULL);
@@ -1236,6 +1235,7 @@ static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
             SetWindowTextW(pd->hContent,
                 L10n(L"idlg_preview_no_content", L"(No content defined for this dialog yet)").c_str());
         }
+        SendMessageW(pd->hContent, EM_SETTARGETDEVICE, 0, 0); // wrap to control width
         SendMessageW(pd->hContent, EM_SETREADONLY, TRUE, 0);
         SendMessageW(pd->hContent, EM_SETSEL, 0, 0);
         SendMessageW(pd->hContent, EM_SCROLLCARET, 0, 0);
@@ -1437,10 +1437,7 @@ static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
             msb_detach(pd->hContentSB);
             pd->hContentSB = NULL;
         }
-        if (pd && pd->hContentSBH) {
-            msb_detach(pd->hContentSBH);
-            pd->hContentSBH = NULL;
-        }
+        // pd->hContentSBH is not used (horizontal scrollbar removed).
         // Restore the original RichEdit window proc before the control is destroyed.
         if (pd && pd->hContent && IsWindow(pd->hContent) && s_origContentProc)
             SetWindowLongPtrW(pd->hContent, GWLP_WNDPROC, (LONG_PTR)s_origContentProc);
@@ -2421,7 +2418,7 @@ static void ShowPreviewDialog(HWND hwndParent, InstallerDialogType type)
     // the sizer to stay above the preview (achieved by ownership) but NOT
     // float above unrelated apps when the developer switches programs.
     const DWORD sizerExStyle = WS_EX_TOOLWINDOW;
-    RECT rcSz = { 0, 0, S(165), S(484) };
+    RECT rcSz = { 0, 0, S(180), S(484) };
     AdjustWindowRectEx(&rcSz, sizerStyle, FALSE, sizerExStyle);
     int szW = rcSz.right  - rcSz.left;
     int szH = rcSz.bottom - rcSz.top;
@@ -3406,6 +3403,36 @@ static std::wstring SubstitutePlaceholders(std::wstring rtf,
 void IDLG_ApplyDefaults(const std::wstring& appName, const std::wstring& appVersion)
 {
     s_previewAppName = appName;  // keep in sync for preview Finish dialog
+
+    // For the License dialog: seed from the active license template (which
+    // includes the logo image) rather than the image-less dialog_defaults row.
+    // This mirrors exactly what CBN_SELCHANGE does when the user picks a template.
+    // We reseed whenever the current slot has no embedded image (\pict) AND the
+    // active template does have one — this fixes both brand-new projects and
+    // existing projects that were previously seeded from the image-less
+    // dialog_defaults row.  If the user has their own custom content with an
+    // image (or explicitly chose a template with no image), we leave it alone.
+    {
+        bool slotHasPict = (s_dialogs[IDLG_LICENSE].content_rtf.find(L"\\pict")
+                            != std::wstring::npos);
+        if (!slotHasPict) {
+            std::wstring rtf = DB::GetLicenseTemplateRtf(s_licenseTemplateId);
+            bool tmplHasPict = (rtf.find(L"\\pict") != std::wstring::npos);
+            if (tmplHasPict) {
+                std::wstring an = appName.empty() ? L"<<AppName>>" : appName;
+                SYSTEMTIME st = {}; GetLocalTime(&st);
+                std::wstring year = std::to_wstring(st.wYear);
+                auto repl = [](std::wstring& s, const std::wstring& f, const std::wstring& t) {
+                    size_t p = 0;
+                    while ((p = s.find(f, p)) != std::wstring::npos) { s.replace(p, f.size(), t); p += t.size(); }
+                };
+                repl(rtf, L"<<AppName>>", an);
+                repl(rtf, L"<<Year>>",    year);
+                s_dialogs[IDLG_LICENSE].content_rtf = rtf;
+            }
+        }
+    }
+
     auto defaults = DB::GetAllDialogDefaults();
     for (const auto& d : defaults) {
         if (d.first < 0 || d.first >= IDLG_COUNT) continue;

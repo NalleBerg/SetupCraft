@@ -472,8 +472,8 @@ bool DB::InitDb() {
         LtEntry kLT[] = {
 
             // ── 0: The Unlicense ────────────────────────────────────────────
-            { 0, "The Unlicense (Public Domain)", "Unlicense", "public-domain-logo-streamlined.png",
-              LtMake("public-domain-logo-streamlined.png",
+            { 0, "The Unlicense (Public Domain)", "Unlicense", "public-domain-logo-cut.png",
+              LtMake("public-domain-logo-cut.png",
               LT_TITLE("Public Domain License")
               LT_SUB("The Unlicense")
               LT_BODY "Anyone is free to copy, modify, publish, use, compile, sell, or distribute this software, "

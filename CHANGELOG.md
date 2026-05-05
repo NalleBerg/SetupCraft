@@ -2,6 +2,14 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.05.05.15] - 2026-05-05
+
+### dialogs — Preview word-wrap; license image seeding; sizer width; PD logo filename
+- **dialogs — Preview RichEdit word-wrap to window**: `WS_HSCROLL` removed from the preview RichEdit creation style. `WS_HSCROLL` was silently setting an infinite wrap target, causing content to overflow the right edge. Fix: remove the style flag and call `EM_SETTARGETDEVICE(NULL, 0)` after every `EM_STREAMIN`. Custom horizontal MSB scrollbar on the preview RichEdit removed (no longer needed).
+- **dialogs — License default seeded with logo image**: `IDLG_ApplyDefaults` now re-seeds the License slot from the active template whenever the slot has no embedded image (`\pict`) but the template does. Fixes existing projects previously seeded from the image-less `dialog_defaults` row. Slots that already contain a custom image are left untouched.
+- **dialogs — Sizer panel width `S(180)`**: Widened from `S(165)` to give all controls a comfortable right-side margin.
+- **db — Unlicense logo filename corrected**: Template entry `img_file` and `LtMake` call corrected from `public-domain-logo-streamlined.png` to `public-domain-logo-cut.png` (matching the actual file in `LicenseImg\`). Picked up automatically on next startup via UPSERT seeding.
+
 ## [2026.05.05.14] - 2026-05-05
 
 ### settings — AppId (GUID) moved from Registry page to Settings page

@@ -396,7 +396,7 @@
                                                 (48×48 icon preview, OFN_EXPLORER .ico picker,
                                                 title edit field, IDLG_SetInstallerInfo /
                                                 IDLG_GetInstallerTitle / IDLG_GetInstallerIconPath),
-                                                control ID ranges (7000-7127; enable checkboxes
+                                                control ID ranges (7000-7137; enable checkboxes
                                                 7060-7068; finish launch section 7070-7073),
                                                 per-dialog enable toggles
                                                 (IDC_IDLG_ROW_ENABLE_BASE=7060; WELCOME/LICENSE/
@@ -441,15 +441,20 @@
                                                 sizer-panel header font/color controls
                                                 (IdlgHeaderFont struct {name,size,bold,italic};
                                                 IDLG_NOCOLOR=(COLORREF)-1 sentinel;
-                                                font IDs 7128-7133: FONT_GLOBAL/NAME/SIZE_E/
-                                                SIZE_S/BOLD/ITALIC; color IDs 7134-7136:
+                                                font IDs 7128-7137: FONT_GLOBAL/NAME/SIZE_E/
+                                                SIZE_S/BOLD/ITALIC/BROWSE; FONT_BROWSE=7137
+                                                is a "…" button that opens ChooseFontW
+                                                pre-seeded with current settings — on confirm
+                                                updates all four font controls + preview;
+                                                color IDs 7134-7136:
                                                 CLR_GLOBAL/FG/BG; two independent "Use on all
                                                 dialogs" toggles; live preview via
                                                 WM_ERASEBKGND+WM_CTLCOLORSTATIC; right-click
                                                 swatch resets to IDLG_NOCOLOR; accessors
                                                 IDLG_GetHeaderFont/FgColor/BgColor(t),
                                                 IDLG_IsHeaderFontGlobal/ColorGlobal();
-                                                persisted via installer_hdr_font_*+clr_*),
+                                                persisted via installer_hdr_font_*+clr_*;
+                                                sizer panel width = S(180) logical px),
                                                 license source selector (IDC_IDLG_LICENSE_SRC=7050
                                                 CBS_DROPDOWNLIST: 0=Built-in RTF editor,
                                                 1=External file; CBN_SELCHANGE shows/hides
@@ -492,7 +497,19 @@
                                                 for all 9 types; <<AppName>> / <<AppVersion>> /
                                                 <<AppNameAndVersion>> placeholders),
                                                 IDLG_ApplyDefaults wiring (called in Create()
-                                                after IDLG_LoadFromDb — fills empty slots),
+                                                after IDLG_LoadFromDb — fills empty slots;
+                                                License slot is re-seeded from the active
+                                                license template whenever the slot has no
+                                                embedded image (\pict) but the template does —
+                                                fixes projects seeded from image-less
+                                                dialog_defaults row without touching slots
+                                                that already have a custom image),
+                                                preview RichEdit word-wrap: WS_HSCROLL must
+                                                NOT be in reStyle — RichEdit interprets it as
+                                                "infinite wrap width"; fix: create without
+                                                WS_HSCROLL and call EM_SETTARGETDEVICE(NULL,0)
+                                                after every EM_STREAMIN to lock wrap to the
+                                                actual control width; no horizontal MSB needed,
                                                 installer_dialogs DB schema and CRUD API,
                                                 mainwindow.cpp 7-point wiring checklist
                                                 (with mistake history), layout constants,
