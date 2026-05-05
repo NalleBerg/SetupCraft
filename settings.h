@@ -37,6 +37,13 @@
 #include <windows.h>
 #include <string>
 #include <map>
+#include <vector>
+
+// Language entry returned by SETT_GetInstallerLanguages().
+// isl:   Inno .isl base name (no extension), e.g. L"German", L"Swedish".
+// local: true  → community file shipped in inno\ (reference by relative path in .iss).
+//        false → standard Inno file (reference as "compiler:X.isl").
+struct InnoLangEntry { std::wstring isl; bool local; };
 
 // ── Shared-data section (application identity) ────────────────────────────────
 #define IDC_SETT_APP_NAME        8000   // Edit: app name (mirrors s_currentProject.name)
@@ -62,6 +69,9 @@
 #define IDC_SETT_UAC_INVOKER     8021   // Radio: asInvoker
 #define IDC_SETT_UAC_HIGHEST     8022   // Radio: highestAvailable
 #define IDC_SETT_MIN_OS          8023   // Combo: minimum OS version
+#define IDC_SETT_INSTALL_BASE        8040   // Combo: DefaultDirName base token
+#define IDC_SETT_INSTALL_BASE_CUSTOM 8041   // Edit: custom Inno constant (visible only on Custom)
+#define IDC_SETT_LANG_BASE           8050   // Checkboxes: installer languages (0=English, always on)
 
 // ── Uninstall section ─────────────────────────────────────────────────────────
 #define IDC_SETT_ALLOW_UNINSTALL 8030   // Custom checkbox: allow uninstall
@@ -106,3 +116,13 @@ void SETT_SaveToDb(int projectId);
 
 // Load new settings.  Call after SETT_Reset() when opening a project.
 void SETT_LoadFromDb(int projectId);
+
+// Returns the Inno Setup base path token for DefaultDirName, e.g. L"{pf}" or
+// L"{localappdata}".  When Custom is selected and the custom field is empty,
+// falls back to L"{pf}".
+std::wstring SETT_GetInstallBasePath();
+
+// Returns all enabled installer languages.
+// English (isl=L"Default", local=false) is always the first entry.
+// local=true entries have their .isl file in inno\ next to template.iss.
+std::vector<InnoLangEntry> SETT_GetInstallerLanguages();

@@ -64,8 +64,18 @@
     [ ] make_ico.ps1        — PNG → .ico conversion script
 
   Inno Setup stub
-    [ ] inno\template.iss   — minimal installer template
+    [ ] inno\template.iss   — minimal installer template; uses {#DefaultDirBase}
+                              preprocessor constant in DefaultDirName so the
+                              compile step can inject any Inno path token
+                              ({pf}, {pf64}, {localappdata}, custom, etc.)
+                              without editing the template.
     [ ] inno\compile_inno.bat
+    [ ] inno\<Lang>.isl     — community-contributed language files (e.g.
+                              Swedish.isl, LanguageID=$041D).  Standard Inno
+                              languages live in the Inno compiler folder and
+                              are referenced as "compiler:X.isl"; community
+                              files ship here and are referenced by relative
+                              path so no manual Inno install step is needed.
 
   Documentation seed
     [ ] API_list.txt        — pre-populated with all included API entries

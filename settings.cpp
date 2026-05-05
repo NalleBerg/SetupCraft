@@ -40,6 +40,42 @@ static int          s_uacLevel         = 0;    // 0=requireAdministrator 1=asInv
 static int          s_minOsVersion     = 0;    // 0=none … 5=Win11
 static bool         s_allowUninstall   = true;
 static bool         s_closeApps        = false;
+static int          s_installBase        = 0;    // 0={pf} 1={pf64} 2={pf32} 3={localappdata} 4={commonappdata} 5={userdocs} 6=Custom
+static std::wstring s_installBaseCustom;          // used when s_installBase == 6
+static HWND         s_hInstallBaseCustomEdit = NULL;
+
+// ── Installer language table ─────────────────────────────────────────────────
+// Contains every .isl file bundled with Inno Setup 6 standard installation.
+// Russian is intentionally excluded.
+// local=true: community .isl shipped in inno/ alongside template.iss (referenced by relative path).
+// local=false: standard Inno .isl referenced as "compiler:X.isl".
+struct InnoLang { const wchar_t* isl; const wchar_t* displayName; bool local; };
+static const InnoLang kInnoLangs[] = {
+    { L"Default",             L"English",              false },  // index 0 — always on
+    { L"BrazilianPortuguese", L"Portuguese (Brazil)",  false },
+    { L"Catalan",             L"Catalan",              false },
+    { L"Czech",               L"Czech",                false },
+    { L"Danish",              L"Danish",               false },
+    { L"Dutch",               L"Dutch",                false },
+    { L"Finnish",             L"Finnish",              false },
+    { L"French",              L"French",               false },
+    { L"German",              L"German",               false },
+    { L"Hebrew",              L"Hebrew",               false },
+    { L"Hungarian",           L"Hungarian",            false },
+    { L"Italian",             L"Italian",              false },
+    { L"Japanese",            L"Japanese",             false },
+    { L"Norwegian",           L"Norwegian",            false },
+    { L"Polish",              L"Polish",               false },
+    { L"Portuguese",          L"Portuguese",           false },
+    { L"Slovak",              L"Slovak",               false },
+    { L"Slovenian",           L"Slovenian",            false },
+    { L"Spanish",             L"Spanish",              false },
+    { L"Swedish",             L"Swedish",              true  },  // community .isl in inno/
+    { L"Turkish",             L"Turkish",              false },
+    { L"Ukrainian",           L"Ukrainian",            false },
+};
+static const int kLangCount = (int)(sizeof(kInnoLangs) / sizeof(kInnoLangs[0]));
+static std::vector<bool> s_installerLangs;  // size kLangCount; [0] always true
 
 static int          s_scrollOffset     = 0;
 
@@ -170,6 +206,10 @@ void SETT_Reset()
     s_minOsVersion     = 0;
     s_allowUninstall   = true;
     s_closeApps        = false;
+    s_installBase        = 0;
+    s_installBaseCustom  = L"";
+    s_installerLangs.assign(kLangCount, false);
+    s_installerLangs[0] = true;  // English always included
     s_scrollOffset     = 0;
     s_hGuiFont         = NULL;
     s_hInst            = NULL;
@@ -180,10 +220,11 @@ void SETT_Reset()
 void SETT_TearDown(HWND /*hwnd*/)
 {
     // Controls are destroyed by SwitchPage's child-window enumeration.
-    s_scrollOffset = 0;
-    s_hGuiFont     = NULL;
-    s_hInst        = NULL;
-    s_pLocale      = NULL;
+    s_scrollOffset           = 0;
+    s_hGuiFont               = NULL;
+    s_hInst                  = NULL;
+    s_pLocale                = NULL;
+    s_hInstallBaseCustomEdit = NULL;
 }
 
 // ── SETT_GetScrollOffset / SETT_SetScrollOffset ───────────────────────────────
@@ -441,8 +482,97 @@ int SETT_BuildPage(HWND hwnd, HINSTANCE hInst,
                        IDC_SETT_MIN_OS, osItems, s_minOsVersion);
     }
 
+    // Default dir base combo + custom Inno constant edit (inline, same row)
+    {
+        const int fldX   = S(kPadH) + S(kLblW) + S(kLblGap);
+        const int comboW = S(185);
+        const int editX  = fldX + comboW + S(6);
+        const int editW  = clientWidth - editX - S(kPadH);
+
+        HWND hLbl = CreateWindowExW(0, L"STATIC",
+            loc(L"sett_install_base_lbl", L"Default dir base:").c_str(),
+            WS_CHILD | WS_VISIBLE | SS_RIGHT | SS_CENTERIMAGE,
+            S(kPadH), y, S(kLblW), S(kRowH),
+            hwnd, NULL, hInst, NULL);
+        if (hGuiFont) SendMessageW(hLbl, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+
+        std::vector<std::wstring> baseItems = {
+            loc(L"sett_install_base_pf",            L"{pf}  \u2014  Program Files"),
+            loc(L"sett_install_base_pf64",          L"{pf64}  \u2014  64-bit Program Files"),
+            loc(L"sett_install_base_pf32",          L"{pf32}  \u2014  32-bit Program Files"),
+            loc(L"sett_install_base_localappdata",  L"{localappdata}  \u2014  AppData\\Local"),
+            loc(L"sett_install_base_commonappdata", L"{commonappdata}  \u2014  AppData (all users)"),
+            loc(L"sett_install_base_userdocs",      L"{userdocs}  \u2014  Documents"),
+            loc(L"sett_install_base_custom",        L"Custom\u2026"),
+        };
+        HWND hCbo = CreateWindowExW(0, L"COMBOBOX", L"",
+            WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
+            fldX, y, comboW, S(kRowH) + S(200),
+            hwnd, (HMENU)(UINT_PTR)IDC_SETT_INSTALL_BASE, hInst, NULL);
+        if (hGuiFont) SendMessageW(hCbo, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+        for (const auto& item : baseItems)
+            SendMessageW(hCbo, CB_ADDSTRING, 0, (LPARAM)item.c_str());
+        SendMessageW(hCbo, CB_SETCURSEL, (WPARAM)s_installBase, 0);
+
+        // Custom edit — visible only when Custom (index 6) is selected
+        HWND hCustomEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT",
+            s_installBaseCustom.c_str(),
+            WS_CHILD | WS_VISIBLE | ES_LEFT | ES_AUTOHSCROLL,
+            editX, y, (editW > 0 ? editW : S(120)), S(kRowH),
+            hwnd, (HMENU)(UINT_PTR)IDC_SETT_INSTALL_BASE_CUSTOM, hInst, NULL);
+        if (hGuiFont) SendMessageW(hCustomEdit, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+        s_hInstallBaseCustomEdit = hCustomEdit;
+        if (s_installBase != 6) ShowWindow(hCustomEdit, SW_HIDE);
+
+        y += S(kRowStep);
+    }
+
     // ════════════════════════════════════════════════════════════════════════
-    // Section 4: Uninstall
+    // Section 4: Installer Languages
+    // ╚══════════════════════════════════════════════════════════════════════
+    y += S(kSecGap);
+    y = SectionHeader(hwnd, hInst, hGuiFont, y, clientWidth,
+                      loc(L"sett_sec_languages", L"Installer Languages"));
+
+    // Hint text
+    {
+        HWND hHint = CreateWindowExW(0, L"STATIC",
+            loc(L"sett_languages_hint",
+                L"English is always included. Tick additional languages — "
+                L"the installer will show a language picker when 2 or more are selected.").c_str(),
+            WS_CHILD | WS_VISIBLE | SS_LEFT,
+            S(kPadH), y, clientWidth - S(kPadH) * 2, S(kRowH) * 2,
+            hwnd, NULL, hInst, NULL);
+        if (hGuiFont) SendMessageW(hHint, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+        y += S(kRowH) * 2 + S(6);
+    }
+
+    // Language checkbox grid — 3 columns
+    {
+        const int nLangs  = ((int)s_installerLangs.size() < kLangCount)
+                             ? (int)s_installerLangs.size() : kLangCount;
+        const int colW    = (clientWidth - S(kPadH) * 2) / 3;
+        const int chkH    = S(kRowH);
+        const int chkStep = S(kRowH) + S(3);
+
+        for (int i = 0; i < nLangs; i++) {
+            int col = i % 3;
+            int row = i / 3;
+            int cx  = S(kPadH) + col * colW;
+            int cy  = y + row * chkStep;
+            HWND hChk = CreateCustomCheckbox(hwnd, IDC_SETT_LANG_BASE + i,
+                kInnoLangs[i].displayName,
+                s_installerLangs[i],
+                cx, cy, colW - S(4), chkH, hInst);
+            if (hGuiFont) SendMessageW(hChk, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+            if (i == 0) EnableWindow(hChk, FALSE);  // English always included
+        }
+        int numRows = (nLangs + 2) / 3;
+        y += numRows * chkStep + S(10);
+    }
+
+    // ╔══════════════════════════════════════════════════════════════════════
+    // Section 5: Uninstall
     // ════════════════════════════════════════════════════════════════════════
     y += S(kSecGap);
     y = SectionHeader(hwnd, hInst, hGuiFont, y, clientWidth,
@@ -549,6 +679,31 @@ bool SETT_OnCommand(HWND hwnd, int wmId, int wmEvent, HWND /*hCtrl*/)
         MainWindow::MarkAsModified();
         return true;
     }
+    if (wmId >= IDC_SETT_LANG_BASE + 1 &&
+        wmId <  IDC_SETT_LANG_BASE + kLangCount &&
+        wmEvent == BN_CLICKED) {
+        int idx = wmId - IDC_SETT_LANG_BASE;
+        if (idx > 0 && idx < (int)s_installerLangs.size())
+            s_installerLangs[idx] =
+                (SendDlgItemMessageW(hwnd, wmId, BM_GETCHECK, 0, 0) == BST_CHECKED);
+        MainWindow::MarkAsModified();
+        return true;
+    }
+    if (wmId == IDC_SETT_INSTALL_BASE && wmEvent == CBN_SELCHANGE) {
+        int sel = (int)SendDlgItemMessageW(hwnd, IDC_SETT_INSTALL_BASE, CB_GETCURSEL, 0, 0);
+        if (sel >= 0) s_installBase = sel;
+        if (s_hInstallBaseCustomEdit)
+            ShowWindow(s_hInstallBaseCustomEdit, (sel == 6) ? SW_SHOW : SW_HIDE);
+        MainWindow::MarkAsModified();
+        return true;
+    }
+    if (wmId == IDC_SETT_INSTALL_BASE_CUSTOM && wmEvent == EN_CHANGE) {
+        wchar_t buf[512] = {};
+        GetDlgItemTextW(hwnd, IDC_SETT_INSTALL_BASE_CUSTOM, buf, 512);
+        s_installBaseCustom = buf;
+        MainWindow::MarkAsModified();
+        return true;
+    }
     if (wmId == IDC_SETT_ALLOW_UNINSTALL && wmEvent == BN_CLICKED) {
         s_allowUninstall =
             (SendDlgItemMessageW(hwnd, IDC_SETT_ALLOW_UNINSTALL, BM_GETCHECK, 0, 0) == BST_CHECKED);
@@ -580,6 +735,18 @@ void SETT_SaveToDb(int projectId)
     DB::SetSetting(K(L"min_os"),            std::to_wstring(s_minOsVersion));
     DB::SetSetting(K(L"allow_uninstall"),   s_allowUninstall ? L"1" : L"0");
     DB::SetSetting(K(L"close_apps"),        s_closeApps ? L"1" : L"0");
+    DB::SetSetting(K(L"install_base"),        std::to_wstring(s_installBase));
+    DB::SetSetting(K(L"install_base_custom"), s_installBaseCustom);
+    {
+        std::wstring langs;
+        for (int i = 1; i < kLangCount; i++) {
+            if (i < (int)s_installerLangs.size() && s_installerLangs[i]) {
+                if (!langs.empty()) langs += L',';
+                langs += kInnoLangs[i].isl;
+            }
+        }
+        DB::SetSetting(K(L"installer_langs"), langs);
+    }
 }
 
 // ── SETT_LoadFromDb ───────────────────────────────────────────────────────────
@@ -599,4 +766,50 @@ void SETT_LoadFromDb(int projectId)
     if (DB::GetSetting(K(L"min_os"),            val)) s_minOsVersion     = _wtoi(val.c_str());
     if (DB::GetSetting(K(L"allow_uninstall"),   val)) s_allowUninstall   = (val != L"0");
     if (DB::GetSetting(K(L"close_apps"),        val)) s_closeApps        = (val == L"1");
+    if (DB::GetSetting(K(L"install_base"),        val)) s_installBase       = _wtoi(val.c_str());
+    if (DB::GetSetting(K(L"install_base_custom"), val)) s_installBaseCustom = val;
+    // Installer languages
+    if ((int)s_installerLangs.size() < kLangCount)
+        s_installerLangs.assign(kLangCount, false);
+    s_installerLangs[0] = true;
+    for (int i = 1; i < kLangCount; i++) s_installerLangs[i] = false;
+    if (DB::GetSetting(K(L"installer_langs"), val) && !val.empty()) {
+        std::wstring tok;
+        for (wchar_t ch : val) {
+            if (ch == L',') {
+                for (int i = 1; i < kLangCount; i++)
+                    if (tok == kInnoLangs[i].isl) { s_installerLangs[i] = true; break; }
+                tok.clear();
+            } else {
+                tok += ch;
+            }
+        }
+        if (!tok.empty())
+            for (int i = 1; i < kLangCount; i++)
+                if (tok == kInnoLangs[i].isl) { s_installerLangs[i] = true; break; }
+    }
+}
+
+// ── SETT_GetInstallBasePath ───────────────────────────────────────────────────
+std::wstring SETT_GetInstallBasePath()
+{
+    static const wchar_t* kBases[] = {
+        L"{pf}", L"{pf64}", L"{pf32}",
+        L"{localappdata}", L"{commonappdata}", L"{userdocs}"
+    };
+    if (s_installBase >= 0 && s_installBase < 6)
+        return kBases[s_installBase];
+    // Custom: return the custom value, fall back to {pf} if empty
+    return s_installBaseCustom.empty() ? L"{pf}" : s_installBaseCustom;
+}
+// ── SETT_GetInstallerLanguages ─────────────────────────────────────────────
+std::vector<InnoLangEntry> SETT_GetInstallerLanguages()
+{
+    std::vector<InnoLangEntry> result;
+    for (int i = 0; i < kLangCount; i++)
+        if (i < (int)s_installerLangs.size() && s_installerLangs[i])
+            result.push_back({ kInnoLangs[i].isl, kInnoLangs[i].local });
+    if (result.empty())
+        result.push_back({ L"Default", false });  // fallback — always at least English
+    return result;
 }

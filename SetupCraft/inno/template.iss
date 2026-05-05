@@ -1,7 +1,7 @@
 [Setup]
 AppName={#AppName}
 AppVersion={#AppVersion}
-DefaultDirName={pf}\{#AppName}
+DefaultDirName={#DefaultDirBase}\{#AppName}
 DefaultGroupName={#AppName}
 OutputBaseFilename={#OutputBase}
 Compression=lzma2
