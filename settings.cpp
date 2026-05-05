@@ -198,7 +198,8 @@ int SETT_BuildPage(HWND hwnd, HINSTANCE hInst,
                    const std::wstring& appName,
                    const std::wstring& appVersion,
                    const std::wstring& appPublisher,
-                   const std::wstring& appIconPath)
+                   const std::wstring& appIconPath,
+                   const std::wstring& appId)
 {
     s_hInst   = hInst;
     s_hGuiFont = hGuiFont;
@@ -247,6 +248,33 @@ int SETT_BuildPage(HWND hwnd, HINSTANCE hInst,
     y = LabelEdit(hwnd, hInst, hGuiFont, y, clientWidth,
                   loc(L"sett_support_url_lbl", L"Support URL:"),
                   IDC_SETT_SUPPORT_URL, s_supportUrl);
+
+    // AppId: read-only GUID display + Regenerate button (IDC_SETT_REGEN_GUID handled by mainwindow.cpp)
+    {
+        const int fldX  = S(kPadH) + S(kLblW) + S(kLblGap);
+        const int editW = S(300);
+        const int btnW  = S(28);
+
+        HWND hL = CreateWindowExW(0, L"STATIC",
+            loc(L"sett_app_id_lbl", L"AppId (GUID):").c_str(),
+            WS_CHILD | WS_VISIBLE | SS_RIGHT | SS_CENTERIMAGE,
+            S(kPadH), y, S(kLblW), S(kRowH),
+            hwnd, NULL, hInst, NULL);
+        if (hGuiFont) SendMessageW(hL, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+
+        HWND hAid = CreateWindowExW(0, L"STATIC", appId.c_str(),
+            WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE | SS_NOPREFIX,
+            fldX, y, editW, S(kRowH),
+            hwnd, (HMENU)(UINT_PTR)IDC_SETT_APP_ID, hInst, NULL);
+        if (hGuiFont) SendMessageW(hAid, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+
+        CreateCustomButtonWithIcon(
+            hwnd, IDC_SETT_REGEN_GUID, L"", ButtonColor::Blue,
+            L"shell32.dll", 238,
+            fldX + editW + S(4), y, btnW, S(kRowH), hInst);
+
+        y += S(kRowStep);
+    }
 
     // App icon row: preview (48×48) + Change Icon button
     {
@@ -439,9 +467,9 @@ int SETT_BuildPage(HWND hwnd, HINSTANCE hInst,
 // ── SETT_OnCommand ────────────────────────────────────────────────────────────
 bool SETT_OnCommand(HWND hwnd, int wmId, int wmEvent, HWND /*hCtrl*/)
 {
-    // IDC_SETT_APP_NAME, IDC_SETT_APP_VERSION, IDC_SETT_PUBLISHER and
-    // IDC_SETT_CHANGE_ICON are handled by mainwindow.cpp (same as the
-    // Registry-page equivalents).
+    // IDC_SETT_APP_NAME, IDC_SETT_APP_VERSION, IDC_SETT_PUBLISHER,
+    // IDC_SETT_CHANGE_ICON and IDC_SETT_REGEN_GUID are handled by
+    // mainwindow.cpp (same as the Registry-page equivalents).
 
     if (wmId == IDC_SETT_OUTPUT_FOLDER && wmEvent == EN_CHANGE) {
         wchar_t buf[MAX_PATH] = {};

@@ -15,13 +15,13 @@
  *                            use SETT_GetScrollOffset() / SETT_SetScrollOffset().
  *
  * ── Shared fields ─────────────────────────────────────────────────────────────
- *   App name, version, publisher, and icon path are owned by mainwindow.cpp
+ *   App name, version, publisher, AppId, and icon path are owned by mainwindow.cpp
  *   statics (s_currentProject.name/.version, s_appPublisher, s_appIconPath).
  *   SETT_BuildPage receives them as read-only parameters to pre-fill the edits.
  *   Changes to those controls are handled by mainwindow.cpp EN_CHANGE handlers
  *   (IDC_SETT_APP_NAME, IDC_SETT_APP_VERSION, IDC_SETT_PUBLISHER) and the
- *   IDC_SETT_CHANGE_ICON button handler — exactly like the Registry-page
- *   equivalents (IDC_REG_VERSION, IDC_REG_PUBLISHER, IDC_REG_ADD_ICON).
+ *   IDC_SETT_CHANGE_ICON / IDC_SETT_REGEN_GUID button handlers — exactly like the
+ *   Registry-page equivalents (IDC_REG_VERSION, IDC_REG_PUBLISHER, IDC_REG_ADD_ICON).
  *
  * ── New settings ──────────────────────────────────────────────────────────────
  *   Publisher URL, support URL, output filename, compression type/level, solid
@@ -46,6 +46,8 @@
 #define IDC_SETT_SUPPORT_URL     8004   // Edit: support URL (new)
 #define IDC_SETT_ICON_PREVIEW    8005   // Static SS_ICON: app icon preview
 #define IDC_SETT_CHANGE_ICON     8006   // Button: Change Icon…
+#define IDC_SETT_APP_ID          8007   // Static: AppId GUID (read-only display)
+#define IDC_SETT_REGEN_GUID      8008   // Button: Regenerate AppId (handled by mainwindow.cpp)
 
 // ── Build output section ──────────────────────────────────────────────────────
 #define IDC_SETT_OUTPUT_FOLDER   8009   // Edit: output folder path
@@ -84,7 +86,8 @@ int  SETT_BuildPage(HWND hwnd, HINSTANCE hInst,
                     const std::wstring& appName,
                     const std::wstring& appVersion,
                     const std::wstring& appPublisher,
-                    const std::wstring& appIconPath);
+                    const std::wstring& appIconPath,
+                    const std::wstring& appId);
 
 // Null HWND statics.  Call from SwitchPage teardown.
 void SETT_TearDown(HWND hwnd);

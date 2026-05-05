@@ -664,6 +664,7 @@ sett_app_version_lbl=Version:
 sett_publisher_lbl=Publisher:
 sett_publisher_url_lbl=Publisher URL:
 sett_support_url_lbl=Support URL:
+sett_app_id_lbl=AppId (GUID):
 sett_app_icon_lbl=App icon:
 sett_change_icon_btn=Change Icon…
 sett_sec_build=Build Output

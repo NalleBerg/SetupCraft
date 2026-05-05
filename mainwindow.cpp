@@ -2745,47 +2745,6 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         if (s_scaledFont && hPublisherEdit) SendMessageW(hPublisherEdit, WM_SETFONT, (WPARAM)s_scaledFont, TRUE);
         currentY += S(27);
 
-        // AppId field — indented past the left-side buttons (Show Regkey ends ~S(350))
-        {
-            auto itAid = s_locale.find(L"reg_app_id");
-            std::wstring appIdLabel = (itAid != s_locale.end()) ? itAid->second : L"AppId (GUID):";
-            HWND hLblAid = CreateWindowExW(0, L"STATIC", appIdLabel.c_str(),
-                WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
-                S(370), currentY, S(95), S(22),
-                hwnd, (HMENU)5106, hInst, NULL);
-            if (s_scaledFont && hLblAid) SendMessageW(hLblAid, WM_SETFONT, (WPARAM)s_scaledFont, TRUE);
-        }
-        {
-            // Fixed-width edit — wide enough for a full GUID, not stretching to window edge
-            int editX  = S(470);
-            int editW  = S(300);   // fits "{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}"
-            int regenW = S(30);
-
-            // Read-only: GUID is changed only via the Regenerate button (static, styled like install folder)
-            HWND hAppIdEdit = CreateWindowExW(0, L"STATIC", s_appId.c_str(),
-                WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE | SS_NOPREFIX,
-                editX, currentY, editW, S(22),
-                hwnd, (HMENU)IDC_REG_APP_ID, hInst, NULL);
-            if (s_scaledFont && hAppIdEdit) SendMessageW(hAppIdEdit, WM_SETFONT, (WPARAM)s_scaledFont, TRUE);
-
-            // Regenerate button — icon only (shell32 #238, Blue, centred)
-            auto itRegen = s_locale.find(L"reg_regen_guid");
-            std::wstring regenTip = (itRegen != s_locale.end()) ? itRegen->second : L"Generate new GUID";
-            (void)regenTip; // used by the subclass tooltip proc
-            CreateCustomButtonWithIcon(hwnd, IDC_REG_REGEN_GUID, L"", ButtonColor::Blue,
-                L"shell32.dll", 238,
-                editX + editW + S(4), currentY, regenW, S(22), hInst);
-
-            // Wire custom tooltip via subclass (not s_hTooltip / TTM_ADDTOOL)
-            {
-                HWND hRegen = GetDlgItem(hwnd, IDC_REG_REGEN_GUID);
-                if (hRegen)
-                    s_prevRegenBtnProc = (WNDPROC)SetWindowLongPtrW(
-                        hRegen, GWLP_WNDPROC, (LONG_PTR)RegenBtn_SubclassProc);
-            }
-        }
-        currentY += S(40);
-        
         // Divider line
         CreateWindowExW(0, L"STATIC", L"",
             WS_CHILD | WS_VISIBLE | SS_ETCHEDHORZ,
@@ -3123,7 +3082,14 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         s_settPageContentH = SETT_BuildPage(hwnd, hInst, pageY, rc.right,
                                s_hPageTitleFont, s_hGuiFont, s_locale,
                                s_currentProject.name, s_currentProject.version,
-                               s_appPublisher, s_appIconPath);
+                               s_appPublisher, s_appIconPath, s_appId);
+        // Wire Regenerate GUID button tooltip subclass now that the control exists.
+        {
+            HWND hRegen = GetDlgItem(hwnd, IDC_SETT_REGEN_GUID);
+            if (hRegen)
+                s_prevRegenBtnProc = (WNDPROC)SetWindowLongPtrW(
+                    hRegen, GWLP_WNDPROC, (LONG_PTR)RegenBtn_SubclassProc);
+        }
         {
             int statusH = 25;
             if (s_hStatus && IsWindow(s_hStatus)) {
@@ -9403,12 +9369,12 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         if (s_currentPageIndex == 1 && s_hRegTreeView && IsWindow(s_hRegTreeView)) {
             int treeWidth = (int)((rc.right - S(40)) * 0.4);
             int listWidth = (rc.right - S(40)) - treeWidth - S(10);
-            int splitY    = s_toolbarHeight + S(252);
+            int splitY    = s_toolbarHeight + S(212);
             int paneH     = rc.bottom - splitY - S(90);
             if (paneH < S(30)) paneH = S(30);
             int btnY      = splitY + paneH + S(10);
 
-            HDWP hdwp = BeginDeferWindowPos(9);
+            HDWP hdwp = BeginDeferWindowPos(7);
             auto DeferCtrl = [&](HWND h, int x, int y, int w, int hh) {
                 if (h && IsWindow(h))
                     hdwp = DeferWindowPos(hdwp, h, NULL, x, y, w, hh,
@@ -9423,18 +9389,13 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                       S(470), s_toolbarHeight + S(117), rc.right - S(540), S(22));
             DeferCtrl(GetDlgItem(hwnd, IDC_REG_PUBLISHER),
                       S(470), s_toolbarHeight + S(144), rc.right - S(540), S(22));
-            // AppId row: fixed positions clear of the left-side buttons
-            DeferCtrl(GetDlgItem(hwnd, IDC_REG_APP_ID),
-                      S(470), s_toolbarHeight + S(171), S(300), S(22));
-            DeferCtrl(GetDlgItem(hwnd, IDC_REG_REGEN_GUID),
-                      S(774), s_toolbarHeight + S(171), S(30), S(22));
             DeferCtrl(GetDlgItem(hwnd, 5104),   // divider line
-                      S(20), s_toolbarHeight + S(211), rc.right - S(40), 2);
+                      S(20), s_toolbarHeight + S(171), rc.right - S(40), 2);
             // Move right-anchored controls (backup button and warning icon)
             DeferCtrl(GetDlgItem(hwnd, IDC_REG_BACKUP),
-                      rc.right - S(190), s_toolbarHeight + S(231), S(170), S(40));
+                      rc.right - S(190), s_toolbarHeight + S(191), S(170), S(40));
             DeferCtrl(GetDlgItem(hwnd, IDC_REG_WARNING_ICON),
-                      rc.right - S(230), s_toolbarHeight + S(235), S(32), S(32));
+                      rc.right - S(230), s_toolbarHeight + S(195), S(32), S(32));
             // Resize split panes
             DeferCtrl(s_hRegTreeView, S(20), splitY, treeWidth, paneH);
             DeferCtrl(s_hRegListView, S(30) + treeWidth, splitY, listWidth, paneH);
@@ -11181,7 +11142,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             return 0;
         }
 
-        case IDC_REG_REGEN_GUID: {
+        case IDC_SETT_REGEN_GUID: {
             // Warn the developer: changing the AppId breaks continuity with existing installs.
             auto itWarnTitle = s_locale.find(L"reg_regen_warn_title");
             auto itWarnMsg   = s_locale.find(L"reg_regen_warn_msg");
@@ -11202,7 +11163,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             GUID g = {}; CoCreateGuid(&g);
             wchar_t buf[64] = {}; StringFromGUID2(g, buf, _countof(buf));
             s_appId = buf;
-            HWND hEdit = GetDlgItem(hwnd, IDC_REG_APP_ID);
+            HWND hEdit = GetDlgItem(hwnd, IDC_SETT_APP_ID);
             if (hEdit) SetWindowTextW(hEdit, s_appId.c_str());
             MarkAsModified();
             return 0;
@@ -12758,9 +12719,10 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             s_currentProject.register_in_windows = s_registerInWindows ? 1 : 0;
             s_currentProject.app_publisher = s_appPublisher;
             s_currentProject.app_icon_path = s_appIconPath;
-            // Sync AppId from the edit field (developer may have pasted a custom GUID)
+            // Sync AppId from the display static (s_appId is the source of truth;
+            // this read-back handles any future editable variant)
             {
-                HWND hAidEdit = GetDlgItem(hwnd, IDC_REG_APP_ID);
+                HWND hAidEdit = GetDlgItem(hwnd, IDC_SETT_APP_ID);
                 if (hAidEdit) {
                     int len = GetWindowTextLengthW(hAidEdit);
                     if (len > 0) {
@@ -13354,7 +13316,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         }
         
         // Special handling for install folder and GUID field - dark blue text
-        if (GetDlgCtrlID(hControl) == IDC_INSTALL_FOLDER || GetDlgCtrlID(hControl) == IDC_REG_APP_ID) {
+        if (GetDlgCtrlID(hControl) == IDC_INSTALL_FOLDER || GetDlgCtrlID(hControl) == IDC_SETT_APP_ID) {
             SetTextColor(hdc, RGB(0, 51, 153)); // Dark blue
             SetBkMode(hdc, TRANSPARENT);
             return (LRESULT)GetSysColorBrush(COLOR_WINDOW);
@@ -13450,7 +13412,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         if ((dis->CtlID >= IDC_TB_FILES && dis->CtlID <= IDC_TB_SAVE) || dis->CtlID == IDC_TB_DIALOGS || dis->CtlID == IDC_TB_COMPONENTS || dis->CtlID == IDC_TB_EXIT || dis->CtlID == IDC_TB_CLOSE_PROJECT ||
             (dis->CtlID >= IDC_FILES_ADD_DIR && dis->CtlID <= IDC_FILES_REMOVE) ||
             (dis->CtlID >= IDC_REG_CHECKBOX && dis->CtlID <= IDC_REG_BACKUP) ||
-            dis->CtlID == IDC_REG_REGEN_GUID ||
+            dis->CtlID == IDC_SETT_REGEN_GUID ||
             (dis->CtlID >= IDC_COMP_ADD && dis->CtlID <= IDC_COMP_REMOVE) ||
             (dis->CtlID >= IDC_SC_DESKTOP_BTN && dis->CtlID <= IDC_SC_SM_REMOVE) ||
              dis->CtlID == IDC_SC_SM_ADDSC ||

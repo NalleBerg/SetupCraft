@@ -2,6 +2,13 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.05.05.14] - 2026-05-05
+
+### settings — AppId (GUID) moved from Registry page to Settings page
+- **settings — AppId field in Application section (`IDC_SETT_APP_ID = 8007`)**: Moved the read-only GUID display from Registry page to Settings page, Application section, after Support URL. Correct location: AppId goes in Inno `[Setup]` alongside `AppName`/`AppVersion`/`AppPublisher`, not with custom registry entries.
+- **settings — Regenerate button (`IDC_SETT_REGEN_GUID = 8008`)**: Moved alongside the field. Same behaviour — confirmation dialog, `CoCreateGuid`, tooltip via subclass.
+- **registry — AppId row removed**: `IDC_REG_APP_ID`/`IDC_REG_REGEN_GUID` controls removed from Registry page. Divider, backup button, warning icon, and split pane shift up by S(40).
+
 ## [2026.05.05.13] - 2026-05-05
 
 ### dialogs — Preview sizer: header font & color controls

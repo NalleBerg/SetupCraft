@@ -1,8 +1,14 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 05 May 2026 &mdash; v2026.05.05.13 (13:21)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 05 May 2026 &mdash; v2026.05.05.14 (14:26)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
 
-<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.05.05.13</span></h3>
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.05.05.14</span></h3>
+<p><strong>settings &mdash; AppId (GUID) moved from Registry page to Settings page (05.05.2026, 14:26):</strong></p>
+<ul>
+<li><strong>settings &mdash; AppId field in Application section (<code>IDC_SETT_APP_ID = 8007</code>):</strong> The read-only AppId (GUID) display and Regenerate button have been moved from the Registry page into the Settings page, Application section, immediately after the Support URL field. This is the correct location: the AppId is a core application identity property that goes into Inno&rsquo;s <code>[Setup]</code> section alongside <code>AppName</code>, <code>AppVersion</code>, and <code>AppPublisher</code> &mdash; not a registry entry the installer writes.</li>
+<li><strong>settings &mdash; Regenerate button (<code>IDC_SETT_REGEN_GUID = 8008</code>):</strong> Blue icon-only button (shell32 #238) next to the GUID display. Click confirms with a warning dialog (regenerating breaks uninstallation continuity with existing installs) then generates a new <code>CoCreateGuid</code> value. Tooltip via subclass proc. Handler in mainwindow.cpp.</li>
+<li><strong>registry &mdash; AppId row removed:</strong> The <code>IDC_REG_APP_ID</code> / <code>IDC_REG_REGEN_GUID</code> controls, their DeferCtrl entries, and the extra S(40) height have been removed from the Registry page. The divider, backup button, warning icon, and split pane all shift up by S(40) accordingly.</li>
+</ul>
 <p><strong>dialogs &mdash; Preview sizer: header font &amp; color controls (05.05.2026, 13:21):</strong></p>
 <ul>
 <li><strong>dialogs &mdash; Header font section in sizer panel (IDC_IDLG_SZR_FONT_GLOBAL 7128 &ndash; IDC_IDLG_SZR_FONT_ITALIC 7133):</strong> The sizer floating panel now contains a <em>Header font</em> section below the existing size/alignment controls. Controls: font family name edit field (<code>IDC_IDLG_SZR_FONT_NAME = 7129</code>), size spinner (<code>IDC_IDLG_SZR_FONT_SIZE_E/S = 7130/7131</code>, range 0&ndash;72 pt), Bold checkbox (<code>IDC_IDLG_SZR_FONT_BOLD = 7132</code>), Italic checkbox (<code>IDC_IDLG_SZR_FONT_ITALIC = 7133</code>). Empty name and size&nbsp;0 mean &ldquo;use Inno&rsquo;s default&rdquo;. Changes apply live to the preview title label via <code>RefreshPreviewHeader()</code> which rebuilds an <code>HFONT</code> from the current settings.</li>
