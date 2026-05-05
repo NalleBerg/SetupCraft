@@ -60,6 +60,11 @@ static int  s_licenseTemplateId = 0;           // id into license_templates tabl
 static int  s_licenseSource     = 0;           // 0 = built-in RTF editor, 1 = external file
 static std::wstring s_licenseFilePath;         // absolute path when s_licenseSource == 1
 
+// Finish-page "launch app when done" state.
+static bool s_finishLaunchEnabled    = false;                  // main toggle
+static std::wstring s_finishLaunchDesc = L"Launch {#MyAppName}"; // Description= text in [Run] entry
+static bool s_finishLaunchDefChecked = true;                   // false → Inno emits Flags: unchecked
+
 static HINSTANCE  s_hInst      = NULL;
 static HFONT      s_hGuiFont   = NULL;
 static HFONT      s_hTitleFont = NULL;
@@ -639,6 +644,22 @@ static void PopulateExtras(HWND hwnd, PreviewData* pd, InstallerDialogType newTy
             if (s_hGuiFont) SendMessageW(hLbl, WM_SETFONT, (WPARAM)s_hGuiFont, TRUE);
             pd->hCompChecks.push_back(hLbl);
         }
+
+    } else if (newType == IDLG_FINISH && s_finishLaunchEnabled) {
+        pd->showExtras = true;
+        if (pd->hExtrasLabel && IsWindow(pd->hExtrasLabel))
+            SetWindowTextW(pd->hExtrasLabel, L"");
+        // Represent the launch-app checkbox using the dynamic component-checkbox
+        // slot so PopulateExtras' existing cleanup handles it automatically.
+        std::wstring desc = s_finishLaunchDesc.empty()
+            ? L"Launch {#MyAppName}" : s_finishLaunchDesc;
+        HWND hChk = CreateCustomCheckbox(hwnd,
+            IDC_IDLG_PRV_COMP_BASE + 0,
+            desc, s_finishLaunchDefChecked,
+            0, 0, 10, 22,
+            s_hInst);
+        if (s_hGuiFont) SendMessageW(hChk, WM_SETFONT, (WPARAM)s_hGuiFont, TRUE);
+        pd->hCompChecks.push_back(hChk);
 
     } else {
         pd->showExtras = false;
@@ -2048,6 +2069,9 @@ void IDLG_Reset()
     s_licenseTemplateId = 0;
     s_licenseSource     = 0;
     s_licenseFilePath.clear();
+    s_finishLaunchEnabled    = false;
+    s_finishLaunchDesc       = L"Launch {#MyAppName}";
+    s_finishLaunchDefChecked = true;
     memset(s_previewUserSized, 0, sizeof(s_previewUserSized));
     // s_hInstallIcon and s_hInstIconPreview are managed by BuildPage/TearDown.
 }
@@ -2384,6 +2408,70 @@ int IDLG_BuildPage(HWND hwnd, HINSTANCE hInst,
             if (hGuiFont) SendMessageW(hChk, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
             y += chkH + gap;
         }
+
+        // ── Finish-row sub-controls ───────────────────────────────────────────
+        // "Launch app when done": adds a [Run] entry with Flags: postinstall
+        // shellexec skipifsilent (+ unchecked when s_finishLaunchDefChecked is false).
+        if (type == IDLG_FINISH) {
+            const int chkIndent = padH + iconSz + gap;
+            const int subIndent = chkIndent + S(16);  // extra indent for sub-options
+            const int chkH   = S(24);
+            const int lblH   = S(20);
+            const int editH  = S(24);
+            const BOOL subEn = s_finishLaunchEnabled ? TRUE : FALSE;
+
+            // Main toggle
+            HWND hLaunch = CreateCustomCheckbox(hwnd, IDC_IDLG_FINISH_LAUNCH,
+                L10n(L"idlg_finish_launch", L"Launch app when the installer finishes"),
+                s_finishLaunchEnabled,
+                chkIndent, y, clientWidth - chkIndent - padH, chkH,
+                hInst);
+            if (hGuiFont) SendMessageW(hLaunch, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+            SetButtonTooltip(hLaunch, L10n(L"idlg_finish_launch_tip",
+                L"Adds a launch checkbox to the Finish page "
+                L"([Run] Filename: \"{app}\\{#MyAppExeName}\"; "
+                L"Flags: nowait postinstall shellexec skipifsilent).").c_str());
+            y += chkH + S(4);
+
+            // "Description text:" label
+            HWND hDescLbl = CreateWindowExW(0, L"STATIC",
+                L10n(L"idlg_finish_launch_desc_lbl", L"Description text:").c_str(),
+                WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
+                subIndent, y, clientWidth - subIndent - padH, lblH,
+                hwnd, (HMENU)(UINT_PTR)IDC_IDLG_FINISH_LAUNCH_DESC_LBL, hInst, NULL);
+            if (hGuiFont) SendMessageW(hDescLbl, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+            EnableWindow(hDescLbl, subEn);
+            y += lblH + S(2);
+
+            // Description edit
+            std::wstring descText = s_finishLaunchDesc.empty()
+                ? L"Launch {#MyAppName}" : s_finishLaunchDesc;
+            HWND hDescEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT",
+                descText.c_str(),
+                WS_CHILD | WS_VISIBLE | ES_LEFT | ES_AUTOHSCROLL,
+                subIndent, y, clientWidth - subIndent - padH, editH,
+                hwnd, (HMENU)(UINT_PTR)IDC_IDLG_FINISH_LAUNCH_DESC, hInst, NULL);
+            if (hGuiFont) SendMessageW(hDescEdit, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+            EnableWindow(hDescEdit, subEn);
+            SetButtonTooltip(hDescEdit, L10n(L"idlg_finish_launch_desc_tip",
+                L"The Description= text in the [Run] entry. "
+                L"Inno macros such as {#MyAppName} are expanded at compile time.").c_str());
+            y += editH + gap;
+
+            // "Default checked" toggle
+            HWND hDefChk = CreateCustomCheckbox(hwnd, IDC_IDLG_FINISH_LAUNCH_DEFCHK,
+                L10n(L"idlg_finish_launch_defchk",
+                     L"Default checked (end user can uncheck before clicking Finish)"),
+                s_finishLaunchDefChecked,
+                subIndent, y, clientWidth - subIndent - padH, chkH,
+                hInst);
+            if (hGuiFont) SendMessageW(hDefChk, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+            EnableWindow(hDefChk, subEn);
+            SetButtonTooltip(hDefChk, L10n(L"idlg_finish_launch_defchk_tip",
+                L"When checked: the launch checkbox is pre-ticked in the installer. "
+                L"When unchecked: Inno adds Flags: unchecked so the end user must opt in.").c_str());
+            y += chkH + gap;
+        }
     }
 
     return y;  // absolute Y of first pixel below page content (used for scrollbar sizing)
@@ -2493,6 +2581,18 @@ bool IDLG_OnCommand(HWND hwnd, int wmId, int wmEvent, HWND /*hCtrl*/)
         return true;
     }
 
+    // Finish launch description edit field (EN_CHANGE)
+    if (wmId == IDC_IDLG_FINISH_LAUNCH_DESC && wmEvent == EN_CHANGE) {
+        HWND hEdit = GetDlgItem(hwnd, IDC_IDLG_FINISH_LAUNCH_DESC);
+        if (hEdit) {
+            wchar_t buf[1024] = {};
+            GetWindowTextW(hEdit, buf, _countof(buf));
+            s_finishLaunchDesc = buf;
+            MainWindow::MarkAsModified();
+        }
+        return true;
+    }
+
     if (wmEvent != BN_CLICKED) return false;
 
     // Browse for external license file (.rtf or .txt).
@@ -2520,6 +2620,26 @@ bool IDLG_OnCommand(HWND hwnd, int wmId, int wmEvent, HWND /*hCtrl*/)
     if (wmId == IDC_IDLG_LICENSE_ACCEPT) {
         HWND hChk = GetDlgItem(hwnd, IDC_IDLG_LICENSE_ACCEPT);
         if (hChk) s_licenseMustAccept = (SendMessageW(hChk, BM_GETCHECK, 0, 0) == BST_CHECKED);
+        MainWindow::MarkAsModified();
+        return true;
+    }
+
+    // Finish-page "launch app when done" controls
+    if (wmId == IDC_IDLG_FINISH_LAUNCH) {
+        HWND hChk = GetDlgItem(hwnd, IDC_IDLG_FINISH_LAUNCH);
+        if (hChk) {
+            s_finishLaunchEnabled = (SendMessageW(hChk, BM_GETCHECK, 0, 0) == BST_CHECKED);
+            BOOL en = s_finishLaunchEnabled ? TRUE : FALSE;
+            EnableWindow(GetDlgItem(hwnd, IDC_IDLG_FINISH_LAUNCH_DESC_LBL), en);
+            EnableWindow(GetDlgItem(hwnd, IDC_IDLG_FINISH_LAUNCH_DESC),     en);
+            EnableWindow(GetDlgItem(hwnd, IDC_IDLG_FINISH_LAUNCH_DEFCHK),   en);
+            MainWindow::MarkAsModified();
+        }
+        return true;
+    }
+    if (wmId == IDC_IDLG_FINISH_LAUNCH_DEFCHK) {
+        HWND hChk = GetDlgItem(hwnd, IDC_IDLG_FINISH_LAUNCH_DEFCHK);
+        if (hChk) s_finishLaunchDefChecked = (SendMessageW(hChk, BM_GETCHECK, 0, 0) == BST_CHECKED);
         MainWindow::MarkAsModified();
         return true;
     }
@@ -2724,6 +2844,10 @@ void IDLG_SaveToDb(int projectId)
     std::wstring enabledStr(IDLG_COUNT, L'0');
     for (int i = 0; i < IDLG_COUNT; i++) enabledStr[i] = s_dialogEnabled[i] ? L'1' : L'0';
     DB::SetSetting(L"installer_dialog_enabled_" + pid, enabledStr);
+    // Finish-page launch settings
+    DB::SetSetting(L"installer_finish_launch_"        + pid, s_finishLaunchEnabled    ? L"1" : L"0");
+    DB::SetSetting(L"installer_finish_launch_desc_"   + pid, s_finishLaunchDesc);
+    DB::SetSetting(L"installer_finish_launch_defchk_" + pid, s_finishLaunchDefChecked ? L"1" : L"0");
 }
 
 // ── IDLG_LoadFromDb ───────────────────────────────────────────────────────────
@@ -2777,6 +2901,14 @@ void IDLG_LoadFromDb(int projectId)
         for (int i = 0; i < IDLG_COUNT && i < (int)sEnabled.size(); i++)
             s_dialogEnabled[i] = (sEnabled[i] != L'0');
     }
+    // Finish-page launch settings
+    std::wstring sLaunch, sLaunchDesc, sLaunchDef;
+    if (DB::GetSetting(L"installer_finish_launch_"        + pid, sLaunch))
+        s_finishLaunchEnabled = (sLaunch == L"1");
+    if (DB::GetSetting(L"installer_finish_launch_desc_"   + pid, sLaunchDesc))
+        s_finishLaunchDesc = sLaunchDesc;
+    if (DB::GetSetting(L"installer_finish_launch_defchk_" + pid, sLaunchDef))
+        s_finishLaunchDefChecked = (sLaunchDef != L"0");
 }
 
 // ── IDLG_SetInstallerInfo ─────────────────────────────────────────────────────
@@ -2802,6 +2934,10 @@ int  IDLG_GetScrollOffset()        { return s_idlgScrollOffset; }
 bool         IDLG_GetLicenseMustAccept() { return s_licenseMustAccept; }
 int          IDLG_GetLicenseSource()    { return s_licenseSource; }
 std::wstring IDLG_GetLicenseFilePath()  { return s_licenseFilePath; }
+
+bool         IDLG_GetFinishLaunchEnabled()       { return s_finishLaunchEnabled; }
+std::wstring IDLG_GetFinishLaunchDesc()          { return s_finishLaunchDesc.empty() ? std::wstring(L"Launch {#MyAppName}") : s_finishLaunchDesc; }
+bool         IDLG_GetFinishLaunchDefaultChecked() { return s_finishLaunchDefChecked; }
 
 bool IDLG_IsDialogEnabled(InstallerDialogType t)
 {

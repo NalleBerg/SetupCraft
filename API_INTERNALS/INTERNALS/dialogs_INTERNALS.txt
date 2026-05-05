@@ -32,7 +32,7 @@
     BN_CLICKED → updates s_dialogEnabled[i] + MarkAsModified().
     Tooltip key: idlg_enable_tip.
 
-  IDC_IDLG_LICENSE_SRC_LBL      7049  "License source:" STATIC label.
+  IDC_IDLG_FINISH_LAUNCH          7070  Main enable checkbox below the FINISH row:\n                                        "Launch app when the installer finishes"\n                                        Default off (s_finishLaunchEnabled = false).\n                                        BN_CLICKED → update s_finishLaunchEnabled;\n                                        EnableWindow the three sub-controls accordingly.\n  IDC_IDLG_FINISH_LAUNCH_DESC_LBL 7071  "Description text:" STATIC label (sub-control).\n                                        Grayed when LAUNCH is unchecked.\n  IDC_IDLG_FINISH_LAUNCH_DESC     7072  Edit field: Description= text for the [Run]\n                                        entry. Default "Launch {#MyAppName}".\n                                        EN_CHANGE → update s_finishLaunchDesc.\n                                        Grayed when LAUNCH is unchecked.\n  IDC_IDLG_FINISH_LAUNCH_DEFCHK   7073  "Default checked" checkbox (sub-control).\n                                        When checked (default): the installer pre-ticks\n                                        the launch checkbox. When unchecked: Inno appends\n                                        the unchecked flag to the [Run] Flags line.\n                                        BN_CLICKED → update s_finishLaunchDefChecked.\n                                        Grayed when LAUNCH is unchecked.\n  Inno output (when LAUNCH enabled):\n    [Run]\n    Filename: "{app}\\{#MyAppExeName}"; Description: "<s_finishLaunchDesc>";\n    Flags: nowait postinstall shellexec skipifsilent[  unchecked]\n  Locale keys: idlg_finish_launch, idlg_finish_launch_tip,\n               idlg_finish_launch_desc_lbl, idlg_finish_launch_desc_tip,\n               idlg_finish_launch_defchk, idlg_finish_launch_defchk_tip.\n\n  IDC_IDLG_LICENSE_SRC_LBL      7049  "License source:" STATIC label.
 
   IDC_IDLG_LICENSE_SRC           7050  CBS_DROPDOWNLIST combo at the top of the
                                         License sub-section.  Two items (index 0/1):
@@ -131,7 +131,13 @@
       // IDLG_LoadFromDb restores from DB::GetSetting("installer_dialog_enabled_<pid>").
       // IDLG_SaveToDb writes DB::SetSetting("installer_dialog_enabled_<pid>", str).
       // Public accessor: IDLG_IsDialogEnabled(InstallerDialogType) for script generation.
-
+  Finish-page launch settings:
+    static bool s_finishLaunchEnabled            // installer_finish_launch_<pid>        default false
+    static std::wstring s_finishLaunchDesc        // installer_finish_launch_desc_<pid>   default "Launch {#MyAppName}"
+    static bool s_finishLaunchDefChecked          // installer_finish_launch_defchk_<pid> default true
+      // All three reset to defaults in IDLG_Reset(); persisted/restored in Save/LoadFromDb.
+      // Public accessors: IDLG_GetFinishLaunchEnabled() / IDLG_GetFinishLaunchDesc()
+      //                   IDLG_GetFinishLaunchDefaultChecked()
   Each dialog type's RTF content:
     static std::wstring s_rtfContent[IDLG_COUNT]  // in-memory only; DB on Save
 
@@ -608,6 +614,12 @@
   idlg_preview_next       Next
   idlg_preview_cancel     Cancel
   idlg_enable_tip         Include this dialog in the installer (uncheck to omit it)
+  idlg_finish_launch           Launch app when the installer finishes
+  idlg_finish_launch_tip       Adds a launch checkbox to the Finish page ([Run] Filename: ...; Flags: nowait postinstall shellexec skipifsilent).
+  idlg_finish_launch_desc_lbl  Description text:
+  idlg_finish_launch_desc_tip  The Description= text in the [Run] entry. Inno macros such as {#MyAppName} are expanded at compile time.
+  idlg_finish_launch_defchk    Default checked (end user can uncheck before clicking Finish)
+  idlg_finish_launch_defchk_tip  When checked: the launch checkbox is pre-ticked in the installer. When unchecked: Inno adds Flags: unchecked so the end user must opt in.
 
   (Unicode glyphs ◀ and ▶ are embedded in C++ string literals, not locale keys,
    so they display correctly regardless of locale file encoding.)

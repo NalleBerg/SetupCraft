@@ -29,7 +29,8 @@
  *
  * ── Architecture notes ────────────────────────────────────────────────────────
  *   Full implementation in dialogs.cpp, including the inline preview dialog.
- *   Control IDs range: 7000–7109; enable checkboxes: 7060–7068.
+ *   Control IDs range: 7000–7127; enable checkboxes: 7060–7068;
+ *   finish launch section: 7070–7073.
  */
 
 #include <windows.h>
@@ -76,6 +77,16 @@ struct InstallerDialog {
 // preview Back/Next navigation.  The row itself always remains visible so the
 // developer can re-enable it at any time.
 #define IDC_IDLG_ROW_ENABLE_BASE  7060
+
+// Finish-row sub-controls — "launch app when done" section
+// When IDC_IDLG_FINISH_LAUNCH is checked, a [Run] entry is emitted in the Inno
+// script with Flags: nowait postinstall shellexec skipifsilent (and optionally
+// unchecked if IDC_IDLG_FINISH_LAUNCH_DEFCHK is unchecked).  The description
+// text (IDC_IDLG_FINISH_LAUNCH_DESC) becomes the Description parameter.
+#define IDC_IDLG_FINISH_LAUNCH          7070  // checkbox: launch the app when installer finishes
+#define IDC_IDLG_FINISH_LAUNCH_DESC_LBL 7071  // static label: "Description text:"
+#define IDC_IDLG_FINISH_LAUNCH_DESC     7072  // edit field: text shown next to launch checkbox
+#define IDC_IDLG_FINISH_LAUNCH_DEFCHK   7073  // checkbox: launch checkbox is checked by default
 
 // License-row sub-controls
 #define IDC_IDLG_LICENSE_SRC_LBL       7049   // static label: "License source:"
@@ -192,3 +203,15 @@ std::wstring IDLG_GetLicenseFilePath();
 // Always returns true for IDLG_INSTALL (the progress dialog cannot be disabled).
 // Only WELCOME, LICENSE, READY, and FINISH have user-facing enable toggles.
 bool IDLG_IsDialogEnabled(InstallerDialogType t);
+
+// Returns true when the "Launch app when done" option is enabled for the Finish page.
+bool IDLG_GetFinishLaunchEnabled();
+
+// Returns the description text for the launch-app checkbox in the installer.
+// Used as the Description parameter of the [Run] entry.  Defaults to
+// "Launch {#MyAppName}" when not customised.
+std::wstring IDLG_GetFinishLaunchDesc();
+
+// Returns true when the launch-app checkbox should be pre-checked in the installer
+// (omit Flags: unchecked).  Returns false when the end user should have to opt in.
+bool IDLG_GetFinishLaunchDefaultChecked();

@@ -4,6 +4,13 @@ All notable changes to SetupCraft will be documented in this file.
 
 ## [2026.05.05.12] - 2026-05-05
 
+### dialogs — Finish page: “Launch app when done” section
+- **dialogs — “Launch app when the installer finishes” checkbox (`IDC_IDLG_FINISH_LAUNCH = 7070`)**: New sub-section below the Finish row on the Dialogs page. When enabled, emits a `[Run]` entry in the Inno script: `Filename: "{app}\{#MyAppExeName}"; Description: "..."; Flags: nowait postinstall shellexec skipifsilent`. This is the standard Inno mechanism for the “Launch AppName now” checkbox on the Finish page — surfaced directly on the Dialogs page rather than requiring the developer to know about `SWR_FINISH_OPTOUT` on the Scripts page.
+- **dialogs — Description text edit (`IDC_IDLG_FINISH_LAUNCH_DESC = 7072`)**: Editable label shown next to the checkbox in the installer. Defaults to `Launch {#MyAppName}`. Inno macros expanded at compile time. Disabled when main toggle is off. Persisted as `installer_finish_launch_desc_<pid>` via `DB::SetSetting`.
+- **dialogs — “Default checked” toggle (`IDC_IDLG_FINISH_LAUNCH_DEFCHK = 7073`)**: When checked (default), the launch checkbox is pre-ticked. When unchecked, Inno adds `Flags: unchecked` so the end user must opt in. Disabled when main toggle is off. Persisted as `installer_finish_launch_defchk_<pid>` via `DB::SetSetting`.
+- **dialogs — Preview integration**: Previewing the Finish dialog when launch is enabled shows the launch checkbox (with current desc text and default-checked state) in the extras panel.
+- **dialogs — Public accessors**: `IDLG_GetFinishLaunchEnabled()`, `IDLG_GetFinishLaunchDesc()`, `IDLG_GetFinishLaunchDefaultChecked()` in `dialogs.h` for script generation.
+
 ### dialogs — Per-dialog enabled toggle for always-visible installer pages
 - **dialogs — Per-dialog enable checkbox (`IDC_IDLG_ROW_ENABLE_BASE = 7060`)**: The four always-present installer dialog rows — Welcome, License, Ready to Install, and Finish — now each carry a custom checkbox in place of the plain name label. When unchecked, the dialog is excluded from the generated installer script and skipped during preview Back/Next navigation. The Install (progress bar) dialog cannot be disabled. Conditional rows (Dependencies, For Me/All Users, Components, Shortcuts) retain their existing label. Control IDs: `IDC_IDLG_ROW_ENABLE_BASE + InstallerDialogType` (range 7060–7068; only four created). Tooltip key: `idlg_enable_tip`.
 - **dialogs — `s_dialogEnabled[IDLG_COUNT]` state array**: New `bool s_dialogEnabled[IDLG_COUNT]`, all `true` by default. Reset to all-`true` in `IDLG_Reset()`. Persisted per-project via `DB::SetSetting` key `installer_dialog_enabled_<pid>` as a compact 9-char string. Restored in `IDLG_LoadFromDb()`.
