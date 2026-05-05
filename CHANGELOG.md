@@ -2,6 +2,15 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.05.05.13] - 2026-05-05
+
+### dialogs — Preview sizer: header font & color controls
+- **dialogs — Header font section in sizer panel (IDC_IDLG_SZR_FONT_GLOBAL 7128 – IDC_IDLG_SZR_FONT_ITALIC 7133)**: Font family name edit, size spinner (0–72 pt), Bold/Italic checkboxes below existing size/alignment controls. Empty name and size 0 = Inno default. Live preview update via `RefreshPreviewHeader()`.
+- **dialogs — Header color section in sizer panel (IDC_IDLG_SZR_CLR_GLOBAL 7134 – IDC_IDLG_SZR_CLR_BG 7136)**: Title fg and header bg color swatch buttons. Left-click = system color picker; right-click = reset to `IDLG_NOCOLOR`. Live preview via `WM_ERASEBKGND` (bg) and `WM_CTLCOLORSTATIC` (fg).
+- **dialogs — "Use on all dialogs" toggles**: Each group (font, color) has an independent global checkbox. Per-dialog and global modes interoperate with full value-seeding semantics.
+- **dialogs — Public accessors**: `IDLG_GetHeaderFont(t)`, `IDLG_GetHeaderFgColor(t)`, `IDLG_GetHeaderBgColor(t)`, `IDLG_IsHeaderFontGlobal()`, `IDLG_IsHeaderColorGlobal()`. `IdlgHeaderFont` struct and `IDLG_NOCOLOR` in `dialogs.h`.
+- **dialogs — Persistence**: Global flags + global values + per-dialog values persisted via `DB::SetSetting` (keys: `installer_hdr_font_*` and `installer_hdr_clr_*`).
+
 ## [2026.05.05.12] - 2026-05-05
 
 ### dialogs — Ready page: “Show summary of choices” section

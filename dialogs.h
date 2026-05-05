@@ -29,8 +29,9 @@
  *
  * ── Architecture notes ────────────────────────────────────────────────────────
  *   Full implementation in dialogs.cpp, including the inline preview dialog.
- *   Control IDs range: 7000–7127; enable checkboxes: 7060–7068;
- *   finish launch section: 7070–7073; ready summary: 7074–7075.
+ *   Control IDs range: 7000–7136; enable checkboxes: 7060–7068;
+ *   finish launch section: 7070–7073; ready summary: 7074–7075;
+ *   sizer font section: 7128–7133; sizer color section: 7134–7136.
  */
 
 #include <windows.h>
@@ -59,6 +60,19 @@ struct InstallerDialog {
     InstallerDialogType type;
     std::wstring        content_rtf;  // RTF-encoded content; empty = not yet edited
 };
+
+// ── Header font / color descriptors ──────────────────────────────────────────
+// Returned by IDLG_GetHeaderFont() for [Code] section script generation.
+// An empty name or size==0 means "use Inno's built-in default".
+struct IdlgHeaderFont {
+    std::wstring name;       // font family (empty = Inno default)
+    int          size = 0;   // point size  (0 = Inno default)
+    bool         bold   = false;
+    bool         italic = false;
+};
+// Sentinel returned by IDLG_GetHeaderFgColor / IDLG_GetHeaderBgColor when no
+// color override is set (meaning: use Inno defaults, no [Code] entry emitted).
+constexpr COLORREF IDLG_NOCOLOR = (COLORREF)-1;
 
 // ── Control IDs (range 7000–7109) ─────────────────────────────────────────────
 #define IDC_IDLG_PAGE_TITLE  7000    // Page heading STATIC
@@ -126,6 +140,23 @@ struct InstallerDialog {
 #define IDC_IDLG_SZR_V_ALIGN 7125   // vertical alignment combo (Top/Middle/Bottom)
 #define IDC_IDLG_SZR_CLOSE   7126   // "Close" button — saves size and closes preview
 #define IDC_IDLG_SZR_RESET   7127   // "Reset" button — clears user-sized flag and auto-fits
+
+// Sizer panel — header font section (range 7128–7133)
+// Appended below the size/alignment controls.  Controls the Inno WizardForm
+// PageNameLabel font per-dialog or globally via CurPageChanged in [Code].
+#define IDC_IDLG_SZR_FONT_GLOBAL  7128  // "Use on all dialogs" checkbox for header font
+#define IDC_IDLG_SZR_FONT_NAME    7129  // font family name edit field
+#define IDC_IDLG_SZR_FONT_SIZE_E  7130  // font size edit field
+#define IDC_IDLG_SZR_FONT_SIZE_S  7131  // font size up/down spinner (0–72 pt)
+#define IDC_IDLG_SZR_FONT_BOLD    7132  // Bold checkbox
+#define IDC_IDLG_SZR_FONT_ITALIC  7133  // Italic checkbox
+
+// Sizer panel — header color section (range 7134–7136)
+// Controls WizardForm.PageNameLabel.Font.Color (fg) and the header panel
+// background color (bg) per-dialog or globally via CurPageChanged in [Code].
+#define IDC_IDLG_SZR_CLR_GLOBAL   7134  // "Use on all dialogs" checkbox for header colors
+#define IDC_IDLG_SZR_CLR_FG       7135  // title text (fg) color swatch button
+#define IDC_IDLG_SZR_CLR_BG       7136  // header background (bg) color swatch button
 
 // Installer-title section controls (range 7110–7119)
 // Displayed at the top of the Dialogs page, above the dialog-type rows.
@@ -229,3 +260,24 @@ bool IDLG_GetReadyShowDir();
 // Returns true when AlwaysShowGroupOnReadyPage=yes should be emitted in [Setup].
 // Defaults to true (matching Inno's built-in default).
 bool IDLG_GetReadyShowGroup();
+
+// ── Header font / color accessors (for [Code] section generation) ─────────────
+
+// Returns the effective header font spec for dialog type t.
+// When IDLG_IsHeaderFontGlobal() is true all types return the same value.
+// An empty name / size==0 means the developer has not set that attribute.
+IdlgHeaderFont IDLG_GetHeaderFont(InstallerDialogType t);
+
+// Returns the effective header foreground (title text) color for dialog type t.
+// Returns IDLG_NOCOLOR when no override is set.
+COLORREF IDLG_GetHeaderFgColor(InstallerDialogType t);
+
+// Returns the effective header background color for dialog type t.
+// Returns IDLG_NOCOLOR when no override is set.
+COLORREF IDLG_GetHeaderBgColor(InstallerDialogType t);
+
+// Returns true when all dialogs share a single header font (vs per-dialog).
+bool IDLG_IsHeaderFontGlobal();
+
+// Returns true when all dialogs share a single header color pair (vs per-dialog).
+bool IDLG_IsHeaderColorGlobal();

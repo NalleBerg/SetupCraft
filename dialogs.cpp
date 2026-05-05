@@ -69,6 +69,20 @@ static bool s_finishLaunchDefChecked = true;                   // false → Inno
 static bool s_readyShowDir   = true;   // AlwaysShowDirOnReadyPage   (yes by default, matching Inno)
 static bool s_readyShowGroup = true;   // AlwaysShowGroupOnReadyPage (yes by default, matching Inno)
 
+// Header font / color state — one "global" flag per group controls whether all
+// dialogs share a single value or each carries its own per-dialog override.
+// Cleared by IDLG_Reset(); persisted per-project in IDLG_SaveToDb/LoadFromDb.
+static bool          s_fontGlobal  = true;
+static bool          s_colorGlobal = true;
+static IdlgHeaderFont s_globalFont;
+static COLORREF      s_globalFgColor  = IDLG_NOCOLOR;
+static COLORREF      s_globalBgColor  = IDLG_NOCOLOR;
+static IdlgHeaderFont s_perDialogFont[IDLG_COUNT];
+static COLORREF      s_perDialogFgColor[IDLG_COUNT];
+static COLORREF      s_perDialogBgColor[IDLG_COUNT];
+// Custom colour history preserved between ChooseColor calls within a session.
+static COLORREF s_szrCustomColors[16] = {};
+
 static HINSTANCE  s_hInst      = NULL;
 static HFONT      s_hGuiFont   = NULL;
 static HFONT      s_hTitleFont = NULL;
@@ -283,6 +297,9 @@ struct PreviewData {
     int                 openLogW;        // s_previewLogW when preview opened
     int                 openLogH;        // s_previewLogH when preview opened
     bool                openUserSized;   // s_previewUserSized[type] when preview opened
+    // Header font / color state for this preview session.
+    HFONT               hHeaderFont;     // custom font for hTypeTitle; NULL = use hTitleFont
+    int                 headerAreaH;     // header strip pixel height for WM_ERASEBKGND
 };
 
 // Sizer panel data; GWLP_USERDATA on the sizer window.
@@ -327,6 +344,8 @@ static void LayoutPreviewControls(HWND hwnd, PreviewData* pd)
     if (pd->hTypeTitle && IsWindow(pd->hTypeTitle))
         SetWindowPos(pd->hTypeTitle, NULL, pad, pad,
                      cW - pad * 2, titleH, SWP_NOZORDER | SWP_NOACTIVATE);
+    // Record the header strip height so WM_ERASEBKGND knows the painted region.
+    pd->headerAreaH = pad + titleH + gap / 2;
 
     // Interior area between title and button row.
     int editY = pad + titleH + gap;
@@ -991,6 +1010,92 @@ static void AutoFitPreview(HWND hPreview, PreviewData* pd)
     }
 }
 
+// ── Header font / color effective-value helpers ───────────────────────────────
+// Returns the active font spec for the given dialog type, honouring the global flag.
+static IdlgHeaderFont EffectiveFont(InstallerDialogType t) {
+    return s_fontGlobal  ? s_globalFont              : s_perDialogFont[(int)t];
+}
+static COLORREF EffectiveFgColor(InstallerDialogType t) {
+    return s_colorGlobal ? s_globalFgColor            : s_perDialogFgColor[(int)t];
+}
+static COLORREF EffectiveBgColor(InstallerDialogType t) {
+    return s_colorGlobal ? s_globalBgColor            : s_perDialogBgColor[(int)t];
+}
+
+// ── RefreshPreviewHeader ──────────────────────────────────────────────────────
+// Rebuilds the header HFONT in pd, re-applies it to hTypeTitle, and invalidates
+// the header strip so WM_ERASEBKGND repaints with the correct background colour.
+static void RefreshPreviewHeader(HWND hPreview, PreviewData* pd)
+{
+    if (!pd || !hPreview || !IsWindow(hPreview)) return;
+    InstallerDialogType t = pd->type;
+    IdlgHeaderFont ef = EffectiveFont(t);
+
+    // Rebuild the header font whenever any attribute differs from the plain UI font.
+    HFONT hNewFont = NULL;
+    if (!ef.name.empty() || ef.size > 0 || ef.bold || ef.italic) {
+        LOGFONTW lf = {};
+        // Seed from the title font so that unspecified attributes stay consistent.
+        if (pd->hTitleFont)  GetObjectW(pd->hTitleFont,  sizeof(lf), &lf);
+        else if (pd->hGuiFont) GetObjectW(pd->hGuiFont,  sizeof(lf), &lf);
+        if (!ef.name.empty())
+            wcsncpy_s(lf.lfFaceName, LF_FACESIZE, ef.name.c_str(), _TRUNCATE);
+        if (ef.size > 0) {
+            HDC hdc = GetDC(hPreview);
+            int dpi = GetDeviceCaps(hdc, LOGPIXELSY);
+            ReleaseDC(hPreview, hdc);
+            lf.lfHeight = -MulDiv(ef.size, dpi, 72);  // negative = character height
+        }
+        lf.lfWeight = ef.bold   ? FW_BOLD  : FW_NORMAL;
+        lf.lfItalic = ef.italic ? TRUE     : FALSE;
+        hNewFont = CreateFontIndirectW(&lf);
+    }
+    if (pd->hHeaderFont) { DeleteObject(pd->hHeaderFont); pd->hHeaderFont = NULL; }
+    pd->hHeaderFont = hNewFont;
+
+    // Apply to hTypeTitle (fall back to the normal title font when no override).
+    HFONT hApply = pd->hHeaderFont ? pd->hHeaderFont : pd->hTitleFont;
+    if (pd->hTypeTitle && IsWindow(pd->hTypeTitle))
+        SendMessageW(pd->hTypeTitle, WM_SETFONT, (WPARAM)hApply, TRUE);
+
+    // Invalidate the header strip so WM_ERASEBKGND and WM_CTLCOLORSTATIC fire.
+    if (pd->headerAreaH > 0) {
+        RECT rc; GetClientRect(hPreview, &rc);
+        RECT hdr = { 0, 0, rc.right, pd->headerAreaH };
+        InvalidateRect(hPreview, &hdr, TRUE);
+    } else {
+        InvalidateRect(hPreview, NULL, TRUE);
+    }
+}
+
+// ── RefreshSizerFontColorControls ─────────────────────────────────────────────
+// Updates the sizer's font/color control values to reflect the given dialog type.
+// Called from NavigateTo when navigating between dialogs in per-dialog mode.
+static void RefreshSizerFontColorControls(HWND hSizer, SizerData* sd,
+                                          InstallerDialogType type)
+{
+    if (!hSizer || !IsWindow(hSizer) || !sd) return;
+    IdlgHeaderFont ef = EffectiveFont(type);
+    sd->ignoring = true;
+    HWND hFG = GetDlgItem(hSizer, IDC_IDLG_SZR_FONT_GLOBAL);
+    HWND hFN = GetDlgItem(hSizer, IDC_IDLG_SZR_FONT_NAME);
+    HWND hFS = GetDlgItem(hSizer, IDC_IDLG_SZR_FONT_SIZE_S);
+    HWND hFB = GetDlgItem(hSizer, IDC_IDLG_SZR_FONT_BOLD);
+    HWND hFI = GetDlgItem(hSizer, IDC_IDLG_SZR_FONT_ITALIC);
+    HWND hCG = GetDlgItem(hSizer, IDC_IDLG_SZR_CLR_GLOBAL);
+    HWND hCF = GetDlgItem(hSizer, IDC_IDLG_SZR_CLR_FG);
+    HWND hCB = GetDlgItem(hSizer, IDC_IDLG_SZR_CLR_BG);
+    if (hFG) SendMessageW(hFG, BM_SETCHECK, s_fontGlobal  ? BST_CHECKED : BST_UNCHECKED, 0);
+    if (hFN) SetWindowTextW(hFN, ef.name.c_str());
+    if (hFS) SendMessageW(hFS, UDM_SETPOS32, 0, (LPARAM)ef.size);
+    if (hFB) SendMessageW(hFB, BM_SETCHECK, ef.bold   ? BST_CHECKED : BST_UNCHECKED, 0);
+    if (hFI) SendMessageW(hFI, BM_SETCHECK, ef.italic ? BST_CHECKED : BST_UNCHECKED, 0);
+    if (hCG) SendMessageW(hCG, BM_SETCHECK, s_colorGlobal ? BST_CHECKED : BST_UNCHECKED, 0);
+    if (hCF) InvalidateRect(hCF, NULL, TRUE);
+    if (hCB) InvalidateRect(hCB, NULL, TRUE);
+    sd->ignoring = false;
+}
+
 // ── Navigation — update content and UI for a new dialog type ─────────────────
 
 static void NavigateTo(HWND hwnd, PreviewData* pd, InstallerDialogType newType)
@@ -1007,6 +1112,15 @@ static void NavigateTo(HWND hwnd, PreviewData* pd, InstallerDialogType newType)
 
     // Update the heading label inside the window
     if (pd->hTypeTitle) SetWindowTextW(pd->hTypeTitle, dlgName.c_str());
+
+    // Refresh sizer font/color controls so they display the new dialog's values,
+    // then invalidate the header strip so font/bg colour are repainted.
+    if (pd->hSizer && IsWindow(pd->hSizer)) {
+        SizerData* szd = (SizerData*)(LONG_PTR)
+            GetWindowLongPtrW(pd->hSizer, GWLP_USERDATA);
+        if (szd) RefreshSizerFontColorControls(pd->hSizer, szd, newType);
+    }
+    RefreshPreviewHeader(hwnd, pd);
 
     // Re-stream RTF (must be writable during EM_STREAMIN)
     if (pd->hContent) {
@@ -1174,6 +1288,9 @@ static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
 
         // Final layout pass positions all controls correctly.
         LayoutPreviewControls(hwnd, pd);
+        // Apply the current header font / colour so the title label looks right
+        // from the first frame.
+        RefreshPreviewHeader(hwnd, pd);
         return 0;
     }
 
@@ -1182,6 +1299,24 @@ static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
         // and by the sizer panel calling SetWindowPos on the preview window.
         if (pd) LayoutPreviewControls(hwnd, pd);
         return 0;
+
+    case WM_ERASEBKGND: {
+        // Paint the standard window background, then overlay the header strip with
+        // the developer-chosen background colour (when one has been set).
+        HDC hdc = (HDC)wParam;
+        RECT rc; GetClientRect(hwnd, &rc);
+        FillRect(hdc, &rc, GetSysColorBrush(COLOR_WINDOW));
+        if (pd) {
+            COLORREF bg = EffectiveBgColor(pd->type);
+            if (bg != IDLG_NOCOLOR && pd->headerAreaH > 0) {
+                RECT hdr = { 0, 0, rc.right, pd->headerAreaH };
+                HBRUSH hBr = CreateSolidBrush(bg);
+                FillRect(hdc, &hdr, hBr);
+                DeleteObject(hBr);
+            }
+        }
+        return 1;  // Fully handled; do not call DefWindowProc.
+    }
 
     case WM_COMMAND: {
         int id = LOWORD(wParam);
@@ -1281,6 +1416,16 @@ static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
         return 0;
 
     case WM_CTLCOLORSTATIC:
+        // Apply custom font colour to the header title label.  Return a transparent
+        // (hollow) brush so WM_ERASEBKGND's background colour shows through.
+        // All other STATICs (radio labels, extras label) get the window background.
+        if (pd && (HWND)lParam == pd->hTypeTitle) {
+            COLORREF fg = EffectiveFgColor(pd->type);
+            SetTextColor((HDC)wParam,
+                fg != IDLG_NOCOLOR ? fg : GetSysColor(COLOR_WINDOWTEXT));
+            SetBkMode((HDC)wParam, TRANSPARENT);
+            return (LRESULT)GetStockObject(NULL_BRUSH);
+        }
         // Radio buttons send this to the parent; return a white brush to match
         // the preview window background and avoid a grey strip behind control text.
         SetBkColor((HDC)wParam, GetSysColor(COLOR_WINDOW));
@@ -1299,6 +1444,11 @@ static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
         // Restore the original RichEdit window proc before the control is destroyed.
         if (pd && pd->hContent && IsWindow(pd->hContent) && s_origContentProc)
             SetWindowLongPtrW(pd->hContent, GWLP_WNDPROC, (LONG_PTR)s_origContentProc);
+        // Destroy the custom header font created by RefreshPreviewHeader.
+        if (pd && pd->hHeaderFont) {
+            DeleteObject(pd->hHeaderFont);
+            pd->hHeaderFont = NULL;
+        }
         // Child windows are auto-destroyed by Windows; clear the vector so we
         // don't hold dangling HWNDs.  EnableWindow for the owner is handled by
         // ShowPreviewDialog immediately after the message loop exits.
@@ -1461,6 +1611,164 @@ static LRESULT CALLBACK SizerWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         SetButtonTooltip(hRB, L10n(L"idlg_sizer_reset_tip", L"Reset size to default").c_str());
         SetButtonTooltip(hCB, L10n(L"idlg_sizer_close_tip", L"Close preview with current size").c_str());
 
+        y += rowH + gap;  // breathing room below the Close button
+
+        // ── Header font section ───────────────────────────────────────────────
+        {
+            CreateWindowExW(0, L"STATIC", L"",
+                WS_CHILD | WS_VISIBLE | SS_ETCHEDHORZ,
+                pad, y + S(1), btnW, S(2),
+                hwnd, NULL, hI, NULL);
+            y += S(2) + gap;
+
+            HWND hFSL = CreateWindowExW(0, L"STATIC",
+                L10n(L"idlg_szr_font_section", L"Header font").c_str(),
+                WS_CHILD | WS_VISIBLE | SS_LEFT,
+                pad, y, btnW, rowH, hwnd, NULL, hI, NULL);
+            if (hF) SendMessageW(hFSL, WM_SETFONT, (WPARAM)hF, TRUE);
+            y += rowH + gap;
+
+            // "Use on all dialogs" toggle for font
+            HWND hFGlob = CreateWindowExW(0, L"BUTTON",
+                L10n(L"idlg_szr_use_all_dialogs", L"Use on all dialogs").c_str(),
+                WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
+                pad, y, btnW, rowH,
+                hwnd, (HMENU)(UINT_PTR)IDC_IDLG_SZR_FONT_GLOBAL, hI, NULL);
+            if (hF) SendMessageW(hFGlob, WM_SETFONT, (WPARAM)hF, TRUE);
+            SendMessageW(hFGlob, BM_SETCHECK, s_fontGlobal ? BST_CHECKED : BST_UNCHECKED, 0);
+            SetButtonTooltip(hFGlob, L10n(L"idlg_szr_font_global_tip",
+                L"When checked all dialogs share the same header font.\n"
+                L"Uncheck to set a different font per dialog.").c_str());
+            y += rowH + gap;
+
+            // Font family name: "Font:" label + edit
+            const int shortLblW = S(44);
+            const int nameEdW   = btnW - shortLblW - gap;
+            HWND hFNL = CreateWindowExW(0, L"STATIC",
+                L10n(L"idlg_szr_font_name_label", L"Font:").c_str(),
+                WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
+                pad, y, shortLblW, rowH, hwnd, NULL, hI, NULL);
+            if (hF) SendMessageW(hFNL, WM_SETFONT, (WPARAM)hF, TRUE);
+            InstallerDialogType initType = sd->pd ? sd->pd->type : IDLG_WELCOME;
+            HWND hFNE = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT",
+                EffectiveFont(initType).name.c_str(),
+                WS_CHILD | WS_VISIBLE | ES_LEFT | ES_AUTOHSCROLL,
+                pad + shortLblW + gap, y, nameEdW, rowH,
+                hwnd, (HMENU)(UINT_PTR)IDC_IDLG_SZR_FONT_NAME, hI, NULL);
+            if (hF) SendMessageW(hFNE, WM_SETFONT, (WPARAM)hF, TRUE);
+            SetButtonTooltip(hFNE, L10n(L"idlg_szr_font_name_tip",
+                L"Header title font family (e.g. Tahoma). "
+                L"Leave empty to use Inno's default.").c_str());
+            y += rowH + gap;
+
+            // Font size: "Size:" label + edit + spinner
+            HWND hFSzL = CreateWindowExW(0, L"STATIC",
+                L10n(L"idlg_szr_font_size_label", L"Size:").c_str(),
+                WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
+                pad, y, shortLblW, rowH, hwnd, NULL, hI, NULL);
+            if (hF) SendMessageW(hFSzL, WM_SETFONT, (WPARAM)hF, TRUE);
+            HWND hFSzE = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
+                WS_CHILD | WS_VISIBLE | ES_NUMBER | ES_RIGHT,
+                pad + shortLblW + gap, y, edW, rowH,
+                hwnd, (HMENU)(UINT_PTR)IDC_IDLG_SZR_FONT_SIZE_E, hI, NULL);
+            if (hF) SendMessageW(hFSzE, WM_SETFONT, (WPARAM)hF, TRUE);
+            HWND hFSzS = CreateWindowExW(0, UPDOWN_CLASSW, L"",
+                WS_CHILD | WS_VISIBLE | UDS_SETBUDDYINT | UDS_ALIGNRIGHT |
+                UDS_ARROWKEYS | UDS_HOTTRACK,
+                0, 0, spW, rowH,
+                hwnd, (HMENU)(UINT_PTR)IDC_IDLG_SZR_FONT_SIZE_S, hI, NULL);
+            SendMessageW(hFSzS, UDM_SETBUDDY,   (WPARAM)hFSzE, 0);
+            SendMessageW(hFSzS, UDM_SETRANGE32, 0, 72);
+            sd->ignoring = true;
+            SendMessageW(hFSzS, UDM_SETPOS32, 0, (LPARAM)EffectiveFont(initType).size);
+            sd->ignoring = false;
+            SetButtonTooltip(hFSzE, L10n(L"idlg_szr_font_size_tip",
+                L"Header title font size in points. 0 = Inno default.").c_str());
+            y += rowH + gap;
+
+            // Bold / Italic on the same row
+            const int halfW = (btnW - gap) / 2;
+            HWND hFBold = CreateWindowExW(0, L"BUTTON",
+                L10n(L"idlg_szr_font_bold", L"Bold").c_str(),
+                WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
+                pad, y, halfW, rowH,
+                hwnd, (HMENU)(UINT_PTR)IDC_IDLG_SZR_FONT_BOLD, hI, NULL);
+            if (hF) SendMessageW(hFBold, WM_SETFONT, (WPARAM)hF, TRUE);
+            SendMessageW(hFBold, BM_SETCHECK,
+                EffectiveFont(initType).bold ? BST_CHECKED : BST_UNCHECKED, 0);
+            HWND hFItalic = CreateWindowExW(0, L"BUTTON",
+                L10n(L"idlg_szr_font_italic", L"Italic").c_str(),
+                WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
+                pad + halfW + gap, y, halfW, rowH,
+                hwnd, (HMENU)(UINT_PTR)IDC_IDLG_SZR_FONT_ITALIC, hI, NULL);
+            if (hF) SendMessageW(hFItalic, WM_SETFONT, (WPARAM)hF, TRUE);
+            SendMessageW(hFItalic, BM_SETCHECK,
+                EffectiveFont(initType).italic ? BST_CHECKED : BST_UNCHECKED, 0);
+            y += rowH + gap;
+        }
+
+        // ── Header color section ──────────────────────────────────────────────
+        {
+            CreateWindowExW(0, L"STATIC", L"",
+                WS_CHILD | WS_VISIBLE | SS_ETCHEDHORZ,
+                pad, y + S(1), btnW, S(2),
+                hwnd, NULL, hI, NULL);
+            y += S(2) + gap;
+
+            HWND hCSL = CreateWindowExW(0, L"STATIC",
+                L10n(L"idlg_szr_color_section", L"Header colors").c_str(),
+                WS_CHILD | WS_VISIBLE | SS_LEFT,
+                pad, y, btnW, rowH, hwnd, NULL, hI, NULL);
+            if (hF) SendMessageW(hCSL, WM_SETFONT, (WPARAM)hF, TRUE);
+            y += rowH + gap;
+
+            // "Use on all dialogs" toggle for colors
+            HWND hCGlob = CreateWindowExW(0, L"BUTTON",
+                L10n(L"idlg_szr_use_all_dialogs", L"Use on all dialogs").c_str(),
+                WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
+                pad, y, btnW, rowH,
+                hwnd, (HMENU)(UINT_PTR)IDC_IDLG_SZR_CLR_GLOBAL, hI, NULL);
+            if (hF) SendMessageW(hCGlob, WM_SETFONT, (WPARAM)hF, TRUE);
+            SendMessageW(hCGlob, BM_SETCHECK, s_colorGlobal ? BST_CHECKED : BST_UNCHECKED, 0);
+            SetButtonTooltip(hCGlob, L10n(L"idlg_szr_clr_global_tip",
+                L"When checked all dialogs share the same header colors.\n"
+                L"Uncheck to set different colors per dialog.").c_str());
+            y += rowH + gap;
+
+            // Color swatch rows — label + owner-draw button (shows current colour)
+            const int clrLblW  = S(64);
+            const int swatchW  = btnW - clrLblW - gap;
+
+            // Title text (fg) color
+            HWND hFgL = CreateWindowExW(0, L"STATIC",
+                L10n(L"idlg_szr_clr_fg_label", L"Title:").c_str(),
+                WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
+                pad, y, clrLblW, rowH, hwnd, NULL, hI, NULL);
+            if (hF) SendMessageW(hFgL, WM_SETFONT, (WPARAM)hF, TRUE);
+            HWND hFgSw = CreateWindowExW(0, L"BUTTON", L"",
+                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | BS_OWNERDRAW,
+                pad + clrLblW + gap, y, swatchW, rowH,
+                hwnd, (HMENU)(UINT_PTR)IDC_IDLG_SZR_CLR_FG, hI, NULL);
+            SetButtonTooltip(hFgSw, L10n(L"idlg_szr_clr_fg_tip",
+                L"Title text color. Click to choose, right-click to reset.").c_str());
+            y += rowH + gap;
+
+            // Background (bg) color
+            HWND hBgL = CreateWindowExW(0, L"STATIC",
+                L10n(L"idlg_szr_clr_bg_label", L"Background:").c_str(),
+                WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
+                pad, y, clrLblW, rowH, hwnd, NULL, hI, NULL);
+            if (hF) SendMessageW(hBgL, WM_SETFONT, (WPARAM)hF, TRUE);
+            HWND hBgSw = CreateWindowExW(0, L"BUTTON", L"",
+                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | BS_OWNERDRAW,
+                pad + clrLblW + gap, y, swatchW, rowH,
+                hwnd, (HMENU)(UINT_PTR)IDC_IDLG_SZR_CLR_BG, hI, NULL);
+            SetButtonTooltip(hBgSw, L10n(L"idlg_szr_clr_bg_tip",
+                L"Header background color. Click to choose, right-click to reset.").c_str());
+            // y would be incremented here for any future controls
+            (void)hFgL; (void)hBgL;
+        }
+
         return 0;
     }
 
@@ -1542,6 +1850,207 @@ static LRESULT CALLBACK SizerWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 MainWindow::MarkAsModified();
             }
         }
+
+        // ── Header font handlers ──────────────────────────────────────────────
+
+        // Helper: get (or create) a pointer to the current font's mutable state.
+        auto FontRef = [&]() -> IdlgHeaderFont& {
+            InstallerDialogType t = sd->pd ? sd->pd->type : IDLG_WELCOME;
+            return s_fontGlobal ? s_globalFont : s_perDialogFont[(int)t];
+        };
+        auto ApplyFontToPreview = [&]() {
+            if (sd->hPreview && IsWindow(sd->hPreview)) {
+                PreviewData* ppd = (PreviewData*)(LONG_PTR)
+                    GetWindowLongPtrW(sd->hPreview, GWLP_USERDATA);
+                if (ppd) RefreshPreviewHeader(sd->hPreview, ppd);
+            }
+        };
+
+        if (id == IDC_IDLG_SZR_FONT_GLOBAL && event == BN_CLICKED) {
+            HWND hCk = GetDlgItem(hwnd, IDC_IDLG_SZR_FONT_GLOBAL);
+            bool nowGlobal = (SendMessageW(hCk, BM_GETCHECK, 0, 0) == BST_CHECKED);
+            InstallerDialogType t = sd->pd ? sd->pd->type : IDLG_WELCOME;
+            if (nowGlobal) {
+                // Switching to global: the current dialog's font becomes the shared value.
+                s_globalFont = s_perDialogFont[(int)t];
+                s_fontGlobal = true;
+            } else {
+                // Switching to per-dialog: seed each slot from the current global.
+                for (int i = 0; i < IDLG_COUNT; i++) s_perDialogFont[i] = s_globalFont;
+                s_fontGlobal = false;
+            }
+            ApplyFontToPreview();
+            MainWindow::MarkAsModified();
+            return 0;
+        }
+
+        if (id == IDC_IDLG_SZR_FONT_NAME && event == EN_CHANGE) {
+            if (sd->ignoring) return 0;
+            HWND hEd = GetDlgItem(hwnd, IDC_IDLG_SZR_FONT_NAME);
+            wchar_t buf[LF_FACESIZE] = {};
+            GetWindowTextW(hEd, buf, _countof(buf));
+            FontRef().name = buf;
+            ApplyFontToPreview();
+            MainWindow::MarkAsModified();
+            return 0;
+        }
+
+        if (id == IDC_IDLG_SZR_FONT_SIZE_E && event == EN_CHANGE) {
+            if (sd->ignoring) return 0;
+            HWND hEd = GetDlgItem(hwnd, IDC_IDLG_SZR_FONT_SIZE_E);
+            wchar_t buf[16] = {};
+            GetWindowTextW(hEd, buf, _countof(buf));
+            int sz = _wtoi(buf);
+            if (sz >= 0 && sz <= 72) {
+                FontRef().size = sz;
+                ApplyFontToPreview();
+                MainWindow::MarkAsModified();
+            }
+            return 0;
+        }
+
+        if ((id == IDC_IDLG_SZR_FONT_BOLD || id == IDC_IDLG_SZR_FONT_ITALIC) &&
+            event == BN_CLICKED) {
+            bool bold   = (SendMessageW(GetDlgItem(hwnd, IDC_IDLG_SZR_FONT_BOLD),
+                                        BM_GETCHECK, 0, 0) == BST_CHECKED);
+            bool italic = (SendMessageW(GetDlgItem(hwnd, IDC_IDLG_SZR_FONT_ITALIC),
+                                        BM_GETCHECK, 0, 0) == BST_CHECKED);
+            FontRef().bold   = bold;
+            FontRef().italic = italic;
+            ApplyFontToPreview();
+            MainWindow::MarkAsModified();
+            return 0;
+        }
+
+        // ── Header color handlers ─────────────────────────────────────────────
+
+        if (id == IDC_IDLG_SZR_CLR_GLOBAL && event == BN_CLICKED) {
+            HWND hCk = GetDlgItem(hwnd, IDC_IDLG_SZR_CLR_GLOBAL);
+            bool nowGlobal = (SendMessageW(hCk, BM_GETCHECK, 0, 0) == BST_CHECKED);
+            InstallerDialogType t = sd->pd ? sd->pd->type : IDLG_WELCOME;
+            if (nowGlobal) {
+                // Current dialog's colors become the shared global.
+                s_globalFgColor = s_perDialogFgColor[(int)t];
+                s_globalBgColor = s_perDialogBgColor[(int)t];
+                s_colorGlobal   = true;
+            } else {
+                // Seed each per-dialog slot from the current global.
+                for (int i = 0; i < IDLG_COUNT; i++) {
+                    s_perDialogFgColor[i] = s_globalFgColor;
+                    s_perDialogBgColor[i] = s_globalBgColor;
+                }
+                s_colorGlobal = false;
+            }
+            InvalidateRect(GetDlgItem(hwnd, IDC_IDLG_SZR_CLR_FG), NULL, TRUE);
+            InvalidateRect(GetDlgItem(hwnd, IDC_IDLG_SZR_CLR_BG), NULL, TRUE);
+            if (sd->hPreview && IsWindow(sd->hPreview)) {
+                PreviewData* ppd = (PreviewData*)(LONG_PTR)
+                    GetWindowLongPtrW(sd->hPreview, GWLP_USERDATA);
+                if (ppd) {
+                    RECT rc; GetClientRect(sd->hPreview, &rc);
+                    RECT hdr = { 0, 0, rc.right, ppd->headerAreaH > 0 ? ppd->headerAreaH : 60 };
+                    InvalidateRect(sd->hPreview, &hdr, TRUE);
+                }
+            }
+            MainWindow::MarkAsModified();
+            return 0;
+        }
+
+        if ((id == IDC_IDLG_SZR_CLR_FG || id == IDC_IDLG_SZR_CLR_BG) && event == BN_CLICKED) {
+            InstallerDialogType t = sd->pd ? sd->pd->type : IDLG_WELCOME;
+            COLORREF* pColor = nullptr;
+            if (s_colorGlobal)
+                pColor = (id == IDC_IDLG_SZR_CLR_FG) ? &s_globalFgColor : &s_globalBgColor;
+            else
+                pColor = (id == IDC_IDLG_SZR_CLR_FG)
+                    ? &s_perDialogFgColor[(int)t] : &s_perDialogBgColor[(int)t];
+
+            CHOOSECOLORW cc = {};
+            cc.lStructSize  = sizeof(cc);
+            cc.hwndOwner    = hwnd;
+            cc.rgbResult    = (*pColor == IDLG_NOCOLOR)
+                ? (id == IDC_IDLG_SZR_CLR_FG ? RGB(0, 0, 0) : RGB(255, 255, 255))
+                : *pColor;
+            cc.lpCustColors = s_szrCustomColors;
+            cc.Flags        = CC_FULLOPEN | CC_RGBINIT;
+            if (ChooseColorW(&cc)) {
+                *pColor = cc.rgbResult;
+                InvalidateRect(GetDlgItem(hwnd, id), NULL, TRUE);
+                if (sd->hPreview && IsWindow(sd->hPreview)) {
+                    PreviewData* ppd = (PreviewData*)(LONG_PTR)
+                        GetWindowLongPtrW(sd->hPreview, GWLP_USERDATA);
+                    if (ppd) {
+                        RECT rc; GetClientRect(sd->hPreview, &rc);
+                        RECT hdr = { 0, 0, rc.right, ppd->headerAreaH > 0 ? ppd->headerAreaH : 60 };
+                        InvalidateRect(sd->hPreview, &hdr, TRUE);
+                        if (ppd->hTypeTitle) InvalidateRect(ppd->hTypeTitle, NULL, TRUE);
+                    }
+                }
+                MainWindow::MarkAsModified();
+            }
+            return 0;
+        }
+
+        return 0;
+    }
+
+    case WM_DRAWITEM: {
+        // Draw owner-draw color swatch buttons (IDC_IDLG_SZR_CLR_FG / _BG).
+        LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
+        UINT ctrlId = dis->CtlID;
+        if (ctrlId == IDC_IDLG_SZR_CLR_FG || ctrlId == IDC_IDLG_SZR_CLR_BG) {
+            InstallerDialogType t = (sd && sd->pd) ? sd->pd->type : IDLG_WELCOME;
+            COLORREF color = (ctrlId == IDC_IDLG_SZR_CLR_FG)
+                ? EffectiveFgColor(t) : EffectiveBgColor(t);
+            RECT r = dis->rcItem;
+            // Sunken border when pressed; raised otherwise.
+            DrawEdge(dis->hDC, &r,
+                (dis->itemState & 0x0010 /*ODS_PRESSED*/) ? EDGE_SUNKEN : EDGE_RAISED, BF_RECT);
+            InflateRect(&r, -2, -2);
+            if (color == IDLG_NOCOLOR) {
+                // No override — show a flat button-face with an em-dash.
+                FillRect(dis->hDC, &r, (HBRUSH)(COLOR_BTNFACE + 1));
+                SetTextColor(dis->hDC, GetSysColor(COLOR_BTNTEXT));
+                SetBkMode(dis->hDC, TRANSPARENT);
+                DrawTextW(dis->hDC, L"\u2014", -1, &r,
+                          DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+            } else {
+                HBRUSH hBr = CreateSolidBrush(color);
+                FillRect(dis->hDC, &r, hBr);
+                DeleteObject(hBr);
+            }
+            return TRUE;
+        }
+        return 0;
+    }
+
+    case WM_CONTEXTMENU: {
+        // Right-click on a color swatch resets it to "no override".
+        if (!sd || !sd->pd) return 0;
+        HWND hCtrl = (HWND)wParam;
+        int ctrlId = GetDlgCtrlID(hCtrl);
+        if (ctrlId == IDC_IDLG_SZR_CLR_FG || ctrlId == IDC_IDLG_SZR_CLR_BG) {
+            InstallerDialogType t = sd->pd->type;
+            if (s_colorGlobal) {
+                if (ctrlId == IDC_IDLG_SZR_CLR_FG) s_globalFgColor = IDLG_NOCOLOR;
+                else                                s_globalBgColor = IDLG_NOCOLOR;
+            } else {
+                if (ctrlId == IDC_IDLG_SZR_CLR_FG) s_perDialogFgColor[(int)t] = IDLG_NOCOLOR;
+                else                                s_perDialogBgColor[(int)t]  = IDLG_NOCOLOR;
+            }
+            InvalidateRect(hCtrl, NULL, TRUE);
+            if (sd->hPreview && IsWindow(sd->hPreview)) {
+                PreviewData* ppd = (PreviewData*)(LONG_PTR)
+                    GetWindowLongPtrW(sd->hPreview, GWLP_USERDATA);
+                if (ppd) {
+                    RECT rc; GetClientRect(sd->hPreview, &rc);
+                    RECT hdr = { 0, 0, rc.right, ppd->headerAreaH > 0 ? ppd->headerAreaH : 60 };
+                    InvalidateRect(sd->hPreview, &hdr, TRUE);
+                    if (ppd->hTypeTitle) InvalidateRect(ppd->hTypeTitle, NULL, TRUE);
+                }
+            }
+            MainWindow::MarkAsModified();
+        }
         return 0;
     }
 
@@ -1558,6 +2067,14 @@ static LRESULT CALLBACK SizerWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 GetDlgItem(hwnd, IDC_IDLG_SZR_V_ALIGN),
                 GetDlgItem(hwnd, IDC_IDLG_SZR_RESET),
                 GetDlgItem(hwnd, IDC_IDLG_SZR_CLOSE),
+                GetDlgItem(hwnd, IDC_IDLG_SZR_FONT_GLOBAL),
+                GetDlgItem(hwnd, IDC_IDLG_SZR_FONT_NAME),
+                GetDlgItem(hwnd, IDC_IDLG_SZR_FONT_SIZE_E),
+                GetDlgItem(hwnd, IDC_IDLG_SZR_FONT_BOLD),
+                GetDlgItem(hwnd, IDC_IDLG_SZR_FONT_ITALIC),
+                GetDlgItem(hwnd, IDC_IDLG_SZR_CLR_GLOBAL),
+                GetDlgItem(hwnd, IDC_IDLG_SZR_CLR_FG),
+                GetDlgItem(hwnd, IDC_IDLG_SZR_CLR_BG),
             };
             int n = (int)(sizeof(order) / sizeof(order[0]));
             HWND hFocus = GetFocus();
@@ -1852,7 +2369,7 @@ static void ShowPreviewDialog(HWND hwndParent, InstallerDialogType type)
     // the sizer to stay above the preview (achieved by ownership) but NOT
     // float above unrelated apps when the developer switches programs.
     const DWORD sizerExStyle = WS_EX_TOOLWINDOW;
-    RECT rcSz = { 0, 0, S(165), S(194) };
+    RECT rcSz = { 0, 0, S(165), S(484) };
     AdjustWindowRectEx(&rcSz, sizerStyle, FALSE, sizerExStyle);
     int szW = rcSz.right  - rcSz.left;
     int szH = rcSz.bottom - rcSz.top;
@@ -2078,6 +2595,17 @@ void IDLG_Reset()
     s_finishLaunchDefChecked = true;
     s_readyShowDir   = true;
     s_readyShowGroup = true;
+    // Header font / color state.
+    s_fontGlobal   = true;
+    s_colorGlobal  = true;
+    s_globalFont   = {};
+    s_globalFgColor = IDLG_NOCOLOR;
+    s_globalBgColor = IDLG_NOCOLOR;
+    for (int i = 0; i < IDLG_COUNT; i++) {
+        s_perDialogFont[i]    = {};
+        s_perDialogFgColor[i] = IDLG_NOCOLOR;
+        s_perDialogBgColor[i] = IDLG_NOCOLOR;
+    }
     memset(s_previewUserSized, 0, sizeof(s_previewUserSized));
     // s_hInstallIcon and s_hInstIconPreview are managed by BuildPage/TearDown.
 }
@@ -2871,6 +3399,34 @@ void IDLG_SaveToDb(int projectId)
     // Ready-page summary settings
     DB::SetSetting(L"installer_ready_show_dir_"   + pid, s_readyShowDir   ? L"1" : L"0");
     DB::SetSetting(L"installer_ready_show_group_" + pid, s_readyShowGroup ? L"1" : L"0");
+    // Header font settings (global flag + global values + per-dialog values)
+    DB::SetSetting(L"installer_hdr_font_global_" + pid, s_fontGlobal  ? L"1" : L"0");
+    DB::SetSetting(L"installer_hdr_font_name_"   + pid, s_globalFont.name);
+    DB::SetSetting(L"installer_hdr_font_size_"   + pid, std::to_wstring(s_globalFont.size));
+    DB::SetSetting(L"installer_hdr_font_bold_"   + pid, s_globalFont.bold   ? L"1" : L"0");
+    DB::SetSetting(L"installer_hdr_font_italic_" + pid, s_globalFont.italic ? L"1" : L"0");
+    for (int i = 0; i < IDLG_COUNT; i++) {
+        std::wstring ti = std::to_wstring(i);
+        DB::SetSetting(L"installer_hdr_font_name_"   + ti + L"_" + pid, s_perDialogFont[i].name);
+        DB::SetSetting(L"installer_hdr_font_size_"   + ti + L"_" + pid,
+                       std::to_wstring(s_perDialogFont[i].size));
+        DB::SetSetting(L"installer_hdr_font_bold_"   + ti + L"_" + pid,
+                       s_perDialogFont[i].bold   ? L"1" : L"0");
+        DB::SetSetting(L"installer_hdr_font_italic_" + ti + L"_" + pid,
+                       s_perDialogFont[i].italic ? L"1" : L"0");
+    }
+    // Header color settings (global flag + global values + per-dialog values)
+    auto colorToStr = [](COLORREF c) -> std::wstring {
+        return (c == IDLG_NOCOLOR) ? L"-1" : std::to_wstring((DWORD)c);
+    };
+    DB::SetSetting(L"installer_hdr_clr_global_" + pid, s_colorGlobal ? L"1" : L"0");
+    DB::SetSetting(L"installer_hdr_clr_fg_"     + pid, colorToStr(s_globalFgColor));
+    DB::SetSetting(L"installer_hdr_clr_bg_"     + pid, colorToStr(s_globalBgColor));
+    for (int i = 0; i < IDLG_COUNT; i++) {
+        std::wstring ti = std::to_wstring(i);
+        DB::SetSetting(L"installer_hdr_clr_fg_" + ti + L"_" + pid, colorToStr(s_perDialogFgColor[i]));
+        DB::SetSetting(L"installer_hdr_clr_bg_" + ti + L"_" + pid, colorToStr(s_perDialogBgColor[i]));
+    }
 }
 
 // ── IDLG_LoadFromDb ───────────────────────────────────────────────────────────
@@ -2938,6 +3494,42 @@ void IDLG_LoadFromDb(int projectId)
         s_readyShowDir   = (sReadyDir != L"0");
     if (DB::GetSetting(L"installer_ready_show_group_" + pid, sReadyGroup))
         s_readyShowGroup = (sReadyGroup != L"0");
+    // Header font settings
+    auto strToColor = [](const std::wstring& s) -> COLORREF {
+        if (s.empty() || s == L"-1") return IDLG_NOCOLOR;
+        try { return (COLORREF)std::stoul(s); } catch (...) { return IDLG_NOCOLOR; }
+    };
+    std::wstring sFontGlobal;
+    if (DB::GetSetting(L"installer_hdr_font_global_" + pid, sFontGlobal))
+        s_fontGlobal = (sFontGlobal != L"0");
+    std::wstring sGFN, sGFS, sGFB, sGFI;
+    if (DB::GetSetting(L"installer_hdr_font_name_"   + pid, sGFN)) s_globalFont.name   = sGFN;
+    if (DB::GetSetting(L"installer_hdr_font_size_"   + pid, sGFS) && !sGFS.empty())
+        s_globalFont.size = _wtoi(sGFS.c_str());
+    if (DB::GetSetting(L"installer_hdr_font_bold_"   + pid, sGFB)) s_globalFont.bold   = (sGFB == L"1");
+    if (DB::GetSetting(L"installer_hdr_font_italic_" + pid, sGFI)) s_globalFont.italic = (sGFI == L"1");
+    for (int i = 0; i < IDLG_COUNT; i++) {
+        std::wstring ti = std::to_wstring(i);
+        std::wstring n, sz, b, it;
+        if (DB::GetSetting(L"installer_hdr_font_name_"   + ti + L"_" + pid, n))  s_perDialogFont[i].name   = n;
+        if (DB::GetSetting(L"installer_hdr_font_size_"   + ti + L"_" + pid, sz) && !sz.empty())
+            s_perDialogFont[i].size = _wtoi(sz.c_str());
+        if (DB::GetSetting(L"installer_hdr_font_bold_"   + ti + L"_" + pid, b))  s_perDialogFont[i].bold   = (b == L"1");
+        if (DB::GetSetting(L"installer_hdr_font_italic_" + ti + L"_" + pid, it)) s_perDialogFont[i].italic = (it == L"1");
+    }
+    // Header color settings
+    std::wstring sClrGlobal;
+    if (DB::GetSetting(L"installer_hdr_clr_global_" + pid, sClrGlobal))
+        s_colorGlobal = (sClrGlobal != L"0");
+    std::wstring sGFg, sGBg;
+    if (DB::GetSetting(L"installer_hdr_clr_fg_" + pid, sGFg)) s_globalFgColor = strToColor(sGFg);
+    if (DB::GetSetting(L"installer_hdr_clr_bg_" + pid, sGBg)) s_globalBgColor = strToColor(sGBg);
+    for (int i = 0; i < IDLG_COUNT; i++) {
+        std::wstring ti = std::to_wstring(i);
+        std::wstring fg, bg;
+        if (DB::GetSetting(L"installer_hdr_clr_fg_" + ti + L"_" + pid, fg)) s_perDialogFgColor[i] = strToColor(fg);
+        if (DB::GetSetting(L"installer_hdr_clr_bg_" + ti + L"_" + pid, bg)) s_perDialogBgColor[i] = strToColor(bg);
+    }
 }
 
 // ── IDLG_SetInstallerInfo ─────────────────────────────────────────────────────
@@ -2970,6 +3562,13 @@ bool         IDLG_GetFinishLaunchDefaultChecked() { return s_finishLaunchDefChec
 
 bool IDLG_GetReadyShowDir()   { return s_readyShowDir; }
 bool IDLG_GetReadyShowGroup() { return s_readyShowGroup; }
+
+// ── Header font / color accessors ───────────────────────────────────────────────
+IdlgHeaderFont IDLG_GetHeaderFont(InstallerDialogType t)   { return EffectiveFont(t); }
+COLORREF       IDLG_GetHeaderFgColor(InstallerDialogType t) { return EffectiveFgColor(t); }
+COLORREF       IDLG_GetHeaderBgColor(InstallerDialogType t) { return EffectiveBgColor(t); }
+bool           IDLG_IsHeaderFontGlobal()                    { return s_fontGlobal; }
+bool           IDLG_IsHeaderColorGlobal()                   { return s_colorGlobal; }
 
 bool IDLG_IsDialogEnabled(InstallerDialogType t)
 {

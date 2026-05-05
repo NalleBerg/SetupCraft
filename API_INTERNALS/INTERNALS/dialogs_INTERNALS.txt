@@ -106,6 +106,27 @@
     IDC_IDLG_PRV_NEXT         7102    "Next  ▶" BS_PUSHBUTTON
     IDC_IDLG_PRV_CANCEL       7103    "Cancel"  BS_PUSHBUTTON
 
+  Sizer-panel header font controls (SizerWndProc, IDLGSizerClass):
+    IDC_IDLG_SZR_FONT_GLOBAL  7128  BS_AUTOCHECKBOX "Use on all dialogs" (font group)
+    IDC_IDLG_SZR_FONT_NAME    7129  ES_AUTOHSCROLL edit — font family name
+    IDC_IDLG_SZR_FONT_SIZE_E  7130  edit (3-char) — point size 0–72
+    IDC_IDLG_SZR_FONT_SIZE_S  7131  UDS_SETBUDDYINT | UDS_ARROWKEYS spinner, range 0–72
+    IDC_IDLG_SZR_FONT_BOLD    7132  BS_AUTOCHECKBOX "Bold"
+    IDC_IDLG_SZR_FONT_ITALIC  7133  BS_AUTOCHECKBOX "Italic"
+
+  Sizer-panel header color controls (SizerWndProc, IDLGSizerClass):
+    IDC_IDLG_SZR_CLR_GLOBAL   7134  BS_AUTOCHECKBOX "Use on all dialogs" (color group)
+    IDC_IDLG_SZR_CLR_FG       7135  BS_OWNERDRAW swatch — title text fg color
+    IDC_IDLG_SZR_CLR_BG       7136  BS_OWNERDRAW swatch — header background color
+      Swatch left-click: ChooseColorW; right-click (WM_CONTEXTMENU) → IDLG_NOCOLOR reset.
+      Swatch WM_DRAWITEM: DrawEdge border + solid fill or em-dash if IDLG_NOCOLOR.
+      Locale keys: idlg_szr_font_section, idlg_szr_use_all_dialogs,
+        idlg_szr_font_global_tip, idlg_szr_font_name_label, idlg_szr_font_name_tip,
+        idlg_szr_font_size_label, idlg_szr_font_size_tip, idlg_szr_font_bold,
+        idlg_szr_font_italic, idlg_szr_color_section, idlg_szr_clr_global_tip,
+        idlg_szr_clr_fg_label, idlg_szr_clr_fg_tip, idlg_szr_clr_bg_label,
+        idlg_szr_clr_bg_tip.
+
   IDLG_COUNT = 9  (number of dialog rows, matching InstallerDialogType values 0–8)
 
 --------------------------------------------------------------------------------
@@ -164,6 +185,35 @@
     static bool s_readyShowGroup = true    // installer_ready_show_group_<pid>  default true (matches Inno)
       // Both reset to true in IDLG_Reset(); persisted/restored in Save/LoadFromDb.
       // Public accessors: IDLG_GetReadyShowDir() / IDLG_GetReadyShowGroup()
+
+  Header font / color settings (sizer panel controls):
+    struct IdlgHeaderFont { std::wstring name; int size=0; bool bold=false; bool italic=false; };
+    constexpr COLORREF IDLG_NOCOLOR = (COLORREF)-1;  // "no override" sentinel
+    static bool s_fontGlobal  = true                 // installer_hdr_font_global_<pid>
+    static bool s_colorGlobal = true                 // installer_hdr_clr_global_<pid>
+    static IdlgHeaderFont s_globalFont               // installer_hdr_font_{name,size,bold,italic}_<pid>
+    static COLORREF s_globalFgColor = IDLG_NOCOLOR   // installer_hdr_clr_fg_<pid>  (decimal or "-1")
+    static COLORREF s_globalBgColor = IDLG_NOCOLOR   // installer_hdr_clr_bg_<pid>
+    static IdlgHeaderFont s_perDialogFont[IDLG_COUNT]       // installer_hdr_font_{name,size,bold,italic}_<i>_<pid>
+    static COLORREF s_perDialogFgColor[IDLG_COUNT]          // installer_hdr_clr_fg_<i>_<pid>
+    static COLORREF s_perDialogBgColor[IDLG_COUNT]          // installer_hdr_clr_bg_<i>_<pid>
+    static COLORREF s_szrCustomColors[16]                   // ChooseColorW lpCustColors array
+      // Helper accessors (module-private):
+      //   EffectiveFont(t)    → s_fontGlobal  ? s_globalFont      : s_perDialogFont[t]
+      //   EffectiveFgColor(t) → s_colorGlobal ? s_globalFgColor   : s_perDialogFgColor[t]
+      //   EffectiveBgColor(t) → s_colorGlobal ? s_globalBgColor   : s_perDialogBgColor[t]
+      // Per-dialog ↔ global sync semantics:
+      //   → global:     current dialog's value becomes new global (all dialogs inherit).
+      //   global → per: global value seeded into all per-dialog slots.
+      // RefreshPreviewHeader(hPreview, pd): rebuilds pd->hHeaderFont, sends WM_SETFONT to
+      //   hTypeTitle, invalidates header strip rect (0..pd->headerAreaH).
+      // RefreshSizerFontColorControls(hSizer, szd, type): updates all sizer controls for type.
+      // PreviewData additions: HFONT hHeaderFont; int headerAreaH (= S(56)).
+      // WM_ERASEBKGND: fills header strip with EffectiveBgColor(pd->type) if != IDLG_NOCOLOR.
+      // WM_CTLCOLORSTATIC on hTypeTitle: sets EffectiveFgColor, TRANSPARENT bk, NULL_BRUSH.
+      // Right-click on swatch (WM_CONTEXTMENU) resets that color to IDLG_NOCOLOR.
+      // Public accessors: IDLG_GetHeaderFont(t), IDLG_GetHeaderFgColor(t),
+      //   IDLG_GetHeaderBgColor(t), IDLG_IsHeaderFontGlobal(), IDLG_IsHeaderColorGlobal()
 
   Each dialog type's RTF content:
     static std::wstring s_rtfContent[IDLG_COUNT]  // in-memory only; DB on Save
