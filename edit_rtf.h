@@ -73,6 +73,12 @@ struct RtfEditorData {
     // -1 (default) = unlimited.  > 0 = show a "N characters left" status bar.
     int maxChars = -1;
 
+    // ── Word-wrap mode ───────────────────────────────────────────────────────
+    // When true, EM_SETTARGETDEVICE(NULL,0) is used so text wraps to the
+    // window width and no horizontal scrollbar is needed.  Default (false)
+    // uses 32767-px line width for a page-layout editing experience.
+    bool wrapToWindow = false;
+
     // ── i18n strings ────────────────────────────────────────────────────────
     std::wstring titleText;      // window caption,    e.g. L"Edit Description"
     std::wstring okText;         // Save button label, e.g. L"Save"

@@ -2,6 +2,12 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.05.05.11] - 2026-05-05
+
+### edit_rtf — Word-wrap-to-window mode; license editor uses it
+- **edit_rtf — `RtfEditorData::wrapToWindow` flag**: New `bool wrapToWindow = false` field. When `true`, the editor calls `EM_SETTARGETDEVICE(NULL, 0)` so text wraps to the window width and no horizontal scrollbar is needed. `false` (default) keeps the existing 32767-px page-layout canvas.
+- **dialogs — License editor word-wraps to window**: The “Edit Content…” RTF editor for the License dialog row now sets `ed.wrapToWindow = true`. Long license template paragraphs previously required horizontal scrolling; they now wrap to fit the viewport.
+
 ## [2026.05.05.10] - 2026-05-05
 
 ### db — License template content & images fully embedded

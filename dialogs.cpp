@@ -2493,7 +2493,11 @@ bool IDLG_OnCommand(HWND hwnd, int wmId, int wmEvent, HWND /*hCtrl*/)
                         + L10n(kDialogNameKeys[typeIdx], kDialogNameFallbacks[typeIdx]);
         ed.okText     = L10n(L"idlg_edit_save",   L"Save");
         ed.cancelText = L10n(L"idlg_edit_cancel", L"Cancel");
-        ed.pLocale    = s_pLocale;
+        ed.pLocale       = s_pLocale;
+        // License text is long-form plain prose — word-wrap to window width
+        // so no horizontal scrollbar is needed.
+        if (typeIdx == IDLG_LICENSE)
+            ed.wrapToWindow = true;
         if (OpenRtfEditor(hwnd, ed)) {
             dlg.content_rtf = ed.outRtf;
             MainWindow::MarkAsModified();

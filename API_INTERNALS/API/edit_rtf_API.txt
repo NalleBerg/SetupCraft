@@ -59,6 +59,16 @@
                                           Fallback: "%d characters left"
   preferredW      int           0         Window width  in device px.  0 = S(660)
   preferredH      int           0         Window height in device px.  0 = S(520)
+  pLocale         const map*    nullptr   Optional locale map.  All 27 toolbar/
+                                          dialog strings looked up via RtfLS();
+                                          English fallbacks used when null.
+                                          Keys documented in section 14.
+  wrapToWindow    bool          false     false (default): 32767-px page-layout
+                                          canvas (fixed line width, H-scroll).
+                                          true: EM_SETTARGETDEVICE(NULL,0) so
+                                          text wraps to the window width —
+                                          no H-scroll needed.  Use for read-
+                                          heavy content (e.g. license text).
 
   All string fields are i18n-ready — pass locale-looked-up strings directly.
 

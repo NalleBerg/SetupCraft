@@ -1599,10 +1599,12 @@ static LRESULT CALLBACK RtfEditorWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
             pad, editY, cW - 2*pad, editH,
             hwnd, (HMENU)IDC_RTFE_EDIT, hInst, NULL);
 
-        // Disable word wrap — set a target line width of 32767 px (in twips:
-        // 32767 × 15 = 491 505).  This makes every line infinitely wide from
-        // the user's viewpoint while keeping SCROLLINFO nMax in a sane range.
-        SendMessageW(hEdit, EM_SETTARGETDEVICE, (WPARAM)NULL, 32767 * 15);
+        // Word-wrap mode: wrapToWindow=true → wrap to window width (EM_SETTARGETDEVICE
+        // with 0); false (default) → 32767-px page-width canvas for layout editing.
+        if (pData->wrapToWindow)
+            SendMessageW(hEdit, EM_SETTARGETDEVICE, (WPARAM)NULL, 0);
+        else
+            SendMessageW(hEdit, EM_SETTARGETDEVICE, (WPARAM)NULL, 32767 * 15);
 
         // Char limit — only applied when maxChars > 0.
         if (pData->maxChars > 0)

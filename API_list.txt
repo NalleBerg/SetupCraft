@@ -67,8 +67,11 @@
                                                 (rows/cols/width%/row-height/border style+colour/
                                                 table+cell alignment/column width px or %/unit
                                                 picker; pct-mode tables rescaled on WM_SIZE),
-                                                pLocale field for i18n, hover tooltips on all 19
-                                                toolbar controls (RtfEd_SetToolTip /
+                                                pLocale field for i18n, wrapToWindow flag
+                                                (true → EM_SETTARGETDEVICE NULL,0 — wraps to
+                                                window width, no H-scroll; false = default →
+                                                32767-px page-layout canvas), hover tooltips on
+                                                all 19 toolbar controls (RtfEd_SetToolTip /
                                                 RtfEd_ToolbarBtnProc subclass pattern), RTF stream
                                                 in/out, optional char limit, WS_OVERLAPPEDWINDOW
                                                 resizable, control ID range 4500–4555.

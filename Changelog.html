@@ -1,6 +1,13 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 05 May 2026 &mdash; v2026.05.05.10 (10:40)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 05 May 2026 &mdash; v2026.05.05.11 (11:40)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.05.05.11</span></h3>
+<p><strong>edit_rtf &mdash; Word-wrap-to-window mode; license editor uses it (05.05.2026, 11:40):</strong></p>
+<ul>
+<li><strong>edit_rtf &mdash; <code>RtfEditorData::wrapToWindow</code> flag:</strong> New <code>bool wrapToWindow = false</code> field on <code>RtfEditorData</code>. When <code>true</code>, the editor calls <code>EM_SETTARGETDEVICE(NULL, 0)</code> so text wraps to the window width and no horizontal scrollbar is needed. When <code>false</code> (default), the existing 32767-px page-layout canvas is used. The distinction is between &ldquo;view a document&rdquo; (wrap to window) and &ldquo;author a document with layout&rdquo; (fixed-width canvas).</li>
+<li><strong>dialogs &mdash; License editor word-wraps to window:</strong> The &ldquo;Edit Content&hellip;&rdquo; RTF editor opened for the License dialog row now sets <code>ed.wrapToWindow = true</code>. Long license template paragraphs (e.g. GPL warranty disclaimer) previously required horizontal scrolling to read; they now wrap to fit the viewport.</li>
+</ul>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.05.05.10</span></h3>
 <p><strong>db &mdash; License template content &amp; images fully embedded (05.05.2026, 10:40):</strong></p>
