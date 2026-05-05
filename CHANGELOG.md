@@ -2,6 +2,15 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.05.05.10] - 2026-05-05
+
+### db — License template content & images fully embedded
+- **db — License template canonical RTF content**: All 19 license templates now carry complete, canonical, display-ready RTF text in the `license_templates` table. Each template uses the shared RTF colour palette (`\cf1` blue titles/headers, `\cf2` dark-grey body, `\cf4` dark-red warranty/liability disclaimers) and begins with the logo image embedded as a `\pict\pngblip` RTF block (PNG hex-encoded inline). Copyright placeholder lines and the `LT_CREDIT` italic credit line removed from all templates where the license text does not require owner attribution — the developer is not prompted to add a copyright notice they do not need. Developer can still freely edit any template after selecting it.
+- **db — UPSERT seeding (`INSERT … ON CONFLICT … DO UPDATE`)**: Changed from `INSERT OR IGNORE` to a full UPSERT so all template content (RTF text, image) is refreshed on every app startup. Any fix or improvement to a built-in template is picked up automatically without a manual DB wipe.
+- **db — GNU logo switched to PNG (`GnuLogo.png`)**: All five GNU license entries (GPL v2, GPL v3, LGPL v2.1, LGPL v3, AGPL v3) now reference `GnuLogo.png` instead of `GnuLogo.bmp`. The RTF `\dibitmap0` blip type for BMP is not rendered by the Windows RichEdit control; `\pngblip` is. `GnuLogo.png` is included in `LicenseImg\`.
+- **makeit.bat — `LicenseImg\` always copied**: Build script now copies `LicenseImg\` to both `build\` (test runs) and `SetupCraft\` (package) on every build. Previously missing, causing all license logo images to be absent from the DB after a fresh package run.
+- **apache.png — white background**: Apache logo PNG reprocessed to replace near-black background with white via `System.Drawing` flood-fill, so the logo displays correctly on the white RTF background.
+
 ## [2026.05.05.08] - 2026-05-05
 
 ### Dialogs — License file type selector
@@ -12,7 +21,7 @@ All notable changes to SetupCraft will be documented in this file.
 ### Dialogs — License template selector
 - **dialogs / db — License template selector (`IDC_IDLG_LICENSE_TEMPLATE = 7047`)**: New "License template:" label and drop-down combo added above the "Require license acceptance" checkbox on the License row. Selecting a template loads the full canonical RTF text into the License dialog content slot in memory (`<<AppName>>` and `<<Year>>` substituted at load time using the project name and current year). Selected template ID persisted per-project via `DB::SetSetting` key `installer_license_template_<pid>`. Static label: `IDC_IDLG_LICENSE_TEMPLATE_LBL = 7048`. Locale key: `idlg_license_template_label`.
 - **db — `license_templates` table**: New read-only catalogue table seeded in `InitDb()` with `INSERT OR IGNORE`. Columns: `id` (PK), `name`, `spdx_id`, `img_file` (filename in `LicenseImg\`, empty = none), `content_rtf`. 19 licences seeded at id 0–18: The Unlicense (0, default), MIT (1), Apache 2.0 (2), GNU GPL v2 (3), GNU GPL v3 (4), GNU LGPL v2.1 (5), GNU LGPL v3 (6), GNU AGPL v3 (7), BSD 2-Clause (8), BSD 3-Clause (9), ISC (10), MPL 2.0 (11), Boost 1.0 (12), EUPL 1.2 (13), CC0 1.0 (14), CC-BY 4.0 (15), CC-BY-SA 4.0 (16), Artistic 2.0 (17), WTFPL (18). All use the shared RTF colour palette (\cf1 blue title, \cf2 dark body, \cf3 grey credit, \cf4 dark-red disclaimer). New DB accessors: `DB::GetAllLicenseTemplates()` → `vector<LicenseTemplateInfo>` (id, name, img_file); `DB::GetLicenseTemplateRtf(int id)` → `wstring`.
-- **LicenseImg\ folder**: New deployment folder with logo images for each template — `apache.png` (converted from ASF SVG via ImageMagick, 300×157 px), `BSD.png`, `BSL-1.0 (Boost).png`, `CC-BY-4.0.png`, `CC-BY-SA-4.0.png`, `CC0-1.0.png`, `Logo_EUPL.svg.png`, `Mozilla.png`, `OpeenSourceInitiative.png`, `wtfpl-badge-1.png`; GNU licences reuse the existing `GnuLogo.bmp`. The `img_file` column links each template to its logo; preview rendering is the next step.
+- **LicenseImg\ folder**: New deployment folder with logo images for each template — `apache.png` (converted from ASF SVG via ImageMagick, 300×157 px), `BSD.png`, `BSL-1.0 (Boost).png`, `CC-BY-4.0.png`, `CC-BY-SA-4.0.png`, `CC0-1.0.png`, `Logo_EUPL.svg.png`, `Mozilla.png`, `OpeenSourceInitiative.png`, `wtfpl-badge-1.png`; GNU licences use `GnuLogo.png` (converted from `GnuLogo.bmp`). The `img_file` column links each template to its logo; preview rendering is the next step.
 
 ## [2026.05.04.11] - 2026-05-04
 

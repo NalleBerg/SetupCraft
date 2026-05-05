@@ -417,11 +417,12 @@
                                                 DB::SetSetting installer_license_must_accept_<pid>;
                                                 IDLG_GetLicenseMustAccept() public accessor),
                                                 license_templates DB table (id PK, name, spdx_id,
-                                                img_file, content_rtf; INSERT OR IGNORE seed for 19
-                                                licences id 0–18; DB::GetAllLicenseTemplates() /
+                                                img_file, content_rtf; UPSERT seed (INSERT …
+                                                ON CONFLICT DO UPDATE) for 19 licences id 0–18;
+                                                DB::GetAllLicenseTemplates() /
                                                 DB::GetLicenseTemplateRtf(int id) accessors),
-                                                LicenseImg\ deployment folder (logo PNGs/BMP keyed
-                                                by img_file column; GNU licences share GnuLogo.bmp),
+                                                LicenseImg\ deployment folder (logo PNGs keyed
+                                                by img_file column; GNU licences share GnuLogo.png),
                                                 module-private state variables, IDLG_OnCommand
                                                 dispatch cases, preview dialog PreviewWndProc
                                                 (BS_PUSHBUTTON ◀/▶ glyph buttons,

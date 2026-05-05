@@ -38,6 +38,9 @@ copy /y "%~dp0SetupCraft.png" "%~dp0build\" >nul 2>&1
 copy /y "%~dp0GPLv2.md" "%~dp0build\" >nul 2>&1
 copy /y "%~dp0GnuLogo.bmp" "%~dp0build\" >nul 2>&1
 copy /y "%~dp0curver.txt" "%~dp0build\" >nul 2>&1
+if exist "%~dp0LicenseImg\" (
+  xcopy /e /i /y "%~dp0LicenseImg" "%~dp0build\LicenseImg\" >nul 2>&1
+)
 copy /y "%~dp0scintilla\Scintilla.dll" "%~dp0build\" >nul 2>&1
 copy /y "%~dp0scintilla\Lexilla.dll" "%~dp0build\" >nul 2>&1
 
@@ -110,6 +113,9 @@ copy /y "%~dp0SetupCraft.svg" "%PKG_DIR%\" >nul 2>&1
 copy /y "%~dp0GPLv2.md" "%PKG_DIR%\" >nul 2>&1
 copy /y "%~dp0GnuLogo.bmp" "%PKG_DIR%\" >nul 2>&1
 copy /y "%~dp0curver.txt" "%PKG_DIR%\" >nul 2>&1
+if exist "%~dp0LicenseImg\" (
+  xcopy /e /i /y "%~dp0LicenseImg" "%PKG_DIR%\LicenseImg\" >nul 2>&1
+)
 
 echo Package created at %PKG_DIR%
 
