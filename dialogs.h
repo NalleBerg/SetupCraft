@@ -157,6 +157,7 @@ constexpr COLORREF IDLG_NOCOLOR = (COLORREF)-1;
 #define IDC_IDLG_SZR_CLR_GLOBAL   7134  // "Use on all dialogs" checkbox for header colors
 #define IDC_IDLG_SZR_CLR_FG       7135  // title text (fg) color swatch button
 #define IDC_IDLG_SZR_CLR_BG       7136  // header background (bg) color swatch button
+#define IDC_IDLG_SZR_FONT_BROWSE  7137  // "..." button — opens ChooseFontW picker
 
 // Installer-title section controls (range 7110–7119)
 // Displayed at the top of the Dialogs page, above the dialog-type rows.

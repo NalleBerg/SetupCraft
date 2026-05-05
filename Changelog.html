@@ -1,8 +1,13 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 05 May 2026 &mdash; v2026.05.05.14 (14:26)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 05 May 2026 &mdash; v2026.05.05.14 (14:37)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.05.05.14</span></h3>
+<p><strong>dialogs &mdash; Preview sizer: font picker &amp; initial color swatches (05.05.2026, 14:37):</strong></p>
+<ul>
+<li><strong>dialogs &mdash; Font picker button (<code>IDC_IDLG_SZR_FONT_BROWSE = 7137</code>):</strong> A <em>&ldquo;&hellip;&rdquo;</em> button has been added to the right of the font-name edit field. Clicking it opens the system <code>ChooseFontW</code> common dialog (screen fonts, current settings pre-loaded). On confirm, the font family, size, Bold, and Italic controls are all updated in one step so the user never has to type or remember font names. The font-name edit remains editable for direct entry.</li>
+<li><strong>dialogs &mdash; Color swatches show effective color when no override is set:</strong> Previously the Title and Background color swatches displayed an em-dash on a grey background when no color override had been chosen (the <code>IDLG_NOCOLOR</code> state). The swatches now fill with the effective default color &mdash; black for the title foreground, white for the header background &mdash; matching exactly what the preview renders and what the <code>ChooseColor</code> dialog pre-selects. Right-click still resets to the unset (<code>IDLG_NOCOLOR</code>) state.</li>
+</ul>
 <p><strong>settings &mdash; AppId (GUID) moved from Registry page to Settings page (05.05.2026, 14:26):</strong></p>
 <ul>
 <li><strong>settings &mdash; AppId field in Application section (<code>IDC_SETT_APP_ID = 8007</code>):</strong> The read-only AppId (GUID) display and Regenerate button have been moved from the Registry page into the Settings page, Application section, immediately after the Support URL field. This is the correct location: the AppId is a core application identity property that goes into Inno&rsquo;s <code>[Setup]</code> section alongside <code>AppName</code>, <code>AppVersion</code>, and <code>AppPublisher</code> &mdash; not a registry entry the installer writes.</li>

@@ -515,6 +515,7 @@ idlg_szr_use_all_dialogs=Use on all dialogs
 idlg_szr_font_global_tip=When checked all dialogs share the same header font. Uncheck to set a different font per dialog.
 idlg_szr_font_name_label=Font:
 idlg_szr_font_name_tip=Header title font family (e.g. Tahoma). Leave empty to use Inno's default.
+idlg_szr_font_browse_tip=Browse installed fonts.
 idlg_szr_font_size_label=Size:
 idlg_szr_font_size_tip=Header title font size in points. 0 = Inno default.
 idlg_szr_font_bold=Bold

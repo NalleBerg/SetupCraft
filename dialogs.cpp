@@ -1641,9 +1641,10 @@ static LRESULT CALLBACK SizerWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 L"Uncheck to set a different font per dialog.").c_str());
             y += rowH + gap;
 
-            // Font family name: "Font:" label + edit
+            // Font family name: "Font:" label + edit + "..." browse button
             const int shortLblW = S(44);
-            const int nameEdW   = btnW - shortLblW - gap;
+            const int brwW      = S(24);
+            const int nameEdW   = btnW - shortLblW - gap - brwW - gap;
             HWND hFNL = CreateWindowExW(0, L"STATIC",
                 L10n(L"idlg_szr_font_name_label", L"Font:").c_str(),
                 WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
@@ -1659,6 +1660,13 @@ static LRESULT CALLBACK SizerWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             SetButtonTooltip(hFNE, L10n(L"idlg_szr_font_name_tip",
                 L"Header title font family (e.g. Tahoma). "
                 L"Leave empty to use Inno's default.").c_str());
+            HWND hFNB = CreateWindowExW(0, L"BUTTON", L"...",
+                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+                pad + shortLblW + gap + nameEdW + gap, y, brwW, rowH,
+                hwnd, (HMENU)(UINT_PTR)IDC_IDLG_SZR_FONT_BROWSE, hI, NULL);
+            if (hF) SendMessageW(hFNB, WM_SETFONT, (WPARAM)hF, TRUE);
+            SetButtonTooltip(hFNB, L10n(L"idlg_szr_font_browse_tip",
+                L"Browse installed fonts.").c_str());
             y += rowH + gap;
 
             // Font size: "Size:" label + edit + spinner
@@ -1884,6 +1892,51 @@ static LRESULT CALLBACK SizerWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             return 0;
         }
 
+        if (id == IDC_IDLG_SZR_FONT_BROWSE && event == BN_CLICKED) {
+            InstallerDialogType t = sd->pd ? sd->pd->type : IDLG_WELCOME;
+            IdlgHeaderFont ef = EffectiveFont(t);
+            LOGFONTW lf = {};
+            lf.lfCharSet = DEFAULT_CHARSET;
+            if (!ef.name.empty())
+                wcsncpy_s(lf.lfFaceName, ef.name.c_str(), LF_FACESIZE - 1);
+            HDC hdc = GetDC(hwnd);
+            int pts = (ef.size > 0) ? ef.size : 24;
+            lf.lfHeight = -MulDiv(pts, GetDeviceCaps(hdc, LOGPIXELSY), 72);
+            ReleaseDC(hwnd, hdc);
+            lf.lfWeight = ef.bold   ? FW_BOLD   : FW_NORMAL;
+            lf.lfItalic = ef.italic ? TRUE      : FALSE;
+            CHOOSEFONTW cf = {};
+            cf.lStructSize = sizeof(cf);
+            cf.hwndOwner   = hwnd;
+            cf.lpLogFont   = &lf;
+            cf.Flags       = CF_SCREENFONTS | CF_INITTOLOGFONTSTRUCT | CF_NOSCRIPTSEL;
+            if (ChooseFontW(&cf)) {
+                IdlgHeaderFont nf;
+                nf.name   = lf.lfFaceName;
+                nf.size   = cf.iPointSize / 10;
+                nf.bold   = (lf.lfWeight >= FW_BOLD);
+                nf.italic = (lf.lfItalic != 0);
+                if (s_fontGlobal) s_globalFont = nf;
+                else              s_perDialogFont[(int)t] = nf;
+                sd->ignoring = true;
+                SetWindowTextW(GetDlgItem(hwnd, IDC_IDLG_SZR_FONT_NAME), nf.name.c_str());
+                if (HWND hS = GetDlgItem(hwnd, IDC_IDLG_SZR_FONT_SIZE_S))
+                    SendMessageW(hS, UDM_SETPOS32, 0, (LPARAM)nf.size);
+                if (HWND hB = GetDlgItem(hwnd, IDC_IDLG_SZR_FONT_BOLD))
+                    SendMessageW(hB, BM_SETCHECK, nf.bold   ? BST_CHECKED : BST_UNCHECKED, 0);
+                if (HWND hIt = GetDlgItem(hwnd, IDC_IDLG_SZR_FONT_ITALIC))
+                    SendMessageW(hIt, BM_SETCHECK, nf.italic ? BST_CHECKED : BST_UNCHECKED, 0);
+                sd->ignoring = false;
+                if (sd->hPreview && IsWindow(sd->hPreview)) {
+                    PreviewData* ppd = (PreviewData*)(LONG_PTR)
+                        GetWindowLongPtrW(sd->hPreview, GWLP_USERDATA);
+                    if (ppd) RefreshPreviewHeader(sd->hPreview, ppd);
+                }
+                MainWindow::MarkAsModified();
+            }
+            return 0;
+        }
+
         if (id == IDC_IDLG_SZR_FONT_NAME && event == EN_CHANGE) {
             if (sd->ignoring) return 0;
             HWND hEd = GetDlgItem(hwnd, IDC_IDLG_SZR_FONT_NAME);
@@ -2007,15 +2060,13 @@ static LRESULT CALLBACK SizerWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             DrawEdge(dis->hDC, &r,
                 (dis->itemState & 0x0010 /*ODS_PRESSED*/) ? EDGE_SUNKEN : EDGE_RAISED, BF_RECT);
             InflateRect(&r, -2, -2);
-            if (color == IDLG_NOCOLOR) {
-                // No override — show a flat button-face with an em-dash.
-                FillRect(dis->hDC, &r, (HBRUSH)(COLOR_BTNFACE + 1));
-                SetTextColor(dis->hDC, GetSysColor(COLOR_BTNTEXT));
-                SetBkMode(dis->hDC, TRANSPARENT);
-                DrawTextW(dis->hDC, L"\u2014", -1, &r,
-                          DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-            } else {
-                HBRUSH hBr = CreateSolidBrush(color);
+            {
+                // Show the effective color; when no override is set use the
+                // same defaults that the preview and ChooseColor init use.
+                COLORREF fill = (color == IDLG_NOCOLOR)
+                    ? (ctrlId == IDC_IDLG_SZR_CLR_FG ? RGB(0, 0, 0) : RGB(255, 255, 255))
+                    : color;
+                HBRUSH hBr = CreateSolidBrush(fill);
                 FillRect(dis->hDC, &r, hBr);
                 DeleteObject(hBr);
             }
@@ -2069,6 +2120,7 @@ static LRESULT CALLBACK SizerWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 GetDlgItem(hwnd, IDC_IDLG_SZR_CLOSE),
                 GetDlgItem(hwnd, IDC_IDLG_SZR_FONT_GLOBAL),
                 GetDlgItem(hwnd, IDC_IDLG_SZR_FONT_NAME),
+                GetDlgItem(hwnd, IDC_IDLG_SZR_FONT_BROWSE),
                 GetDlgItem(hwnd, IDC_IDLG_SZR_FONT_SIZE_E),
                 GetDlgItem(hwnd, IDC_IDLG_SZR_FONT_BOLD),
                 GetDlgItem(hwnd, IDC_IDLG_SZR_FONT_ITALIC),
