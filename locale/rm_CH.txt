@@ -47,3 +47,9 @@ merge_instr=En dossier cun quest num exista gia
 merge_content=En dossier cun il num «%s» exista gia tar il lieu da destinaziun.
 merge_btn_merge=Unir
 merge_btn_overwrite=Surscriver
+
+# Mutex already-running warning dialog
+mutex_title=Il program d'installaziun è gia en funcziun
+mutex_message=In'autra copia da quest program d'installaziun è gia en funcziun.\\n\\nTge vuls far?
+mutex_close_btn=Serrar il program d'installaziun en funcziun
+mutex_close_this_btn=Serrar quest program d'installaziun

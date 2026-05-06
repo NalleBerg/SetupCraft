@@ -1,4 +1,4 @@
-﻿# NOTE: This is the reference (English) locale. Translations for all other locales
+# NOTE: This is the reference (English) locale. Translations for all other locales
 # will be added once the app is stable and feature-complete.
 app_name=SetupCraft
 search_btn=🔍 Search
@@ -706,3 +706,9 @@ sett_languages_hint=English is always included. Tick additional languages — th
 sett_sec_uninstall=Uninstall
 sett_allow_uninstall_lbl=Allow users to uninstall this application
 sett_close_apps_lbl=Close running applications before installing
+
+# Mutex already-running warning dialog
+mutex_title=Installer Already Running
+mutex_message=Another copy of this installer is already running.\n\nWhat would you like to do?
+mutex_close_btn=Close the running installer
+mutex_close_this_btn=Close this installer

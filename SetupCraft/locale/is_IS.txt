@@ -47,3 +47,9 @@ merge_instr=Mappa með þessu heiti er þegar til
 merge_content=Mappa að nafni «%s» er þegar til á markvistarsetningu.
 merge_btn_merge=Sameina
 merge_btn_overwrite=Yfirskrifa
+
+# Mutex already-running warning dialog
+mutex_title=Uppsetningarforrit er þegar í gangi
+mutex_message=Önnur eintak af þessu uppsetningarforrit er þegar í gangi.\\n\\nHvað viltu gera?
+mutex_close_btn=Loka uppsetningarforritinu sem er í gangi
+mutex_close_this_btn=Loka þessu uppsetningarforrit

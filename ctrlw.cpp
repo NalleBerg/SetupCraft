@@ -1071,3 +1071,236 @@ void ShowValidationDialog(HWND hwndParent, const std::wstring& title,
 
     delete pData;
 }
+
+// ── Mutex-already-running warning dialog ─────────────────────────────────────
+// Three buttons: Green "Close the running installer" (IDYES),
+//                Blue  "Close this installer"        (IDNO),
+//                Red   "Cancel"                      (IDCANCEL).
+// Returns true only when the user chose to close the running installer.
+struct MutexDlgData {
+    std::wstring message;
+    std::wstring closeText;      // "Close the running installer"
+    std::wstring closeThisText;  // "Close this installer"
+    std::wstring cancelText;     // "Cancel"
+    int          textH;
+    int          iconSize;
+    bool         result;         // true = IDYES clicked
+    HINSTANCE    hInst;
+};
+
+static LRESULT CALLBACK MutexDialogProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    switch (msg) {
+    case WM_CREATE: {
+        CREATESTRUCTW* cs    = (CREATESTRUCTW*)lParam;
+        MutexDlgData*  pData = (MutexDlgData*)cs->lpCreateParams;
+        if (!pData) return 0;
+        SetWindowLongPtr(hDlg, GWLP_USERDATA, (LONG_PTR)pData);
+
+        NONCLIENTMETRICSW ncm = {}; ncm.cbSize = sizeof(ncm);
+        SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+        if (ncm.lfMessageFont.lfHeight < 0)
+            ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
+        ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+        HFONT hFont = CreateFontIndirectW(&ncm.lfMessageFont);
+
+        RECT rcC; GetClientRect(hDlg, &rcC);
+        int cW = rcC.right;
+        int cH = rcC.bottom;
+
+        // ── Warning icon (imageres.dll #244 — warning shield exclamation) ────
+        int iconSz = pData->iconSize;
+        {
+            HWND hIconCtrl = CreateWindowExW(0, L"STATIC", NULL,
+                WS_CHILD | WS_VISIBLE | SS_ICON | SS_CENTERIMAGE,
+                (cW - iconSz) / 2, S(DLG_PAD_T),
+                iconSz, iconSz,
+                hDlg, NULL, pData->hInst, NULL);
+            wchar_t dllPath[MAX_PATH];
+            GetSystemDirectoryW(dllPath, MAX_PATH);
+            PathAppendW(dllPath, L"imageres.dll");
+            HICON hIco = NULL;
+            PrivateExtractIconsW(dllPath, 244, iconSz, iconSz, &hIco, NULL, 1, 0);
+            if (hIco) SendMessageW(hIconCtrl, STM_SETICON, (WPARAM)hIco, 0);
+        }
+
+        int textY = S(DLG_PAD_T) + iconSz + S(8);
+        HWND hText = CreateWindowExW(0, L"STATIC", pData->message.c_str(),
+            WS_CHILD | WS_VISIBLE | SS_CENTER,
+            S(DLG_PAD_H), textY,
+            cW - 2 * S(DLG_PAD_H), pData->textH,
+            hDlg, NULL, pData->hInst, NULL);
+        if (hFont) SendMessageW(hText, WM_SETFONT, (WPARAM)hFont, TRUE);
+
+        int closeW     = MeasureButtonWidth(pData->closeText,     true);
+        int closeThisW = MeasureButtonWidth(pData->closeThisText, true);
+        int cancelW    = MeasureButtonWidth(pData->cancelText,    true);
+        int btnW       = std::max(std::max(closeW, closeThisW), cancelW);
+        int totalBtnW  = 3 * btnW + 2 * S(DLG_BTN_GAP);
+        int startX     = (cW - totalBtnW) / 2;
+        int btnY       = cH - S(DLG_PAD_B) - S(DLG_BTN_H);
+        CreateCustomButtonWithIcon(hDlg, IDYES, pData->closeText.c_str(), ButtonColor::Green,
+            L"shell32.dll", 294,
+            startX, btnY, btnW, S(DLG_BTN_H), pData->hInst);
+        CreateCustomButtonWithIcon(hDlg, IDNO, pData->closeThisText.c_str(), ButtonColor::Blue,
+            L"shell32.dll", 27,
+            startX + btnW + S(DLG_BTN_GAP), btnY, btnW, S(DLG_BTN_H), pData->hInst);
+        CreateCustomButtonWithIcon(hDlg, IDCANCEL, pData->cancelText.c_str(), ButtonColor::Red,
+            L"shell32.dll", 131,
+            startX + 2 * (btnW + S(DLG_BTN_GAP)), btnY, btnW, S(DLG_BTN_H), pData->hInst);
+        return 0;
+    }
+    case WM_COMMAND: {
+        int id = LOWORD(wParam);
+        if (id == IDYES || id == IDNO || id == IDCANCEL) {
+            MutexDlgData* pData = (MutexDlgData*)GetWindowLongPtr(hDlg, GWLP_USERDATA);
+            if (pData) pData->result = (id == IDYES);
+            DestroyWindow(hDlg);
+            return 0;
+        }
+        break;
+    }
+    case WM_DRAWITEM: {
+        LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
+        if (dis->CtlID == IDYES || dis->CtlID == IDNO || dis->CtlID == IDCANCEL) {
+            ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
+            NONCLIENTMETRICSW ncm = {}; ncm.cbSize = sizeof(ncm);
+            SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+            if (ncm.lfMessageFont.lfHeight < 0)
+                ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
+            ncm.lfMessageFont.lfWeight = FW_BOLD;
+            ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+            HFONT hFont = CreateFontIndirectW(&ncm.lfMessageFont);
+            LRESULT r = DrawCustomButton(dis, color, hFont);
+            if (hFont) DeleteObject(hFont);
+            return r;
+        }
+        break;
+    }
+    case WM_CTLCOLORSTATIC: {
+        HDC hdcStatic = (HDC)wParam;
+        SetBkMode(hdcStatic, TRANSPARENT);
+        SetBkColor(hdcStatic, RGB(255, 255, 255));
+        return (LRESULT)GetStockObject(WHITE_BRUSH);
+    }
+    case WM_CLOSE: {
+        MutexDlgData* pData = (MutexDlgData*)GetWindowLongPtr(hDlg, GWLP_USERDATA);
+        if (pData) pData->result = false;
+        DestroyWindow(hDlg);
+        return 0;
+    }
+    case WM_DESTROY:
+        return 0;
+    case WM_KEYDOWN:
+        if (wParam == VK_ESCAPE) {
+            MutexDlgData* pData = (MutexDlgData*)GetWindowLongPtr(hDlg, GWLP_USERDATA);
+            if (pData) pData->result = false;
+            DestroyWindow(hDlg);
+            return 0;
+        }
+        break;
+    }
+    return DefWindowProcW(hDlg, msg, wParam, lParam);
+}
+
+bool ShowMutexRunningDialog(HWND hwndParent, const std::map<std::wstring, std::wstring>& locale)
+{
+    static bool s_classRegistered = false;
+    if (!s_classRegistered) {
+        WNDCLASSEXW wc = {};
+        wc.cbSize        = sizeof(wc);
+        wc.style         = CS_HREDRAW | CS_VREDRAW;
+        wc.lpfnWndProc   = MutexDialogProc;
+        wc.hInstance     = GetModuleHandle(NULL);
+        wc.hCursor       = LoadCursor(NULL, IDC_ARROW);
+        wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+        wc.lpszClassName = L"MutexDialogClass";
+        RegisterClassExW(&wc);
+        s_classRegistered = true;
+    }
+
+    auto itMsg = locale.find(L"mutex_message");
+    std::wstring rawMsg = (itMsg != locale.end()) ? itMsg->second
+                         : L"Another copy of this installer is already running.\n\nWhat would you like to do?";
+    std::wstring msgExpanded = ExpandEscapes(rawMsg);
+
+    auto itTitle = locale.find(L"mutex_title");
+    std::wstring title = (itTitle != locale.end()) ? itTitle->second : L"Installer Already Running";
+
+    auto itClose = locale.find(L"mutex_close_btn");
+    std::wstring closeText = (itClose != locale.end()) ? itClose->second : L"Close the running installer";
+
+    auto itCloseThis = locale.find(L"mutex_close_this_btn");
+    std::wstring closeThisText = (itCloseThis != locale.end()) ? itCloseThis->second : L"Close this installer";
+
+    auto itCancel = locale.find(L"cancel");
+    std::wstring cancelText = (itCancel != locale.end()) ? itCancel->second : L"Cancel";
+
+    int textH = MeasureDialogTextHeight(msgExpanded, S(VAL_CONT_W));
+    if (textH < S(20)) textH = S(20);
+
+    int closeW     = MeasureButtonWidth(closeText,     true);
+    int closeThisW = MeasureButtonWidth(closeThisText, true);
+    int cancelW    = MeasureButtonWidth(cancelText,    true);
+    int btnW       = std::max(std::max(closeW, closeThisW), cancelW);
+
+    int iconSize = S(32);
+    int clientW  = std::max(S(VAL_CONT_W) + 2 * S(DLG_PAD_H),
+                       3 * btnW + 2 * S(DLG_BTN_GAP) + 2 * S(DLG_PAD_H));
+    int clientH  = S(DLG_PAD_T) + iconSize + S(8) + textH + S(DLG_GAP_TB) + S(DLG_BTN_H) + S(DLG_PAD_B);
+
+    RECT wrc = { 0, 0, clientW, clientH };
+    AdjustWindowRectEx(&wrc, WS_POPUP | WS_CAPTION | WS_SYSMENU, FALSE, WS_EX_DLGMODALFRAME);
+    int width  = wrc.right  - wrc.left;
+    int height = wrc.bottom - wrc.top;
+
+    RECT rcParent; GetWindowRect(hwndParent, &rcParent);
+    int x = rcParent.left + (rcParent.right  - rcParent.left - width)  / 2;
+    int y = rcParent.top  + (rcParent.bottom - rcParent.top  - height) / 2;
+
+    RECT rcWork; SystemParametersInfoW(SPI_GETWORKAREA, 0, &rcWork, 0);
+    if (x < rcWork.left)            x = rcWork.left;
+    if (y < rcWork.top)             y = rcWork.top;
+    if (x + width  > rcWork.right)  x = rcWork.right  - width;
+    if (y + height > rcWork.bottom) y = rcWork.bottom - height;
+
+    MutexDlgData* pData = new MutexDlgData();
+    pData->message       = msgExpanded;
+    pData->closeText     = closeText;
+    pData->closeThisText = closeThisText;
+    pData->cancelText    = cancelText;
+    pData->textH         = textH;
+    pData->iconSize   = iconSize;
+    pData->result     = false;
+    pData->hInst      = GetModuleHandle(NULL);
+
+    HWND hDlg = CreateWindowExW(
+        WS_EX_DLGMODALFRAME | WS_EX_TOPMOST,
+        L"MutexDialogClass",
+        title.c_str(),
+        WS_POPUP | WS_CAPTION | WS_SYSMENU,
+        x, y, width, height,
+        hwndParent, NULL, GetModuleHandle(NULL), pData);
+
+    if (hDlg) {
+        EnableWindow(hwndParent, FALSE);
+        ShowWindow(hDlg, SW_SHOW);
+
+        MSG loopMsg = {};
+        while (IsWindow(hDlg)) {
+            BOOL bRet = GetMessageW(&loopMsg, NULL, 0, 0);
+            if (bRet == 0) { PostQuitMessage((int)loopMsg.wParam); break; }
+            if (bRet == -1) break;
+            if (!IsWindow(hDlg)) break;
+            TranslateMessage(&loopMsg);
+            DispatchMessageW(&loopMsg);
+        }
+
+        EnableWindow(hwndParent, TRUE);
+        SetForegroundWindow(hwndParent);
+    }
+
+    bool retval = pData->result;
+    delete pData;
+    return retval;
+}

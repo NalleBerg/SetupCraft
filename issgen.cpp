@@ -286,6 +286,13 @@ std::wstring ISS_GenerateIss(
     // AppId: stored as "{GUID}", needs Inno escaping → "{{GUID}}"
     std::wstring appId = EscapeBraces(proj.app_id);
 
+    // SetupMutex: derived from raw AppId, stripped of braces → "Global\GUID_Setup"
+    // Prevents two copies of the installer running simultaneously (always on).
+    std::wstring rawId = proj.app_id;
+    if (!rawId.empty() && rawId.front() == L'{') rawId = rawId.substr(1);
+    if (!rawId.empty() && rawId.back()  == L'}') rawId = rawId.substr(0, rawId.size() - 1);
+    std::wstring setupMutex = rawId.empty() ? L"" : (L"Global\\" + rawId + L"_Setup");
+
     // SourceDir for the [Files] wildcard.
     std::wstring sourceDir = StripTrailingSep(proj.directory);
 
@@ -338,6 +345,7 @@ std::wstring ISS_GenerateIss(
         { L"VersionInfoCopyright",     copyright                                                  },
         { L"AppCopyright",             copyright                                                  },
         { L"SignToolLine",             BuildSignToolLine(cfg)                                     },
+        { L"SetupMutex",               setupMutex                                                 },
     };
 
     // ── Substitute {#Token} placeholders ─────────────────────────────────────

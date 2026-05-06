@@ -47,3 +47,9 @@ merge_instr=Тека з такою назвою вже існує
 merge_content=Тека з назвою «%s» вже існує в цьому місці.
 merge_btn_merge=Об'єднати
 merge_btn_overwrite=Замінити
+
+# Mutex already-running warning dialog
+mutex_title=Інсталятор вже запущено
+mutex_message=Інша копія цього інсталятора вже запущена.\\n\\nЩо ви хочете зробити?
+mutex_close_btn=Закрити запущений інсталятор
+mutex_close_this_btn=Закрити цей інсталятор

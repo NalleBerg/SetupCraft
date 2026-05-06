@@ -50,7 +50,13 @@
                               ShowCloseProjectDialog, ShowConfirmDeleteDialog,
                               ShowRenameProjectDialog, ShowValidationDialog
                               (info/OK dialog with icon, i18n button, narrow
-                              VAL_CONT_W; replaces MessageBoxW app-wide)
+                              VAL_CONT_W; replaces MessageBoxW app-wide),
+                              ShowMutexRunningDialog → bool (three buttons:
+                              Green IDYES "Close the running installer",
+                              Blue IDNO "Close this installer",
+                              Red IDCANCEL "Cancel"; returns true on IDYES
+                              so caller can close the running instance and
+                              retry the mutex)
 
   Localisation stub
     [ ] languages.h / languages.cpp  — locale loading, key lookup, ExpandEscapes

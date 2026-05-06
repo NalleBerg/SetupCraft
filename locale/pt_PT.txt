@@ -47,3 +47,9 @@ merge_instr=Já existe uma pasta com este nome
 merge_content=Já existe uma pasta chamada «%s» no local de destino.
 merge_btn_merge=Combinar
 merge_btn_overwrite=Substituir
+
+# Mutex already-running warning dialog
+mutex_title=O instalador já está em execução
+mutex_message=Outra cópia deste instalador já está em execução.\\n\\nO que pretende fazer?
+mutex_close_btn=Fechar o instalador em execução
+mutex_close_this_btn=Fechar este instalador

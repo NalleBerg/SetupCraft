@@ -53,3 +53,9 @@ merge_instr=Ein Ordner mit diesem Namen existiert bereits
 merge_content=An diesem Ort existiert bereits ein Ordner namens "%s".
 merge_btn_merge=Zusammenführen
 merge_btn_overwrite=Überschreiben
+
+# Mutex already-running warning dialog
+mutex_title=Installationsprogramm läuft bereits
+mutex_message=Eine andere Kopie dieses Installationsprogramms wird bereits ausgeführt.\n\nWas möchten Sie tun?
+mutex_close_btn=Laufendes Installationsprogramm schließen
+mutex_close_this_btn=Dieses Installationsprogramm schließen

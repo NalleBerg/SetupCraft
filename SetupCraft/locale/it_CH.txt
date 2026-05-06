@@ -46,3 +46,9 @@ merge_instr=Esiste già una cartella con questo nome
 merge_content=Esiste già una cartella denominata «%s» nella posizione di destinazione.
 merge_btn_merge=Unisci
 merge_btn_overwrite=Sovrascrivi
+
+# Mutex already-running warning dialog
+mutex_title=Il programma di installazione è già in esecuzione
+mutex_message=È già in esecuzione un'altra copia di questo programma di installazione.\n\nCosa vuole fare?
+mutex_close_btn=Chiudi il programma in esecuzione
+mutex_close_this_btn=Chiudi questo programma di installazione

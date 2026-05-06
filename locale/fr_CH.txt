@@ -46,3 +46,9 @@ merge_instr=Un dossier portant ce nom existe déjà
 merge_content=Un dossier nommé « %s » existe déjà à cet emplacement.
 merge_btn_merge=Fusionner
 merge_btn_overwrite=Remplacer
+
+# Mutex already-running warning dialog
+mutex_title=Le programme d'installation est déjà en cours d'exécution
+mutex_message=Une autre copie de ce programme d'installation est déjà en cours d'exécution.\n\nQue souhaitez-vous faire ?
+mutex_close_btn=Fermer l'installateur en cours d'exécution
+mutex_close_this_btn=Fermer cet installateur

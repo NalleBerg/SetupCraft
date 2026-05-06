@@ -207,6 +207,39 @@
                                                 credits_inno_heading, credits_inno_desc,
                                                 credits_scintilla_heading, credits_scintilla_desc.
 
+  ctrlw.h / ctrlw.cpp                           Custom modal dialog module — fully i18n,
+                                                owner-drawn, non-native (no MessageBoxW /
+                                                TaskDialog). Replaces MessageBoxW app-wide.
+                                                ShowQuitDialog(hwndParent, locale) — IDYES/IDNO
+                                                confirmation before app exit.
+                                                ShowCloseProjectDialog(hwndParent, locale) —
+                                                IDYES/IDNO/IDCANCEL (save/discard/cancel)
+                                                before closing a project.
+                                                ShowConfirmDeleteDialog(hwndParent, locale,
+                                                  itemName) — IDYES/IDNO for destructive deletes.
+                                                ShowRenameProjectDialog(hwndParent, locale,
+                                                  current, out) — single-line edit for rename.
+                                                ShowValidationDialog(hwndParent, locale,
+                                                  message) — info/OK with icon; narrow
+                                                  VAL_CONT_W layout; used for all validation
+                                                  feedback and reference popups.
+                                                ShowMutexRunningDialog(hwndParent, locale)
+                                                  → bool — shown when a duplicate installer
+                                                  instance is detected (mutex already owned).
+                                                  Three buttons: Green IDYES "Close the
+                                                  running installer", Blue IDNO "Close this
+                                                  installer", Red IDCANCEL "Cancel". Returns
+                                                  true only when IDYES was chosen — caller
+                                                  should then close the running instance and
+                                                  retry the mutex. Locale keys: mutex_title,
+                                                  mutex_message, mutex_close_btn,
+                                                  mutex_close_this_btn, cancel.
+                                                All dialogs use the standard measure-then-create
+                                                pattern (DLG_PAD_H/B, DLG_BTN_H, DLG_BTN_GAP,
+                                                VAL_CONT_W constants; AdjustWindowRectEx outer
+                                                sizing); button rows are centred and
+                                                auto-widen to the widest label at any DPI.
+
   ── INTERNALS (project-internal architecture) ────────────────────────────────
 
   API_INTERNALS\INTERNALS\files_save_load_INTERNALS.txt

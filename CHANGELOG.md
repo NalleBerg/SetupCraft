@@ -2,6 +2,14 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.05.06.11] - 2026-05-06
+
+### ctrlw / inno / locale — "installer already running" detection (11:20)
+- **ctrlw — `ShowMutexRunningDialog(hwndParent, locale) → bool`**: New custom modal dialog shown when a duplicate installer instance is detected (mutex already owned). Three owner-drawn buttons: Green IDYES *"Close the running installer"*, Blue IDNO *"Close this installer"*, Red IDCANCEL *"Cancel"*. Returns `true` only when the user chose IDYES so the caller can attempt to close the running instance and retry the mutex. Fully i18n via the locale map; locale keys: `mutex_title`, `mutex_message`, `mutex_close_btn`, `mutex_close_this_btn`, `cancel`. Layout follows the standard `ctrlw` measure-then-create pattern; button row is centred and auto-widens to fit the widest label at any DPI.
+- **inno/template.iss — `InitializeSetup()` mutex guard (`[Code]`)**: Inno Pascal `InitializeSetup` creates a named mutex via `CreateMutexW`. If `GetLastError = ERROR_ALREADY_EXISTS` a `MB_YESNOCANCEL` message box is shown with localized text from `[CustomMessages]`. IDYES: `FindWindowW` (class `'TSetupForm'`) locates the running installer and `PostMessageW WM_CLOSE` requests it to exit; after a 1.5 s pause the mutex is retried — if acquired the setup continues, otherwise the user is prompted again. IDNO and IDCANCEL both set `Result := False` (abort this installer). External function declarations (`CreateMutexW`, `CloseHandle`, `GetLastError` from `kernel32.dll`; `FindWindowW`, `PostMessageW` from `user32.dll`) and Pascal constants (`ERROR_ALREADY_EXISTS = 183`, `WM_CLOSE = 16`, `MB_YESNOCANCEL = 3`, `IDYES = 6`, `IDNO = 7`) declared in `template.iss`.
+- **locale — mutex dialog strings in all 20 locale files**: Four keys added to every `locale/*.txt` file: `mutex_title`, `mutex_message` (neutral "What would you like to do?" form), `mutex_close_btn` ("Close the running installer"), `mutex_close_this_btn` ("Close this installer"). All 20 languages covered (da DK, de CH, de DE, el GR, en GB, es ES, fr CH, fr FR, is IS, it CH, it IT, nl BE, nl NL, no NB, no NN, pl PL, pt PT, rm CH, ro RO, uk UA).
+- **inno/template.iss — `[CustomMessages]` in 22 installer languages**: Four `[CustomMessages]` keys (`mutex_title`, `mutex_message`, `mutex_close_btn`, `mutex_close_this_btn`) for all 22 supported Inno installer languages. The Inno `MB_YESNOCANCEL` dialog uses `CustomMessage('mutex_*')` so text matches whatever language the end user selected.
+
 ## [2026.05.06.09] - 2026-05-06
 
 ### settings / issgen — DirExistsWarning combo (09:15)

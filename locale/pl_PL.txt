@@ -46,3 +46,9 @@ merge_instr=Folder o tej nazwie już istnieje
 merge_content=Folder o nazwie "%s" już istnieje w miejscu docelowym.
 merge_btn_merge=Połącz
 merge_btn_overwrite=Zastąp
+
+# Mutex already-running warning dialog
+mutex_title=Instalator jest już uruchomiony
+mutex_message=Inna kopia tego instalatora jest już uruchomiona.\\n\\nCo chcesz zrobić?
+mutex_close_btn=Zamknij uruchomiony instalator
+mutex_close_this_btn=Zamknij ten instalator

@@ -34,6 +34,11 @@ bool ShowConfirmDeleteDialog(HWND hwndParent, const std::wstring& title, const s
 // title and message are pre-formatted by the caller; locale supplies the OK button label.
 void ShowValidationDialog(HWND hwndParent, const std::wstring& title, const std::wstring& message, const std::map<std::wstring, std::wstring>& locale);
 
+// Show a warning dialog when the installer mutex is already held (another copy running).
+// Returns true if the user clicked "Close the installer", false if they cancelled.
+// Uses locale keys "mutex_title", "mutex_message", "mutex_close_btn", and "cancel".
+bool ShowMutexRunningDialog(HWND hwndParent, const std::map<std::wstring, std::wstring>& locale);
+
 // Check if Ctrl+W is pressed in the current message
 bool IsCtrlWPressed(UINT msg, WPARAM wParam);
 

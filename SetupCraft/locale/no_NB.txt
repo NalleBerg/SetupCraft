@@ -47,3 +47,9 @@ merge_instr=Det finnes allerede en mappe med dette navnet
 merge_content=Det finnes allerede en mappe kalt «%s» på målstedet.
 merge_btn_merge=Slå sammen
 merge_btn_overwrite=Erstatt
+
+# Mutex already-running warning dialog
+mutex_title=Installasjonsprogrammet kjører allerede
+mutex_message=En annen kopi av dette installasjonsprogrammet kjører allerede.\\n\\nHva vil du gjøre?
+mutex_close_btn=Lukk det kjørende installasjonsprogrammet
+mutex_close_this_btn=Lukk dette installasjonsprogrammet

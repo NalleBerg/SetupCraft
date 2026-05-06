@@ -46,3 +46,9 @@ merge_instr=Er bestaat al een map met deze naam
 merge_content=Er bestaat al een map met de naam "%s" op de doellocatie.
 merge_btn_merge=Samenvoegen
 merge_btn_overwrite=Overschrijven
+
+# Mutex already-running warning dialog
+mutex_title=Installatieprogramma wordt al uitgevoerd
+mutex_message=Een andere kopie van dit installatieprogramma wordt al uitgevoerd.\n\nWat wilt u doen?
+mutex_close_btn=Het actieve installatieprogramma sluiten
+mutex_close_this_btn=Dit installatieprogramma sluiten

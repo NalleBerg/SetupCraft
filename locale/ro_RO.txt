@@ -47,3 +47,9 @@ merge_instr=Un folder cu acest nume există deja
 merge_content=Un folder cu numele "%s" există deja la destinație.
 merge_btn_merge=Îmbinare
 merge_btn_overwrite=Suprascriere
+
+# Mutex already-running warning dialog
+mutex_title=Instalatorul rulează deja
+mutex_message=O altă copie a acestui instalator rulează deja.\\n\\nCe doriți să faceți?
+mutex_close_btn=Închideți instalatorul care rulează
+mutex_close_this_btn=Închideți acest instalator
