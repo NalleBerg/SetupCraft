@@ -82,6 +82,12 @@
                               CloseApplications).  [Languages] body replaced
                               with "; <<LANGUAGES>>" marker expanded by the
                               generator — never hardcoded.
+                              SignToolLine token: BuildSignToolLine(cfg) emits
+                              "SignTool=sc <tool> sign ... $f" when enabled
+                              (ISCC calls signtool after linking); empty string
+                              when disabled (blank line, ignored by ISCC).
+                              Supports /sha1 thumbprint or /f PFX, SHA-1 /t or
+                              SHA-256 /tr RFC-3161 timestamp.
     [ ] inno\compile_inno.bat
     [ ] inno\<Lang>.isl     — community-contributed language files (e.g.
                               Swedish.isl, LanguageID=$041D).  Standard Inno

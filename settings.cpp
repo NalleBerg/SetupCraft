@@ -40,6 +40,18 @@ static int          s_uacLevel         = 0;    // 0=requireAdministrator 1=asInv
 static int          s_privOverrides    = 2;    // 0=none 1=commandline 2=dialog
 static int          s_wizardStyle      = 1;    // 0=modern 1=classic
 static int          s_minOsVersion     = 0;    // 0=none … 5=Win11
+
+// ── Code signing statics ──────────────────────────────────────────────────────
+static bool         s_signEnabled      = false;
+static std::wstring s_signtoolPath;
+static std::wstring s_signThumbprint;
+static std::wstring s_signPfxPath;
+static std::wstring s_signPfxPassword;
+static std::wstring s_signTimestampUrl  = L"http://timestamp.digicert.com";
+static int          s_signTimestampAlgo = 1;    // 0=sha1 1=sha256
+static std::wstring s_signDescription;
+// HWNDs of sign-section controls that need to be enabled/disabled by the checkbox
+static HWND         s_hSignControls[20] = {};   // dependent controls (enabled/disabled by checkbox)
 static bool         s_allowUninstall   = true;
 static bool         s_closeApps        = false;
 static int          s_installBase        = 0;    // 0={pf} 1={pf64} 2={pf32} 3={localappdata} 4={commonappdata} 5={userdocs} 6=Custom
@@ -208,6 +220,15 @@ void SETT_Reset()
     s_privOverrides    = 2;
     s_wizardStyle      = 1;
     s_minOsVersion     = 0;
+    s_signEnabled      = false;
+    s_signtoolPath     = L"";
+    s_signThumbprint   = L"";
+    s_signPfxPath      = L"";
+    s_signPfxPassword  = L"";
+    s_signTimestampUrl  = L"http://timestamp.digicert.com";
+    s_signTimestampAlgo = 1;
+    s_signDescription  = L"";
+    memset(s_hSignControls, 0, sizeof(s_hSignControls));
     s_allowUninstall   = true;
     s_closeApps        = false;
     s_installBase        = 0;
@@ -229,6 +250,13 @@ void SETT_TearDown(HWND /*hwnd*/)
     s_hInst                  = NULL;
     s_pLocale                = NULL;
     s_hInstallBaseCustomEdit = NULL;
+}
+
+// helper: enable/disable all code-signing dependent controls
+static void ApplySignEnable(BOOL enable)
+{
+    for (int i = 0; i < 9; i++)
+        if (s_hSignControls[i]) EnableWindow(s_hSignControls[i], enable);
 }
 
 // ── SETT_GetScrollOffset / SETT_SetScrollOffset ───────────────────────────────
@@ -620,6 +648,142 @@ int SETT_BuildPage(HWND hwnd, HINSTANCE hInst,
                       IDC_SETT_CLOSE_APPS, s_closeApps);
 
     y += S(20);   // bottom padding
+
+    // ══════════════════════════════════════════════════════════════════════
+    // Section 6: Code Signing
+    // ══════════════════════════════════════════════════════════════════════
+    y += S(kSecGap);
+    y = SectionHeader(hwnd, hInst, hGuiFont, y, clientWidth,
+                      loc(L"sett_sec_signing", L"Code Signing"));
+    memset(s_hSignControls, 0, sizeof(s_hSignControls));
+    int nSignCtrl = 0;
+
+    // helper lambda to add a HWND to the tracking array
+    auto trackCtrl = [&](HWND h) { if (nSignCtrl < 20) s_hSignControls[nSignCtrl++] = h; };
+
+    // Enable checkbox
+    {
+        const int fldX = S(kPadH) + S(kLblW) + S(kLblGap);
+        const int fldW = clientWidth - fldX - S(kPadH);
+        HWND hChk = CreateCustomCheckbox(hwnd, IDC_SETT_SIGN_ENABLE,
+            loc(L"sett_sign_enable_lbl", L"Sign installer with Authenticode"),
+            s_signEnabled, fldX, y, fldW, S(kRowH), hInst);
+        if (hGuiFont) SendMessageW(hChk, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+        y += S(kRowStep);
+    }
+
+    // signtool.exe path (label + edit + browse button)
+    {
+        const int fldX = S(kPadH) + S(kLblW) + S(kLblGap);
+        const int btnW = S(28);
+        const int fldW = clientWidth - fldX - S(kPadH) - S(6) - btnW;
+        HWND hL = CreateWindowExW(0, L"STATIC",
+            loc(L"sett_signtool_lbl", L"Signtool.exe:").c_str(),
+            WS_CHILD | WS_VISIBLE | SS_RIGHT | SS_CENTERIMAGE,
+            S(kPadH), y, S(kLblW), S(kRowH), hwnd, NULL, hInst, NULL);
+        if (hGuiFont) SendMessageW(hL, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+        HWND hE = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", s_signtoolPath.c_str(),
+            WS_CHILD | WS_VISIBLE | ES_LEFT | ES_AUTOHSCROLL,
+            fldX, y, fldW, S(kRowH),
+            hwnd, (HMENU)(UINT_PTR)IDC_SETT_SIGNTOOL_PATH, hInst, NULL);
+        if (hGuiFont) SendMessageW(hE, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+        HWND hBtn = (HWND)CreateCustomButtonWithIcon(
+            hwnd, IDC_SETT_SIGNTOOL_BTN, L"", ButtonColor::Blue,
+            L"shell32.dll", 4, fldX + fldW + S(6), y, btnW, S(kRowH), hInst);
+        trackCtrl(hL); trackCtrl(hE); trackCtrl(hBtn);
+        y += S(kRowStep);
+    }
+
+    // Certificate thumbprint
+    {
+        const int fldX = S(kPadH) + S(kLblW) + S(kLblGap);
+        const int fldW = clientWidth - fldX - S(kPadH);
+        HWND hL = CreateWindowExW(0, L"STATIC",
+            loc(L"sett_sign_thumbprint_lbl", L"Cert thumbprint:").c_str(),
+            WS_CHILD | WS_VISIBLE | SS_RIGHT | SS_CENTERIMAGE,
+            S(kPadH), y, S(kLblW), S(kRowH), hwnd, NULL, hInst, NULL);
+        if (hGuiFont) SendMessageW(hL, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+        HWND hE = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", s_signThumbprint.c_str(),
+            WS_CHILD | WS_VISIBLE | ES_LEFT | ES_AUTOHSCROLL,
+            fldX, y, fldW, S(kRowH),
+            hwnd, (HMENU)(UINT_PTR)IDC_SETT_SIGN_THUMBPRINT, hInst, NULL);
+        if (hGuiFont) SendMessageW(hE, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+        trackCtrl(hL); trackCtrl(hE);
+        y += S(kRowStep);
+    }
+
+    // PFX path (label + edit + browse button)
+    {
+        const int fldX = S(kPadH) + S(kLblW) + S(kLblGap);
+        const int btnW = S(28);
+        const int fldW = clientWidth - fldX - S(kPadH) - S(6) - btnW;
+        HWND hL = CreateWindowExW(0, L"STATIC",
+            loc(L"sett_sign_pfx_lbl", L"PFX file:").c_str(),
+            WS_CHILD | WS_VISIBLE | SS_RIGHT | SS_CENTERIMAGE,
+            S(kPadH), y, S(kLblW), S(kRowH), hwnd, NULL, hInst, NULL);
+        if (hGuiFont) SendMessageW(hL, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+        HWND hE = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", s_signPfxPath.c_str(),
+            WS_CHILD | WS_VISIBLE | ES_LEFT | ES_AUTOHSCROLL,
+            fldX, y, fldW, S(kRowH),
+            hwnd, (HMENU)(UINT_PTR)IDC_SETT_SIGN_PFX_PATH, hInst, NULL);
+        if (hGuiFont) SendMessageW(hE, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+        HWND hBtn = (HWND)CreateCustomButtonWithIcon(
+            hwnd, IDC_SETT_SIGN_PFX_BTN, L"", ButtonColor::Blue,
+            L"shell32.dll", 4, fldX + fldW + S(6), y, btnW, S(kRowH), hInst);
+        trackCtrl(hL); trackCtrl(hE); trackCtrl(hBtn);
+        y += S(kRowStep);
+    }
+
+    // PFX password
+    {
+        const int fldX = S(kPadH) + S(kLblW) + S(kLblGap);
+        const int fldW = clientWidth - fldX - S(kPadH);
+        HWND hL = CreateWindowExW(0, L"STATIC",
+            loc(L"sett_sign_pfx_pass_lbl", L"PFX password:").c_str(),
+            WS_CHILD | WS_VISIBLE | SS_RIGHT | SS_CENTERIMAGE,
+            S(kPadH), y, S(kLblW), S(kRowH), hwnd, NULL, hInst, NULL);
+        if (hGuiFont) SendMessageW(hL, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+        HWND hE = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", s_signPfxPassword.c_str(),
+            WS_CHILD | WS_VISIBLE | ES_LEFT | ES_AUTOHSCROLL | ES_PASSWORD,
+            fldX, y, fldW, S(kRowH),
+            hwnd, (HMENU)(UINT_PTR)IDC_SETT_SIGN_PFX_PASS, hInst, NULL);
+        if (hGuiFont) SendMessageW(hE, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+        trackCtrl(hL); trackCtrl(hE);
+        y += S(kRowStep);
+    }
+
+    // Timestamp URL
+    {
+        y = LabelEdit(hwnd, hInst, hGuiFont, y, clientWidth,
+                      loc(L"sett_sign_ts_url_lbl", L"Timestamp URL:"),
+                      IDC_SETT_SIGN_TS_URL, s_signTimestampUrl);
+        trackCtrl(GetDlgItem(hwnd, IDC_SETT_SIGN_TS_URL));
+    }
+
+    // Timestamp algorithm combo
+    {
+        std::vector<std::wstring> algoItems = {
+            L"SHA-1",
+            L"SHA-256",
+        };
+        y = LabelCombo(hwnd, hInst, hGuiFont, y, clientWidth,
+                       loc(L"sett_sign_ts_algo_lbl", L"Timestamp digest:"),
+                       IDC_SETT_SIGN_TS_ALGO, algoItems, s_signTimestampAlgo);
+        trackCtrl(GetDlgItem(hwnd, IDC_SETT_SIGN_TS_ALGO));
+    }
+
+    // Description override
+    {
+        y = LabelEdit(hwnd, hInst, hGuiFont, y, clientWidth,
+                      loc(L"sett_sign_desc_lbl", L"Description:"),
+                      IDC_SETT_SIGN_DESC, s_signDescription);
+        trackCtrl(GetDlgItem(hwnd, IDC_SETT_SIGN_DESC));
+    }
+
+    // Apply enabled/disabled state to dependent controls
+    ApplySignEnable(s_signEnabled ? TRUE : FALSE);
+
+    y += S(20);   // bottom padding
     return y;
 }
 
@@ -757,6 +921,94 @@ bool SETT_OnCommand(HWND hwnd, int wmId, int wmEvent, HWND /*hCtrl*/)
         MainWindow::MarkAsModified();
         return true;
     }
+    // ── Code signing ──────────────────────────────────────────────────────
+    if (wmId == IDC_SETT_SIGN_ENABLE && wmEvent == BN_CLICKED) {
+        s_signEnabled =
+            (SendDlgItemMessageW(hwnd, IDC_SETT_SIGN_ENABLE, BM_GETCHECK, 0, 0) == BST_CHECKED);
+        ApplySignEnable(s_signEnabled ? TRUE : FALSE);
+        MainWindow::MarkAsModified();
+        return true;
+    }
+    if (wmId == IDC_SETT_SIGNTOOL_PATH && wmEvent == EN_CHANGE) {
+        wchar_t buf[MAX_PATH] = {};
+        GetDlgItemTextW(hwnd, IDC_SETT_SIGNTOOL_PATH, buf, MAX_PATH);
+        s_signtoolPath = buf;
+        MainWindow::MarkAsModified();
+        return true;
+    }
+    if (wmId == IDC_SETT_SIGNTOOL_BTN && wmEvent == BN_CLICKED) {
+        wchar_t path[MAX_PATH] = {};
+        OPENFILENAMEW ofn = {};
+        ofn.lStructSize = sizeof(ofn);
+        ofn.hwndOwner   = hwnd;
+        ofn.lpstrFilter = L"signtool.exe\0signtool.exe\0Executables (*.exe)\0*.exe\0All Files (*.*)\0*.*\0";
+        ofn.lpstrFile   = path;
+        ofn.nMaxFile    = MAX_PATH;
+        ofn.Flags       = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+        if (GetOpenFileNameW(&ofn)) {
+            s_signtoolPath = path;
+            SetDlgItemTextW(hwnd, IDC_SETT_SIGNTOOL_PATH, path);
+            MainWindow::MarkAsModified();
+        }
+        return true;
+    }
+    if (wmId == IDC_SETT_SIGN_THUMBPRINT && wmEvent == EN_CHANGE) {
+        wchar_t buf[256] = {};
+        GetDlgItemTextW(hwnd, IDC_SETT_SIGN_THUMBPRINT, buf, 256);
+        s_signThumbprint = buf;
+        MainWindow::MarkAsModified();
+        return true;
+    }
+    if (wmId == IDC_SETT_SIGN_PFX_PATH && wmEvent == EN_CHANGE) {
+        wchar_t buf[MAX_PATH] = {};
+        GetDlgItemTextW(hwnd, IDC_SETT_SIGN_PFX_PATH, buf, MAX_PATH);
+        s_signPfxPath = buf;
+        MainWindow::MarkAsModified();
+        return true;
+    }
+    if (wmId == IDC_SETT_SIGN_PFX_BTN && wmEvent == BN_CLICKED) {
+        wchar_t path[MAX_PATH] = {};
+        OPENFILENAMEW ofn = {};
+        ofn.lStructSize = sizeof(ofn);
+        ofn.hwndOwner   = hwnd;
+        ofn.lpstrFilter = L"PFX Certificate (*.pfx;*.p12)\0*.pfx;*.p12\0All Files (*.*)\0*.*\0";
+        ofn.lpstrFile   = path;
+        ofn.nMaxFile    = MAX_PATH;
+        ofn.Flags       = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+        if (GetOpenFileNameW(&ofn)) {
+            s_signPfxPath = path;
+            SetDlgItemTextW(hwnd, IDC_SETT_SIGN_PFX_PATH, path);
+            MainWindow::MarkAsModified();
+        }
+        return true;
+    }
+    if (wmId == IDC_SETT_SIGN_PFX_PASS && wmEvent == EN_CHANGE) {
+        wchar_t buf[256] = {};
+        GetDlgItemTextW(hwnd, IDC_SETT_SIGN_PFX_PASS, buf, 256);
+        s_signPfxPassword = buf;
+        MainWindow::MarkAsModified();
+        return true;
+    }
+    if (wmId == IDC_SETT_SIGN_TS_URL && wmEvent == EN_CHANGE) {
+        wchar_t buf[512] = {};
+        GetDlgItemTextW(hwnd, IDC_SETT_SIGN_TS_URL, buf, 512);
+        s_signTimestampUrl = buf;
+        MainWindow::MarkAsModified();
+        return true;
+    }
+    if (wmId == IDC_SETT_SIGN_TS_ALGO && wmEvent == CBN_SELCHANGE) {
+        int sel = (int)SendDlgItemMessageW(hwnd, IDC_SETT_SIGN_TS_ALGO, CB_GETCURSEL, 0, 0);
+        if (sel >= 0) s_signTimestampAlgo = sel;
+        MainWindow::MarkAsModified();
+        return true;
+    }
+    if (wmId == IDC_SETT_SIGN_DESC && wmEvent == EN_CHANGE) {
+        wchar_t buf[512] = {};
+        GetDlgItemTextW(hwnd, IDC_SETT_SIGN_DESC, buf, 512);
+        s_signDescription = buf;
+        MainWindow::MarkAsModified();
+        return true;
+    }
     return false;
 }
 
@@ -778,6 +1030,14 @@ void SETT_SaveToDb(int projectId)
     DB::SetSetting(K(L"min_os"),            std::to_wstring(s_minOsVersion));
     DB::SetSetting(K(L"allow_uninstall"),   s_allowUninstall ? L"1" : L"0");
     DB::SetSetting(K(L"close_apps"),        s_closeApps ? L"1" : L"0");
+    DB::SetSetting(K(L"sign_enabled"),      s_signEnabled ? L"1" : L"0");
+    DB::SetSetting(K(L"sign_tool_path"),    s_signtoolPath);
+    DB::SetSetting(K(L"sign_thumbprint"),   s_signThumbprint);
+    DB::SetSetting(K(L"sign_pfx_path"),     s_signPfxPath);
+    DB::SetSetting(K(L"sign_pfx_pass"),     s_signPfxPassword);
+    DB::SetSetting(K(L"sign_ts_url"),       s_signTimestampUrl);
+    DB::SetSetting(K(L"sign_ts_algo"),      std::to_wstring(s_signTimestampAlgo));
+    DB::SetSetting(K(L"sign_description"),  s_signDescription);
     DB::SetSetting(K(L"install_base"),        std::to_wstring(s_installBase));
     DB::SetSetting(K(L"install_base_custom"), s_installBaseCustom);
     {
@@ -811,6 +1071,14 @@ void SETT_LoadFromDb(int projectId)
     if (DB::GetSetting(K(L"min_os"),            val)) s_minOsVersion     = _wtoi(val.c_str());
     if (DB::GetSetting(K(L"allow_uninstall"),   val)) s_allowUninstall   = (val != L"0");
     if (DB::GetSetting(K(L"close_apps"),        val)) s_closeApps        = (val == L"1");
+    if (DB::GetSetting(K(L"sign_enabled"),      val)) s_signEnabled      = (val == L"1");
+    if (DB::GetSetting(K(L"sign_tool_path"),    val)) s_signtoolPath     = val;
+    if (DB::GetSetting(K(L"sign_thumbprint"),   val)) s_signThumbprint   = val;
+    if (DB::GetSetting(K(L"sign_pfx_path"),     val)) s_signPfxPath      = val;
+    if (DB::GetSetting(K(L"sign_pfx_pass"),     val)) s_signPfxPassword  = val;
+    if (DB::GetSetting(K(L"sign_ts_url"),       val)) s_signTimestampUrl = val;
+    if (DB::GetSetting(K(L"sign_ts_algo"),      val)) s_signTimestampAlgo = _wtoi(val.c_str());
+    if (DB::GetSetting(K(L"sign_description"),  val)) s_signDescription  = val;
     if (DB::GetSetting(K(L"install_base"),        val)) s_installBase       = _wtoi(val.c_str());
     if (DB::GetSetting(K(L"install_base_custom"), val)) s_installBaseCustom = val;
     // Installer languages
@@ -876,5 +1144,13 @@ SBuildConfig SETT_GetBuildConfig()
     cfg.minOsVersion      = s_minOsVersion;
     cfg.allowUninstall    = s_allowUninstall;
     cfg.closeApps         = s_closeApps;
+    cfg.signEnabled         = s_signEnabled;
+    cfg.signtoolPath        = s_signtoolPath;
+    cfg.signThumbprint      = s_signThumbprint;
+    cfg.signPfxPath         = s_signPfxPath;
+    cfg.signPfxPassword     = s_signPfxPassword;
+    cfg.signTimestampUrl    = s_signTimestampUrl;
+    cfg.signTimestampAlgo   = s_signTimestampAlgo;
+    cfg.signDescription     = s_signDescription;
     return cfg;
 }

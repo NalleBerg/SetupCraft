@@ -71,6 +71,18 @@ struct InnoLangEntry { std::wstring isl; bool local; };
 #define IDC_SETT_MIN_OS          8023   // Combo: minimum OS version
 #define IDC_SETT_PRIV_OVERRIDES  8024   // Combo: PrivilegesRequiredOverridesAllowed
 #define IDC_SETT_WIZARD_STYLE    8025   // Combo: WizardStyle (modern / classic)
+
+// ── Code signing section ─────────────────────────────────────────────────────
+#define IDC_SETT_SIGN_ENABLE     8060   // Custom checkbox: enable signing
+#define IDC_SETT_SIGNTOOL_PATH   8061   // Edit: path to signtool.exe
+#define IDC_SETT_SIGNTOOL_BTN    8062   // Button: browse for signtool.exe
+#define IDC_SETT_SIGN_THUMBPRINT 8063   // Edit: certificate SHA1 thumbprint
+#define IDC_SETT_SIGN_PFX_PATH   8064   // Edit: path to .pfx file
+#define IDC_SETT_SIGN_PFX_BTN    8065   // Button: browse for .pfx file
+#define IDC_SETT_SIGN_PFX_PASS   8066   // Edit: PFX password (ES_PASSWORD)
+#define IDC_SETT_SIGN_TS_URL     8067   // Edit: timestamp server URL
+#define IDC_SETT_SIGN_TS_ALGO    8068   // Combo: timestamp algorithm (sha1/sha256)
+#define IDC_SETT_SIGN_DESC       8069   // Edit: /d description override (optional)
 #define IDC_SETT_INSTALL_BASE        8040   // Combo: DefaultDirName base token
 #define IDC_SETT_INSTALL_BASE_CUSTOM 8041   // Edit: custom Inno constant (visible only on Custom)
 #define IDC_SETT_LANG_BASE           8050   // Checkboxes: installer languages (0=English, always on)
@@ -141,6 +153,15 @@ struct SBuildConfig {
     int  uacLevel         = 0;      // 0=admin 1=lowest(asInvoker) 2=admin(highestAvailable)
     int  privOverridesAllowed = 2;  // 0=none 1=commandline 2=dialog
     int  wizardStyle          = 1;  // 0=modern 1=classic
+    // Code signing
+    bool signEnabled      = false;
+    std::wstring signtoolPath;      // path to signtool.exe
+    std::wstring signThumbprint;    // SHA1 certificate thumbprint (preferred)
+    std::wstring signPfxPath;       // .pfx file path (alternative to thumbprint)
+    std::wstring signPfxPassword;   // PFX password
+    std::wstring signTimestampUrl;  // timestamp server URL
+    int  signTimestampAlgo = 1;     // 0=sha1  1=sha256
+    std::wstring signDescription;   // optional /d description (defaults to AppName)
     int  minOsVersion     = 0;      // 0=none 1=Win7 2=Win8 3=Win8.1 4=Win10 5=Win11
     bool allowUninstall   = true;
     bool closeApps        = false;

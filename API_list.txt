@@ -142,6 +142,13 @@
                                                 VersionInfoCompany, VersionInfoCopyright
                                                 — all derived from existing project fields,
                                                 no new UI fields required.
+                                                SignToolLine token: BuildSignToolLine(cfg)
+                                                emits Inno's "SignTool=sc <cmd> $f"
+                                                directive when signing is enabled (ISCC
+                                                calls signtool after producing the .exe);
+                                                empty string (blank line) when disabled.
+                                                Supports thumbprint (/sha1) or PFX (/f /p),
+                                                SHA-1 (/t) or SHA-256 (/tr /td) timestamps.
                                                 SBuildConfig struct + SETT_GetBuildConfig()
                                                 in settings.h/.cpp provide the build settings
                                                 snapshot consumed by the generator.

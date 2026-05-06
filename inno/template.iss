@@ -24,6 +24,7 @@ VersionInfoProductName={#VersionInfoProductName}
 VersionInfoProductVersion={#VersionInfoProductVersion}
 VersionInfoCompany={#VersionInfoCompany}
 VersionInfoCopyright={#VersionInfoCopyright}
+{#SignToolLine}
 
 [Languages]
 ; <<LANGUAGES>>

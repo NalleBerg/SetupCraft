@@ -143,6 +143,56 @@ static std::wstring StripTrailingSep(const std::wstring& p)
     return p;
 }
 
+// Build the SignTool= directive line for Inno Setup, or return L"" if disabled.
+// Inno uses: SignTool=<name> <command-template>  where $f = output .exe path.
+// The directive is inserted in [Setup] and ISCC calls the command after linking.
+static std::wstring BuildSignToolLine(const SBuildConfig& cfg)
+{
+    if (!cfg.signEnabled) return L"";
+
+    // Signtool path — default to bare "signtool.exe" so it is found via PATH.
+    std::wstring tool = cfg.signtoolPath.empty() ? L"signtool.exe"
+                                                 : L"\"" + cfg.signtoolPath + L"\"";
+
+    // Build the signtool argument list.
+    std::wstring args = L"sign";
+
+    // Certificate: prefer thumbprint (no password), fall back to PFX.
+    if (!cfg.signThumbprint.empty()) {
+        args += L" /sha1 " + cfg.signThumbprint;
+    } else if (!cfg.signPfxPath.empty()) {
+        args += L" /f \"" + cfg.signPfxPath + L"\"";
+        if (!cfg.signPfxPassword.empty())
+            args += L" /p \"" + cfg.signPfxPassword + L"\"";
+    }
+
+    // Digest algorithm for the file signature.
+    const wchar_t* fdAlgo = (cfg.signTimestampAlgo == 0) ? L"sha1" : L"sha256";
+    args += std::wstring(L" /fd ") + fdAlgo;
+
+    // Timestamp.
+    if (!cfg.signTimestampUrl.empty()) {
+        if (cfg.signTimestampAlgo == 0) {
+            // SHA-1 timestamp (old /t syntax)
+            args += L" /t " + cfg.signTimestampUrl;
+        } else {
+            // RFC-3161 timestamp
+            args += L" /tr " + cfg.signTimestampUrl;
+            args += L" /td sha256";
+        }
+    }
+
+    // Optional description.
+    if (!cfg.signDescription.empty())
+        args += L" /d \"" + cfg.signDescription + L"\"";
+
+    // $f is Inno's placeholder for the output installer path.
+    args += L" $f";
+
+    // Inno requires a tool name (arbitrary identifier) before the command.
+    return L"SignTool=sc " + tool + L" " + args;
+}
+
 // ── ISS_FindInnoDir ───────────────────────────────────────────────────────────
 
 std::wstring ISS_FindInnoDir()
@@ -272,6 +322,7 @@ std::wstring ISS_GenerateIss(
         { L"VersionInfoCompany",       publisher                                                  },
         { L"VersionInfoCopyright",     copyright                                                  },
         { L"AppCopyright",             copyright                                                  },
+        { L"SignToolLine",             BuildSignToolLine(cfg)                                     },
     };
 
     // ── Substitute {#Token} placeholders ─────────────────────────────────────
