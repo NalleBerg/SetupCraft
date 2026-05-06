@@ -312,6 +312,8 @@ std::wstring ISS_GenerateIss(
         { L"CloseApplications", cfg.closeApps      ? L"yes" : L"no"  },
         { L"DisableDirPage",           cfg.disableDirPage          ? L"yes" : L"no"  },
         { L"DisableProgramGroupPage",   cfg.disableProgramGroupPage ? L"yes" : L"no"  },
+        { L"UsePreviousAppDir",         cfg.usePreviousAppDir       ? L"yes" : L"no"  },
+        { L"UsePreviousGroup",          cfg.usePreviousGroup        ? L"yes" : L"no"  },
         { L"MinVersion",        MinVersionStr(cfg.minOsVersion)        },
         { L"ExeName",           exeName                                },
         { L"SourceDir",         sourceDir                              },

@@ -85,6 +85,8 @@ struct InnoLangEntry { std::wstring isl; bool local; };
 #define IDC_SETT_SIGN_DESC       8069   // Edit: /d description override (optional)
 #define IDC_SETT_DISABLE_DIR_PAGE        8070   // Custom checkbox: DisableDirPage
 #define IDC_SETT_DISABLE_PROG_GROUP_PAGE 8071   // Custom checkbox: DisableProgramGroupPage
+#define IDC_SETT_USE_PREV_APP_DIR        8072   // Custom checkbox: UsePreviousAppDir
+#define IDC_SETT_USE_PREV_GROUP          8073   // Custom checkbox: UsePreviousGroup
 #define IDC_SETT_INSTALL_BASE        8040   // Combo: DefaultDirName base token
 #define IDC_SETT_INSTALL_BASE_CUSTOM 8041   // Edit: custom Inno constant (visible only on Custom)
 #define IDC_SETT_LANG_BASE           8050   // Checkboxes: installer languages (0=English, always on)
@@ -167,6 +169,8 @@ struct SBuildConfig {
     // Installation wizard pages
     bool disableDirPage            = false;  // DisableDirPage — hide "Where to install?" page
     bool disableProgramGroupPage  = false;  // DisableProgramGroupPage — hide Start Menu group page
+    bool usePreviousAppDir        = true;   // UsePreviousAppDir — remember last install path on upgrade
+    bool usePreviousGroup         = true;   // UsePreviousGroup — remember last Start Menu group on upgrade
     int  minOsVersion     = 0;      // 0=none 1=Win7 2=Win8 3=Win8.1 4=Win10 5=Win11
     bool allowUninstall   = true;
     bool closeApps        = false;

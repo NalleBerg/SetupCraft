@@ -134,6 +134,8 @@
                                                 Uninstallable,
                                                 CloseApplications, DisableDirPage,
                                                 DisableProgramGroupPage,
+                                                UsePreviousAppDir,
+                                                UsePreviousGroup,
                                                 MinVersion, ExeName,
                                                 SourceDir.
                                                 VersionInfo* tokens (installer .exe

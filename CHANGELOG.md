@@ -4,6 +4,10 @@ All notable changes to SetupCraft will be documented in this file.
 
 ## [2026.05.06.09] - 2026-05-06
 
+### settings / issgen — UsePreviousAppDir & UsePreviousGroup toggles (09:11)
+- **settings — `UsePreviousAppDir` checkbox (`IDC_SETT_USE_PREV_APP_DIR = 8072`)**: New *Remember last install path across upgrades* checkbox in the Installation section. Checked by default (mirrors Inno's own default). When ticked, Inno reads the previously chosen directory from the registry and pre-fills the *Where to install?* page on upgrades — users keep their custom path instead of reverting to `DefaultDirName`. Persisted as `use_prev_app_dir`. Emitted as `UsePreviousAppDir=yes/no` via `{#UsePreviousAppDir}` token.
+- **settings — `UsePreviousGroup` checkbox (`IDC_SETT_USE_PREV_GROUP = 8073`)**: New *Remember last Start Menu folder across upgrades* checkbox, also checked by default. Pre-fills the Start Menu page with the previously chosen group name. Persisted as `use_prev_group`. Emitted as `UsePreviousGroup=yes/no` via `{#UsePreviousGroup}` token. Both `template.iss` copies updated. `SBuildConfig` gains `usePreviousAppDir` and `usePreviousGroup`.
+
 ### settings / issgen — DisableProgramGroupPage toggle (09:00)
 - **settings — `DisableProgramGroupPage` checkbox (`IDC_SETT_DISABLE_PROG_GROUP_PAGE = 8071`)**: New *Hide "Select Start Menu folder" wizard page* checkbox in the Installation section, below the DisableDirPage checkbox. When ticked, the Inno wizard skips the Start Menu group selection page — shortcut always placed under `DefaultGroupName` without prompting. Useful for kiosk/enterprise deployments. Persisted as `disable_prog_group_page`. Emitted as `DisableProgramGroupPage=yes/no` via `{#DisableProgramGroupPage}` token. Both `template.iss` copies updated. `SBuildConfig` gains `disableProgramGroupPage`.
 
