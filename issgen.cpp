@@ -217,6 +217,14 @@ std::wstring ISS_GenerateIss(
     // Publisher: project field, fall back to app_publisher stored separately.
     std::wstring publisher = proj.app_publisher;
 
+    // Copyright string: "© YYYY Publisher" (or just "© YYYY" if no publisher).
+    SYSTEMTIME st = {};
+    GetLocalTime(&st);
+    std::wstring year = std::to_wstring(st.wYear);
+    std::wstring copyright = publisher.empty()
+        ? (L"\u00A9 " + year)
+        : (L"\u00A9 " + year + L" " + publisher);
+
     std::map<std::wstring, std::wstring> tokens = {
         { L"AppName",           proj.name                              },
         { L"AppVersion",        proj.version                           },
@@ -235,6 +243,15 @@ std::wstring ISS_GenerateIss(
         { L"MinVersion",        MinVersionStr(cfg.minOsVersion)        },
         { L"ExeName",           exeName                                },
         { L"SourceDir",         sourceDir                              },
+        // Installer .exe file-version resource (right-click → Properties → Details)
+        { L"VersionInfoVersion",       proj.version                                               },
+        { L"VersionInfoTextVersion",   proj.version                                               },
+        { L"VersionInfoDescription",   proj.name.empty() ? L"Setup" : proj.name + L" Setup"      },
+        { L"VersionInfoProductName",   proj.name                                                  },
+        { L"VersionInfoProductVersion",proj.version                                               },
+        { L"VersionInfoCompany",       publisher                                                  },
+        { L"VersionInfoCopyright",     copyright                                                  },
+        { L"AppCopyright",             copyright                                                  },
     };
 
     // ── Substitute {#Token} placeholders ─────────────────────────────────────

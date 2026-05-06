@@ -4,6 +4,7 @@ AppVersion={#AppVersion}
 AppPublisher={#Publisher}
 AppPublisherURL={#PublisherURL}
 AppSupportURL={#SupportURL}
+AppCopyright={#AppCopyright}
 AppId={#AppId}
 DefaultDirName={#DefaultDirBase}\{#AppName}
 DefaultGroupName={#AppName}
@@ -14,6 +15,13 @@ SolidCompression={#SolidCompression}
 PrivilegesRequired={#PrivilegesRequired}
 Uninstallable={#Uninstallable}
 CloseApplications={#CloseApplications}
+VersionInfoVersion={#VersionInfoVersion}
+VersionInfoTextVersion={#VersionInfoTextVersion}
+VersionInfoDescription={#VersionInfoDescription}
+VersionInfoProductName={#VersionInfoProductName}
+VersionInfoProductVersion={#VersionInfoProductVersion}
+VersionInfoCompany={#VersionInfoCompany}
+VersionInfoCopyright={#VersionInfoCopyright}
 
 [Languages]
 ; <<LANGUAGES>>

@@ -95,6 +95,16 @@
                               AppId braces escaped to {{…}} before substitution.
                               Name: identifier = lowercased ISL base name;
                               "Default" maps to "english".
+                              Installer .exe version resource (Properties→Details,
+                              required for enterprise deployment tools): tokens
+                              VersionInfoVersion / TextVersion / ProductVersion
+                              (all from proj.version), VersionInfoDescription
+                              ("<AppName> Setup"), VersionInfoProductName,
+                              VersionInfoCompany (proj.app_publisher),
+                              VersionInfoCopyright and AppCopyright (both
+                              "© YYYY Publisher", year from GetLocalTime at
+                              generation time) — derived from existing project
+                              fields only, no extra UI or DB fields needed.
 
   Documentation seed
     [ ] API_list.txt        — pre-populated with all included API entries

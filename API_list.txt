@@ -121,12 +121,23 @@
                                                 relative path; Name: = lowercased ISL base;
                                                 "Default" → "english"), writes UTF-8+BOM
                                                 output.  Token table: AppName, AppVersion,
-                                                Publisher, PublisherURL, SupportURL, AppId
-                                                (braces escaped to {{…}}), DefaultDirBase,
-                                                OutputDir, OutputBase, Compression,
-                                                SolidCompression, PrivilegesRequired,
-                                                Uninstallable, CloseApplications,
-                                                MinVersion, ExeName, SourceDir.
+                                                Publisher, PublisherURL, SupportURL,
+                                                AppCopyright (© YYYY Publisher, year
+                                                from GetLocalTime at generation time),
+                                                AppId (braces escaped to {{…}}),
+                                                DefaultDirBase, OutputDir, OutputBase,
+                                                Compression, SolidCompression,
+                                                PrivilegesRequired, Uninstallable,
+                                                CloseApplications, MinVersion, ExeName,
+                                                SourceDir.
+                                                VersionInfo* tokens (installer .exe
+                                                file-version resource / Properties→Details):
+                                                VersionInfoVersion, VersionInfoTextVersion,
+                                                VersionInfoDescription ("<AppName> Setup"),
+                                                VersionInfoProductName, VersionInfoProductVersion,
+                                                VersionInfoCompany, VersionInfoCopyright
+                                                — all derived from existing project fields,
+                                                no new UI fields required.
                                                 SBuildConfig struct + SETT_GetBuildConfig()
                                                 in settings.h/.cpp provide the build settings
                                                 snapshot consumed by the generator.
