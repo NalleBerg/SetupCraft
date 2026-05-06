@@ -706,6 +706,7 @@ sett_languages_hint=English is always included. Tick additional languages — th
 sett_sec_uninstall=Uninstall
 sett_allow_uninstall_lbl=Allow users to uninstall this application
 sett_close_apps_lbl=Close running applications before installing
+sett_add_to_path_lbl=Add install directory to system PATH
 sett_changes_env_lbl=Broadcast environment change (required when modifying PATH)
 
 # Mutex already-running warning dialog

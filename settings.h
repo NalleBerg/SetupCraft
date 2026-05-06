@@ -96,6 +96,7 @@ struct InnoLangEntry { std::wstring isl; bool local; };
 #define IDC_SETT_ALLOW_UNINSTALL 8030   // Custom checkbox: allow uninstall
 #define IDC_SETT_CLOSE_APPS      8031   // Custom checkbox: close apps before install
 #define IDC_SETT_CHANGES_ENV     8032   // Custom checkbox: ChangesEnvironment
+#define IDC_SETT_ADD_TO_PATH     8033   // Custom checkbox: add app dir to system PATH
 
 // ── Page title (no interaction; just kept in controlIds[]) ────────────────────
 #define IDC_SETT_PAGE_TITLE      8099
@@ -177,6 +178,7 @@ struct SBuildConfig {
     int  minOsVersion     = 0;      // 0=none 1=Win7 2=Win8 3=Win8.1 4=Win10 5=Win11
     bool allowUninstall   = true;
     bool closeApps        = false;
+    bool addToPath          = false;  // add {app} to system PATH via registry
     bool changesEnvironment = false;  // ChangesEnvironment — broadcast WM_SETTINGCHANGE after install
 };
 

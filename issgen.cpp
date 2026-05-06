@@ -357,6 +357,18 @@ std::wstring ISS_GenerateIss(
     std::wstring langBlock = BuildLanguagesSection(langs);
     ReplaceAll(tmpl, L"; <<LANGUAGES>>", langBlock);
 
+    // ── Replace the "; <<PATH_REGISTRY>>" marker ──────────────────────────────
+    // When addToPath is enabled, append a [Registry] entry that appends {app}
+    // to the system PATH (HKLM). Requires admin privileges (matches PrivilegesRequired=admin).
+    std::wstring pathRegBlock;
+    if (cfg.addToPath) {
+        pathRegBlock =
+            L"Root: HKLM; Subkey: \"SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment\"; "
+            L"ValueType: expandsz; ValueName: \"Path\"; ValueData: \"{olddata};{app}\"; "
+            L"Flags: preservestringtype\r\n";
+    }
+    ReplaceAll(tmpl, L"; <<PATH_REGISTRY>>", pathRegBlock);
+
     // ── Write output as UTF-8 with BOM (ISCC accepts UTF-8 BOM) ─────────────
     int needed = WideCharToMultiByte(CP_UTF8, 0,
                                      tmpl.c_str(), (int)tmpl.size(),

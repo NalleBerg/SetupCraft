@@ -75,6 +75,7 @@ Name: "{userdesktop}\{#AppName}"; Filename: "{app}\{#ExeName}"; Tasks: desktopic
 [Registry]
 ; Example registry entries (installer modifies these)
 Root: HKLM; Subkey: "Software\{#Publisher}\{#AppName}"; ValueType: string; ValueName: "InstallPath"; ValueData: "{app}"; Flags: preservestringtype
+; <<PATH_REGISTRY>>
 
 [Run]
 ; Run app after install

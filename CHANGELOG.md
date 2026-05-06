@@ -4,6 +4,9 @@ All notable changes to SetupCraft will be documented in this file.
 
 ## [2026.05.06.11] - 2026-05-06
 
+### settings / issgen — AddToPath checkbox (11:55)
+- **settings — `AddToPath` checkbox (`IDC_SETT_ADD_TO_PATH = 8033`)**: New *Add install directory to system PATH* checkbox in the Uninstall section, immediately before *Broadcast environment change*. Off by default. When ticked, the generated `.iss` includes a `[Registry]` entry appending `{app}` to `HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment` → `Path` (`expandsz` + `preservestringtype`). The *Broadcast environment change* checkbox is enabled and auto-checked when *Add to PATH* is ticked, then unchecked and disabled when unticked. Persisted as `add_to_path`. The `; <<PATH_REGISTRY>>` marker in `template.iss` expands to the registry line when enabled, or empty when disabled. `SBuildConfig` gains `addToPath`.
+
 ### settings / issgen — ChangesEnvironment checkbox (11:44)
 - **settings — `ChangesEnvironment` checkbox (`IDC_SETT_CHANGES_ENV = 8032`)**: New *Broadcast environment change (required when modifying PATH)* checkbox in the Uninstall section, below *Close running applications*. When ticked, Inno Setup broadcasts `WM_SETTINGCHANGE` with `lparam = "Environment"` after installation completes — notifying the Windows shell and all running applications that `PATH` or other environment variables have changed, so users don't need to log out for new entries to take effect. Off by default; enable whenever the installer writes to the system or per-user `Environment` registry key. Persisted as `changes_env`. Emitted as `ChangesEnvironment=yes/no` via `{#ChangesEnvironment}` token. Both `template.iss` copies updated. `SBuildConfig` gains `changesEnvironment`.
 
