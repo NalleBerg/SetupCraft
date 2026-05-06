@@ -6554,3 +6554,20 @@
 [08:37:25.365] ABOUT: ShowAboutDialog EXIT
 [08:37:29.671] WM_DESTROY START
 [08:37:29.672] WM_DESTROY DONE
+[08:57:50.743] Create() ENTRY
+[08:57:50.792] Create() before CreateWindowExW
+[08:57:50.792] WM_CREATE START
+[08:57:50.792] WM_CREATE before CreateMenuBar
+[08:57:50.798] WM_CREATE before CreateToolbar
+[08:57:50.801] WM_CREATE before CreateStatusBar
+[08:57:50.801] WM_CREATE before SwitchPage(0)
+[08:57:50.801] SwitchPage(0) START
+[08:57:50.828] SwitchPage(0) DONE
+[08:57:50.828] WM_CREATE after SwitchPage(0)
+[08:57:50.828] WM_CREATE DONE
+[08:57:50.828] Create() CreateWindowExW OK
+[08:57:50.828] Create() before ShowWindow
+[08:57:50.846] Create() after ShowWindow
+[08:57:50.864] Create() RETURN
+[08:57:53.308] SwitchPage(5) START
+[08:57:53.426] SwitchPage(5) DONE

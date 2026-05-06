@@ -132,7 +132,8 @@
                                                 (none/commandline/dialog),
                                                 WizardStyle (modern/classic),
                                                 Uninstallable,
-                                                CloseApplications, MinVersion, ExeName,
+                                                CloseApplications, DisableDirPage,
+                                                MinVersion, ExeName,
                                                 SourceDir.
                                                 VersionInfo* tokens (installer .exe
                                                 file-version resource / Properties→Details):

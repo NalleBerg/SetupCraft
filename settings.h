@@ -83,6 +83,7 @@ struct InnoLangEntry { std::wstring isl; bool local; };
 #define IDC_SETT_SIGN_TS_URL     8067   // Edit: timestamp server URL
 #define IDC_SETT_SIGN_TS_ALGO    8068   // Combo: timestamp algorithm (sha1/sha256)
 #define IDC_SETT_SIGN_DESC       8069   // Edit: /d description override (optional)
+#define IDC_SETT_DISABLE_DIR_PAGE 8070   // Custom checkbox: DisableDirPage
 #define IDC_SETT_INSTALL_BASE        8040   // Combo: DefaultDirName base token
 #define IDC_SETT_INSTALL_BASE_CUSTOM 8041   // Edit: custom Inno constant (visible only on Custom)
 #define IDC_SETT_LANG_BASE           8050   // Checkboxes: installer languages (0=English, always on)
@@ -162,6 +163,8 @@ struct SBuildConfig {
     std::wstring signTimestampUrl;  // timestamp server URL
     int  signTimestampAlgo = 1;     // 0=sha1  1=sha256
     std::wstring signDescription;   // optional /d description (defaults to AppName)
+    // Installation wizard pages
+    bool disableDirPage   = false;  // DisableDirPage — hide "Where to install?" page
     int  minOsVersion     = 0;      // 0=none 1=Win7 2=Win8 3=Win8.1 4=Win10 5=Win11
     bool allowUninstall   = true;
     bool closeApps        = false;

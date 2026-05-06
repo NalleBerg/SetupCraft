@@ -4,6 +4,9 @@ All notable changes to SetupCraft will be documented in this file.
 
 ## [2026.05.06.08] - 2026-05-06
 
+### settings / issgen — DisableDirPage toggle (08:57)
+- **settings — `DisableDirPage` checkbox (`IDC_SETT_DISABLE_DIR_PAGE = 8070`)**: New *Hide "Where to install?" wizard page (fixed location)* checkbox in the Installation section, below the Default dir base combo. When ticked, the Inno wizard skips directory selection — app always installs to `Default dir base\AppName`. Persisted as `disable_dir_page`. Emitted as `DisableDirPage=yes/no` via `{#DisableDirPage}` token. Both `template.iss` copies updated. `SBuildConfig` gains `disableDirPage`.
+
 ### settings / issgen — Code Signing section (08:47)
 - **settings — Section 6: Code Signing**: New section appended to the Settings page. Enable checkbox (`IDC_SETT_SIGN_ENABLE = 8060`) — all fields below are disabled while unchecked. Fields: signtool.exe path + browse (`IDC_SETT_SIGNTOOL_PATH = 8061`, `IDC_SETT_SIGNTOOL_BTN = 8062`; blank = use PATH); cert thumbprint (`IDC_SETT_SIGN_THUMBPRINT = 8063`); PFX file + browse (`IDC_SETT_SIGN_PFX_PATH = 8064`, `IDC_SETT_SIGN_PFX_BTN = 8065`); PFX password masked (`IDC_SETT_SIGN_PFX_PASS = 8066`); timestamp URL (`IDC_SETT_SIGN_TS_URL = 8067`, default: `http://timestamp.digicert.com`); timestamp digest combo SHA-1/SHA-256 (`IDC_SETT_SIGN_TS_ALGO = 8068`, default: SHA-256); description (`IDC_SETT_SIGN_DESC = 8069`). Persisted as `sign_*` DB keys. `SBuildConfig` gains nine fields.
 - **issgen — `BuildSignToolLine()` + `SignToolLine` token**: Assembles Inno's `SignTool=sc … $f` directive; ISCC calls signtool after linking (eliminates SmartScreen "Unknown Publisher"). Thumbprint: `/sha1 <thumb>`; PFX: `/f <pfx> /p <pass>`. SHA-1 timestamp: `/t <url>`; SHA-256: `/tr <url> /td sha256 /fd sha256`. Disabled → empty string (blank line, silently ignored). Both `template.iss` copies updated with `{#SignToolLine}` after `VersionInfoCopyright`.

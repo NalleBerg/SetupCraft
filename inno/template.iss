@@ -17,6 +17,7 @@ PrivilegesRequiredOverridesAllowed={#PrivilegesRequiredOverridesAllowed}
 WizardStyle={#WizardStyle}
 Uninstallable={#Uninstallable}
 CloseApplications={#CloseApplications}
+DisableDirPage={#DisableDirPage}
 VersionInfoVersion={#VersionInfoVersion}
 VersionInfoTextVersion={#VersionInfoTextVersion}
 VersionInfoDescription={#VersionInfoDescription}

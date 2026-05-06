@@ -1,0 +1,142 @@
+SetupCraft — Pending Manual Tests
+===================================
+These tests require a working Inno Setup installation and/or a real build
+environment. Add a [DONE] marker and date when verified.
+
+────────────────────────────────────────────────────────────────────────────────
+1. CODE SIGNING
+────────────────────────────────────────────────────────────────────────────────
+Requires: Windows SDK (signtool.exe), Inno Setup installed
+
+a) Create a self-signed test certificate:
+       $cert = New-SelfSignedCertificate -Subject "CN=Test Signing" `
+           -Type CodeSigning -CertStoreLocation Cert:\CurrentUser\My
+       $cert.Thumbprint   # copy this
+
+b) Find signtool.exe:
+       Get-ChildItem "C:\Program Files (x86)\Windows Kits" -Recurse `
+           -Filter signtool.exe | Where-Object { $_.FullName -match 'x64' } |
+           Select-Object -First 1 FullName
+
+c) In Settings → Code Signing:
+       ☑ Sign installer with Authenticode
+       Signtool.exe: <path from b, or blank if on PATH>
+       Cert thumbprint: <thumbprint from a>
+       Timestamp URL: http://timestamp.digicert.com  (or clear — needs internet)
+       Timestamp digest: SHA-256
+
+d) Build → Compile Installer (F7). In the ISCC window, verify:
+       "Successfully signed: ...\<AppName>_Setup.exe"
+
+e) Inspect generated .iss (inno\<ProjectName>_generated.iss) and confirm:
+       SignTool=sc ... sign /sha1 <thumb> /fd sha256 /tr ... /td sha256 $f
+
+f) Verify the signature:
+       Get-AuthenticodeSignature "...\<AppName>_Setup.exe" | Select Status
+
+g) Also test PFX path: export the cert to a .pfx, switch from thumbprint to
+   PFX file + password, recompile, verify signature still valid.
+
+h) Test disabled state: uncheck the enable checkbox, recompile, confirm the
+   generated .iss has NO SignTool= line (just a blank line after
+   VersionInfoCopyright).
+
+────────────────────────────────────────────────────────────────────────────────
+2. FULL ISCC COMPILE PIPELINE (end-to-end)
+────────────────────────────────────────────────────────────────────────────────
+Requires: Inno Setup installed
+
+a) Create a project, fill all settings, add at least one file in the Files
+   tree, set an output folder.
+b) Build → Compile Installer (F7).
+c) Confirm compile_inno.bat launches a visible cmd window.
+d) Confirm ISCC produces <OutputBase>.exe in the output folder.
+e) Run the produced installer and verify it installs correctly.
+f) If Uninstall is enabled: verify entry in Windows Add/Remove Programs.
+g) If Uninstall is disabled: verify NO entry in Add/Remove Programs.
+
+────────────────────────────────────────────────────────────────────────────────
+3. PRIVILEGES / "FOR ME OR ALL USERS" WIZARD PAGE
+────────────────────────────────────────────────────────────────────────────────
+Requires: Inno Setup installed
+
+a) Settings → Installation → UAC: "Lowest (run as invoker)"
+   Allow override: "Dialog (For Me / All Users page)"
+b) Compile and run the installer.
+c) Verify the wizard shows the "Install for: Just me / All users" page.
+d) Repeat with Allow override: "None" — page must NOT appear.
+e) Repeat with Allow override: "Command line only" — page must not appear
+   interactively, but /ALLUSERS switch on the command line must work.
+
+────────────────────────────────────────────────────────────────────────────────
+4. WIZARD STYLE (MODERN vs CLASSIC)
+────────────────────────────────────────────────────────────────────────────────
+Requires: Inno Setup installed
+
+a) Compile with Wizard style: Classic — installer must show top-banner layout
+   (Inno 5 style).
+b) Compile with Wizard style: Modern — installer must show sidebar bitmap
+   (Inno 6 style).
+
+────────────────────────────────────────────────────────────────────────────────
+5. VERSION INFO ON INSTALLER .EXE
+────────────────────────────────────────────────────────────────────────────────
+Requires: Inno Setup installed
+
+a) Compile any project with AppName, Publisher, Version filled in.
+b) Right-click the produced .exe → Properties → Details tab.
+c) Verify: File version, Product name, Company, Copyright, Description all
+   populated (none blank).
+
+────────────────────────────────────────────────────────────────────────────────
+6. MINIMUM OS VERSION
+────────────────────────────────────────────────────────────────────────────────
+Requires: Inno Setup installed + a VM running an older Windows version
+(or manual inspection of the generated .iss)
+
+a) Set Minimum OS to "Windows 10".
+b) Confirm generated .iss contains: MinVersion=10.0
+c) (Optional VM test) run installer on Windows 7 — must refuse with an
+   OS-version error.
+
+────────────────────────────────────────────────────────────────────────────────
+7. MULTILINGUAL INSTALLER
+────────────────────────────────────────────────────────────────────────────────
+Requires: Inno Setup installed + community .isl files in inno/
+
+a) Enable 3+ languages in Settings → Languages.
+b) Compile and run installer.
+c) Verify the language selection dialog appears at startup (or the installer
+   respects the OS locale if only one language matches).
+d) Confirm the [Languages] block in the generated .iss lists exactly the
+   selected languages, no duplicates, English always first.
+
+────────────────────────────────────────────────────────────────────────────────
+8. CUSTOM INSTALL BASE PATH
+────────────────────────────────────────────────────────────────────────────────
+Requires: Inno Setup installed
+
+a) Settings → Installation → Default dir base: "Custom", enter e.g.
+   C:\MyCompany
+b) Compile and run installer.
+c) Verify the default installation path in the wizard is C:\MyCompany\<AppName>.
+
+────────────────────────────────────────────────────────────────────────────────
+9. DISABLE DIR PAGE
+────────────────────────────────────────────────────────────────────────────────
+Requires: Inno Setup installed
+
+a) Settings → Installation → tick "Hide 'Where to install?' wizard page".
+b) Confirm generated .iss contains: DisableDirPage=yes
+c) Compile and run installer — the directory selection page must NOT appear.
+d) Untick the checkbox, recompile — directory page must reappear.
+e) Confirm generated .iss contains: DisableDirPage=no
+
+────────────────────────────────────────────────────────────────────────────────
+NOTES
+────────────────────────────────────────────────────────────────────────────────
+- Self-signed certs will pass signtool (Status=Valid) but SmartScreen will
+  still warn — that is expected. A real EV/OV cert is needed to suppress
+  SmartScreen fully.
+- Tests 2–8 are blocked on having Inno Setup installed in the dev environment.
+- Test 1g (PFX) is blocked on having openssl or certmgr available to export.
