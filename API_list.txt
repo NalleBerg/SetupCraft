@@ -132,7 +132,7 @@
                                                 (none/commandline/dialog),
                                                 WizardStyle (modern/classic),
                                                 Uninstallable,
-                                                CloseApplications, DisableDirPage,
+                                                CloseApplications, ChangesEnvironment, DisableDirPage,
                                                 DisableProgramGroupPage,
                                                 UsePreviousAppDir,
                                                 UsePreviousGroup,

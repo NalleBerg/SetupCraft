@@ -327,6 +327,7 @@ std::wstring ISS_GenerateIss(
         { L"WizardStyle",      WizardStyleStr(cfg.wizardStyle)                                  },
         { L"Uninstallable",     cfg.allowUninstall ? L"yes" : L"no"   },
         { L"CloseApplications", cfg.closeApps      ? L"yes" : L"no"  },
+        { L"ChangesEnvironment", cfg.changesEnvironment ? L"yes" : L"no" },
         { L"DisableDirPage",           cfg.disableDirPage          ? L"yes" : L"no"  },
         { L"DisableProgramGroupPage",   cfg.disableProgramGroupPage ? L"yes" : L"no"  },
         { L"UsePreviousAppDir",         cfg.usePreviousAppDir       ? L"yes" : L"no"  },

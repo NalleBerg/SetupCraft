@@ -61,6 +61,7 @@ static bool         s_usePreviousGroup        = true;
 static int          s_dirExistsWarning        = 0;   // 0=auto 1=yes 2=no
 static bool         s_allowUninstall          = true;
 static bool         s_closeApps        = false;
+static bool         s_changesEnvironment = false;
 static int          s_installBase        = 0;    // 0={pf} 1={pf64} 2={pf32} 3={localappdata} 4={commonappdata} 5={userdocs} 6=Custom
 static std::wstring s_installBaseCustom;          // used when s_installBase == 6
 static HWND         s_hInstallBaseCustomEdit = NULL;
@@ -180,7 +181,23 @@ static int LabelCombo(HWND hwnd, HINSTANCE hInst, HFONT hFont,
                         HWND* outHwnd = nullptr)
 {
     const int fldX = S(kPadH) + S(kLblW) + S(kLblGap);
-    const int fldW = std::min(S(240), clientWidth - fldX - S(kPadH));
+    const int maxW  = clientWidth - fldX - S(kPadH);
+
+    // Measure the widest item so the combo is never truncated
+    int measuredW = 0;
+    {
+        HDC hdc  = GetDC(hwnd);
+        HFONT hOld = hFont ? (HFONT)SelectObject(hdc, (HGDIOBJ)hFont) : nullptr;
+        for (const auto& item : items) {
+            SIZE sz = {};
+            GetTextExtentPoint32W(hdc, item.c_str(), (int)item.size(), &sz);
+            measuredW = std::max(measuredW, (int)sz.cx);
+        }
+        if (hOld) SelectObject(hdc, (HGDIOBJ)hOld);
+        ReleaseDC(hwnd, hdc);
+        measuredW += GetSystemMetrics(SM_CXVSCROLL) + S(8); // arrow button + padding
+    }
+    const int fldW = std::min(std::max(measuredW, S(120)), maxW);
 
     HWND hL = CreateWindowExW(0, L"STATIC", labelText.c_str(),
         WS_CHILD | WS_VISIBLE | SS_RIGHT | SS_CENTERIMAGE,
@@ -243,6 +260,7 @@ void SETT_Reset()
     memset(s_hSignControls, 0, sizeof(s_hSignControls));
     s_allowUninstall   = true;
     s_closeApps        = false;
+    s_changesEnvironment = false;
     s_installBase        = 0;
     s_installBaseCustom  = L"";
     s_installerLangs.assign(kLangCount, false);
@@ -693,6 +711,12 @@ int SETT_BuildPage(HWND hwnd, HINSTANCE hInst,
                           L"Close running applications before installing"),
                       IDC_SETT_CLOSE_APPS, s_closeApps);
 
+    // Broadcast WM_SETTINGCHANGE after install (needed when adding to PATH)
+    y = FieldCheckbox(hwnd, hInst, hGuiFont, y, clientWidth,
+                      loc(L"sett_changes_env_lbl",
+                          L"Broadcast environment change (required when modifying PATH)"),
+                      IDC_SETT_CHANGES_ENV, s_changesEnvironment);
+
     y += S(20);   // bottom padding
 
     // ══════════════════════════════════════════════════════════════════════
@@ -967,6 +991,12 @@ bool SETT_OnCommand(HWND hwnd, int wmId, int wmEvent, HWND /*hCtrl*/)
         MainWindow::MarkAsModified();
         return true;
     }
+    if (wmId == IDC_SETT_CHANGES_ENV && wmEvent == BN_CLICKED) {
+        s_changesEnvironment =
+            (SendDlgItemMessageW(hwnd, IDC_SETT_CHANGES_ENV, BM_GETCHECK, 0, 0) == BST_CHECKED);
+        MainWindow::MarkAsModified();
+        return true;
+    }
     if (wmId == IDC_SETT_DISABLE_DIR_PAGE && wmEvent == BN_CLICKED) {
         s_disableDirPage =
             (SendDlgItemMessageW(hwnd, IDC_SETT_DISABLE_DIR_PAGE, BM_GETCHECK, 0, 0) == BST_CHECKED);
@@ -1106,6 +1136,7 @@ void SETT_SaveToDb(int projectId)
     DB::SetSetting(K(L"min_os"),            std::to_wstring(s_minOsVersion));
     DB::SetSetting(K(L"allow_uninstall"),   s_allowUninstall ? L"1" : L"0");
     DB::SetSetting(K(L"close_apps"),        s_closeApps ? L"1" : L"0");
+    DB::SetSetting(K(L"changes_env"),        s_changesEnvironment ? L"1" : L"0");
     DB::SetSetting(K(L"disable_dir_page"),       s_disableDirPage ? L"1" : L"0");
     DB::SetSetting(K(L"disable_prog_group_page"), s_disableProgramGroupPage ? L"1" : L"0");
     DB::SetSetting(K(L"use_prev_app_dir"),        s_usePreviousAppDir ? L"1" : L"0");
@@ -1152,6 +1183,7 @@ void SETT_LoadFromDb(int projectId)
     if (DB::GetSetting(K(L"min_os"),            val)) s_minOsVersion     = _wtoi(val.c_str());
     if (DB::GetSetting(K(L"allow_uninstall"),   val)) s_allowUninstall   = (val != L"0");
     if (DB::GetSetting(K(L"close_apps"),        val)) s_closeApps        = (val == L"1");
+    if (DB::GetSetting(K(L"changes_env"),        val)) s_changesEnvironment = (val == L"1");
     if (DB::GetSetting(K(L"disable_dir_page"),       val)) s_disableDirPage          = (val == L"1");
     if (DB::GetSetting(K(L"disable_prog_group_page"), val)) s_disableProgramGroupPage = (val == L"1");
     if (DB::GetSetting(K(L"use_prev_app_dir"),        val)) s_usePreviousAppDir       = (val != L"0");
@@ -1230,6 +1262,7 @@ SBuildConfig SETT_GetBuildConfig()
     cfg.minOsVersion      = s_minOsVersion;
     cfg.allowUninstall    = s_allowUninstall;
     cfg.closeApps         = s_closeApps;
+    cfg.changesEnvironment = s_changesEnvironment;
     cfg.disableDirPage           = s_disableDirPage;
     cfg.disableProgramGroupPage  = s_disableProgramGroupPage;
     cfg.usePreviousAppDir        = s_usePreviousAppDir;

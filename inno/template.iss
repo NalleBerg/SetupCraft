@@ -17,6 +17,7 @@ PrivilegesRequiredOverridesAllowed={#PrivilegesRequiredOverridesAllowed}
 WizardStyle={#WizardStyle}
 Uninstallable={#Uninstallable}
 CloseApplications={#CloseApplications}
+ChangesEnvironment={#ChangesEnvironment}
 DisableDirPage={#DisableDirPage}
 DisableProgramGroupPage={#DisableProgramGroupPage}
 UsePreviousAppDir={#UsePreviousAppDir}
