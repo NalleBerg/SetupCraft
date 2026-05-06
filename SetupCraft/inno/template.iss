@@ -18,6 +18,7 @@ WizardStyle={#WizardStyle}
 Uninstallable={#Uninstallable}
 CloseApplications={#CloseApplications}
 ChangesEnvironment={#ChangesEnvironment}
+ChangesAssociations={#ChangesAssociations}
 DisableDirPage={#DisableDirPage}
 DisableProgramGroupPage={#DisableProgramGroupPage}
 UsePreviousAppDir={#UsePreviousAppDir}
@@ -76,6 +77,7 @@ Name: "{userdesktop}\{#AppName}"; Filename: "{app}\{#ExeName}"; Tasks: desktopic
 ; Example registry entries (installer modifies these)
 Root: HKLM; Subkey: "Software\{#Publisher}\{#AppName}"; ValueType: string; ValueName: "InstallPath"; ValueData: "{app}"; Flags: preservestringtype
 ; <<PATH_REGISTRY>>
+; <<FILE_ASSOCIATIONS>>
 
 [Run]
 ; Run app after install

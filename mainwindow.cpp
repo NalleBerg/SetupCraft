@@ -1,4 +1,4 @@
-#include "mainwindow.h"
+﻿#include "mainwindow.h"
 #include "dpi.h"
 #include <commctrl.h>
 #include <shlwapi.h>
@@ -25,6 +25,7 @@
 #include "edit_rtf.h"
 #include "shortcuts.h"
 #include "deps.h"
+#include "file_assoc.h"
 #include "dialogs.h"
 #include "scripts.h"
 #include "settings.h"
@@ -282,6 +283,7 @@ static bool s_filesPageHasContent = false; // tracks whether Files page has any 
 #define IDC_TB_COMPONENTS   5081
 #define IDC_TB_EXIT         5082
 #define IDC_TB_CLOSE_PROJECT 5083
+#define IDC_TB_FILE_ASSOC   5084
 
 // Components page control IDs
 #define IDC_COMP_ENABLE       5060
@@ -638,6 +640,7 @@ HWND MainWindow::Create(HINSTANCE hInstance, const ProjectRow &project, const st
     s_hMsbIdlg       = NULL;
     s_hMsbSett       = NULL;
     DEP_Reset();           // nullifies s_hMsbDepListV/H (WM_DESTROY already freed ctx)
+    FA_Reset();
     SCR_Reset();
     // Null stale HWND handles so IsWindow guards work correctly on second open.
     s_hTreeView     = NULL;
@@ -666,6 +669,7 @@ HWND MainWindow::Create(HINSTANCE hInstance, const ProjectRow &project, const st
     s_filesPageHasContent = false;
     SC_Reset();
     DEP_Reset();
+    FA_Reset();
     IDLG_Reset();
     SCR_Reset();
     SETT_Reset();
@@ -689,6 +693,7 @@ HWND MainWindow::Create(HINSTANCE hInstance, const ProjectRow &project, const st
         SC_LoadFromDb(project.id);   // load shortcuts + menu nodes + opt-out flags
         DEP_LoadFromDb(project.id);   // load external dependencies
         SCR_LoadFromDb(project.id);   // load scripts
+        FA_LoadFromDb(project.id);    // load file associations
         IDLG_LoadFromDb(project.id);  // load installer dialog RTF content
         SETT_LoadFromDb(project.id);  // load installer settings
     }
@@ -962,7 +967,14 @@ void MainWindow::CreateToolbar(HWND hwnd, HINSTANCE hInst) {
     int wDialogs = MeasureTBWidth(dialogsText);
     CreateCustomButtonWithIcon(hwnd, IDC_TB_DIALOGS, dialogsText, ButtonColor::Blue,
         L"shell32.dll", 23, x, row1Y, wDialogs, btnH, hInst);
-    int row1EndX = x + wDialogs;
+    x += wDialogs + gap;
+
+    auto itFa = s_locale.find(L"tb_file_assoc");
+    std::wstring faText = (itFa != s_locale.end()) ? itFa->second : L"File Types";
+    int wFa = MeasureTBWidth(faText);
+    CreateCustomButtonWithIcon(hwnd, IDC_TB_FILE_ASSOC, faText, ButtonColor::Blue,
+        L"shell32.dll", 152, x, row1Y, wFa, btnH, hInst);
+    int row1EndX = x + wFa;
 
     // --- ROW 2: action pages ---
     x = S(10);
@@ -1872,6 +1884,8 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
     // Msb_TargetSubclassProc → msb_detach.  DEP_TearDown must therefore run
     // BEFORE that loop, not after, to avoid the double-free / heap corruption.
     DEP_TearDown(hwnd);
+    // Same rule applies for the File Associations page ListView.
+    FA_TearDown(hwnd);
 
     // Destroy all known control IDs from previous pages
     int controlIds[] = {
@@ -1898,7 +1912,8 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         IDC_SETT_SIGN_THUMBPRINT, IDC_SETT_SIGN_PFX_PATH, IDC_SETT_SIGN_PFX_BTN,
         IDC_SETT_SIGN_PFX_PASS, IDC_SETT_SIGN_TS_URL, IDC_SETT_SIGN_TS_ALGO,
         IDC_SETT_SIGN_DESC,
-        IDC_SETT_PAGE_TITLE
+        IDC_SETT_PAGE_TITLE,
+        IDC_FA_LIST, IDC_FA_ADD, IDC_FA_EDIT, IDC_FA_REMOVE, IDC_FA_PAGE_TITLE,
     };
     
     for (int id : controlIds) {
@@ -1927,7 +1942,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         if (rcChild.bottom > s_toolbarHeight) {
             // Skip toolbar buttons and known handles
             int childId = GetDlgCtrlID(hChild);
-            bool isToolbarBtn = (childId >= IDC_TB_FILES && childId <= IDC_TB_ABOUT) || childId == IDC_TB_DIALOGS || childId == IDC_TB_COMPONENTS || childId == IDC_TB_EXIT || childId == IDC_TB_CLOSE_PROJECT;
+            bool isToolbarBtn = (childId >= IDC_TB_FILES && childId <= IDC_TB_ABOUT) || childId == IDC_TB_DIALOGS || childId == IDC_TB_COMPONENTS || childId == IDC_TB_EXIT || childId == IDC_TB_CLOSE_PROJECT || childId == IDC_TB_FILE_ASSOC;
             if (!isToolbarBtn) {
                 // Also exclude the status bar and the About icon: their IDs fall
                 // outside the toolbar-button range (IDC_STATUS_BAR = 5002 is below
@@ -2023,7 +2038,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         {0, IDC_TB_FILES},       {1, IDC_TB_ADD_REGISTRY}, {2, IDC_TB_ADD_SHORTCUT},
         {3, IDC_TB_ADD_DEPEND},  {4, IDC_TB_DIALOGS},      {5, IDC_TB_SETTINGS},
         {6, IDC_TB_BUILD},       {7, IDC_TB_TEST},          {8, IDC_TB_SCRIPTS},
-        {9, IDC_TB_COMPONENTS},
+        {9, IDC_TB_COMPONENTS},  {10, IDC_TB_FILE_ASSOC},
     };
     for (auto& entry : kPageBtns) {
         HWND hBtn = GetDlgItem(hwnd, entry.btnId);
@@ -3017,7 +3032,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
                     int cid = GetDlgCtrlID(hC);
                     bool isTB = (cid >= IDC_TB_FILES && cid <= IDC_TB_ABOUT) ||
                                  cid == IDC_TB_DIALOGS || cid == IDC_TB_COMPONENTS ||
-                                 cid == IDC_TB_EXIT    || cid == IDC_TB_CLOSE_PROJECT;
+                                 cid == IDC_TB_EXIT    || cid == IDC_TB_CLOSE_PROJECT || cid == IDC_TB_FILE_ASSOC;
                     if (!isTB) {
                         LONG_PTR st = GetWindowLongPtrW(hC, GWL_STYLE);
                         if (!(st & WS_CLIPSIBLINGS))
@@ -3075,7 +3090,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
                     int cid = GetDlgCtrlID(hC);
                     bool isTB = (cid >= IDC_TB_FILES && cid <= IDC_TB_ABOUT) ||
                                  cid == IDC_TB_DIALOGS || cid == IDC_TB_COMPONENTS ||
-                                 cid == IDC_TB_EXIT    || cid == IDC_TB_CLOSE_PROJECT;
+                                 cid == IDC_TB_EXIT    || cid == IDC_TB_CLOSE_PROJECT || cid == IDC_TB_FILE_ASSOC;
                     if (!isTB) {
                         LONG_PTR st = GetWindowLongPtrW(hC, GWL_STYLE);
                         if (!(st & WS_CLIPSIBLINGS))
@@ -3133,7 +3148,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
                     int cid = GetDlgCtrlID(hC);
                     bool isTB = (cid >= IDC_TB_FILES && cid <= IDC_TB_ABOUT) ||
                                  cid == IDC_TB_DIALOGS || cid == IDC_TB_COMPONENTS ||
-                                 cid == IDC_TB_EXIT    || cid == IDC_TB_CLOSE_PROJECT;
+                                 cid == IDC_TB_EXIT    || cid == IDC_TB_CLOSE_PROJECT || cid == IDC_TB_FILE_ASSOC;
                     if (!isTB) {
                         LONG_PTR st = GetWindowLongPtrW(hC, GWL_STYLE);
                         if (!(st & WS_CLIPSIBLINGS))
@@ -3502,6 +3517,12 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         s_hMsbCompTreeH = msb_attach(s_hCompTreeView, MSB_HORIZONTAL);
         if (s_hMsbCompTreeH) msb_set_edge_gap(s_hMsbCompTreeH, GetSystemMetrics(SM_CYEDGE) + GetSystemMetrics(SM_CYBORDER) + 8);
 
+        break;
+    }
+    case 10: // File Associations page
+    {
+        FA_BuildPage(hwnd, hInst, pageY, rc.right,
+                     s_hPageTitleFont, s_hGuiFont, s_locale);
         break;
     }
     }
@@ -9499,7 +9520,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                             int cid = GetDlgCtrlID(hC);
                             bool isTB = (cid >= IDC_TB_FILES && cid <= IDC_TB_ABOUT) ||
                                          cid == IDC_TB_DIALOGS || cid == IDC_TB_COMPONENTS ||
-                                         cid == IDC_TB_EXIT    || cid == IDC_TB_CLOSE_PROJECT;
+                                         cid == IDC_TB_EXIT    || cid == IDC_TB_CLOSE_PROJECT || cid == IDC_TB_FILE_ASSOC;
                             if (!isTB) {
                                 RECT rcC; GetWindowRect(hC, &rcC);
                                 MapWindowPoints(HWND_DESKTOP, hwnd, (POINT*)&rcC, 2);
@@ -9556,7 +9577,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                         int cid = GetDlgCtrlID(hC);
                         bool isTB = (cid >= IDC_TB_FILES && cid <= IDC_TB_ABOUT) ||
                                      cid == IDC_TB_DIALOGS || cid == IDC_TB_COMPONENTS ||
-                                     cid == IDC_TB_EXIT    || cid == IDC_TB_CLOSE_PROJECT;
+                                     cid == IDC_TB_EXIT    || cid == IDC_TB_CLOSE_PROJECT || cid == IDC_TB_FILE_ASSOC;
                         if (!isTB) {
                             RECT rcC; GetWindowRect(hC, &rcC);
                             MapWindowPoints(HWND_DESKTOP, hwnd, (POINT*)&rcC, 2);
@@ -9581,6 +9602,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         if (DragDrop_OnBeginDrag(nmhdr)) return 0;
         { bool scH = false; LRESULT scR = SC_OnNotify(hwnd, nmhdr, &scH); if (scH) return scR; }
         { bool depH = false; LRESULT depR = DEP_OnNotify(hwnd, nmhdr, &depH); if (depH) return depR; }
+        if (FA_OnNotify(hwnd, nmhdr)) return 0;
         { bool scrH = false; LRESULT scrR = SCR_OnNotify(hwnd, nmhdr, &scrH); if (scrH) return scrR; }
         // Refresh Start-Menu tree MSBs after expand/collapse.
         // GUARD: only act when MSBs are actually attached.  TreeView_Expand
@@ -9931,6 +9953,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         int wmEvent = HIWORD(wParam);
         if (SC_OnCommand(hwnd, wmId, wmEvent, (HWND)lParam)) return 0;
         if (DEP_OnCommand(hwnd, wmId, wmEvent, (HWND)lParam)) return 0;
+        if (FA_OnCommand(hwnd, wmId, wmEvent)) return 0;
         if (SCR_OnCommand(hwnd, wmId, wmEvent, (HWND)lParam)) return 0;
         if (IDLG_OnCommand(hwnd, wmId, wmEvent, (HWND)lParam)) return 0;
         if (SETT_OnCommand(hwnd, wmId, wmEvent, (HWND)lParam)) return 0;
@@ -10087,6 +10110,10 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 
         case IDC_TB_COMPONENTS:
             SwitchPage(hwnd, 9);
+            return 0;
+
+        case IDC_TB_FILE_ASSOC:
+            SwitchPage(hwnd, 10);
             return 0;
             
         case IDC_TB_SAVE:
@@ -12815,6 +12842,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             DEP_LoadFromDb(s_currentProject.id);  // refresh IDs from DB
             SCR_SaveToDb(s_currentProject.id);    // persist scripts
             SCR_LoadFromDb(s_currentProject.id);  // refresh script IDs from DB
+            FA_SaveToDb(s_currentProject.id);     // persist file associations
+            FA_LoadFromDb(s_currentProject.id);   // refresh IDs from DB
             IDLG_SaveToDb(s_currentProject.id);   // persist installer dialog content
             IDLG_LoadFromDb(s_currentProject.id); // refresh from DB
             SETT_SaveToDb(s_currentProject.id);   // persist installer settings
@@ -12879,7 +12908,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             SBuildConfig          cfg   = SETT_GetBuildConfig();
             std::vector<InnoLangEntry> langs = SETT_GetInstallerLanguages();
             std::wstring genErr = ISS_GenerateIss(templatePath, outIssPath,
-                                                  s_currentProject, cfg, langs);
+                                                  s_currentProject, cfg, langs,
+                                                  FA_GetAssociations());
             if (!genErr.empty()) {
                 MessageBoxW(hwnd, genErr.c_str(), L"Compile", MB_OK | MB_ICONERROR);
                 return 0;
@@ -13363,7 +13393,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         HDC hdc = (HDC)wParam;
         HWND hControl = (HWND)lParam;
         int ctrlId = GetDlgCtrlID(hControl);
-        if (ctrlId == 5100 || ctrlId == 5300 || ctrlId == 5301 || ctrlId == 5302 || ctrlId == 5303 || ctrlId == 5304 || ctrlId == IDC_DEP_PAGE_TITLE || ctrlId == IDC_IDLG_PAGE_TITLE) {  // page title statics (Files + Shortcuts + SC column headings + Dependencies + Dialogs)
+        if (ctrlId == 5100 || ctrlId == 5300 || ctrlId == 5301 || ctrlId == 5302 || ctrlId == 5303 || ctrlId == 5304 || ctrlId == IDC_DEP_PAGE_TITLE || ctrlId == IDC_IDLG_PAGE_TITLE || ctrlId == IDC_FA_PAGE_TITLE) {  // page title statics (Files + Shortcuts + SC column headings + Dependencies + Dialogs + FileAssoc)
             if (s_hPageTitleFont) SelectObject(hdc, s_hPageTitleFont);
         } else {
             if (s_hGuiFont) SelectObject(hdc, s_hGuiFont);
@@ -13463,7 +13493,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 
         // Handle custom button drawing for toolbar buttons and page buttons
         // Note: IDC_TB_ABOUT is now a static icon, not a button, so exclude it
-        if ((dis->CtlID >= IDC_TB_FILES && dis->CtlID <= IDC_TB_SAVE) || dis->CtlID == IDC_TB_DIALOGS || dis->CtlID == IDC_TB_COMPONENTS || dis->CtlID == IDC_TB_EXIT || dis->CtlID == IDC_TB_CLOSE_PROJECT ||
+        if ((dis->CtlID >= IDC_TB_FILES && dis->CtlID <= IDC_TB_SAVE) || dis->CtlID == IDC_TB_DIALOGS || dis->CtlID == IDC_TB_COMPONENTS || dis->CtlID == IDC_TB_EXIT || dis->CtlID == IDC_TB_CLOSE_PROJECT || dis->CtlID == IDC_TB_FILE_ASSOC ||
             (dis->CtlID >= IDC_FILES_ADD_DIR && dis->CtlID <= IDC_FILES_REMOVE) ||
             (dis->CtlID >= IDC_REG_CHECKBOX && dis->CtlID <= IDC_REG_BACKUP) ||
             dis->CtlID == IDC_SETT_REGEN_GUID ||
@@ -13471,6 +13501,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             (dis->CtlID >= IDC_SC_DESKTOP_BTN && dis->CtlID <= IDC_SC_SM_REMOVE) ||
              dis->CtlID == IDC_SC_SM_ADDSC ||
             (dis->CtlID >= IDC_DEP_ADD && dis->CtlID <= IDC_DEP_REMOVE) ||
+            (dis->CtlID >= IDC_FA_ADD && dis->CtlID <= IDC_FA_REMOVE) ||
             (dis->CtlID >= IDC_SCR_TOOLBAR_ADD && dis->CtlID <= IDC_SCR_TOOLBAR_DELETE) ||
             (dis->CtlID >= IDC_IDLG_ROW_BASE && dis->CtlID < IDC_IDLG_ROW_BASE + IDLG_COUNT * 4) ||
              dis->CtlID == IDC_IDLG_INST_CHANGE_ICON ||
@@ -13791,7 +13822,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                         int cid = GetDlgCtrlID(hC);
                         bool isTB = (cid >= IDC_TB_FILES && cid <= IDC_TB_ABOUT) ||
                                      cid == IDC_TB_DIALOGS || cid == IDC_TB_COMPONENTS ||
-                                     cid == IDC_TB_EXIT    || cid == IDC_TB_CLOSE_PROJECT;
+                                     cid == IDC_TB_EXIT    || cid == IDC_TB_CLOSE_PROJECT || cid == IDC_TB_FILE_ASSOC;
                         if (!isTB) {
                             RECT rcC; GetWindowRect(hC, &rcC);
                             MapWindowPoints(HWND_DESKTOP, hwnd, (POINT*)&rcC, 2);
@@ -13841,7 +13872,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                         int cid = GetDlgCtrlID(hC);
                         bool isTB = (cid >= IDC_TB_FILES && cid <= IDC_TB_ABOUT) ||
                                      cid == IDC_TB_DIALOGS || cid == IDC_TB_COMPONENTS ||
-                                     cid == IDC_TB_EXIT    || cid == IDC_TB_CLOSE_PROJECT;
+                                     cid == IDC_TB_EXIT    || cid == IDC_TB_CLOSE_PROJECT || cid == IDC_TB_FILE_ASSOC;
                         if (!isTB) {
                             RECT rcC; GetWindowRect(hC, &rcC);
                             MapWindowPoints(HWND_DESKTOP, hwnd, (POINT*)&rcC, 2);
@@ -13890,7 +13921,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                         int cid = GetDlgCtrlID(hC);
                         bool isTB = (cid >= IDC_TB_FILES && cid <= IDC_TB_ABOUT) ||
                                      cid == IDC_TB_DIALOGS || cid == IDC_TB_COMPONENTS ||
-                                     cid == IDC_TB_EXIT    || cid == IDC_TB_CLOSE_PROJECT;
+                                     cid == IDC_TB_EXIT    || cid == IDC_TB_CLOSE_PROJECT || cid == IDC_TB_FILE_ASSOC;
                         if (!isTB) {
                             RECT rcC; GetWindowRect(hC, &rcC);
                             MapWindowPoints(HWND_DESKTOP, hwnd, (POINT*)&rcC, 2);
@@ -13957,7 +13988,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                         int cid = GetDlgCtrlID(hC);
                         bool isTB = (cid >= IDC_TB_FILES && cid <= IDC_TB_ABOUT) ||
                                      cid == IDC_TB_DIALOGS || cid == IDC_TB_COMPONENTS ||
-                                     cid == IDC_TB_EXIT    || cid == IDC_TB_CLOSE_PROJECT;
+                                     cid == IDC_TB_EXIT    || cid == IDC_TB_CLOSE_PROJECT || cid == IDC_TB_FILE_ASSOC;
                         if (!isTB) {
                             RECT rcC; GetWindowRect(hC, &rcC);
                             MapWindowPoints(HWND_DESKTOP, hwnd, (POINT*)&rcC, 2);
@@ -14017,7 +14048,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                         int cid = GetDlgCtrlID(hC);
                         bool isTB = (cid >= IDC_TB_FILES && cid <= IDC_TB_ABOUT) ||
                                      cid == IDC_TB_DIALOGS || cid == IDC_TB_COMPONENTS ||
-                                     cid == IDC_TB_EXIT    || cid == IDC_TB_CLOSE_PROJECT;
+                                     cid == IDC_TB_EXIT    || cid == IDC_TB_CLOSE_PROJECT || cid == IDC_TB_FILE_ASSOC;
                         if (!isTB) {
                             RECT rcC; GetWindowRect(hC, &rcC);
                             MapWindowPoints(HWND_DESKTOP, hwnd, (POINT*)&rcC, 2);
@@ -14075,7 +14106,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                         int cid = GetDlgCtrlID(hC);
                         bool isTB = (cid >= IDC_TB_FILES && cid <= IDC_TB_ABOUT) ||
                                      cid == IDC_TB_DIALOGS || cid == IDC_TB_COMPONENTS ||
-                                     cid == IDC_TB_EXIT    || cid == IDC_TB_CLOSE_PROJECT;
+                                     cid == IDC_TB_EXIT    || cid == IDC_TB_CLOSE_PROJECT || cid == IDC_TB_FILE_ASSOC;
                         if (!isTB) {
                             RECT rcC; GetWindowRect(hC, &rcC);
                             MapWindowPoints(HWND_DESKTOP, hwnd, (POINT*)&rcC, 2);

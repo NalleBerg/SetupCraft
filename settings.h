@@ -180,6 +180,7 @@ struct SBuildConfig {
     bool closeApps        = false;
     bool addToPath          = false;  // add {app} to system PATH via registry
     bool changesEnvironment = false;  // ChangesEnvironment — broadcast WM_SETTINGCHANGE after install
+    bool changesAssociations = false; // ChangesAssociations — auto-derived from FA page rows
 };
 
 // Returns a snapshot of the current build settings for use by the .iss generator.

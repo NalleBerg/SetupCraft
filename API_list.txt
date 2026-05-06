@@ -134,6 +134,8 @@
                                                 Uninstallable,
                                                 CloseApplications, ChangesEnvironment,
                                                 AddToPath (system PATH registry),
+                                                ChangesAssociations (auto-derived
+                                                from File Associations page),
                                                 DisableDirPage,
                                                 DisableProgramGroupPage,
                                                 UsePreviousAppDir,
@@ -651,5 +653,46 @@
                                                 after each AutoFitPreview call),
                                                 Cancel-guard snapshot (openLogW/H/openUserSized)
                                                 must be taken AFTER AutoFitPreview — not before.
+
+  file_assoc.h / file_assoc.cpp                 File Associations page module (toolbar index 10,
+                                                IDC_TB_FILE_ASSOC=5084). FA_BuildPage /
+                                                FA_Reset / FA_TearDown / FA_OnCommand /
+                                                FA_OnNotify / FA_SaveToDb / FA_LoadFromDb.
+                                                FA_HasAnyEnabled() → bool (drives
+                                                ChangesAssociations in SBuildConfig).
+                                                FA_GetAssociations() → vector<FileAssocRow>
+                                                (consumed by ISS_GenerateIss for HKCR
+                                                registry generation).
+                                                ListView LVS_EX_CHECKBOXES; s_refreshing
+                                                flag guards FA_OnNotify against spurious
+                                                LVN_ITEMCHANGED fired by ListView_SetCheckState
+                                                during RefreshList() — MUST set before
+                                                ListView_DeleteAllItems and clear after loop.
+                                                Right-click context menu (IDM_FA_CTX_EDIT=6400,
+                                                IDM_FA_CTX_REMOVE=6401); double-click to edit.
+                                                Button IDs: IDC_FA_LIST=8100,
+                                                IDC_FA_ADD=8101, IDC_FA_EDIT=8102,
+                                                IDC_FA_REMOVE=8103,
+                                                IDC_FA_PAGE_TITLE=8104.
+
+  file_assoc_dialog.h / file_assoc_dialog.cpp   Add/Edit File Association modal dialog.
+                                                FA_ShowEditDialog(hwndParent, hInst,
+                                                  locale, row, isNew) → bool.
+                                                Flat form: Extension (required, leading dot),
+                                                Description, ProgID (auto AppName.ext if blank),
+                                                Icon path+browse, Icon index (0-based),
+                                                Open/Edit/Print commands (%1 = file path),
+                                                MIME type, Enabled checkbox.
+                                                Per-field help icon: shell32.dll index 23 (ℹ)
+                                                appended to each field row via MakeRow()
+                                                hasHelp/helpId/helpTip params +
+                                                SetButtonTooltip(hHelp, tip) — tooltip text
+                                                describes format, example, and blank behaviour.
+                                                Help IDs FADLG_IDC_HELP_ENABLED–HELP_MIME
+                                                (3220–3229). 10 fa_tip_* locale keys.
+                                                WM_DRAWITEM: DrawCustomCheckbox first,
+                                                DrawCustomButton fallback (matches
+                                                dep_edit_dialog pattern).
+                                                IDC range 3200–3229.
 
 ================================================================================

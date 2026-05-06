@@ -424,6 +424,54 @@ edit_rtf.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/edit_rtf.cpp.s
 .PHONY : edit_rtf.cpp.s
 
+file_assoc.obj: file_assoc.cpp.obj
+.PHONY : file_assoc.obj
+
+# target to build an object file
+file_assoc.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/file_assoc.cpp.obj
+.PHONY : file_assoc.cpp.obj
+
+file_assoc.i: file_assoc.cpp.i
+.PHONY : file_assoc.i
+
+# target to preprocess a source file
+file_assoc.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/file_assoc.cpp.i
+.PHONY : file_assoc.cpp.i
+
+file_assoc.s: file_assoc.cpp.s
+.PHONY : file_assoc.s
+
+# target to generate assembly for a file
+file_assoc.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/file_assoc.cpp.s
+.PHONY : file_assoc.cpp.s
+
+file_assoc_dialog.obj: file_assoc_dialog.cpp.obj
+.PHONY : file_assoc_dialog.obj
+
+# target to build an object file
+file_assoc_dialog.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/file_assoc_dialog.cpp.obj
+.PHONY : file_assoc_dialog.cpp.obj
+
+file_assoc_dialog.i: file_assoc_dialog.cpp.i
+.PHONY : file_assoc_dialog.i
+
+# target to preprocess a source file
+file_assoc_dialog.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/file_assoc_dialog.cpp.i
+.PHONY : file_assoc_dialog.cpp.i
+
+file_assoc_dialog.s: file_assoc_dialog.cpp.s
+.PHONY : file_assoc_dialog.s
+
+# target to generate assembly for a file
+file_assoc_dialog.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/file_assoc_dialog.cpp.s
+.PHONY : file_assoc_dialog.cpp.s
+
 issgen.obj: issgen.cpp.obj
 .PHONY : issgen.obj
 
@@ -830,6 +878,12 @@ help:
 	@echo ... edit_rtf.obj
 	@echo ... edit_rtf.i
 	@echo ... edit_rtf.s
+	@echo ... file_assoc.obj
+	@echo ... file_assoc.i
+	@echo ... file_assoc.s
+	@echo ... file_assoc_dialog.obj
+	@echo ... file_assoc_dialog.i
+	@echo ... file_assoc_dialog.s
 	@echo ... issgen.obj
 	@echo ... issgen.i
 	@echo ... issgen.s

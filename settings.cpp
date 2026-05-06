@@ -16,6 +16,7 @@
  */
 
 #include "settings.h"
+#include "file_assoc.h"   // FA_HasAnyEnabled()
 #include "mainwindow.h"   // MainWindow::MarkAsModified()
 #include "db.h"
 #include "dpi.h"          // S()
@@ -1285,8 +1286,9 @@ SBuildConfig SETT_GetBuildConfig()
     cfg.minOsVersion      = s_minOsVersion;
     cfg.allowUninstall    = s_allowUninstall;
     cfg.closeApps         = s_closeApps;
-    cfg.addToPath          = s_addToPath;
-    cfg.changesEnvironment = s_changesEnvironment;
+    cfg.addToPath            = s_addToPath;
+    cfg.changesEnvironment   = s_changesEnvironment;
+    cfg.changesAssociations  = FA_HasAnyEnabled();
     cfg.disableDirPage           = s_disableDirPage;
     cfg.disableProgramGroupPage  = s_disableProgramGroupPage;
     cfg.usePreviousAppDir        = s_usePreviousAppDir;

@@ -239,7 +239,8 @@ std::wstring ISS_GenerateIss(
     const std::wstring&              outPath,
     const ProjectRow&                proj,
     const SBuildConfig&              cfg,
-    const std::vector<InnoLangEntry>& langs)
+    const std::vector<InnoLangEntry>& langs,
+    const std::vector<FileAssocRow>& assocs)
 {
     // ── Read template ─────────────────────────────────────────────────────────
     // Use Win32 to read the file so wide paths work on MinGW.
@@ -327,7 +328,8 @@ std::wstring ISS_GenerateIss(
         { L"WizardStyle",      WizardStyleStr(cfg.wizardStyle)                                  },
         { L"Uninstallable",     cfg.allowUninstall ? L"yes" : L"no"   },
         { L"CloseApplications", cfg.closeApps      ? L"yes" : L"no"  },
-        { L"ChangesEnvironment", cfg.changesEnvironment ? L"yes" : L"no" },
+        { L"ChangesEnvironment",  cfg.changesEnvironment  ? L"yes" : L"no" },
+        { L"ChangesAssociations", cfg.changesAssociations ? L"yes" : L"no" },
         { L"DisableDirPage",           cfg.disableDirPage          ? L"yes" : L"no"  },
         { L"DisableProgramGroupPage",   cfg.disableProgramGroupPage ? L"yes" : L"no"  },
         { L"UsePreviousAppDir",         cfg.usePreviousAppDir       ? L"yes" : L"no"  },
@@ -368,6 +370,70 @@ std::wstring ISS_GenerateIss(
             L"Flags: preservestringtype\r\n";
     }
     ReplaceAll(tmpl, L"; <<PATH_REGISTRY>>", pathRegBlock);
+
+    // ── Replace the "; <<FILE_ASSOCIATIONS>>" marker ──────────────────────────
+    // For each enabled FileAssocRow, emit HKCR [Registry] entries that register
+    // the file extension, ProgID, optional icon, and shell verb commands.
+    std::wstring faBlock;
+    for (const FileAssocRow& r : assocs) {
+        if (!r.enabled) continue;
+
+        std::wstring ext = r.extension;
+        if (ext.empty()) continue;
+
+        // Ensure the extension starts with a dot.
+        if (ext[0] != L'.') ext = L"." + ext;
+
+        // Derive ProgID: use explicit one, or "AppName.ext" (no leading dot).
+        std::wstring pid = r.prog_id;
+        if (pid.empty()) {
+            std::wstring extNoDoc = ext.substr(1);  // strip leading dot
+            pid = proj.name + L"." + extNoDoc;
+        }
+
+        // Helper: one Registry line.
+        auto Line = [&](const std::wstring& subkey,
+                        const std::wstring& valName,
+                        const std::wstring& valData,
+                        const std::wstring& flags) -> std::wstring
+        {
+            std::wstring line = L"Root: HKCR; Subkey: \"" + subkey + L"\";"
+                L" ValueType: string;";
+            if (!valName.empty())
+                line += L" ValueName: \"" + valName + L"\";";
+            line += L" ValueData: \"" + valData + L"\"; Flags: " + flags + L"\r\n";
+            return line;
+        };
+
+        faBlock += L"; File association: " + ext + L"\r\n";
+
+        // Extension → ProgID mapping.
+        faBlock += Line(ext, L"", pid, L"uninsdeletevalue");
+
+        // Content type (MIME).
+        if (!r.content_type.empty())
+            faBlock += Line(ext, L"Content Type", r.content_type, L"uninsdeletevalue");
+
+        // ProgID description.
+        faBlock += Line(pid, L"", r.description, L"uninsdeletekeyifempty");
+
+        // Default icon.
+        if (!r.icon_path.empty()) {
+            std::wstring iconData = r.icon_path + L"," + std::to_wstring(r.icon_index);
+            faBlock += Line(pid + L"\\DefaultIcon", L"", iconData, L"uninsdeletevalue");
+        }
+
+        // Shell verb commands.
+        if (!r.open_cmd.empty())
+            faBlock += Line(pid + L"\\shell\\open\\command",  L"", r.open_cmd,  L"uninsdeletevalue");
+        if (!r.edit_cmd.empty())
+            faBlock += Line(pid + L"\\shell\\edit\\command",  L"", r.edit_cmd,  L"uninsdeletevalue");
+        if (!r.print_cmd.empty())
+            faBlock += Line(pid + L"\\shell\\print\\command", L"", r.print_cmd, L"uninsdeletevalue");
+
+        faBlock += L"\r\n";
+    }
+    ReplaceAll(tmpl, L"; <<FILE_ASSOCIATIONS>>", faBlock);
 
     // ── Write output as UTF-8 with BOM (ISCC accepts UTF-8 BOM) ─────────────
     int needed = WideCharToMultiByte(CP_UTF8, 0,

@@ -230,6 +230,22 @@ bool DB::InitDb() {
         "FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);",
         NULL, NULL, &errmsg);
 
+    p_exec(db, "CREATE TABLE IF NOT EXISTS file_associations ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "project_id INTEGER NOT NULL, "
+        "enabled INTEGER DEFAULT 1, "
+        "extension TEXT DEFAULT '', "
+        "description TEXT DEFAULT '', "
+        "prog_id TEXT DEFAULT '', "
+        "icon_path TEXT DEFAULT '', "
+        "icon_index INTEGER DEFAULT 0, "
+        "open_cmd TEXT DEFAULT '', "
+        "edit_cmd TEXT DEFAULT '', "
+        "print_cmd TEXT DEFAULT '', "
+        "content_type TEXT DEFAULT '', "
+        "FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);",
+        NULL, NULL, &errmsg);
+
     // Default RTF content for each installer dialog type (placeholders: <<AppName>>,
     // <<AppVersion>>, <<AppNameAndVersion>>). INSERT OR IGNORE — never overwrites
     // developer customisations stored in the DB.
@@ -2712,6 +2728,122 @@ std::vector<std::pair<int,std::wstring>> DB::GetInstallerDialogsForProject(int p
         int type = (int)p_col_int64(stmt, 0);
         const unsigned char* c = p_col_text(stmt, 1);
         out.push_back({ type, Utf8ToW(c ? (const char*)c : "") });
+    }
+    if (p_finalize) p_finalize(stmt);
+    p_close(db);
+    return out;
+}
+
+// ── File association persistence ──────────────────────────────────────────────
+
+int DB::InsertFileAssoc(int projectId, const FileAssocRow& row)
+{
+    std::wstring dbPath = GetAppDataDbPath();
+    std::string dbPathUtf8 = WToUtf8(dbPath);
+    void *db = NULL;
+    int flags = 0x00000002 | 0x00000004;
+    if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return -1;
+
+    const char *sql =
+        "INSERT INTO file_associations "
+        "(project_id, enabled, extension, description, prog_id, "
+        " icon_path, icon_index, open_cmd, edit_cmd, print_cmd, content_type) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?);";
+    void *stmt = NULL;
+    if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return -1; }
+
+    std::string sPid   = std::to_string(projectId);
+    std::string sEna   = std::to_string(row.enabled);
+    std::string sExt   = WToUtf8(row.extension);
+    std::string sDesc  = WToUtf8(row.description);
+    std::string sProgId= WToUtf8(row.prog_id);
+    std::string sIconP = WToUtf8(row.icon_path);
+    std::string sIconI = std::to_string(row.icon_index);
+    std::string sOpen  = WToUtf8(row.open_cmd);
+    std::string sEdit  = WToUtf8(row.edit_cmd);
+    std::string sPrint = WToUtf8(row.print_cmd);
+    std::string sMime  = WToUtf8(row.content_type);
+
+    p_bind_text(stmt,  1, sPid.c_str(),    -1, NULL);
+    p_bind_text(stmt,  2, sEna.c_str(),    -1, NULL);
+    p_bind_text(stmt,  3, sExt.c_str(),    -1, NULL);
+    p_bind_text(stmt,  4, sDesc.c_str(),   -1, NULL);
+    p_bind_text(stmt,  5, sProgId.c_str(), -1, NULL);
+    p_bind_text(stmt,  6, sIconP.c_str(),  -1, NULL);
+    p_bind_text(stmt,  7, sIconI.c_str(),  -1, NULL);
+    p_bind_text(stmt,  8, sOpen.c_str(),   -1, NULL);
+    p_bind_text(stmt,  9, sEdit.c_str(),   -1, NULL);
+    p_bind_text(stmt, 10, sPrint.c_str(),  -1, NULL);
+    p_bind_text(stmt, 11, sMime.c_str(),   -1, NULL);
+    p_step(stmt);
+    if (p_finalize) p_finalize(stmt);
+
+    int newId = -1;
+    void *idStmt = NULL;
+    if (p_prepare(db, "SELECT last_insert_rowid();", -1, &idStmt, NULL) == 0) {
+        if (p_step(idStmt) == 100) newId = (int)p_col_int64(idStmt, 0);
+        if (p_finalize) p_finalize(idStmt);
+    }
+    p_close(db);
+    return newId;
+}
+
+bool DB::DeleteFileAssocsForProject(int projectId)
+{
+    std::wstring dbPath = GetAppDataDbPath();
+    std::string dbPathUtf8 = WToUtf8(dbPath);
+    void *db = NULL;
+    int flags = 0x00000002 | 0x00000004;
+    if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return false;
+    const char *sql = "DELETE FROM file_associations WHERE project_id=?;";
+    void *stmt = NULL;
+    if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return false; }
+    std::string sPid = std::to_string(projectId);
+    p_bind_text(stmt, 1, sPid.c_str(), -1, NULL);
+    p_step(stmt);
+    if (p_finalize) p_finalize(stmt);
+    p_close(db);
+    return true;
+}
+
+std::vector<FileAssocRow> DB::GetFileAssocsForProject(int projectId)
+{
+    std::vector<FileAssocRow> out;
+    std::wstring dbPath = GetAppDataDbPath();
+    std::string dbPathUtf8 = WToUtf8(dbPath);
+    void *db = NULL;
+    int flags = 0x00000002 | 0x00000004;
+    if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return out;
+
+    const char *sql =
+        "SELECT id, enabled, extension, description, prog_id, "
+        "       icon_path, icon_index, open_cmd, edit_cmd, print_cmd, content_type "
+        "FROM file_associations WHERE project_id=? ORDER BY id ASC;";
+    void *stmt = NULL;
+    if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return out; }
+    std::string sPid = std::to_string(projectId);
+    p_bind_text(stmt, 1, sPid.c_str(), -1, NULL);
+
+    auto T = [&](int col) -> std::wstring {
+        const unsigned char *c = p_col_text(stmt, col);
+        return Utf8ToW(c ? (const char*)c : "");
+    };
+
+    while (p_step(stmt) == 100 /*SQLITE_ROW*/) {
+        FileAssocRow r;
+        r.project_id   = projectId;
+        r.id           = (int)p_col_int64(stmt, 0);
+        r.enabled      = (int)p_col_int64(stmt, 1);
+        r.extension    = T(2);
+        r.description  = T(3);
+        r.prog_id      = T(4);
+        r.icon_path    = T(5);
+        r.icon_index   = (int)p_col_int64(stmt, 6);
+        r.open_cmd     = T(7);
+        r.edit_cmd     = T(8);
+        r.print_cmd    = T(9);
+        r.content_type = T(10);
+        out.push_back(r);
     }
     if (p_finalize) p_finalize(stmt);
     p_close(db);

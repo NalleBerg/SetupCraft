@@ -36,6 +36,8 @@ set(CMAKE_DEPENDS_DEPENDENCY_FILES
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/dpi.cpp" "CMakeFiles/SkeletonApp.dir/dpi.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/dpi.cpp.obj.d"
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/dragdrop.cpp" "CMakeFiles/SkeletonApp.dir/dragdrop.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/dragdrop.cpp.obj.d"
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/edit_rtf.cpp" "CMakeFiles/SkeletonApp.dir/edit_rtf.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/edit_rtf.cpp.obj.d"
+  "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/file_assoc.cpp" "CMakeFiles/SkeletonApp.dir/file_assoc.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/file_assoc.cpp.obj.d"
+  "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/file_assoc_dialog.cpp" "CMakeFiles/SkeletonApp.dir/file_assoc_dialog.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/file_assoc_dialog.cpp.obj.d"
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/issgen.cpp" "CMakeFiles/SkeletonApp.dir/issgen.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/issgen.cpp.obj.d"
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/languages.cpp" "CMakeFiles/SkeletonApp.dir/languages.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/languages.cpp.obj.d"
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/main.cpp" "CMakeFiles/SkeletonApp.dir/main.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/main.cpp.obj.d"

@@ -55,6 +55,21 @@ struct FileRow {
     std::wstring dest_dir_override;   // Inno dir constant override, e.g. "{sys}"; empty = use tree node default
 };
 
+struct FileAssocRow {
+    int id = 0;
+    int project_id = 0;
+    int enabled = 1;               // row-level checkbox on the FA page
+    std::wstring extension;        // e.g. ".myext" (with dot)
+    std::wstring description;      // "MyApp Document"
+    std::wstring prog_id;          // e.g. "MyApp.myext"; empty = auto-derive from AppName + extension
+    std::wstring icon_path;        // e.g. "{app}\App.exe" or absolute disk path
+    int icon_index = 0;
+    std::wstring open_cmd;         // e.g. "\"{app}\App.exe\" \"%1\""
+    std::wstring edit_cmd;         // optional
+    std::wstring print_cmd;        // optional
+    std::wstring content_type;     // MIME, e.g. "application/x-myext"
+};
+
 namespace DB {
     bool InitDb();
     bool InsertProject(const std::wstring &name, const std::wstring &directory, const std::wstring &description, const std::wstring &lang, const std::wstring &version, int &outId);
@@ -147,4 +162,8 @@ namespace DB {
     int  InsertScript(int projectId, const ScriptRow& s);
     bool DeleteScriptsForProject(int projectId);
     std::vector<ScriptRow> GetScriptsForProject(int projectId);
+    // File association persistence
+    int  InsertFileAssoc(int projectId, const FileAssocRow& row);
+    bool DeleteFileAssocsForProject(int projectId);
+    std::vector<FileAssocRow> GetFileAssocsForProject(int projectId);
 }

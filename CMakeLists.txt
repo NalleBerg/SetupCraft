@@ -32,6 +32,8 @@ add_executable(SkeletonApp WIN32
     sc_shortcut_dialog.cpp
     deps.cpp
     dep_edit_dialog.cpp
+    file_assoc.cpp
+    file_assoc_dialog.cpp
     scripts.cpp
     script_edit_dialog.cpp
     settings.cpp

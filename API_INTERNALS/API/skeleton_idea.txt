@@ -58,6 +58,24 @@
                               so caller can close the running instance and
                               retry the mutex)
 
+  Form help-icon pattern (reusable in any dialog)
+    Any modal dialog form can append a shell32.dll index-23 (ℹ) button to the
+    right of each field to show a plain-English description on hover.
+    Recipe:
+      1. After creating the edit/combo, compute remainingX = editRight + gap.
+      2. HWND hHelp = CreateCustomButtonWithIcon(
+             hDlg, HELP_ID, L"", ButtonColor::Blue,
+             L"shell32.dll", 23,
+             remainingX, y, S(EDIT_H), S(EDIT_H), hInst);
+      3. SetButtonTooltip(hHelp, localizedTipString);
+         // ButtonSubclassProc shows the tip on WM_MOUSEMOVE and hides on
+         // WM_MOUSELEAVE — no extra subclassing needed.
+      Tip text should cover: what goes in the field, expected format,
+      an example value, and what happens when left blank.
+      Control IDs: assign a contiguous range per dialog (e.g. 3220–3229).
+      MakeRow() pattern: add hasHelp/helpId/helpTip optional params and shrink
+      editW by S(EDIT_H)+gap when hasHelp is true before creating the edit.
+
   Localisation stub
     [ ] languages.h / languages.cpp  — locale loading, key lookup, ExpandEscapes
     [ ] locale\en_GB.txt             — seed file with skeleton keys only
@@ -94,7 +112,21 @@
                               UsePreviousGroup (remember last Start Menu
                               folder on upgrades; default yes),
                               DirExistsWarning (auto/yes/no — suppress
-                              "folder exists" dialog on upgrades)).
+                              "folder exists" dialog on upgrades),
+                              ChangesEnvironment (yes/no — broadcasts
+                              WM_SETTINGCHANGE after install so running
+                              processes see updated PATH immediately),
+                              AddToPath (when enabled, the
+                              "; <<PATH_REGISTRY>>" marker expands to a
+                              [Registry] entry appending {app} to
+                              HKLM\…\Environment\Path using expandsz +
+                              preservestringtype; empty string when
+                              disabled),
+                              ChangesAssociations (yes/no — auto-derived
+                              from File Associations page; true when any
+                              row is enabled; "; <<FILE_ASSOCIATIONS>>"
+                              marker expands to HKCR [Registry] entries
+                              for each enabled FileAssocRow)).
                               [Languages] body replaced
                               with "; <<LANGUAGES>>" marker expanded by the
                               generator — never hardcoded.
