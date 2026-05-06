@@ -108,6 +108,33 @@
                                                 doc seed) and open decisions to resolve at
                                                 publish time.
 
+  issgen.h / issgen.cpp                         .iss script generator — ISS_FindInnoDir()
+                                                locates inno/ relative to the running exe
+                                                (exe-adjacent, then ../inno/ fallback);
+                                                ISS_GenerateIss(templatePath, outPath, proj,
+                                                cfg, langs) reads template.iss via Win32
+                                                CreateFileW (wide paths on MinGW), expands
+                                                every {#Token} placeholder, replaces the
+                                                "; <<LANGUAGES>>" marker with correct Inno
+                                                [Languages] entries (local=false →
+                                                "compiler:X.isl"; local=true → "X.isl"
+                                                relative path; Name: = lowercased ISL base;
+                                                "Default" → "english"), writes UTF-8+BOM
+                                                output.  Token table: AppName, AppVersion,
+                                                Publisher, PublisherURL, SupportURL, AppId
+                                                (braces escaped to {{…}}), DefaultDirBase,
+                                                OutputDir, OutputBase, Compression,
+                                                SolidCompression, PrivilegesRequired,
+                                                Uninstallable, CloseApplications,
+                                                MinVersion, ExeName, SourceDir.
+                                                SBuildConfig struct + SETT_GetBuildConfig()
+                                                in settings.h/.cpp provide the build settings
+                                                snapshot consumed by the generator.
+                                                Called by IDM_BUILD_COMPILE (F7) in
+                                                mainwindow.cpp which then launches
+                                                compile_inno.bat <generated.iss> via
+                                                ShellExecuteW in a visible cmd window.
+
   API_INTERNALS\API\my_scrollbar_vscroll_API.txt  Custom Win32 vertical scrollbar — full public API.
                                                 msb_attach / msb_detach / msb_sync /
                                                 msb_notify_content_changed; MSB_VERTICAL /

@@ -424,6 +424,30 @@ edit_rtf.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/edit_rtf.cpp.s
 .PHONY : edit_rtf.cpp.s
 
+issgen.obj: issgen.cpp.obj
+.PHONY : issgen.obj
+
+# target to build an object file
+issgen.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/issgen.cpp.obj
+.PHONY : issgen.cpp.obj
+
+issgen.i: issgen.cpp.i
+.PHONY : issgen.i
+
+# target to preprocess a source file
+issgen.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/issgen.cpp.i
+.PHONY : issgen.cpp.i
+
+issgen.s: issgen.cpp.s
+.PHONY : issgen.s
+
+# target to generate assembly for a file
+issgen.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/issgen.cpp.s
+.PHONY : issgen.cpp.s
+
 languages.obj: languages.cpp.obj
 .PHONY : languages.obj
 
@@ -806,6 +830,9 @@ help:
 	@echo ... edit_rtf.obj
 	@echo ... edit_rtf.i
 	@echo ... edit_rtf.s
+	@echo ... issgen.obj
+	@echo ... issgen.i
+	@echo ... issgen.s
 	@echo ... languages.obj
 	@echo ... languages.i
 	@echo ... languages.s

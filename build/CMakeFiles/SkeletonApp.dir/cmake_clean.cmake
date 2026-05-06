@@ -24,6 +24,8 @@ file(REMOVE_RECURSE
   "CMakeFiles/SkeletonApp.dir/dragdrop.cpp.obj.d"
   "CMakeFiles/SkeletonApp.dir/edit_rtf.cpp.obj"
   "CMakeFiles/SkeletonApp.dir/edit_rtf.cpp.obj.d"
+  "CMakeFiles/SkeletonApp.dir/issgen.cpp.obj"
+  "CMakeFiles/SkeletonApp.dir/issgen.cpp.obj.d"
   "CMakeFiles/SkeletonApp.dir/languages.cpp.obj"
   "CMakeFiles/SkeletonApp.dir/languages.cpp.obj.d"
   "CMakeFiles/SkeletonApp.dir/main.cpp.obj"

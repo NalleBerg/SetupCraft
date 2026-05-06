@@ -69,6 +69,13 @@
                               compile step can inject any Inno path token
                               ({pf}, {pf64}, {localappdata}, custom, etc.)
                               without editing the template.
+                              All [Setup] fields are {#Token} placeholders
+                              (AppPublisher, AppPublisherURL, AppSupportURL,
+                              AppId, OutputDir, Compression, SolidCompression,
+                              PrivilegesRequired, Uninstallable,
+                              CloseApplications).  [Languages] body replaced
+                              with "; <<LANGUAGES>>" marker expanded by the
+                              generator — never hardcoded.
     [ ] inno\compile_inno.bat
     [ ] inno\<Lang>.isl     — community-contributed language files (e.g.
                               Swedish.isl, LanguageID=$041D).  Standard Inno
@@ -76,6 +83,18 @@
                               are referenced as "compiler:X.isl"; community
                               files ship here and are referenced by relative
                               path so no manual Inno install step is needed.
+    [ ] issgen.h / issgen.cpp
+                            — .iss generator module.  ISS_FindInnoDir() locates
+                              inno/ relative to the running exe.
+                              ISS_GenerateIss(templatePath, outPath, proj, cfg,
+                              langs) expands {#Token} placeholders and the
+                              <<LANGUAGES>> marker, writes UTF-8+BOM output
+                              using Win32 CreateFileW (avoids MinGW wifstream
+                              wstring-path limitation).  Caller then launches
+                              compile_inno.bat <generated.iss> via ShellExecuteW.
+                              AppId braces escaped to {{…}} before substitution.
+                              Name: identifier = lowercased ISL base name;
+                              "Default" maps to "english".
 
   Documentation seed
     [ ] API_list.txt        — pre-populated with all included API entries

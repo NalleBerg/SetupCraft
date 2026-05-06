@@ -28,6 +28,7 @@
 #include "dialogs.h"
 #include "scripts.h"
 #include "settings.h"
+#include "issgen.h"
 #include "my_scrollbar_vscroll.h"
 #include "my_scrollbar_hscroll.h"
 #include <richedit.h>
@@ -12850,9 +12851,53 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             SendMessageW(hwnd, WM_CLOSE, 0, 0);
             return 0;
             
-        case IDM_BUILD_COMPILE:
-            MessageBoxW(hwnd, L"Compile functionality to be implemented", L"Compile", MB_OK | MB_ICONINFORMATION);
+        case IDM_BUILD_COMPILE: {
+            // ── Locate the inno/ directory ────────────────────────────────────
+            std::wstring innoDir = ISS_FindInnoDir();
+            if (innoDir.empty()) {
+                MessageBoxW(hwnd,
+                    L"Could not find the inno\\ directory.\n"
+                    L"Make sure template.iss is present in inno\\ next to SetupCraft.exe.",
+                    L"Compile", MB_OK | MB_ICONERROR);
+                return 0;
+            }
+            std::wstring templatePath = innoDir + L"\\template.iss";
+            std::wstring outIssPath   = innoDir + L"\\" +
+                (s_currentProject.name.empty() ? L"generated" : s_currentProject.name)
+                + L"_generated.iss";
+
+            // ── Generate the .iss file ────────────────────────────────────────
+            SBuildConfig          cfg   = SETT_GetBuildConfig();
+            std::vector<InnoLangEntry> langs = SETT_GetInstallerLanguages();
+            std::wstring genErr = ISS_GenerateIss(templatePath, outIssPath,
+                                                  s_currentProject, cfg, langs);
+            if (!genErr.empty()) {
+                MessageBoxW(hwnd, genErr.c_str(), L"Compile", MB_OK | MB_ICONERROR);
+                return 0;
+            }
+
+            // ── Launch ISCC via compile_inno.bat ──────────────────────────────
+            std::wstring batPath = innoDir + L"\\compile_inno.bat";
+            if (GetFileAttributesW(batPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
+                MessageBoxW(hwnd,
+                    (L"Generated: " + outIssPath + L"\n\ncompile_inno.bat not found — "
+                     L"run ISCC manually on the generated file.").c_str(),
+                    L"Compile", MB_OK | MB_ICONINFORMATION);
+                return 0;
+            }
+            // ShellExecute the bat; it opens in a visible cmd window so the user
+            // can read any ISCC errors.  Pass the generated .iss as first argument.
+            HINSTANCE hi = ShellExecuteW(hwnd, L"open", batPath.c_str(),
+                                         (L"\"" + outIssPath + L"\"").c_str(),
+                                         innoDir.c_str(), SW_SHOWNORMAL);
+            if ((INT_PTR)hi <= 32) {
+                std::wstring errMsg = L"Failed to launch compile_inno.bat (error "
+                    + std::to_wstring((INT_PTR)hi) + L").\n\n"
+                    + L"Generated script: " + outIssPath;
+                MessageBoxW(hwnd, errMsg.c_str(), L"Compile", MB_OK | MB_ICONERROR);
+            }
             return 0;
+        }
             
         case IDM_BUILD_TEST:
             MessageBoxW(hwnd, L"Test functionality to be implemented", L"Test", MB_OK | MB_ICONINFORMATION);

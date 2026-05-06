@@ -2,6 +2,16 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.05.06.08] - 2026-05-06
+
+### build — .iss generator and Build > Compile Installer wired up
+- **issgen — `ISS_GenerateIss()` .iss script generator**: New module `issgen.h` / `issgen.cpp`. `ISS_GenerateIss(templatePath, outPath, proj, cfg, langs)` reads `inno/template.iss` via Win32 (`CreateFileW` — wide paths on MinGW), strips UTF-8 BOM if present, expands every `{#Token}` placeholder with per-project values, replaces the `; <<LANGUAGES>>` marker with correct Inno `[Languages]` entries derived from `langs`, and writes the result as UTF-8 with BOM. `ISS_FindInnoDir()` locates the `inno/` directory relative to the running exe (exe-adjacent first, then `../inno/` for the development build layout).
+- **issgen — Language section generation**: Each `InnoLangEntry` emits one `[Languages]` line. `local=false` → `Name: "english"; MessagesFile: "compiler:Default.isl"`. `local=true` (community file in `inno/`) → `Name: "swedish"; MessagesFile: "Swedish.isl"` (relative path resolved from the `.iss` location). `Name:` identifier = ISL base name lowercased; `Default` → `english`.
+- **issgen — Token table**: Tokens substituted: `AppName`, `AppVersion`, `Publisher`, `PublisherURL`, `SupportURL`, `AppId` (braces escaped to `{{…}}` for Inno), `DefaultDirBase` (from `SETT_GetInstallBasePath()`), `OutputDir`, `OutputBase`, `Compression`, `SolidCompression`, `PrivilegesRequired`, `Uninstallable`, `CloseApplications`, `MinVersion`, `ExeName`, `SourceDir`. `OutputDir` falls back to the project directory when no output folder is configured.
+- **settings — `SBuildConfig` struct and `SETT_GetBuildConfig()`**: New struct in `settings.h` with a snapshot of all build/install settings (`publisherUrl`, `supportUrl`, `outputFolder`, `outputFilename`, `compressionType`, `compressionLevel`, `solidCompression`, `uacLevel`, `minOsVersion`, `allowUninstall`, `closeApps`). `SETT_GetBuildConfig()` returns a populated snapshot from current statics.
+- **inno/template.iss — fully parameterized `[Setup]` section**: All hardcoded `[Setup]` values replaced with `{#Token}` placeholders: `AppPublisher`, `AppPublisherURL`, `AppSupportURL`, `AppId`, `OutputDir`, `Compression`, `SolidCompression`, `PrivilegesRequired`, `Uninstallable`, `CloseApplications`. Hardcoded `[Languages]` entry replaced with `; <<LANGUAGES>>` marker. Both copies updated (`inno/template.iss` and `SetupCraft/inno/template.iss`).
+- **mainwindow — `IDM_BUILD_COMPILE` / Build > Compile Installer (F7) wired up**: Was a stub `MessageBoxW`. Now calls `ISS_FindInnoDir()`, generates `<AppName>_generated.iss` in `inno/` via `ISS_GenerateIss()`, then launches `compile_inno.bat <generated.iss>` in a visible cmd window via `ShellExecuteW`. All error conditions surface via `MessageBoxW`.
+
 ## [2026.05.05.15] - 2026-05-05
 
 ### settings — Installer Languages section

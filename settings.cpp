@@ -813,3 +813,21 @@ std::vector<InnoLangEntry> SETT_GetInstallerLanguages()
         result.push_back({ L"Default", false });  // fallback — always at least English
     return result;
 }
+
+// ── SETT_GetBuildConfig ────────────────────────────────────────────────────────
+SBuildConfig SETT_GetBuildConfig()
+{
+    SBuildConfig cfg;
+    cfg.publisherUrl      = s_publisherUrl;
+    cfg.supportUrl        = s_supportUrl;
+    cfg.outputFolder      = s_outputFolder;
+    cfg.outputFilename    = s_outputFilename;
+    cfg.compressionType   = s_compressionType;
+    cfg.compressionLevel  = s_compressionLevel;
+    cfg.solidCompression  = s_solidCompression;
+    cfg.uacLevel          = s_uacLevel;
+    cfg.minOsVersion      = s_minOsVersion;
+    cfg.allowUninstall    = s_allowUninstall;
+    cfg.closeApps         = s_closeApps;
+    return cfg;
+}

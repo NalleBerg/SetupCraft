@@ -1,14 +1,22 @@
 [Setup]
 AppName={#AppName}
 AppVersion={#AppVersion}
+AppPublisher={#Publisher}
+AppPublisherURL={#PublisherURL}
+AppSupportURL={#SupportURL}
+AppId={#AppId}
 DefaultDirName={#DefaultDirBase}\{#AppName}
 DefaultGroupName={#AppName}
+OutputDir={#OutputDir}
 OutputBaseFilename={#OutputBase}
-Compression=lzma2
-SolidCompression=yes
+Compression={#Compression}
+SolidCompression={#SolidCompression}
+PrivilegesRequired={#PrivilegesRequired}
+Uninstallable={#Uninstallable}
+CloseApplications={#CloseApplications}
 
 [Languages]
-Name: "english"; MessagesFile: "compiler:Default.isl"
+; <<LANGUAGES>>
 
 [Tasks]
 Name: desktopicon; Description: "Create a &desktop icon"; GroupDescription: "Additional icons:"; Flags: unchecked

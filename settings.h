@@ -126,3 +126,21 @@ std::wstring SETT_GetInstallBasePath();
 // English (isl=L"Default", local=false) is always the first entry.
 // local=true entries have their .isl file in inno\ next to template.iss.
 std::vector<InnoLangEntry> SETT_GetInstallerLanguages();
+
+// Snapshot of all build-output and install settings, used by the .iss generator.
+struct SBuildConfig {
+    std::wstring publisherUrl;
+    std::wstring supportUrl;
+    std::wstring outputFolder;       // where ISCC writes the installer .exe
+    std::wstring outputFilename;     // OutputBaseFilename (no extension)
+    int  compressionType  = 3;      // 0=none 1=zip 2=lzma 3=lzma2
+    int  compressionLevel = 7;      // 0–9
+    bool solidCompression = true;
+    int  uacLevel         = 0;      // 0=admin 1=lowest(asInvoker) 2=admin(highestAvailable)
+    int  minOsVersion     = 0;      // 0=none 1=Win7 2=Win8 3=Win8.1 4=Win10 5=Win11
+    bool allowUninstall   = true;
+    bool closeApps        = false;
+};
+
+// Returns a snapshot of the current build settings for use by the .iss generator.
+SBuildConfig SETT_GetBuildConfig();
