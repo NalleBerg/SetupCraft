@@ -360,6 +360,7 @@ std::wstring ISS_GenerateIss(
         { L"AppCopyright",             copyright                                                  },
         { L"SignToolLine",             BuildSignToolLine(cfg)                                     },
         { L"SetupMutex",               setupMutex                                                 },
+        { L"UninstallDisplayName",     cfg.uninstallDisplayName.empty() ? proj.name : cfg.uninstallDisplayName },
     };
 
     // ── Substitute {#Token} placeholders ─────────────────────────────────────
@@ -371,13 +372,14 @@ std::wstring ISS_GenerateIss(
     ReplaceAll(tmpl, L"; <<LANGUAGES>>", langBlock);
 
     // ── Replace the "; <<PATH_REGISTRY>>" marker ──────────────────────────────
-    // When addToPath is enabled, append a [Registry] entry that appends {app}
+    // For each folder in pathFolders, append a [Registry] entry that appends it
     // to the system PATH (HKLM). Requires admin privileges (matches PrivilegesRequired=admin).
     std::wstring pathRegBlock;
-    if (cfg.addToPath) {
-        pathRegBlock =
+    for (const auto& folder : cfg.pathFolders) {
+        if (folder.empty()) continue;
+        pathRegBlock +=
             L"Root: HKLM; Subkey: \"SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment\"; "
-            L"ValueType: expandsz; ValueName: \"Path\"; ValueData: \"{olddata};{app}\"; "
+            L"ValueType: expandsz; ValueName: \"Path\"; ValueData: \"{olddata};" + folder + L"\"; "
             L"Flags: preservestringtype\r\n";
     }
     ReplaceAll(tmpl, L"; <<PATH_REGISTRY>>", pathRegBlock);

@@ -89,6 +89,9 @@ struct InnoLangEntry { std::wstring isl; bool local; };
 #define IDC_SETT_USE_PREV_GROUP          8073   // Custom checkbox: UsePreviousGroup
 #define IDC_SETT_DIR_EXISTS_WARNING      8074   // Combo: DirExistsWarning (auto/yes/no)
 
+// ── Uninstall display name ─────────────────────────────────────────────────────
+#define IDC_SETT_UNINSTALL_DISPLAY_NAME 8080  // Edit: override name in Add/Remove Programs
+
 // ── Setup Log section ────────────────────────────────────────────────────────
 #define IDC_SETT_SETUP_LOG_ENABLE      8075   // Custom checkbox: enable setup log
 #define IDC_SETT_SETUP_LOG_FOLDER      8076   // Edit: log destination folder
@@ -104,10 +107,24 @@ struct InnoLangEntry { std::wstring isl; bool local; };
 #define IDC_SETT_ALLOW_UNINSTALL 8030   // Custom checkbox: allow uninstall
 #define IDC_SETT_CLOSE_APPS      8031   // Custom checkbox: close apps before install
 #define IDC_SETT_CHANGES_ENV     8032   // Custom checkbox: ChangesEnvironment
-#define IDC_SETT_ADD_TO_PATH     8033   // Custom checkbox: add app dir to system PATH
+
+// ── PATH folder picker (System Integration section) ───────────────────────────
+#define IDC_SETT_PATH_ADD_BTN    8081   // Button: open folder picker and append to PATH list
+#define IDC_SETT_PATH_REMOVE_BTN 8082   // Button: remove last folder from PATH list
+#define IDC_SETT_PATH_DISPLAY    8083   // Static: shows short names of PATH folders (tooltip=full paths)
 
 // ── Page title (no interaction; just kept in controlIds[]) ────────────────────
 #define IDC_SETT_PAGE_TITLE      8099
+
+// ── Section header labels (bold dark-blue; IDs kept in controlIds[]) ──────────
+#define IDC_SETT_SEC_APPLICATION    8200   // "Application" section header
+#define IDC_SETT_SEC_BUILD          8201   // "Build Output" section header
+#define IDC_SETT_SEC_INSTALL        8202   // "Installation" section header
+#define IDC_SETT_SEC_LANGUAGES      8203   // "Installer Languages" section header
+#define IDC_SETT_SEC_SYS_INT        8204   // "System Integration" section header
+#define IDC_SETT_SEC_UNINSTALL      8205   // "Uninstall" section header
+#define IDC_SETT_SEC_SETUP_LOG      8206   // "Setup Log" section header
+#define IDC_SETT_SEC_SIGNING        8207   // "Code Signing" section header
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
@@ -130,6 +147,9 @@ int  SETT_BuildPage(HWND hwnd, HINSTANCE hInst,
 
 // Null HWND statics.  Call from SwitchPage teardown.
 void SETT_TearDown(HWND hwnd);
+
+// Returns the bold font used for section headers (valid between BuildPage and TearDown).
+HFONT SETT_GetSectionFont();
 
 // Route WM_COMMAND for new-settings-only controls.  Returns true when handled.
 // Does NOT consume IDC_SETT_APP_NAME / IDC_SETT_APP_VERSION / IDC_SETT_PUBLISHER
@@ -186,9 +206,10 @@ struct SBuildConfig {
     int  minOsVersion     = 0;      // 0=none 1=Win7 2=Win8 3=Win8.1 4=Win10 5=Win11
     bool allowUninstall   = true;
     bool closeApps        = false;
-    bool addToPath          = false;  // add {app} to system PATH via registry
+    std::vector<std::wstring> pathFolders;  // folders to add to system PATH via registry
     bool changesEnvironment = false;  // ChangesEnvironment — broadcast WM_SETTINGCHANGE after install
     bool changesAssociations = false; // ChangesAssociations — auto-derived from FA page rows
+    std::wstring uninstallDisplayName;  // UninstallDisplayName override (empty = use AppName)
     // Setup log
     bool setupLogging       = false;  // SetupLogging=yes/no
     std::wstring setupLogFolder;      // destination folder (empty = %TEMP% only)

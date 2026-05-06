@@ -387,6 +387,17 @@ CMakeFiles/SkeletonApp.dir/settings.cpp.obj: \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\db.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\deps.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\mainwindow.h \
+ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\vfs_picker.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/functional \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/std_function.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/typeinfo \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/unordered_map \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/unordered_map.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/hashtable.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/hashtable_policy.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/enable_special_members.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/array \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/compare \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\dpi.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\button.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\checkbox.h \

@@ -92,6 +92,19 @@
                                                 VfsPickerResult output, MainWindow::TreeSnapshot_*
                                                 accessor wiring, locale keys, and usage examples for
                                                 both exe-picker and folder-picker modes.
+                                                Virtual folder support: when allowFolderPick=true and
+                                                the selected node has empty fullPath (virtual folder —
+                                                no real disk source), the picker falls back to
+                                                TreeNodeSnapshot.virtualPath and converts the DB
+                                                section root prefix to an Inno constant:
+                                                "Program Files\..." → "{pf}\...",
+                                                "ProgramData\..." → "{commonappdata}\...",
+                                                "AppData (Roaming)\..." → "{userappdata}\...",
+                                                "AskAtInstall\..." → "{app}\...".
+                                                virtualPath is populated by SaveTreeSnapshot
+                                                (parentVirtualPath parameter, built recursively
+                                                from section root name) and EnsureTreeSnapshotsFromDb
+                                                (destination_path key).
 
   API_INTERNALS\API\checkbox_API.txt            Custom theme-aware checkbox — CreateCustomCheckbox,
                                                 DrawCustomCheckbox, OnCheckboxSettingChange,
@@ -133,7 +146,15 @@
                                                 WizardStyle (modern/classic),
                                                 Uninstallable,
                                                 CloseApplications, ChangesEnvironment,
-                                                AddToPath (system PATH registry),
+                                                PathFolders (multi-entry PATH registry;
+                                                "; <<PATH_REGISTRY>>" marker expands to
+                                                one [Registry] row per entry in
+                                                cfg.pathFolders, each appending the
+                                                configured Inno path to
+                                                HKLM\…\Environment\Path using expandsz +
+                                                preservestringtype; empty string when
+                                                pathFolders is empty; replaces old
+                                                single AddToPath bool),
                                                 ChangesAssociations (auto-derived
                                                 from File Associations page),
                                                 DisableDirPage,

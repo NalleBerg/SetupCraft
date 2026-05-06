@@ -2,6 +2,17 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.05.06.14] - 2026-05-06
+
+### settings / issgen — PATH folders multi-entry VFS picker (replaces AddToPath checkbox)
+- **settings — PATH folders list (`IDC_SETT_PATH_ADD_BTN = 8081`, `IDC_SETT_PATH_REMOVE_BTN = 8082`, `IDC_SETT_PATH_DISPLAY = 8083`)**: The single *Add install directory to system PATH* checkbox has been replaced with a multi-entry PATH folder list in the System Integration section. A blue Add button (shell32.dll index 4) opens the VFS picker in folder-only mode so the developer picks any folder from the virtual file system rather than typing a path manually. A red Remove button (shell32.dll index 131) removes the last entry from the list. A sunken display label shows the leaf names of all selected folders separated by ` ; ` for a compact summary; hovering the label shows a Win32 `TOOLTIPS_CLASS` tooltip with the full Inno constant paths (e.g. `{pf}\WinProgramSuite\WinProgramManager`). *Broadcast environment change* is auto-disabled when the list becomes empty. In-memory vector `s_pathFolders` replaces the `s_addToPath` bool. Persisted per-project via DB key `path_folders` (semicolon-joined Inno paths); on load, an existing `add_to_path=1` setting seeds the list with `{app}` automatically. `SBuildConfig.pathFolders` (vector&lt;wstring&gt;) replaces the old `addToPath` (bool) field.
+- **issgen — multi-entry PATH registry loop**: The single conditional PATH entry is replaced by a loop over `cfg.pathFolders`; each non-empty folder emits its own `[Registry]` row appending the path to `HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment` → `Path` using `expandsz` + `preservestringtype`. The `; <<PATH_REGISTRY>>` marker is still used in `template.iss`.
+- **locale — 3 keys in `en_GB.txt`** (both copies): `sett_path_folders_lbl` (*PATH folders:*), `sett_path_folder_picker_title` (*Select folder to add to PATH*), `sett_path_none` (*(none)* placeholder shown when no folders are selected).
+
+### vfs_picker / mainwindow — virtual folder selection support
+- **mainwindow — `TreeNodeSnapshot.virtualPath`**: New `std::wstring virtualPath` field added to `TreeNodeSnapshot`. `SaveTreeSnapshot()` now accepts a `parentVirtualPath` parameter and builds the full VFS path recursively (e.g. `"Program Files\\WinProgramSuite\\WinProgramManager"`). `EnsureTreeSnapshotsFromDb()` sets `snap.virtualPath = row.destination_path` so snapshots loaded from DB carry the virtual path even when `fullPath` is empty (virtual folders have no real disk source). All four `SaveTreeSnapshot` call sites updated to pass section root names (`"Program Files"`, `"ProgramData"`, `"AppData (Roaming)"`, `"AskAtInstall"`).
+- **vfs_picker — fallback to `virtualPath` when `fullPath` is empty**: Previously the folder-pick OK handler required a non-empty `fullPath` and silently rejected virtual folders (those created with *New Folder* in the VFS tree rather than dragged from disk), producing the *"Please select a folder"* error. The handler now falls back to `snap->virtualPath` when `fullPath` is empty, converting the DB section root prefix to the corresponding Inno installer constant: `"Program Files\\…"` → `{pf}\…`, `"ProgramData\\…"` → `{commonappdata}\…`, `"AppData (Roaming)\\…"` → `{userappdata}\…`, `"AskAtInstall\\…"` → `{app}\…`. The section roots themselves (`"Program Files"`, `"ProgramData"`, etc.) map to their bare constant (`{pf}`, `{commonappdata}`, etc.). Result is a valid Inno constant path that can be used directly in a `[Registry]` PATH entry.
+
 ## [2026.05.06.13] - 2026-05-06
 
 ### file_assoc — File Associations page (page 10) + per-field help tooltips
@@ -19,6 +30,11 @@ All notable changes to SetupCraft will be documented in this file.
 
 ### mainwindow — WM_DRAWITEM fix for code-signing and setup-log browse buttons
 - **mainwindow — `WM_DRAWITEM` condition expanded**: `IDC_SETT_SIGNTOOL_BTN` (8062), `IDC_SETT_SIGN_PFX_BTN` (8065), and `IDC_SETT_SETUP_LOG_FOLDER_BTN` (8077) were absent from the `WM_DRAWITEM` dispatch condition, causing them to render as plain flat grey Win32 boxes instead of the styled blue buttons with yellow folder icon (`shell32.dll` index 4). All three IDs added alongside `IDC_SETT_CHANGE_ICON` and `IDC_SETT_OUTPUT_FOLDER_BTN`.
+
+### settings / issgen — UninstallDisplayName
+- **settings — `UninstallDisplayName` edit (`IDC_SETT_UNINSTALL_DISPLAY_NAME = 8080`)**: New *Display name in Add/Remove Programs:* text edit in the Uninstall section, below the Broadcast environment change checkbox. When left blank the generated installer inherits Inno's default (the AppName value), so existing projects are unaffected. When filled in, the text overrides the entry shown in Windows Settings → Apps and legacy Control Panel → Programs and Features. Useful when publishers prefer a versioned or architecture-tagged string such as *MyApp 2.0 (64-bit)*. Persisted per-project via DB key `uninstall_display_name`. `SBuildConfig` gains `uninstallDisplayName`.
+- **issgen — `UninstallDisplayName` token**: Added to the token table. When the field is empty the token evaluates to the AppName (Inno's own default), so the directive is always present in the generated `.iss` but is a no-op when not explicitly set. Emitted as `UninstallDisplayName={#UninstallDisplayName}` in `template.iss`.
+- **locale — 1 new key in `en_GB.txt`** (both copies): `sett_uninstall_display_name_lbl`.
 
 ## [2026.05.06.11] - 2026-05-06
 

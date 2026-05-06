@@ -133,6 +133,22 @@ d) Untick the checkbox, recompile — directory page must reappear.
 e) Confirm generated .iss contains: DisableDirPage=no
 
 ────────────────────────────────────────────────────────────────────────────────
+10. UNINSTALL DISPLAY NAME
+────────────────────────────────────────────────────────────────────────────────
+Requires: Inno Setup installed
+
+a) Settings → Uninstall → "Uninstall display name:" — enter e.g.
+   "MyApp 2.0 (64-bit)".
+b) Compile and inspect the generated .iss — confirm:
+       UninstallDisplayName=MyApp 2.0 (64-bit)
+   appears in the [Setup] section (after Uninstallable=yes).
+c) Run the installer, then check Windows Settings → Apps (or Control Panel →
+   Programs and Features) — the entry must show "MyApp 2.0 (64-bit)".
+d) Leave the field blank, recompile — UninstallDisplayName= must equal the
+   AppName value (Inno's default; no regression for existing projects).
+e) Verify the entry in Add/Remove Programs reverts to plain AppName.
+
+────────────────────────────────────────────────────────────────────────────────
 NOTES
 ────────────────────────────────────────────────────────────────────────────────
 - Self-signed certs will pass signtool (Status=Valid) but SmartScreen will

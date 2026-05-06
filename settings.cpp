@@ -18,12 +18,13 @@
 #include "settings.h"
 #include "file_assoc.h"   // FA_HasAnyEnabled()
 #include "mainwindow.h"   // MainWindow::MarkAsModified()
+#include "vfs_picker.h"   // ShowVfsPicker, VfsPickerParams
 #include "db.h"
 #include "dpi.h"          // S()
 #include "button.h"       // CreateCustomButtonWithIcon(), MeasureButtonWidth()
 #include "checkbox.h"     // CreateCustomCheckbox()
 #include <shellapi.h>
-#include <shlobj.h>       // SHBrowseForFolderW, SHGetPathFromIDListW
+#include <shlobj.h>       // SHGetPathFromIDListW
 #include <vector>
 #include <string>
 #include <map>
@@ -52,6 +53,7 @@ static std::wstring s_signTimestampUrl  = L"http://timestamp.digicert.com";
 static int          s_signTimestampAlgo = 1;    // 0=sha1 1=sha256
 static std::wstring s_signDescription;
 // HWNDs of sign-section controls that need to be enabled/disabled by the checkbox
+static HFONT s_hSectionFont = NULL;   // bold font for section header labels
 static HWND         s_hSignControls[20] = {};   // dependent controls (enabled/disabled by checkbox)
 
 // ── Installation wizard-page toggles ───────────────────────────────────────────
@@ -62,8 +64,13 @@ static bool         s_usePreviousGroup        = true;
 static int          s_dirExistsWarning        = 0;   // 0=auto 1=yes 2=no
 static bool         s_allowUninstall          = true;
 static bool         s_closeApps        = false;
-static bool         s_addToPath         = false;
+static std::vector<std::wstring> s_pathFolders;          // full paths added by user for PATH
+static HWND         s_hPathDisplay     = NULL;           // static label showing short names
+static HWND         s_hPathTooltip     = NULL;           // Win32 tooltip for full paths
+static std::wstring s_pathTooltipText;                   // tooltip text buffer (kept alive)
+static HWND         s_hSettingsPage    = NULL;           // settings page HWND (set in BuildPage)
 static bool         s_changesEnvironment = false;
+static std::wstring s_uninstallDisplayName;   // empty = use AppName (Inno default)
 static int          s_installBase        = 0;    // 0={pf} 1={pf64} 2={pf32} 3={localappdata} 4={commonappdata} 5={userdocs} 6=Custom
 static std::wstring s_installBaseCustom;          // used when s_installBase == 6
 static HWND         s_hInstallBaseCustomEdit = NULL;
@@ -141,12 +148,12 @@ static const int kSecGap  = 14;   // extra gap before section header
 
 // Section header: bold label + etched divider, returns Y of first control row.
 static int SectionHeader(HWND hwnd, HINSTANCE hInst, HFONT hFont,
-                          int y, int clientWidth, const std::wstring& text)
+                          int y, int clientWidth, const std::wstring& text, int labelId)
 {
     HWND hLbl = CreateWindowExW(0, L"STATIC", text.c_str(),
         WS_CHILD | WS_VISIBLE | SS_LEFT,
         S(kPadH), y, clientWidth - S(kPadH) * 2, S(20),
-        hwnd, NULL, hInst, NULL);
+        hwnd, (HMENU)(UINT_PTR)labelId, hInst, NULL);
     if (hFont) SendMessageW(hLbl, WM_SETFONT, (WPARAM)hFont, TRUE);
     y += S(20) + S(3);
     CreateWindowExW(0, L"STATIC", L"",
@@ -269,8 +276,9 @@ void SETT_Reset()
     memset(s_hSignControls, 0, sizeof(s_hSignControls));
     s_allowUninstall   = true;
     s_closeApps        = false;
-    s_addToPath         = false;
+    s_pathFolders.clear();
     s_changesEnvironment = false;
+    s_uninstallDisplayName = L"";
     s_installBase        = 0;
     s_installBaseCustom  = L"";
     s_setupLogging       = false;
@@ -295,6 +303,15 @@ void SETT_TearDown(HWND /*hwnd*/)
     s_hInst                  = NULL;
     s_pLocale                = NULL;
     s_hInstallBaseCustomEdit = NULL;
+    s_hPathDisplay           = NULL;
+    s_hSettingsPage          = NULL;
+    if (s_hPathTooltip)  { DestroyWindow(s_hPathTooltip);  s_hPathTooltip  = NULL; }
+    if (s_hSectionFont)  { DeleteObject(s_hSectionFont);   s_hSectionFont  = NULL; }
+}
+
+HFONT SETT_GetSectionFont()
+{
+    return s_hSectionFont;
 }
 
 // helper: enable/disable all code-signing dependent controls
@@ -309,6 +326,50 @@ static void ApplyLogEnable(BOOL enable)
 {
     for (int i = 0; i < 8; i++)
         if (s_hLogControls[i]) EnableWindow(s_hLogControls[i], enable);
+}
+
+// ── RefreshPathDisplay ────────────────────────────────────────────────────────
+// Rebuilds the display label text (short leaf names) and Win32 tooltip (full paths).
+// Also syncs the Remove-last button enabled state and the ChangesEnvironment checkbox.
+static void RefreshPathDisplay(HWND hwndPage)
+{
+    std::wstring display;
+    std::wstring tip;
+    for (const auto& p : s_pathFolders) {
+        if (!display.empty()) { display += L" ; "; tip += L"\r\n"; }
+        size_t pos = p.find_last_of(L"\\/");
+        std::wstring leaf = (pos != std::wstring::npos) ? p.substr(pos + 1) : p;
+        if (leaf.empty()) leaf = p;
+        display += leaf;
+        tip     += p;
+    }
+    s_pathTooltipText = tip;
+    if (s_hPathDisplay)
+        SetWindowTextW(s_hPathDisplay,
+            display.empty() ? loc(L"sett_path_none", L"(none)").c_str()
+                            : display.c_str());
+
+    if (s_hPathTooltip && s_hPathDisplay && hwndPage) {
+        TOOLINFOW ti = {};
+        ti.cbSize   = sizeof(TOOLINFOW);
+        ti.uFlags   = TTF_IDISHWND;
+        ti.hwnd     = hwndPage;
+        ti.uId      = (UINT_PTR)s_hPathDisplay;
+        ti.lpszText = s_pathTooltipText.empty()
+                          ? const_cast<wchar_t*>(L"")
+                          : const_cast<wchar_t*>(s_pathTooltipText.c_str());
+        SendMessageW(s_hPathTooltip, TTM_UPDATETIPTEXTW, 0, (LPARAM)&ti);
+    }
+    if (hwndPage) {
+        HWND hRem = GetDlgItem(hwndPage, IDC_SETT_PATH_REMOVE_BTN);
+        if (hRem) EnableWindow(hRem, s_pathFolders.empty() ? FALSE : TRUE);
+        bool hasPath = !s_pathFolders.empty();
+        if (!hasPath) {
+            s_changesEnvironment = false;
+            SendDlgItemMessageW(hwndPage, IDC_SETT_CHANGES_ENV, BM_SETCHECK, BST_UNCHECKED, 0);
+        }
+        EnableWindow(GetDlgItem(hwndPage, IDC_SETT_CHANGES_ENV), hasPath ? TRUE : FALSE);
+    }
 }
 
 // ── SETT_GetScrollOffset / SETT_SetScrollOffset ───────────────────────────────
@@ -329,6 +390,16 @@ int SETT_BuildPage(HWND hwnd, HINSTANCE hInst,
     s_hInst   = hInst;
     s_hGuiFont = hGuiFont;
     s_pLocale  = &locale;
+    s_hSettingsPage = hwnd;
+
+    // Create bold font for section headers
+    if (s_hSectionFont) { DeleteObject(s_hSectionFont); s_hSectionFont = NULL; }
+    if (hGuiFont) {
+        LOGFONTW lf = {};
+        GetObjectW(hGuiFont, sizeof(lf), &lf);
+        lf.lfWeight = FW_BOLD;
+        s_hSectionFont = CreateFontIndirectW(&lf);
+    }
 
     int y = pageY + S(12);
 
@@ -346,8 +417,8 @@ int SETT_BuildPage(HWND hwnd, HINSTANCE hInst,
     // ════════════════════════════════════════════════════════════════════════
     // Section 1: Application
     // ════════════════════════════════════════════════════════════════════════
-    y = SectionHeader(hwnd, hInst, hGuiFont, y, clientWidth,
-                      loc(L"sett_sec_application", L"Application"));
+    y = SectionHeader(hwnd, hInst, s_hSectionFont, y, clientWidth,
+                      loc(L"sett_sec_application", L"Application"), IDC_SETT_SEC_APPLICATION);
 
     // App name (shared with Files page IDC_PROJECT_NAME)
     y = LabelEdit(hwnd, hInst, hGuiFont, y, clientWidth,
@@ -446,8 +517,8 @@ int SETT_BuildPage(HWND hwnd, HINSTANCE hInst,
     // Section 2: Build Output
     // ════════════════════════════════════════════════════════════════════════
     y += S(kSecGap);
-    y = SectionHeader(hwnd, hInst, hGuiFont, y, clientWidth,
-                      loc(L"sett_sec_build", L"Build Output"));
+    y = SectionHeader(hwnd, hInst, s_hSectionFont, y, clientWidth,
+                      loc(L"sett_sec_build", L"Build Output"), IDC_SETT_SEC_BUILD);
 
     // Output folder (with Browse button)
     {
@@ -518,8 +589,8 @@ int SETT_BuildPage(HWND hwnd, HINSTANCE hInst,
     // Section 3: Installation
     // ════════════════════════════════════════════════════════════════════════
     y += S(kSecGap);
-    y = SectionHeader(hwnd, hInst, hGuiFont, y, clientWidth,
-                      loc(L"sett_sec_install", L"Installation"));
+    y = SectionHeader(hwnd, hInst, s_hSectionFont, y, clientWidth,
+                      loc(L"sett_sec_install", L"Installation"), IDC_SETT_SEC_INSTALL);
 
     // UAC privilege level — three radios on one line
     {
@@ -674,8 +745,8 @@ int SETT_BuildPage(HWND hwnd, HINSTANCE hInst,
     // Section 4: Installer Languages
     // ╚══════════════════════════════════════════════════════════════════════
     y += S(kSecGap);
-    y = SectionHeader(hwnd, hInst, hGuiFont, y, clientWidth,
-                      loc(L"sett_sec_languages", L"Installer Languages"));
+    y = SectionHeader(hwnd, hInst, s_hSectionFont, y, clientWidth,
+                      loc(L"sett_sec_languages", L"Installer Languages"), IDC_SETT_SEC_LANGUAGES);
 
     // Hint text
     {
@@ -715,17 +786,11 @@ int SETT_BuildPage(HWND hwnd, HINSTANCE hInst,
     }
 
     // ╔══════════════════════════════════════════════════════════════════════
-    // Section 5: Uninstall
+    // Section 5: System Integration
     // ════════════════════════════════════════════════════════════════════════
     y += S(kSecGap);
-    y = SectionHeader(hwnd, hInst, hGuiFont, y, clientWidth,
-                      loc(L"sett_sec_uninstall", L"Uninstall"));
-
-    // Allow uninstall toggle
-    y = FieldCheckbox(hwnd, hInst, hGuiFont, y, clientWidth,
-                      loc(L"sett_allow_uninstall_lbl",
-                          L"Allow users to uninstall this application"),
-                      IDC_SETT_ALLOW_UNINSTALL, s_allowUninstall);
+    y = SectionHeader(hwnd, hInst, s_hSectionFont, y, clientWidth,
+                      loc(L"sett_sec_system_integration", L"System Integration"), IDC_SETT_SEC_SYS_INT);
 
     // Close applications before install
     y = FieldCheckbox(hwnd, hInst, hGuiFont, y, clientWidth,
@@ -733,28 +798,96 @@ int SETT_BuildPage(HWND hwnd, HINSTANCE hInst,
                           L"Close running applications before installing"),
                       IDC_SETT_CLOSE_APPS, s_closeApps);
 
-    // Add app directory to system PATH
-    y = FieldCheckbox(hwnd, hInst, hGuiFont, y, clientWidth,
-                      loc(L"sett_add_to_path_lbl",
-                          L"Add install directory to system PATH"),
-                      IDC_SETT_ADD_TO_PATH, s_addToPath);
+    // PATH folders: label + Add button + Remove-last button + display label
+    {
+        const int fldX   = S(kPadH) + S(kLblW) + S(kLblGap);
+        const int btnW   = S(28);
+        const int btnGap = S(4);
+
+        HWND hL = CreateWindowExW(0, L"STATIC",
+            loc(L"sett_path_folders_lbl", L"PATH folders:").c_str(),
+            WS_CHILD | WS_VISIBLE | SS_RIGHT | SS_CENTERIMAGE,
+            S(kPadH), y, S(kLblW), S(kRowH), hwnd, NULL, hInst, NULL);
+        if (hGuiFont) SendMessageW(hL, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+
+        // Add folder button (blue, folder icon)
+        CreateCustomButtonWithIcon(hwnd, IDC_SETT_PATH_ADD_BTN, L"",
+            ButtonColor::Blue, L"shell32.dll", 4,
+            fldX, y, btnW, S(kRowH), hInst);
+
+        // Remove last button (red X icon)
+        HWND hRem = CreateCustomButtonWithIcon(hwnd, IDC_SETT_PATH_REMOVE_BTN, L"",
+            ButtonColor::Red, L"shell32.dll", 131,
+            fldX + btnW + btnGap, y, btnW, S(kRowH), hInst);
+        EnableWindow(hRem, s_pathFolders.empty() ? FALSE : TRUE);
+
+        y += S(kRowStep);
+
+        // Display label — shows leaf names separated by " ; "
+        s_hPathDisplay = CreateWindowExW(WS_EX_CLIENTEDGE, L"STATIC",
+            loc(L"sett_path_none", L"(none)").c_str(),
+            WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE | SS_NOPREFIX,
+            fldX, y, clientWidth - fldX - S(kPadH), S(kRowH),
+            hwnd, (HMENU)(UINT_PTR)IDC_SETT_PATH_DISPLAY, hInst, NULL);
+        if (hGuiFont) SendMessageW(s_hPathDisplay, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+
+        // Win32 tooltip — shows full paths on mouseover of display label
+        s_hPathTooltip = CreateWindowExW(WS_EX_TOPMOST, TOOLTIPS_CLASS, NULL,
+            WS_POPUP | TTS_NOPREFIX | TTS_ALWAYSTIP,
+            CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
+            hwnd, NULL, hInst, NULL);
+        if (s_hPathTooltip) {
+            TOOLINFOW ti = {};
+            ti.cbSize   = sizeof(TOOLINFOW);
+            ti.uFlags   = TTF_SUBCLASS | TTF_IDISHWND;
+            ti.hwnd     = hwnd;
+            ti.uId      = (UINT_PTR)s_hPathDisplay;
+            ti.lpszText = const_cast<wchar_t*>(L"");
+            SendMessageW(s_hPathTooltip, TTM_ADDTOOLW, 0, (LPARAM)&ti);
+        }
+
+        // Populate label and tooltip from current state
+        RefreshPathDisplay(hwnd);
+        y += S(kRowStep);
+    }
 
     // Broadcast WM_SETTINGCHANGE after install (needed when adding to PATH)
     y = FieldCheckbox(hwnd, hInst, hGuiFont, y, clientWidth,
                       loc(L"sett_changes_env_lbl",
                           L"Broadcast environment change (required when modifying PATH)"),
                       IDC_SETT_CHANGES_ENV, s_changesEnvironment);
-    if (!s_addToPath)
+    if (s_pathFolders.empty())
         EnableWindow(GetDlgItem(hwnd, IDC_SETT_CHANGES_ENV), FALSE);
 
     y += S(20);   // bottom padding
 
-    // ════════════════════════════════════════════════════════════════════════
-    // Section 6: Setup Log
+    // ╔══════════════════════════════════════════════════════════════════════
+    // Section 6: Uninstall
     // ════════════════════════════════════════════════════════════════════════
     y += S(kSecGap);
-    y = SectionHeader(hwnd, hInst, hGuiFont, y, clientWidth,
-                      loc(L"sett_sec_setup_log", L"Setup Log"));
+    y = SectionHeader(hwnd, hInst, s_hSectionFont, y, clientWidth,
+                      loc(L"sett_sec_uninstall", L"Uninstall"), IDC_SETT_SEC_UNINSTALL);
+
+    // Allow uninstall toggle
+    y = FieldCheckbox(hwnd, hInst, hGuiFont, y, clientWidth,
+                      loc(L"sett_allow_uninstall_lbl",
+                          L"Allow users to uninstall this application"),
+                      IDC_SETT_ALLOW_UNINSTALL, s_allowUninstall);
+
+    // UninstallDisplayName override
+    y = LabelEdit(hwnd, hInst, hGuiFont, y, clientWidth,
+                  loc(L"sett_uninstall_display_name_lbl",
+                      L"Uninstall display name:"),
+                  IDC_SETT_UNINSTALL_DISPLAY_NAME, s_uninstallDisplayName);
+
+    y += S(20);   // bottom padding
+
+    // ════════════════════════════════════════════════════════════════════════
+    // Section 7: Setup Log
+    // ════════════════════════════════════════════════════════════════════════
+    y += S(kSecGap);
+    y = SectionHeader(hwnd, hInst, s_hSectionFont, y, clientWidth,
+                      loc(L"sett_sec_setup_log", L"Setup Log"), IDC_SETT_SEC_SETUP_LOG);
     memset(s_hLogControls, 0, sizeof(s_hLogControls));
     int nLogCtrl = 0;
     auto trackLog = [&](HWND h) { if (nLogCtrl < 8) s_hLogControls[nLogCtrl++] = h; };
@@ -829,11 +962,11 @@ int SETT_BuildPage(HWND hwnd, HINSTANCE hInst,
     y += S(20);   // bottom padding
 
     // ══════════════════════════════════════════════════════════════════════
-    // Section 7: Code Signing
+    // Section 8: Code Signing
     // ══════════════════════════════════════════════════════════════════════
     y += S(kSecGap);
-    y = SectionHeader(hwnd, hInst, hGuiFont, y, clientWidth,
-                      loc(L"sett_sec_signing", L"Code Signing"));
+    y = SectionHeader(hwnd, hInst, s_hSectionFont, y, clientWidth,
+                      loc(L"sett_sec_signing", L"Code Signing"), IDC_SETT_SEC_SIGNING);
     memset(s_hSignControls, 0, sizeof(s_hSignControls));
     int nSignCtrl = 0;
 
@@ -1094,6 +1227,13 @@ bool SETT_OnCommand(HWND hwnd, int wmId, int wmEvent, HWND /*hCtrl*/)
         MainWindow::MarkAsModified();
         return true;
     }
+    if (wmId == IDC_SETT_UNINSTALL_DISPLAY_NAME && wmEvent == EN_CHANGE) {
+        wchar_t buf[512] = {};
+        GetDlgItemTextW(hwnd, IDC_SETT_UNINSTALL_DISPLAY_NAME, buf, 512);
+        s_uninstallDisplayName = buf;
+        MainWindow::MarkAsModified();
+        return true;
+    }
     if (wmId == IDC_SETT_CLOSE_APPS && wmEvent == BN_CLICKED) {
         s_closeApps =
             (SendDlgItemMessageW(hwnd, IDC_SETT_CLOSE_APPS, BM_GETCHECK, 0, 0) == BST_CHECKED);
@@ -1106,15 +1246,35 @@ bool SETT_OnCommand(HWND hwnd, int wmId, int wmEvent, HWND /*hCtrl*/)
         MainWindow::MarkAsModified();
         return true;
     }
-    if (wmId == IDC_SETT_ADD_TO_PATH && wmEvent == BN_CLICKED) {
-        s_addToPath =
-            (SendDlgItemMessageW(hwnd, IDC_SETT_ADD_TO_PATH, BM_GETCHECK, 0, 0) == BST_CHECKED);
-        // Broadcast checkbox follows: auto-check when enabling PATH, uncheck+disable when disabling.
-        s_changesEnvironment = s_addToPath;
-        SendDlgItemMessageW(hwnd, IDC_SETT_CHANGES_ENV, BM_SETCHECK,
-                            s_addToPath ? BST_CHECKED : BST_UNCHECKED, 0);
-        EnableWindow(GetDlgItem(hwnd, IDC_SETT_CHANGES_ENV), s_addToPath ? TRUE : FALSE);
-        MainWindow::MarkAsModified();
+    if (wmId == IDC_SETT_PATH_ADD_BTN && wmEvent == BN_CLICKED) {
+        VfsPickerParams p;
+        p.title           = loc(L"sett_path_folder_picker_title", L"Select folder to add to PATH");
+        p.okText          = loc(L"scdlg_ok",                      L"OK");
+        p.cancelText      = loc(L"scdlg_cancel",                   L"Cancel");
+        p.foldersLabel    = loc(L"vfspicker_folders_label",        L"Folders");
+        p.noSelMessage    = loc(L"vfspicker_folder_no_sel",
+            L"Please select a folder from the left pane.");
+        p.rootLabel_ProgramFiles  = loc(L"vfspicker_root_program_files", L"Program Files");
+        p.rootLabel_ProgramData   = loc(L"vfspicker_root_program_data",  L"ProgramData");
+        p.rootLabel_AppData       = loc(L"vfspicker_root_appdata",       L"AppData (Roaming)");
+        p.rootLabel_AskAtInstall  = loc(L"vfspicker_root_ask_install",   L"Ask at install");
+        p.singleSelect    = true;
+        p.showFilePane    = false;
+        p.allowFolderPick = true;
+        std::vector<VfsPickerResult> picks;
+        if (s_pLocale && ShowVfsPicker(hwnd, s_hInst, p, *s_pLocale, picks)) {
+            s_pathFolders.push_back(picks[0].sourcePath);
+            RefreshPathDisplay(hwnd);
+            MainWindow::MarkAsModified();
+        }
+        return true;
+    }
+    if (wmId == IDC_SETT_PATH_REMOVE_BTN && wmEvent == BN_CLICKED) {
+        if (!s_pathFolders.empty()) {
+            s_pathFolders.pop_back();
+            RefreshPathDisplay(hwnd);
+            MainWindow::MarkAsModified();
+        }
         return true;
     }
     if (wmId == IDC_SETT_DISABLE_DIR_PAGE && wmEvent == BN_CLICKED) {
@@ -1300,8 +1460,16 @@ void SETT_SaveToDb(int projectId)
     DB::SetSetting(K(L"wizard_style"),        std::to_wstring(s_wizardStyle));
     DB::SetSetting(K(L"min_os"),            std::to_wstring(s_minOsVersion));
     DB::SetSetting(K(L"allow_uninstall"),   s_allowUninstall ? L"1" : L"0");
+    DB::SetSetting(K(L"uninstall_display_name"), s_uninstallDisplayName);
     DB::SetSetting(K(L"close_apps"),        s_closeApps ? L"1" : L"0");
-    DB::SetSetting(K(L"add_to_path"),        s_addToPath ? L"1" : L"0");
+    {
+        std::wstring joined;
+        for (const auto& p : s_pathFolders) {
+            if (!joined.empty()) joined += L";";
+            joined += p;
+        }
+        DB::SetSetting(K(L"path_folders"), joined);
+    }
     DB::SetSetting(K(L"changes_env"),        s_changesEnvironment ? L"1" : L"0");
     DB::SetSetting(K(L"disable_dir_page"),       s_disableDirPage ? L"1" : L"0");
     DB::SetSetting(K(L"disable_prog_group_page"), s_disableProgramGroupPage ? L"1" : L"0");
@@ -1352,8 +1520,24 @@ void SETT_LoadFromDb(int projectId)
     if (DB::GetSetting(K(L"wizard_style"),        val)) s_wizardStyle      = _wtoi(val.c_str());
     if (DB::GetSetting(K(L"min_os"),            val)) s_minOsVersion     = _wtoi(val.c_str());
     if (DB::GetSetting(K(L"allow_uninstall"),   val)) s_allowUninstall   = (val != L"0");
+    if (DB::GetSetting(K(L"uninstall_display_name"), val)) s_uninstallDisplayName = val;
     if (DB::GetSetting(K(L"close_apps"),        val)) s_closeApps        = (val == L"1");
-    if (DB::GetSetting(K(L"add_to_path"),        val)) s_addToPath         = (val == L"1");
+    s_pathFolders.clear();
+    if (DB::GetSetting(K(L"path_folders"), val) && !val.empty()) {
+        std::wstring tok;
+        for (wchar_t ch : val) {
+            if (ch == L';') {
+                if (!tok.empty()) s_pathFolders.push_back(tok);
+                tok.clear();
+            } else {
+                tok += ch;
+            }
+        }
+        if (!tok.empty()) s_pathFolders.push_back(tok);
+    } else if (DB::GetSetting(K(L"add_to_path"), val) && val == L"1") {
+        // Migration: old bool means "add {app}" to PATH
+        s_pathFolders.push_back(L"{app}");
+    }
     if (DB::GetSetting(K(L"changes_env"),        val)) s_changesEnvironment = (val == L"1");
     if (DB::GetSetting(K(L"disable_dir_page"),       val)) s_disableDirPage          = (val == L"1");
     if (DB::GetSetting(K(L"disable_prog_group_page"), val)) s_disableProgramGroupPage = (val == L"1");
@@ -1436,8 +1620,9 @@ SBuildConfig SETT_GetBuildConfig()
     cfg.wizardStyle          = s_wizardStyle;
     cfg.minOsVersion      = s_minOsVersion;
     cfg.allowUninstall    = s_allowUninstall;
+    cfg.uninstallDisplayName = s_uninstallDisplayName;
     cfg.closeApps         = s_closeApps;
-    cfg.addToPath            = s_addToPath;
+    cfg.pathFolders          = s_pathFolders;
     cfg.changesEnvironment   = s_changesEnvironment;
     cfg.changesAssociations  = FA_HasAnyEnabled();
     cfg.disableDirPage           = s_disableDirPage;

@@ -57,7 +57,8 @@ WINDOW CLASS
 ================================================================================
 
 struct VfsPickerResult {
-    wstring sourcePath;   // real disk path of the selected file or folder
+    wstring sourcePath;   // real disk path of the selected file or folder, OR an Inno
+                          // constant path for virtual folders (e.g. "{pf}\App\bin").
     wstring displayName;  // leaf name only (e.g. "setup.exe" or "bin")
 };
 
@@ -132,8 +133,21 @@ bool ShowVfsPicker(
 
   Result population logic (in order):
     1. All selected listview rows → VfsPickerResult (file picks).
-    2. If results still empty and allowFolderPick=true: tree selection is used
-       if it has a non-empty fullPath (real-path folder node).
+    2. If results still empty and allowFolderPick=true: tree selection is used.
+       a. If the node has a non-empty fullPath → sourcePath = fullPath (real-path folder).
+       b. If fullPath is empty but virtualPath is non-empty (virtual folder — created
+          with "New Folder", no real disk source) → sourcePath = Inno constant path
+          derived from virtualPath by replacing the DB section root prefix:
+            "Program Files\..."      → "{pf}\..."
+            "ProgramData\..."        → "{commonappdata}\..."
+            "AppData (Roaming)\..."  → "{userappdata}\..."
+            "AskAtInstall\..."       → "{app}\..."
+          Section roots themselves ("Program Files", "ProgramData", etc.) map to
+          their bare constant ("{pf}", "{commonappdata}", etc.).
+          TreeNodeSnapshot.virtualPath is populated by:
+            - SaveTreeSnapshot(): parentVirtualPath parameter built recursively
+              from section root name (passed by all four call sites in mainwindow.cpp).
+            - EnsureTreeSnapshotsFromDb(): snap.virtualPath = row.destination_path.
     3. If results still empty after both steps: MessageBoxW(noSelMessage) is
        shown and the dialog stays open.
 

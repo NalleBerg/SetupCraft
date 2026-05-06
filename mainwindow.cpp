@@ -1288,7 +1288,8 @@ static void CreateTemplateRegistryTree(HWND hTreeView, const std::wstring& proje
 // the full folder hierarchy (including virtual folders) survives page switches.
 // ---------------------------------------------------------------------------
 void MainWindow::SaveTreeSnapshot(HWND hTree, HTREEITEM hParent,
-                                  std::vector<TreeNodeSnapshot> &out)
+                                  std::vector<TreeNodeSnapshot> &out,
+                                  const std::wstring &parentVirtualPath)
 {
     HTREEITEM hChild = TreeView_GetChild(hTree, hParent);
     while (hChild) {
@@ -1302,11 +1303,14 @@ void MainWindow::SaveTreeSnapshot(HWND hTree, HTREEITEM hParent,
         TreeView_GetItem(hTree, &tvi);
         snap.text     = buf;
         snap.fullPath = tvi.lParam ? reinterpret_cast<wchar_t *>(tvi.lParam) : L"";
+        snap.virtualPath = parentVirtualPath.empty()
+                           ? snap.text
+                           : parentVirtualPath + L"\\" + snap.text;
         snap.expanded = (TreeView_GetItemState(hTree, hChild, TVIS_EXPANDED) & TVIS_EXPANDED) != 0;
         auto it = s_virtualFolderFiles.find(hChild);
         if (it != s_virtualFolderFiles.end())
             snap.virtualFiles = it->second;
-        SaveTreeSnapshot(hTree, hChild, snap.children);
+        SaveTreeSnapshot(hTree, hChild, snap.children, snap.virtualPath);
         out.push_back(std::move(snap));
         hChild = TreeView_GetNextSibling(hTree, hChild);
     }
@@ -1830,10 +1834,10 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         // Roots absent in the current mode (e.g. ProgramData while AskAtInstall
         // is enabled) keep their previous snapshot so switching modes round-trips
         // without losing data.
-        if (s_hProgramFilesRoot) { s_treeSnapshot_ProgramFiles.clear();  SaveTreeSnapshot(s_hTreeView, s_hProgramFilesRoot, s_treeSnapshot_ProgramFiles); }
-        if (s_hProgramDataRoot)  { s_treeSnapshot_ProgramData.clear();   SaveTreeSnapshot(s_hTreeView, s_hProgramDataRoot,  s_treeSnapshot_ProgramData);  }
-        if (s_hAppDataRoot)      { s_treeSnapshot_AppData.clear();        SaveTreeSnapshot(s_hTreeView, s_hAppDataRoot,       s_treeSnapshot_AppData);      }
-        if (s_hAskAtInstallRoot) { s_treeSnapshot_AskAtInstall.clear();   SaveTreeSnapshot(s_hTreeView, s_hAskAtInstallRoot,  s_treeSnapshot_AskAtInstall);  }
+        if (s_hProgramFilesRoot) { s_treeSnapshot_ProgramFiles.clear();  SaveTreeSnapshot(s_hTreeView, s_hProgramFilesRoot, s_treeSnapshot_ProgramFiles, L"Program Files"); }
+        if (s_hProgramDataRoot)  { s_treeSnapshot_ProgramData.clear();   SaveTreeSnapshot(s_hTreeView, s_hProgramDataRoot,  s_treeSnapshot_ProgramData,  L"ProgramData");  }
+        if (s_hAppDataRoot)      { s_treeSnapshot_AppData.clear();        SaveTreeSnapshot(s_hTreeView, s_hAppDataRoot,       s_treeSnapshot_AppData,       L"AppData (Roaming)");      }
+        if (s_hAskAtInstallRoot) { s_treeSnapshot_AskAtInstall.clear();   SaveTreeSnapshot(s_hTreeView, s_hAskAtInstallRoot,  s_treeSnapshot_AskAtInstall,  L"AskAtInstall");  }
         UpdateComponentsButtonState(hwnd);
     }
     // Save Comp page tree expansion state before teardown
@@ -1903,7 +1907,9 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         IDC_SETT_APP_NAME, IDC_SETT_APP_VERSION, IDC_SETT_PUBLISHER, IDC_SETT_PUBLISHER_URL, IDC_SETT_SUPPORT_URL,
         IDC_SETT_ICON_PREVIEW, IDC_SETT_CHANGE_ICON, IDC_SETT_OUTPUT_FOLDER, IDC_SETT_OUTPUT_FOLDER_BTN, IDC_SETT_OUTPUT_FILE, IDC_SETT_COMPRESSION, IDC_SETT_COMP_LEVEL,
         IDC_SETT_SOLID, IDC_SETT_UAC_REQADMIN, IDC_SETT_UAC_INVOKER, IDC_SETT_UAC_HIGHEST, IDC_SETT_PRIV_OVERRIDES, IDC_SETT_WIZARD_STYLE, IDC_SETT_MIN_OS,
-        IDC_SETT_ALLOW_UNINSTALL, IDC_SETT_CLOSE_APPS, IDC_SETT_ADD_TO_PATH, IDC_SETT_CHANGES_ENV,
+        IDC_SETT_ALLOW_UNINSTALL, IDC_SETT_CLOSE_APPS, IDC_SETT_CHANGES_ENV,
+        IDC_SETT_PATH_ADD_BTN, IDC_SETT_PATH_REMOVE_BTN, IDC_SETT_PATH_DISPLAY,
+        IDC_SETT_UNINSTALL_DISPLAY_NAME,
         IDC_SETT_DISABLE_DIR_PAGE,
         IDC_SETT_DISABLE_PROG_GROUP_PAGE,
         IDC_SETT_USE_PREV_APP_DIR, IDC_SETT_USE_PREV_GROUP,
@@ -1915,6 +1921,8 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         IDC_SETT_SETUP_LOG_ENABLE, IDC_SETT_SETUP_LOG_FOLDER, IDC_SETT_SETUP_LOG_FOLDER_BTN,
         IDC_SETT_SETUP_LOG_FILE, IDC_SETT_SETUP_LOG_MODE,
         IDC_SETT_PAGE_TITLE,
+        IDC_SETT_SEC_APPLICATION, IDC_SETT_SEC_BUILD, IDC_SETT_SEC_INSTALL, IDC_SETT_SEC_LANGUAGES,
+        IDC_SETT_SEC_SYS_INT, IDC_SETT_SEC_UNINSTALL, IDC_SETT_SEC_SETUP_LOG, IDC_SETT_SEC_SIGNING,
         IDC_FA_LIST, IDC_FA_ADD, IDC_FA_EDIT, IDC_FA_REMOVE, IDC_FA_PAGE_TITLE,
     };
     
@@ -8417,8 +8425,9 @@ void MainWindow::EnsureTreeSnapshotsFromDb()
         if (sit == secIdx.end() || !needRebuild[sit->second]) continue;
 
         TreeNodeSnapshot& snap = nodeMap[row.destination_path];
-        snap.text     = row.destination_path.substr(sep + 1);
-        snap.fullPath = row.source_path;
+        snap.text        = row.destination_path.substr(sep + 1);
+        snap.fullPath    = row.source_path;
+        snap.virtualPath = row.destination_path;
         snap.expanded = false;
         snap.compExpanded = false;
     }
@@ -12779,10 +12788,10 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             // Only refresh roots that actually exist — inactive-mode roots keep
             // their previous snapshot so their data is preserved in the DB.
             if (s_currentPageIndex == 0 && s_hTreeView && IsWindow(s_hTreeView)) {
-                if (s_hProgramFilesRoot) { s_treeSnapshot_ProgramFiles.clear();  SaveTreeSnapshot(s_hTreeView, s_hProgramFilesRoot, s_treeSnapshot_ProgramFiles); }
-                if (s_hProgramDataRoot)  { s_treeSnapshot_ProgramData.clear();   SaveTreeSnapshot(s_hTreeView, s_hProgramDataRoot,  s_treeSnapshot_ProgramData);  }
-                if (s_hAppDataRoot)      { s_treeSnapshot_AppData.clear();        SaveTreeSnapshot(s_hTreeView, s_hAppDataRoot,       s_treeSnapshot_AppData);      }
-                if (s_hAskAtInstallRoot) { s_treeSnapshot_AskAtInstall.clear();   SaveTreeSnapshot(s_hTreeView, s_hAskAtInstallRoot,  s_treeSnapshot_AskAtInstall);  }
+                if (s_hProgramFilesRoot) { s_treeSnapshot_ProgramFiles.clear();  SaveTreeSnapshot(s_hTreeView, s_hProgramFilesRoot, s_treeSnapshot_ProgramFiles, L"Program Files"); }
+                if (s_hProgramDataRoot)  { s_treeSnapshot_ProgramData.clear();   SaveTreeSnapshot(s_hTreeView, s_hProgramDataRoot,  s_treeSnapshot_ProgramData,  L"ProgramData");  }
+                if (s_hAppDataRoot)      { s_treeSnapshot_AppData.clear();        SaveTreeSnapshot(s_hTreeView, s_hAppDataRoot,       s_treeSnapshot_AppData,       L"AppData (Roaming)");      }
+                if (s_hAskAtInstallRoot) { s_treeSnapshot_AskAtInstall.clear();   SaveTreeSnapshot(s_hTreeView, s_hAskAtInstallRoot,  s_treeSnapshot_AskAtInstall,  L"AskAtInstall");  }
             }
 
             // Replace file rows: walk full tree snapshots so both real-path folder
@@ -13395,6 +13404,14 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         HDC hdc = (HDC)wParam;
         HWND hControl = (HWND)lParam;
         int ctrlId = GetDlgCtrlID(hControl);
+        // Settings section headers — bold dark-blue
+        if (ctrlId >= IDC_SETT_SEC_APPLICATION && ctrlId <= IDC_SETT_SEC_SIGNING) {
+            HFONT hSecFont = SETT_GetSectionFont();
+            if (hSecFont) SelectObject(hdc, hSecFont);
+            SetTextColor(hdc, RGB(0, 51, 102));
+            SetBkMode(hdc, TRANSPARENT);
+            return (LRESULT)GetSysColorBrush(COLOR_WINDOW);
+        }
         if (ctrlId == 5100 || ctrlId == 5300 || ctrlId == 5301 || ctrlId == 5302 || ctrlId == 5303 || ctrlId == 5304 || ctrlId == IDC_DEP_PAGE_TITLE || ctrlId == IDC_IDLG_PAGE_TITLE || ctrlId == IDC_FA_PAGE_TITLE) {  // page title statics (Files + Shortcuts + SC column headings + Dependencies + Dialogs + FileAssoc)
             if (s_hPageTitleFont) SelectObject(hdc, s_hPageTitleFont);
         } else {
@@ -13511,7 +13528,9 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
              dis->CtlID == IDC_SETT_OUTPUT_FOLDER_BTN ||
              dis->CtlID == IDC_SETT_SIGNTOOL_BTN ||
              dis->CtlID == IDC_SETT_SIGN_PFX_BTN ||
-             dis->CtlID == IDC_SETT_SETUP_LOG_FOLDER_BTN) {
+             dis->CtlID == IDC_SETT_SETUP_LOG_FOLDER_BTN ||
+             dis->CtlID == IDC_SETT_PATH_ADD_BTN ||
+             dis->CtlID == IDC_SETT_PATH_REMOVE_BTN) {
             ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
             // Create bold font for buttons (scaled for DPI)
             HFONT hFont = CreateFontW(-S(12), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,

@@ -116,12 +116,13 @@
                               ChangesEnvironment (yes/no — broadcasts
                               WM_SETTINGCHANGE after install so running
                               processes see updated PATH immediately),
-                              AddToPath (when enabled, the
-                              "; <<PATH_REGISTRY>>" marker expands to a
-                              [Registry] entry appending {app} to
+                              PathFolders (multi-entry; "; <<PATH_REGISTRY>>"
+                              marker expands to one [Registry] row per entry
+                              in cfg.pathFolders, each appending the path to
                               HKLM\…\Environment\Path using expandsz +
-                              preservestringtype; empty string when
-                              disabled),
+                              preservestringtype; expands to empty string when
+                              pathFolders is empty; replaces old single
+                              AddToPath bool),
                               ChangesAssociations (yes/no — auto-derived
                               from File Associations page; true when any
                               row is enabled; "; <<FILE_ASSOCIATIONS>>"
