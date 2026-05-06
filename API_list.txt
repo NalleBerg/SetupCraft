@@ -159,6 +159,20 @@
                                                 empty string (blank line) when disabled.
                                                 Supports thumbprint (/sha1) or PFX (/f /p),
                                                 SHA-1 (/t) or SHA-256 (/tr /td) timestamps.
+                                                SetupLogging (yes/no — enables Inno's
+                                                built-in setup log written by the installer).
+                                                EscapePascalString() helper doubles single
+                                                quotes for Pascal string literals.
+                                                Proc markers: "; <<SETUP_LOG_PROC>>"
+                                                replaced with generated CopySetupLog() proc
+                                                before DeinitializeSetup() in [Code];
+                                                overwrite mode: FileCopy(ExpandConstant
+                                                ('{log}'), dest, False); append mode:
+                                                LoadStringFromFile + concat +
+                                                SaveStringToFile. "; <<SETUP_LOG_CALL>>"
+                                                inside DeinitializeSetup() calls the proc.
+                                                Both markers expand to empty string when
+                                                no log folder or filename is configured.
                                                 SBuildConfig struct + SETT_GetBuildConfig()
                                                 in settings.h/.cpp provide the build settings
                                                 snapshot consumed by the generator.

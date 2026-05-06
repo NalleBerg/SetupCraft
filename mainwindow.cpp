@@ -1912,6 +1912,8 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         IDC_SETT_SIGN_THUMBPRINT, IDC_SETT_SIGN_PFX_PATH, IDC_SETT_SIGN_PFX_BTN,
         IDC_SETT_SIGN_PFX_PASS, IDC_SETT_SIGN_TS_URL, IDC_SETT_SIGN_TS_ALGO,
         IDC_SETT_SIGN_DESC,
+        IDC_SETT_SETUP_LOG_ENABLE, IDC_SETT_SETUP_LOG_FOLDER, IDC_SETT_SETUP_LOG_FOLDER_BTN,
+        IDC_SETT_SETUP_LOG_FILE, IDC_SETT_SETUP_LOG_MODE,
         IDC_SETT_PAGE_TITLE,
         IDC_FA_LIST, IDC_FA_ADD, IDC_FA_EDIT, IDC_FA_REMOVE, IDC_FA_PAGE_TITLE,
     };
@@ -13506,7 +13508,10 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             (dis->CtlID >= IDC_IDLG_ROW_BASE && dis->CtlID < IDC_IDLG_ROW_BASE + IDLG_COUNT * 4) ||
              dis->CtlID == IDC_IDLG_INST_CHANGE_ICON ||
              dis->CtlID == IDC_SETT_CHANGE_ICON ||
-             dis->CtlID == IDC_SETT_OUTPUT_FOLDER_BTN) {
+             dis->CtlID == IDC_SETT_OUTPUT_FOLDER_BTN ||
+             dis->CtlID == IDC_SETT_SIGNTOOL_BTN ||
+             dis->CtlID == IDC_SETT_SIGN_PFX_BTN ||
+             dis->CtlID == IDC_SETT_SETUP_LOG_FOLDER_BTN) {
             ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
             // Create bold font for buttons (scaled for DPI)
             HFONT hFont = CreateFontW(-S(12), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,

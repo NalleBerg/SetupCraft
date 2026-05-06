@@ -153,6 +153,16 @@ static std::wstring StripTrailingSep(const std::wstring& p)
     return p;
 }
 
+// Escape single quotes in a Pascal string literal by doubling them.
+static std::wstring EscapePascalString(const std::wstring& s)
+{
+    std::wstring out;
+    out.reserve(s.size());
+    for (wchar_t c : s)
+        out += (c == L'\'') ? L"''" : std::wstring(1, c);
+    return out;
+}
+
 // Build the SignTool= directive line for Inno Setup, or return L"" if disabled.
 // Inno uses: SignTool=<name> <command-template>  where $f = output .exe path.
 // The directive is inserted in [Setup] and ISCC calls the command after linking.
@@ -330,6 +340,7 @@ std::wstring ISS_GenerateIss(
         { L"CloseApplications", cfg.closeApps      ? L"yes" : L"no"  },
         { L"ChangesEnvironment",  cfg.changesEnvironment  ? L"yes" : L"no" },
         { L"ChangesAssociations", cfg.changesAssociations ? L"yes" : L"no" },
+        { L"SetupLogging",        cfg.setupLogging        ? L"yes" : L"no" },
         { L"DisableDirPage",           cfg.disableDirPage          ? L"yes" : L"no"  },
         { L"DisableProgramGroupPage",   cfg.disableProgramGroupPage ? L"yes" : L"no"  },
         { L"UsePreviousAppDir",         cfg.usePreviousAppDir       ? L"yes" : L"no"  },
@@ -434,6 +445,58 @@ std::wstring ISS_GenerateIss(
         faBlock += L"\r\n";
     }
     ReplaceAll(tmpl, L"; <<FILE_ASSOCIATIONS>>", faBlock);
+
+    // ── Replace ; <<SETUP_LOG_PROC>> and ; <<SETUP_LOG_CALL>> markers ───────────────────────
+    // When logging is enabled AND a destination path can be formed, generate a
+    // CopySetupLog() Pascal procedure (inserted before DeinitializeSetup) and
+    // its call site inside DeinitializeSetup.  The log is copied from {log}
+    // (Inno's temp log path) to the configured destination after setup finishes.
+    {
+        std::wstring logProc;
+        std::wstring logCall;
+        if (cfg.setupLogging) {
+            std::wstring folder = StripTrailingSep(cfg.setupLogFolder);
+            std::wstring fname  = cfg.setupLogFilename;
+            std::wstring dst;
+            if (!folder.empty() && !fname.empty())
+                dst = folder + L"\\" + fname;
+            else if (!folder.empty())
+                dst = folder + L"\\setup.log";
+            else if (!fname.empty())
+                dst = fname;
+            if (!dst.empty()) {
+                std::wstring dstEsc = EscapePascalString(dst);
+                if (cfg.setupLogMode == 1) {
+                    // Append mode: read existing log, concatenate new log, write back.
+                    logProc =
+                        L"procedure CopySetupLog();\r\n"
+                        L"var\r\n"
+                        L"  Src, Dst, Content, OldContent: String;\r\n"
+                        L"begin\r\n"
+                        L"  Src := ExpandConstant('{log}');\r\n"
+                        L"  Dst := '" + dstEsc + L"';\r\n"
+                        L"  if not FileExists(Src) then Exit;\r\n"
+                        L"  if not LoadStringFromFile(Src, Content) then Exit;\r\n"
+                        L"  if FileExists(Dst) then\r\n"
+                        L"    if LoadStringFromFile(Dst, OldContent) then\r\n"
+                        L"      Content := OldContent + Content;\r\n"
+                        L"  SaveStringToFile(Dst, Content, False);\r\n"
+                        L"end;\r\n";
+                } else {
+                    // Overwrite mode: copy log to destination, replacing any existing file.
+                    logProc =
+                        L"procedure CopySetupLog();\r\n"
+                        L"begin\r\n"
+                        L"  if FileExists(ExpandConstant('{log}')) then\r\n"
+                        L"    FileCopy(ExpandConstant('{log}'), '" + dstEsc + L"', False);\r\n"
+                        L"end;\r\n";
+                }
+                logCall = L"CopySetupLog();";
+            }
+        }
+        ReplaceAll(tmpl, L"; <<SETUP_LOG_PROC>>", logProc);
+        ReplaceAll(tmpl, L"; <<SETUP_LOG_CALL>>", logCall);
+    }
 
     // ── Write output as UTF-8 with BOM (ISCC accepts UTF-8 BOM) ─────────────
     int needed = WideCharToMultiByte(CP_UTF8, 0,

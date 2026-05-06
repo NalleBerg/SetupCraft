@@ -68,6 +68,13 @@ static int          s_installBase        = 0;    // 0={pf} 1={pf64} 2={pf32} 3={
 static std::wstring s_installBaseCustom;          // used when s_installBase == 6
 static HWND         s_hInstallBaseCustomEdit = NULL;
 
+// ── Setup log statics ────────────────────────────────────────────────────────────
+static bool         s_setupLogging      = false;
+static std::wstring s_setupLogFolder;
+static std::wstring s_setupLogFilename;
+static int          s_setupLogMode      = 0;     // 0=overwrite 1=append
+static HWND         s_hLogControls[8]   = {};    // dependent controls (enabled/disabled by checkbox)
+
 // ── Installer language table ─────────────────────────────────────────────────
 // Contains every .isl file bundled with Inno Setup 6 standard installation.
 // Russian is intentionally excluded.
@@ -266,6 +273,11 @@ void SETT_Reset()
     s_changesEnvironment = false;
     s_installBase        = 0;
     s_installBaseCustom  = L"";
+    s_setupLogging       = false;
+    s_setupLogFolder     = L"";
+    s_setupLogFilename   = L"";
+    s_setupLogMode       = 0;
+    memset(s_hLogControls, 0, sizeof(s_hLogControls));
     s_installerLangs.assign(kLangCount, false);
     s_installerLangs[0] = true;  // English always included
     s_scrollOffset     = 0;
@@ -290,6 +302,13 @@ static void ApplySignEnable(BOOL enable)
 {
     for (int i = 0; i < 9; i++)
         if (s_hSignControls[i]) EnableWindow(s_hSignControls[i], enable);
+}
+
+// helper: enable/disable all setup-log dependent controls
+static void ApplyLogEnable(BOOL enable)
+{
+    for (int i = 0; i < 8; i++)
+        if (s_hLogControls[i]) EnableWindow(s_hLogControls[i], enable);
 }
 
 // ── SETT_GetScrollOffset / SETT_SetScrollOffset ───────────────────────────────
@@ -730,8 +749,87 @@ int SETT_BuildPage(HWND hwnd, HINSTANCE hInst,
 
     y += S(20);   // bottom padding
 
+    // ════════════════════════════════════════════════════════════════════════
+    // Section 6: Setup Log
+    // ════════════════════════════════════════════════════════════════════════
+    y += S(kSecGap);
+    y = SectionHeader(hwnd, hInst, hGuiFont, y, clientWidth,
+                      loc(L"sett_sec_setup_log", L"Setup Log"));
+    memset(s_hLogControls, 0, sizeof(s_hLogControls));
+    int nLogCtrl = 0;
+    auto trackLog = [&](HWND h) { if (nLogCtrl < 8) s_hLogControls[nLogCtrl++] = h; };
+
+    // Enable logging checkbox
+    {
+        const int fldX = S(kPadH) + S(kLblW) + S(kLblGap);
+        const int fldW = clientWidth - fldX - S(kPadH);
+        HWND hChk = CreateCustomCheckbox(hwnd, IDC_SETT_SETUP_LOG_ENABLE,
+            loc(L"sett_setup_log_enable_lbl", L"Write setup log to file"),
+            s_setupLogging, fldX, y, fldW, S(kRowH), hInst);
+        if (hGuiFont) SendMessageW(hChk, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+        y += S(kRowStep);
+    }
+
+    // Log folder (with browse button)
+    {
+        const int fldX = S(kPadH) + S(kLblW) + S(kLblGap);
+        const int btnW = S(28);
+        const int fldW = clientWidth - fldX - S(kPadH) - S(6) - btnW;
+        HWND hL = CreateWindowExW(0, L"STATIC",
+            loc(L"sett_setup_log_folder_lbl", L"Log folder:").c_str(),
+            WS_CHILD | WS_VISIBLE | SS_RIGHT | SS_CENTERIMAGE,
+            S(kPadH), y, S(kLblW), S(kRowH), hwnd, NULL, hInst, NULL);
+        if (hGuiFont) SendMessageW(hL, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+        HWND hE = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", s_setupLogFolder.c_str(),
+            WS_CHILD | WS_VISIBLE | ES_LEFT | ES_AUTOHSCROLL,
+            fldX, y, fldW, S(kRowH),
+            hwnd, (HMENU)(UINT_PTR)IDC_SETT_SETUP_LOG_FOLDER, hInst, NULL);
+        if (hGuiFont) SendMessageW(hE, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+        HWND hBtn = CreateCustomButtonWithIcon(
+            hwnd, IDC_SETT_SETUP_LOG_FOLDER_BTN, L"", ButtonColor::Blue,
+            L"shell32.dll", 4, fldX + fldW + S(6), y, btnW, S(kRowH), hInst);
+        trackLog(hL); trackLog(hE); trackLog(hBtn);
+        y += S(kRowStep);
+    }
+
+    // Log filename
+    {
+        const int fldX = S(kPadH) + S(kLblW) + S(kLblGap);
+        const int fldW = clientWidth - fldX - S(kPadH);
+        HWND hL = CreateWindowExW(0, L"STATIC",
+            loc(L"sett_setup_log_file_lbl", L"Log filename:").c_str(),
+            WS_CHILD | WS_VISIBLE | SS_RIGHT | SS_CENTERIMAGE,
+            S(kPadH), y, S(kLblW), S(kRowH), hwnd, NULL, hInst, NULL);
+        if (hGuiFont) SendMessageW(hL, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+        HWND hE = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", s_setupLogFilename.c_str(),
+            WS_CHILD | WS_VISIBLE | ES_LEFT | ES_AUTOHSCROLL,
+            fldX, y, fldW, S(kRowH),
+            hwnd, (HMENU)(UINT_PTR)IDC_SETT_SETUP_LOG_FILE, hInst, NULL);
+        if (hGuiFont) SendMessageW(hE, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+        trackLog(hL); trackLog(hE);
+        y += S(kRowStep);
+    }
+
+    // Write mode combo
+    {
+        std::vector<std::wstring> modeItems = {
+            loc(L"sett_setup_log_overwrite", L"Overwrite (new file each run)"),
+            loc(L"sett_setup_log_append",    L"Append to existing log"),
+        };
+        HWND hModeCbo = nullptr;
+        y = LabelCombo(hwnd, hInst, hGuiFont, y, clientWidth,
+                       loc(L"sett_setup_log_mode_lbl", L"Write mode:"),
+                       IDC_SETT_SETUP_LOG_MODE, modeItems, s_setupLogMode,
+                       &hModeCbo);
+        if (hModeCbo) trackLog(hModeCbo);
+    }
+
+    ApplyLogEnable(s_setupLogging ? TRUE : FALSE);
+
+    y += S(20);   // bottom padding
+
     // ══════════════════════════════════════════════════════════════════════
-    // Section 6: Code Signing
+    // Section 7: Code Signing
     // ══════════════════════════════════════════════════════════════════════
     y += S(kSecGap);
     y = SectionHeader(hwnd, hInst, hGuiFont, y, clientWidth,
@@ -1049,6 +1147,51 @@ bool SETT_OnCommand(HWND hwnd, int wmId, int wmEvent, HWND /*hCtrl*/)
         MainWindow::MarkAsModified();
         return true;
     }
+    // ── Setup Log ─────────────────────────────────────────────────────────────────────────────────
+    if (wmId == IDC_SETT_SETUP_LOG_ENABLE && wmEvent == BN_CLICKED) {
+        s_setupLogging =
+            (SendDlgItemMessageW(hwnd, IDC_SETT_SETUP_LOG_ENABLE, BM_GETCHECK, 0, 0) == BST_CHECKED);
+        ApplyLogEnable(s_setupLogging ? TRUE : FALSE);
+        MainWindow::MarkAsModified();
+        return true;
+    }
+    if (wmId == IDC_SETT_SETUP_LOG_FOLDER && wmEvent == EN_CHANGE) {
+        wchar_t buf[MAX_PATH] = {};
+        GetDlgItemTextW(hwnd, IDC_SETT_SETUP_LOG_FOLDER, buf, MAX_PATH);
+        s_setupLogFolder = buf;
+        MainWindow::MarkAsModified();
+        return true;
+    }
+    if (wmId == IDC_SETT_SETUP_LOG_FOLDER_BTN && wmEvent == BN_CLICKED) {
+        BROWSEINFOW bi = {};
+        bi.hwndOwner = hwnd;
+        bi.lpszTitle = loc(L"sett_setup_log_folder_picker_title", L"Select log folder").c_str();
+        bi.ulFlags   = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE | BIF_USENEWUI;
+        LPITEMIDLIST pidl = SHBrowseForFolderW(&bi);
+        if (pidl) {
+            wchar_t path[MAX_PATH] = {};
+            if (SHGetPathFromIDListW(pidl, path)) {
+                s_setupLogFolder = path;
+                SetDlgItemTextW(hwnd, IDC_SETT_SETUP_LOG_FOLDER, path);
+                MainWindow::MarkAsModified();
+            }
+            CoTaskMemFree(pidl);
+        }
+        return true;
+    }
+    if (wmId == IDC_SETT_SETUP_LOG_FILE && wmEvent == EN_CHANGE) {
+        wchar_t buf[MAX_PATH] = {};
+        GetDlgItemTextW(hwnd, IDC_SETT_SETUP_LOG_FILE, buf, MAX_PATH);
+        s_setupLogFilename = buf;
+        MainWindow::MarkAsModified();
+        return true;
+    }
+    if (wmId == IDC_SETT_SETUP_LOG_MODE && wmEvent == CBN_SELCHANGE) {
+        int sel = (int)SendDlgItemMessageW(hwnd, IDC_SETT_SETUP_LOG_MODE, CB_GETCURSEL, 0, 0);
+        if (sel >= 0) s_setupLogMode = sel;
+        MainWindow::MarkAsModified();
+        return true;
+    }
     // ── Code signing ──────────────────────────────────────────────────────────────────── ──────────────────────────────────────────────────────
     if (wmId == IDC_SETT_SIGN_ENABLE && wmEvent == BN_CLICKED) {
         s_signEnabled =
@@ -1175,6 +1318,10 @@ void SETT_SaveToDb(int projectId)
     DB::SetSetting(K(L"sign_description"),  s_signDescription);
     DB::SetSetting(K(L"install_base"),        std::to_wstring(s_installBase));
     DB::SetSetting(K(L"install_base_custom"), s_installBaseCustom);
+    DB::SetSetting(K(L"setup_logging"),       s_setupLogging      ? L"1" : L"0");
+    DB::SetSetting(K(L"setup_log_folder"),    s_setupLogFolder);
+    DB::SetSetting(K(L"setup_log_filename"),  s_setupLogFilename);
+    DB::SetSetting(K(L"setup_log_mode"),      std::to_wstring(s_setupLogMode));
     {
         std::wstring langs;
         for (int i = 1; i < kLangCount; i++) {
@@ -1223,6 +1370,10 @@ void SETT_LoadFromDb(int projectId)
     if (DB::GetSetting(K(L"sign_description"),  val)) s_signDescription  = val;
     if (DB::GetSetting(K(L"install_base"),        val)) s_installBase       = _wtoi(val.c_str());
     if (DB::GetSetting(K(L"install_base_custom"), val)) s_installBaseCustom = val;
+    if (DB::GetSetting(K(L"setup_logging"),       val)) s_setupLogging      = (val == L"1");
+    if (DB::GetSetting(K(L"setup_log_folder"),    val)) s_setupLogFolder     = val;
+    if (DB::GetSetting(K(L"setup_log_filename"),  val)) s_setupLogFilename   = val;
+    if (DB::GetSetting(K(L"setup_log_mode"),      val)) s_setupLogMode       = _wtoi(val.c_str());
     // Installer languages
     if ((int)s_installerLangs.size() < kLangCount)
         s_installerLangs.assign(kLangCount, false);
@@ -1302,5 +1453,9 @@ SBuildConfig SETT_GetBuildConfig()
     cfg.signTimestampUrl    = s_signTimestampUrl;
     cfg.signTimestampAlgo   = s_signTimestampAlgo;
     cfg.signDescription     = s_signDescription;
+    cfg.setupLogging        = s_setupLogging;
+    cfg.setupLogFolder      = s_setupLogFolder;
+    cfg.setupLogFilename    = s_setupLogFilename;
+    cfg.setupLogMode        = s_setupLogMode;
     return cfg;
 }

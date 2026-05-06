@@ -126,7 +126,16 @@
                               from File Associations page; true when any
                               row is enabled; "; <<FILE_ASSOCIATIONS>>"
                               marker expands to HKCR [Registry] entries
-                              for each enabled FileAssocRow)).
+                              for each enabled FileAssocRow).
+                              SetupLogging (yes/no — enables Inno's built-in
+                              setup log; "; <<SETUP_LOG_PROC>>" marker
+                              before DeinitializeSetup() expands to
+                              CopySetupLog() proc (overwrite: FileCopy;
+                              append: LoadStringFromFile + concat +
+                              SaveStringToFile); "; <<SETUP_LOG_CALL>>"
+                              inside DeinitializeSetup calls the proc; both
+                              expand to empty string when no log path is
+                              configured)).
                               [Languages] body replaced
                               with "; <<LANGUAGES>>" marker expanded by the
                               generator — never hardcoded.

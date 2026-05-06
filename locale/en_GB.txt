@@ -708,6 +708,14 @@ sett_allow_uninstall_lbl=Allow users to uninstall this application
 sett_close_apps_lbl=Close running applications before installing
 sett_add_to_path_lbl=Add install directory to system PATH
 sett_changes_env_lbl=Broadcast environment change (required when modifying PATH)
+sett_sec_setup_log=Setup Log
+sett_setup_log_enable_lbl=Write setup log to file
+sett_setup_log_folder_lbl=Log folder:
+sett_setup_log_folder_picker_title=Select log folder
+sett_setup_log_file_lbl=Log filename:
+sett_setup_log_mode_lbl=Write mode:
+sett_setup_log_overwrite=Overwrite (new file each run)
+sett_setup_log_append=Append to existing log
 
 # File Associations page
 tb_file_assoc=File Types

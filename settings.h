@@ -88,6 +88,14 @@ struct InnoLangEntry { std::wstring isl; bool local; };
 #define IDC_SETT_USE_PREV_APP_DIR        8072   // Custom checkbox: UsePreviousAppDir
 #define IDC_SETT_USE_PREV_GROUP          8073   // Custom checkbox: UsePreviousGroup
 #define IDC_SETT_DIR_EXISTS_WARNING      8074   // Combo: DirExistsWarning (auto/yes/no)
+
+// ── Setup Log section ────────────────────────────────────────────────────────
+#define IDC_SETT_SETUP_LOG_ENABLE      8075   // Custom checkbox: enable setup log
+#define IDC_SETT_SETUP_LOG_FOLDER      8076   // Edit: log destination folder
+#define IDC_SETT_SETUP_LOG_FOLDER_BTN  8077   // Button: browse log folder
+#define IDC_SETT_SETUP_LOG_FILE        8078   // Edit: log filename
+#define IDC_SETT_SETUP_LOG_MODE        8079   // Combo: Overwrite / Append
+
 #define IDC_SETT_INSTALL_BASE        8040   // Combo: DefaultDirName base token
 #define IDC_SETT_INSTALL_BASE_CUSTOM 8041   // Edit: custom Inno constant (visible only on Custom)
 #define IDC_SETT_LANG_BASE           8050   // Checkboxes: installer languages (0=English, always on)
@@ -181,6 +189,11 @@ struct SBuildConfig {
     bool addToPath          = false;  // add {app} to system PATH via registry
     bool changesEnvironment = false;  // ChangesEnvironment — broadcast WM_SETTINGCHANGE after install
     bool changesAssociations = false; // ChangesAssociations — auto-derived from FA page rows
+    // Setup log
+    bool setupLogging       = false;  // SetupLogging=yes/no
+    std::wstring setupLogFolder;      // destination folder (empty = %TEMP% only)
+    std::wstring setupLogFilename;    // destination filename (empty = setup.log default)
+    int  setupLogMode       = 0;      // 0=overwrite 1=append
 };
 
 // Returns a snapshot of the current build settings for use by the .iss generator.

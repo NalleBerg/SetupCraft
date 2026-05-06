@@ -24,6 +24,7 @@ DisableProgramGroupPage={#DisableProgramGroupPage}
 UsePreviousAppDir={#UsePreviousAppDir}
 UsePreviousGroup={#UsePreviousGroup}
 DirExistsWarning={#DirExistsWarning}
+SetupLogging={#SetupLogging}
 VersionInfoVersion={#VersionInfoVersion}
 VersionInfoTextVersion={#VersionInfoTextVersion}
 VersionInfoDescription={#VersionInfoDescription}
@@ -145,6 +146,7 @@ begin
     Result := True;
 end;
 
+; <<SETUP_LOG_PROC>>
 procedure DeinitializeSetup();
 begin
   if g_hSetupMutex <> 0 then
@@ -152,4 +154,5 @@ begin
     WinCloseHandle(g_hSetupMutex);
     g_hSetupMutex := 0;
   end;
+  ; <<SETUP_LOG_CALL>>
 end;
