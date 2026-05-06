@@ -21,6 +21,7 @@ DisableDirPage={#DisableDirPage}
 DisableProgramGroupPage={#DisableProgramGroupPage}
 UsePreviousAppDir={#UsePreviousAppDir}
 UsePreviousGroup={#UsePreviousGroup}
+DirExistsWarning={#DirExistsWarning}
 VersionInfoVersion={#VersionInfoVersion}
 VersionInfoTextVersion={#VersionInfoTextVersion}
 VersionInfoDescription={#VersionInfoDescription}

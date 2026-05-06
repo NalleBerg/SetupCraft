@@ -1,8 +1,13 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 06 May 2026 &mdash; v2026.05.06.09 (09:11)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 06 May 2026 &mdash; v2026.05.06.09 (09:15)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.05.06.09</span></h3>
+<p><strong>settings / issgen &mdash; DirExistsWarning combo (06.05.2026, 09:15):</strong></p>
+<ul>
+<li><strong>settings &mdash; <code>DirExistsWarning</code> combo (<code>IDC_SETT_DIR_EXISTS_WARNING = 8074</code>):</strong> New <em>Dir-exists warning:</em> combo in the Installation section, below the UsePreviousGroup checkbox. Three choices: <em>Auto (warn only when not upgrading)</em> (Inno default), <em>Yes (always warn)</em>, <em>No (never warn)</em>. Default is <em>Auto</em>. When set to <em>No</em>, the &ldquo;Folder already exists &mdash; do you want to continue?&rdquo; dialog is suppressed entirely &mdash; useful for silent upgrade installers that should never interrupt the user. Persisted per-project as <code>dir_exists_warning</code>. Emitted as <code>DirExistsWarning=auto/yes/no</code> via the <code>{#DirExistsWarning}</code> token. Both <code>inno/template.iss</code> copies updated. New <code>DirExistsWarningStr()</code> helper in <code>issgen.cpp</code>. <code>SBuildConfig</code> gains <code>dirExistsWarning</code> field.</li>
+</ul>
+
 <p><strong>settings / issgen &mdash; UsePreviousAppDir &amp; UsePreviousGroup toggles (06.05.2026, 09:11):</strong></p>
 <ul>
 <li><strong>settings &mdash; <code>UsePreviousAppDir</code> checkbox (<code>IDC_SETT_USE_PREV_APP_DIR = 8072</code>):</strong> New <em>Remember last install path across upgrades</em> checkbox in the Installation section. When ticked (default), Inno Setup reads the previously chosen directory from the registry and pre-fills the <em>Where to install?</em> page on subsequent installs &mdash; so upgrading users keep their custom path rather than reverting to <code>DefaultDirName</code>. Persisted per-project as <code>use_prev_app_dir</code>. Emitted as <code>UsePreviousAppDir=yes/no</code> via the <code>{#UsePreviousAppDir}</code> token.</li>

@@ -4,6 +4,9 @@ All notable changes to SetupCraft will be documented in this file.
 
 ## [2026.05.06.09] - 2026-05-06
 
+### settings / issgen — DirExistsWarning combo (09:15)
+- **settings — `DirExistsWarning` combo (`IDC_SETT_DIR_EXISTS_WARNING = 8074`)**: New *Dir-exists warning:* combo in the Installation section. Three choices: *Auto (warn only when not upgrading)* (Inno default), *Yes (always warn)*, *No (never warn)*. Default: *Auto*. Setting to *No* suppresses the "Folder already exists" dialog entirely — useful for silent upgrade installers. Persisted as `dir_exists_warning`. Emitted as `DirExistsWarning=auto/yes/no` via `{#DirExistsWarning}` token. New `DirExistsWarningStr()` helper in `issgen.cpp`. Both `template.iss` copies updated. `SBuildConfig` gains `dirExistsWarning`.
+
 ### settings / issgen — UsePreviousAppDir & UsePreviousGroup toggles (09:11)
 - **settings — `UsePreviousAppDir` checkbox (`IDC_SETT_USE_PREV_APP_DIR = 8072`)**: New *Remember last install path across upgrades* checkbox in the Installation section. Checked by default (mirrors Inno's own default). When ticked, Inno reads the previously chosen directory from the registry and pre-fills the *Where to install?* page on upgrades — users keep their custom path instead of reverting to `DefaultDirName`. Persisted as `use_prev_app_dir`. Emitted as `UsePreviousAppDir=yes/no` via `{#UsePreviousAppDir}` token.
 - **settings — `UsePreviousGroup` checkbox (`IDC_SETT_USE_PREV_GROUP = 8073`)**: New *Remember last Start Menu folder across upgrades* checkbox, also checked by default. Pre-fills the Start Menu page with the previously chosen group name. Persisted as `use_prev_group`. Emitted as `UsePreviousGroup=yes/no` via `{#UsePreviousGroup}` token. Both `template.iss` copies updated. `SBuildConfig` gains `usePreviousAppDir` and `usePreviousGroup`.

@@ -121,6 +121,16 @@ static const wchar_t* WizardStyleStr(int val)
     return (val == 1) ? L"classic" : L"modern";
 }
 
+// Map dirExistsWarning index to the Inno DirExistsWarning= string.
+static const wchar_t* DirExistsWarningStr(int val)
+{
+    switch (val) {
+        case 1:  return L"yes";
+        case 2:  return L"no";
+        default: return L"auto";
+    }
+}
+
 // Map minOsVersion index to the Inno MinVersion= string.
 // Returns L"" for "no minimum" (index 0).
 static const wchar_t* MinVersionStr(int ver)
@@ -314,6 +324,7 @@ std::wstring ISS_GenerateIss(
         { L"DisableProgramGroupPage",   cfg.disableProgramGroupPage ? L"yes" : L"no"  },
         { L"UsePreviousAppDir",         cfg.usePreviousAppDir       ? L"yes" : L"no"  },
         { L"UsePreviousGroup",          cfg.usePreviousGroup        ? L"yes" : L"no"  },
+        { L"DirExistsWarning",          DirExistsWarningStr(cfg.dirExistsWarning)       },
         { L"MinVersion",        MinVersionStr(cfg.minOsVersion)        },
         { L"ExeName",           exeName                                },
         { L"SourceDir",         sourceDir                              },

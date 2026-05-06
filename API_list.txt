@@ -136,6 +136,8 @@
                                                 DisableProgramGroupPage,
                                                 UsePreviousAppDir,
                                                 UsePreviousGroup,
+                                                DirExistsWarning
+                                                (auto/yes/no),
                                                 MinVersion, ExeName,
                                                 SourceDir.
                                                 VersionInfo* tokens (installer .exe

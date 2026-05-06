@@ -58,6 +58,7 @@ static bool         s_disableDirPage          = false;
 static bool         s_disableProgramGroupPage = false;
 static bool         s_usePreviousAppDir       = true;
 static bool         s_usePreviousGroup        = true;
+static int          s_dirExistsWarning        = 0;   // 0=auto 1=yes 2=no
 static bool         s_allowUninstall          = true;
 static bool         s_closeApps        = false;
 static int          s_installBase        = 0;    // 0={pf} 1={pf64} 2={pf32} 3={localappdata} 4={commonappdata} 5={userdocs} 6=Custom
@@ -238,6 +239,7 @@ void SETT_Reset()
     s_disableProgramGroupPage = false;
     s_usePreviousAppDir       = true;
     s_usePreviousGroup        = true;
+    s_dirExistsWarning        = 0;
     memset(s_hSignControls, 0, sizeof(s_hSignControls));
     s_allowUninstall   = true;
     s_closeApps        = false;
@@ -616,6 +618,18 @@ int SETT_BuildPage(HWND hwnd, HINSTANCE hInst,
                           L"Remember last Start Menu folder across upgrades (UsePreviousGroup)"),
                       IDC_SETT_USE_PREV_GROUP, s_usePreviousGroup);
 
+    // Existing directory warning
+    {
+        std::vector<std::wstring> dewItems = {
+            loc(L"sett_dir_exists_auto", L"Auto (warn only when not upgrading)"),
+            loc(L"sett_dir_exists_yes",  L"Yes (always warn)"),
+            loc(L"sett_dir_exists_no",   L"No (never warn)"),
+        };
+        y = LabelCombo(hwnd, hInst, hGuiFont, y, clientWidth,
+                       loc(L"sett_dir_exists_warning_lbl", L"Dir-exists warning:"),
+                       IDC_SETT_DIR_EXISTS_WARNING, dewItems, s_dirExistsWarning);
+    }
+
     // ════════════════════════════════════════════════════════════════════════
     // Section 4: Installer Languages
     // ╚══════════════════════════════════════════════════════════════════════
@@ -977,6 +991,12 @@ bool SETT_OnCommand(HWND hwnd, int wmId, int wmEvent, HWND /*hCtrl*/)
         MainWindow::MarkAsModified();
         return true;
     }
+    if (wmId == IDC_SETT_DIR_EXISTS_WARNING && wmEvent == CBN_SELCHANGE) {
+        int sel = (int)SendDlgItemMessageW(hwnd, IDC_SETT_DIR_EXISTS_WARNING, CB_GETCURSEL, 0, 0);
+        if (sel >= 0) s_dirExistsWarning = sel;
+        MainWindow::MarkAsModified();
+        return true;
+    }
     // ── Code signing ──────────────────────────────────────────────────────────────────── ──────────────────────────────────────────────────────
     if (wmId == IDC_SETT_SIGN_ENABLE && wmEvent == BN_CLICKED) {
         s_signEnabled =
@@ -1090,6 +1110,7 @@ void SETT_SaveToDb(int projectId)
     DB::SetSetting(K(L"disable_prog_group_page"), s_disableProgramGroupPage ? L"1" : L"0");
     DB::SetSetting(K(L"use_prev_app_dir"),        s_usePreviousAppDir ? L"1" : L"0");
     DB::SetSetting(K(L"use_prev_group"),          s_usePreviousGroup  ? L"1" : L"0");
+    DB::SetSetting(K(L"dir_exists_warning"),      std::to_wstring(s_dirExistsWarning));
     DB::SetSetting(K(L"sign_enabled"),      s_signEnabled ? L"1" : L"0");
     DB::SetSetting(K(L"sign_tool_path"),    s_signtoolPath);
     DB::SetSetting(K(L"sign_thumbprint"),   s_signThumbprint);
@@ -1135,6 +1156,7 @@ void SETT_LoadFromDb(int projectId)
     if (DB::GetSetting(K(L"disable_prog_group_page"), val)) s_disableProgramGroupPage = (val == L"1");
     if (DB::GetSetting(K(L"use_prev_app_dir"),        val)) s_usePreviousAppDir       = (val != L"0");
     if (DB::GetSetting(K(L"use_prev_group"),          val)) s_usePreviousGroup        = (val != L"0");
+    if (DB::GetSetting(K(L"dir_exists_warning"),      val)) s_dirExistsWarning        = _wtoi(val.c_str());
     if (DB::GetSetting(K(L"sign_enabled"),      val)) s_signEnabled      = (val == L"1");
     if (DB::GetSetting(K(L"sign_tool_path"),    val)) s_signtoolPath     = val;
     if (DB::GetSetting(K(L"sign_thumbprint"),   val)) s_signThumbprint   = val;
@@ -1212,6 +1234,7 @@ SBuildConfig SETT_GetBuildConfig()
     cfg.disableProgramGroupPage  = s_disableProgramGroupPage;
     cfg.usePreviousAppDir        = s_usePreviousAppDir;
     cfg.usePreviousGroup         = s_usePreviousGroup;
+    cfg.dirExistsWarning         = s_dirExistsWarning;
     cfg.signEnabled         = s_signEnabled;
     cfg.signtoolPath        = s_signtoolPath;
     cfg.signThumbprint      = s_signThumbprint;

@@ -86,7 +86,9 @@
                               UsePreviousAppDir (remember last install path
                               on upgrades; default yes),
                               UsePreviousGroup (remember last Start Menu
-                              folder on upgrades; default yes)).
+                              folder on upgrades; default yes),
+                              DirExistsWarning (auto/yes/no — suppress
+                              "folder exists" dialog on upgrades)).
                               [Languages] body replaced
                               with "; <<LANGUAGES>>" marker expanded by the
                               generator — never hardcoded.
