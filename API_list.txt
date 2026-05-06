@@ -127,7 +127,11 @@
                                                 AppId (braces escaped to {{…}}),
                                                 DefaultDirBase, OutputDir, OutputBase,
                                                 Compression, SolidCompression,
-                                                PrivilegesRequired, Uninstallable,
+                                                PrivilegesRequired,
+                                                PrivilegesRequiredOverridesAllowed
+                                                (none/commandline/dialog),
+                                                WizardStyle (modern/classic),
+                                                Uninstallable,
                                                 CloseApplications, MinVersion, ExeName,
                                                 SourceDir.
                                                 VersionInfo* tokens (installer .exe

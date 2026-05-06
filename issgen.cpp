@@ -103,6 +103,24 @@ static const wchar_t* PrivilegesStr(int level)
     }
 }
 
+// Map privOverridesAllowed index to the Inno PrivilegesRequiredOverridesAllowed= string.
+// Controls whether the end user can switch between per-user / all-users at runtime.
+// "dialog" enables the For Me/All Users wizard page.
+static const wchar_t* PrivOverridesStr(int val)
+{
+    switch (val) {
+        case 1:  return L"commandline";
+        case 2:  return L"dialog";
+        default: return L"none";
+    }
+}
+
+// Map wizardStyle index to the Inno WizardStyle= string.
+static const wchar_t* WizardStyleStr(int val)
+{
+    return (val == 1) ? L"classic" : L"modern";
+}
+
 // Map minOsVersion index to the Inno MinVersion= string.
 // Returns L"" for "no minimum" (index 0).
 static const wchar_t* MinVersionStr(int ver)
@@ -237,7 +255,9 @@ std::wstring ISS_GenerateIss(
         { L"OutputBase",        outBase                                },
         { L"Compression",       CompressionStr(cfg.compressionType)    },
         { L"SolidCompression",  cfg.solidCompression ? L"yes" : L"no" },
-        { L"PrivilegesRequired",PrivilegesStr(cfg.uacLevel)            },
+        { L"PrivilegesRequired",             PrivilegesStr(cfg.uacLevel)                        },
+        { L"PrivilegesRequiredOverridesAllowed", PrivOverridesStr(cfg.privOverridesAllowed)     },
+        { L"WizardStyle",      WizardStyleStr(cfg.wizardStyle)                                  },
         { L"Uninstallable",     cfg.allowUninstall ? L"yes" : L"no"   },
         { L"CloseApplications", cfg.closeApps      ? L"yes" : L"no"  },
         { L"MinVersion",        MinVersionStr(cfg.minOsVersion)        },

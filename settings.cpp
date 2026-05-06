@@ -37,6 +37,8 @@ static int          s_compressionType  = 2;    // 0=store, 1=zip, 2=lzma, 3=lzma
 static int          s_compressionLevel = 7;    // 0–9
 static bool         s_solidCompression = true;
 static int          s_uacLevel         = 0;    // 0=requireAdministrator 1=asInvoker 2=highest
+static int          s_privOverrides    = 2;    // 0=none 1=commandline 2=dialog
+static int          s_wizardStyle      = 1;    // 0=modern 1=classic
 static int          s_minOsVersion     = 0;    // 0=none … 5=Win11
 static bool         s_allowUninstall   = true;
 static bool         s_closeApps        = false;
@@ -203,6 +205,8 @@ void SETT_Reset()
     s_compressionLevel = 7;
     s_solidCompression = true;
     s_uacLevel         = 0;
+    s_privOverrides    = 2;
+    s_wizardStyle      = 1;
     s_minOsVersion     = 0;
     s_allowUninstall   = true;
     s_closeApps        = false;
@@ -467,6 +471,20 @@ int SETT_BuildPage(HWND hwnd, HINSTANCE hInst,
         y += S(kRowStep);
     }
 
+    // Privileges overrides allowed — works with the UAC radios above.
+    // Determines whether the end user can switch between per-user / all-users at runtime.
+    // "dialog" enables the For Me/All Users wizard page in the installer.
+    {
+        std::vector<std::wstring> overrideItems = {
+            loc(L"sett_priv_override_none",        L"None (no override)"),
+            loc(L"sett_priv_override_commandline", L"Command line only"),
+            loc(L"sett_priv_override_dialog",      L"Dialog (For Me / All Users page)"),
+        };
+        y = LabelCombo(hwnd, hInst, hGuiFont, y, clientWidth,
+                       loc(L"sett_priv_override_lbl", L"Allow override:"),
+                       IDC_SETT_PRIV_OVERRIDES, overrideItems, s_privOverrides);
+    }
+
     // Minimum OS version combo
     {
         std::vector<std::wstring> osItems = {
@@ -480,6 +498,17 @@ int SETT_BuildPage(HWND hwnd, HINSTANCE hInst,
         y = LabelCombo(hwnd, hInst, hGuiFont, y, clientWidth,
                        loc(L"sett_min_os_lbl", L"Minimum OS:"),
                        IDC_SETT_MIN_OS, osItems, s_minOsVersion);
+    }
+
+    // Wizard style combo
+    {
+        std::vector<std::wstring> styleItems = {
+            loc(L"sett_wizard_modern",  L"Modern (Inno 6 sidebar bitmap)"),
+            loc(L"sett_wizard_classic", L"Classic (top banner, Inno 5 style)"),
+        };
+        y = LabelCombo(hwnd, hInst, hGuiFont, y, clientWidth,
+                       loc(L"sett_wizard_style_lbl", L"Wizard style:"),
+                       IDC_SETT_WIZARD_STYLE, styleItems, s_wizardStyle);
     }
 
     // Default dir base combo + custom Inno constant edit (inline, same row)
@@ -673,6 +702,18 @@ bool SETT_OnCommand(HWND hwnd, int wmId, int wmEvent, HWND /*hCtrl*/)
         MainWindow::MarkAsModified();
         return true;
     }
+    if (wmId == IDC_SETT_PRIV_OVERRIDES && wmEvent == CBN_SELCHANGE) {
+        int sel = (int)SendDlgItemMessageW(hwnd, IDC_SETT_PRIV_OVERRIDES, CB_GETCURSEL, 0, 0);
+        if (sel >= 0) s_privOverrides = sel;
+        MainWindow::MarkAsModified();
+        return true;
+    }
+    if (wmId == IDC_SETT_WIZARD_STYLE && wmEvent == CBN_SELCHANGE) {
+        int sel = (int)SendDlgItemMessageW(hwnd, IDC_SETT_WIZARD_STYLE, CB_GETCURSEL, 0, 0);
+        if (sel >= 0) s_wizardStyle = sel;
+        MainWindow::MarkAsModified();
+        return true;
+    }
     if (wmId == IDC_SETT_MIN_OS && wmEvent == CBN_SELCHANGE) {
         int sel = (int)SendDlgItemMessageW(hwnd, IDC_SETT_MIN_OS, CB_GETCURSEL, 0, 0);
         if (sel >= 0) s_minOsVersion = sel;
@@ -732,6 +773,8 @@ void SETT_SaveToDb(int projectId)
     DB::SetSetting(K(L"compression_level"), std::to_wstring(s_compressionLevel));
     DB::SetSetting(K(L"solid"),             s_solidCompression ? L"1" : L"0");
     DB::SetSetting(K(L"uac_level"),         std::to_wstring(s_uacLevel));
+    DB::SetSetting(K(L"priv_overrides"),     std::to_wstring(s_privOverrides));
+    DB::SetSetting(K(L"wizard_style"),        std::to_wstring(s_wizardStyle));
     DB::SetSetting(K(L"min_os"),            std::to_wstring(s_minOsVersion));
     DB::SetSetting(K(L"allow_uninstall"),   s_allowUninstall ? L"1" : L"0");
     DB::SetSetting(K(L"close_apps"),        s_closeApps ? L"1" : L"0");
@@ -763,6 +806,8 @@ void SETT_LoadFromDb(int projectId)
     if (DB::GetSetting(K(L"compression_level"), val)) s_compressionLevel = _wtoi(val.c_str());
     if (DB::GetSetting(K(L"solid"),             val)) s_solidCompression = (val == L"1");
     if (DB::GetSetting(K(L"uac_level"),         val)) s_uacLevel         = _wtoi(val.c_str());
+    if (DB::GetSetting(K(L"priv_overrides"),     val)) s_privOverrides    = _wtoi(val.c_str());
+    if (DB::GetSetting(K(L"wizard_style"),        val)) s_wizardStyle      = _wtoi(val.c_str());
     if (DB::GetSetting(K(L"min_os"),            val)) s_minOsVersion     = _wtoi(val.c_str());
     if (DB::GetSetting(K(L"allow_uninstall"),   val)) s_allowUninstall   = (val != L"0");
     if (DB::GetSetting(K(L"close_apps"),        val)) s_closeApps        = (val == L"1");
@@ -826,6 +871,8 @@ SBuildConfig SETT_GetBuildConfig()
     cfg.compressionLevel  = s_compressionLevel;
     cfg.solidCompression  = s_solidCompression;
     cfg.uacLevel          = s_uacLevel;
+    cfg.privOverridesAllowed = s_privOverrides;
+    cfg.wizardStyle          = s_wizardStyle;
     cfg.minOsVersion      = s_minOsVersion;
     cfg.allowUninstall    = s_allowUninstall;
     cfg.closeApps         = s_closeApps;

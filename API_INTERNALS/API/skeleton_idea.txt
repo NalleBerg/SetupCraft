@@ -72,7 +72,13 @@
                               All [Setup] fields are {#Token} placeholders
                               (AppPublisher, AppPublisherURL, AppSupportURL,
                               AppId, OutputDir, Compression, SolidCompression,
-                              PrivilegesRequired, Uninstallable,
+                              PrivilegesRequired,
+                              PrivilegesRequiredOverridesAllowed (none/
+                              commandline/dialog — dialog enables the
+                              For Me/All Users wizard page),
+                              WizardStyle (modern/classic — classic default
+                              for enterprise compatibility),
+                              Uninstallable,
                               CloseApplications).  [Languages] body replaced
                               with "; <<LANGUAGES>>" marker expanded by the
                               generator — never hardcoded.
