@@ -1,6 +1,12 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 06 May 2026 &mdash; v2026.05.06.08 (08:57)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 06 May 2026 &mdash; v2026.05.06.09 (09:00)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.05.06.09</span></h3>
+<p><strong>settings / issgen &mdash; DisableProgramGroupPage toggle (06.05.2026, 09:00):</strong></p>
+<ul>
+<li><strong>settings &mdash; <code>DisableProgramGroupPage</code> checkbox (<code>IDC_SETT_DISABLE_PROG_GROUP_PAGE = 8071</code>):</strong> New <em>Hide &ldquo;Select Start Menu folder&rdquo; wizard page</em> checkbox in the Installation section, immediately below the <em>Hide &ldquo;Where to install?&rdquo;</em> checkbox. When ticked, the Inno wizard skips the Start Menu group selection page entirely &mdash; the shortcut group is always created under <code>DefaultGroupName</code> with no prompt shown to the user. Useful for apps that should always use a fixed Start Menu folder (kiosk software, system utilities, enterprise deployments). Persisted per-project as <code>disable_prog_group_page</code>. Emitted as <code>DisableProgramGroupPage=yes/no</code> via the <code>{#DisableProgramGroupPage}</code> token. Both <code>inno/template.iss</code> copies updated. <code>SBuildConfig</code> gains <code>disableProgramGroupPage</code> field.</li>
+</ul>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.05.06.08</span></h3>
 <p><strong>settings / issgen &mdash; DisableDirPage toggle (06.05.2026, 08:57):</strong></p>

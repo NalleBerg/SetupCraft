@@ -133,6 +133,7 @@
                                                 WizardStyle (modern/classic),
                                                 Uninstallable,
                                                 CloseApplications, DisableDirPage,
+                                                DisableProgramGroupPage,
                                                 MinVersion, ExeName,
                                                 SourceDir.
                                                 VersionInfo* tokens (installer .exe

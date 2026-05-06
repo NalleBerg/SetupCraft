@@ -80,7 +80,9 @@
                               for enterprise compatibility),
                               Uninstallable,
                               CloseApplications,
-                              DisableDirPage (hide "Where to install?" page)).
+                              DisableDirPage (hide "Where to install?" page),
+                              DisableProgramGroupPage (hide "Select Start
+                              Menu folder" page)).
                               [Languages] body replaced
                               with "; <<LANGUAGES>>" marker expanded by the
                               generator — never hardcoded.

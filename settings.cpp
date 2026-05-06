@@ -54,8 +54,9 @@ static std::wstring s_signDescription;
 static HWND         s_hSignControls[20] = {};   // dependent controls (enabled/disabled by checkbox)
 
 // ── Installation wizard-page toggles ───────────────────────────────────────────
-static bool         s_disableDirPage   = false;
-static bool         s_allowUninstall   = true;
+static bool         s_disableDirPage          = false;
+static bool         s_disableProgramGroupPage = false;
+static bool         s_allowUninstall          = true;
 static bool         s_closeApps        = false;
 static int          s_installBase        = 0;    // 0={pf} 1={pf64} 2={pf32} 3={localappdata} 4={commonappdata} 5={userdocs} 6=Custom
 static std::wstring s_installBaseCustom;          // used when s_installBase == 6
@@ -231,7 +232,8 @@ void SETT_Reset()
     s_signTimestampUrl  = L"http://timestamp.digicert.com";
     s_signTimestampAlgo = 1;
     s_signDescription  = L"";
-    s_disableDirPage   = false;
+    s_disableDirPage          = false;
+    s_disableProgramGroupPage = false;
     memset(s_hSignControls, 0, sizeof(s_hSignControls));
     s_allowUninstall   = true;
     s_closeApps        = false;
@@ -594,6 +596,12 @@ int SETT_BuildPage(HWND hwnd, HINSTANCE hInst,
                           L"Hide \"Where to install?\" wizard page (fixed location)"),
                       IDC_SETT_DISABLE_DIR_PAGE, s_disableDirPage);
 
+    // Disable "Select Start Menu Folder" page
+    y = FieldCheckbox(hwnd, hInst, hGuiFont, y, clientWidth,
+                      loc(L"sett_disable_prog_group_page_lbl",
+                          L"Hide \"Select Start Menu folder\" wizard page"),
+                      IDC_SETT_DISABLE_PROG_GROUP_PAGE, s_disableProgramGroupPage);
+
     // ════════════════════════════════════════════════════════════════════════
     // Section 4: Installer Languages
     // ╚══════════════════════════════════════════════════════════════════════
@@ -937,6 +945,12 @@ bool SETT_OnCommand(HWND hwnd, int wmId, int wmEvent, HWND /*hCtrl*/)
         MainWindow::MarkAsModified();
         return true;
     }
+    if (wmId == IDC_SETT_DISABLE_PROG_GROUP_PAGE && wmEvent == BN_CLICKED) {
+        s_disableProgramGroupPage =
+            (SendDlgItemMessageW(hwnd, IDC_SETT_DISABLE_PROG_GROUP_PAGE, BM_GETCHECK, 0, 0) == BST_CHECKED);
+        MainWindow::MarkAsModified();
+        return true;
+    }
     // ── Code signing ──────────────────────────────────────────────────────────────────── ──────────────────────────────────────────────────────
     if (wmId == IDC_SETT_SIGN_ENABLE && wmEvent == BN_CLICKED) {
         s_signEnabled =
@@ -1046,7 +1060,8 @@ void SETT_SaveToDb(int projectId)
     DB::SetSetting(K(L"min_os"),            std::to_wstring(s_minOsVersion));
     DB::SetSetting(K(L"allow_uninstall"),   s_allowUninstall ? L"1" : L"0");
     DB::SetSetting(K(L"close_apps"),        s_closeApps ? L"1" : L"0");
-    DB::SetSetting(K(L"disable_dir_page"),  s_disableDirPage ? L"1" : L"0");
+    DB::SetSetting(K(L"disable_dir_page"),       s_disableDirPage ? L"1" : L"0");
+    DB::SetSetting(K(L"disable_prog_group_page"), s_disableProgramGroupPage ? L"1" : L"0");
     DB::SetSetting(K(L"sign_enabled"),      s_signEnabled ? L"1" : L"0");
     DB::SetSetting(K(L"sign_tool_path"),    s_signtoolPath);
     DB::SetSetting(K(L"sign_thumbprint"),   s_signThumbprint);
@@ -1088,7 +1103,8 @@ void SETT_LoadFromDb(int projectId)
     if (DB::GetSetting(K(L"min_os"),            val)) s_minOsVersion     = _wtoi(val.c_str());
     if (DB::GetSetting(K(L"allow_uninstall"),   val)) s_allowUninstall   = (val != L"0");
     if (DB::GetSetting(K(L"close_apps"),        val)) s_closeApps        = (val == L"1");
-    if (DB::GetSetting(K(L"disable_dir_page"),  val)) s_disableDirPage   = (val == L"1");
+    if (DB::GetSetting(K(L"disable_dir_page"),       val)) s_disableDirPage          = (val == L"1");
+    if (DB::GetSetting(K(L"disable_prog_group_page"), val)) s_disableProgramGroupPage = (val == L"1");
     if (DB::GetSetting(K(L"sign_enabled"),      val)) s_signEnabled      = (val == L"1");
     if (DB::GetSetting(K(L"sign_tool_path"),    val)) s_signtoolPath     = val;
     if (DB::GetSetting(K(L"sign_thumbprint"),   val)) s_signThumbprint   = val;
@@ -1162,7 +1178,8 @@ SBuildConfig SETT_GetBuildConfig()
     cfg.minOsVersion      = s_minOsVersion;
     cfg.allowUninstall    = s_allowUninstall;
     cfg.closeApps         = s_closeApps;
-    cfg.disableDirPage    = s_disableDirPage;
+    cfg.disableDirPage           = s_disableDirPage;
+    cfg.disableProgramGroupPage  = s_disableProgramGroupPage;
     cfg.signEnabled         = s_signEnabled;
     cfg.signtoolPath        = s_signtoolPath;
     cfg.signThumbprint      = s_signThumbprint;

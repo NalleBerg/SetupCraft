@@ -18,6 +18,7 @@ WizardStyle={#WizardStyle}
 Uninstallable={#Uninstallable}
 CloseApplications={#CloseApplications}
 DisableDirPage={#DisableDirPage}
+DisableProgramGroupPage={#DisableProgramGroupPage}
 VersionInfoVersion={#VersionInfoVersion}
 VersionInfoTextVersion={#VersionInfoTextVersion}
 VersionInfoDescription={#VersionInfoDescription}

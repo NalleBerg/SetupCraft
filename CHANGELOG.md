@@ -2,6 +2,11 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.05.06.09] - 2026-05-06
+
+### settings / issgen — DisableProgramGroupPage toggle (09:00)
+- **settings — `DisableProgramGroupPage` checkbox (`IDC_SETT_DISABLE_PROG_GROUP_PAGE = 8071`)**: New *Hide "Select Start Menu folder" wizard page* checkbox in the Installation section, below the DisableDirPage checkbox. When ticked, the Inno wizard skips the Start Menu group selection page — shortcut always placed under `DefaultGroupName` without prompting. Useful for kiosk/enterprise deployments. Persisted as `disable_prog_group_page`. Emitted as `DisableProgramGroupPage=yes/no` via `{#DisableProgramGroupPage}` token. Both `template.iss` copies updated. `SBuildConfig` gains `disableProgramGroupPage`.
+
 ## [2026.05.06.08] - 2026-05-06
 
 ### settings / issgen — DisableDirPage toggle (08:57)
