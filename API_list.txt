@@ -197,6 +197,14 @@
                                                 empty → evaluates to {app} so the directive
                                                 is always present; populated from
                                                 cfg.uninstallFilesDir).
+                                                LanguageDetectionMethod (uilanguage/locale/
+                                                none — how Inno auto-selects the default
+                                                language; LangDetectionMethodStr() helper;
+                                                default uilanguage).
+                                                ShowLanguageDialog (auto/yes/no — whether
+                                                the pre-wizard language picker dialog is
+                                                shown; ShowLanguageDialogStr() helper;
+                                                default auto).
                                                 EscapePascalString() helper doubles single
                                                 quotes for Pascal string literals.
                                                 Proc markers: "; <<SETUP_LOG_PROC>>"

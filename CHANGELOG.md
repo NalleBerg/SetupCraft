@@ -13,6 +13,11 @@ All notable changes to SetupCraft will be documented in this file.
 - **vfs_picker — `VfsPickerResult.virtualFolderPath`**: New field carrying the Inno-constant path of the containing folder of a picked file (e.g. picking `uninst.exe` from `{app}` yields `virtualFolderPath = L"{app}"`). For folder picks, `virtualFolderPath` equals `sourcePath`. Resolved from the selected tree node at OK-click time using the same `virtualPath` → Inno constant mapping.
 - **locale — 2 new keys in `en_GB.txt`** (both copies): `sett_uninstall_files_dir_lbl`, `sett_uninstall_files_dir_picker_title`.
 
+### settings / issgen — LanguageDetectionMethod + ShowLanguageDialog
+- **settings — two new combos in the Installer Languages section (`IDC_SETT_LANG_DETECTION = 8086`, `IDC_SETT_SHOW_LANG_DLG = 8087`)**: *Language detection:* combo controls how Inno guesses the default language at installer startup — *Windows display language* (`uilanguage`, Inno default), *Windows region* (`locale`), or *None* (skip auto-detection). *Show language picker:* combo controls whether the pre-wizard picker dialog appears — *Auto (if no match found)* (`auto`, Inno default), *Always* (`yes`), or *Never* (`no`). Both combos appear below the language checkbox grid in the existing Languages section. Persisted per-project via DB keys `lang_detection_method` (0/1/2) and `show_lang_dlg` (0/1/2). `SBuildConfig` gains `langDetectionMethod` and `showLanguageDialog` int fields.
+- **issgen — `LanguageDetectionMethod` and `ShowLanguageDialog` tokens**: Two new helper functions `LangDetectionMethodStr()` and `ShowLanguageDialogStr()` map int values to Inno directive strings. Both tokens emitted in `[Setup]` in both `template.iss` copies. Default values (`uilanguage` / `auto`) match Inno's own defaults so existing installers are unaffected.
+- **locale — 8 new keys in `en_GB.txt`** (both copies): `sett_lang_detection_lbl`, `sett_lang_detection_uilanguage`, `sett_lang_detection_locale`, `sett_lang_detection_none`, `sett_show_lang_dlg_lbl`, `sett_show_lang_dlg_auto`, `sett_show_lang_dlg_yes`, `sett_show_lang_dlg_no`. Hint text `sett_languages_hint` simplified to remove the hard-coded claim about picker behaviour (now user-configurable).
+
 ## [2026.05.06.14] - 2026-05-06
 
 ### settings / issgen — PATH folders multi-entry VFS picker (replaces AddToPath checkbox)

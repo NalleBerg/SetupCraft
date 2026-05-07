@@ -83,6 +83,10 @@ static std::wstring s_setupLogFilename;
 static int          s_setupLogMode      = 0;     // 0=overwrite 1=append
 static HWND         s_hLogControls[8]   = {};    // dependent controls (enabled/disabled by checkbox)
 
+// ── Installer language settings ───────────────────────────────────────────────
+static int          s_langDetectionMethod = 0;   // 0=uilanguage 1=locale 2=none
+static int          s_showLanguageDialog  = 0;   // 0=auto 1=yes 2=no
+
 // ── Installer language table ─────────────────────────────────────────────────
 // Contains every .isl file bundled with Inno Setup 6 standard installation.
 // Russian is intentionally excluded.
@@ -288,6 +292,8 @@ void SETT_Reset()
     s_setupLogFilename   = L"";
     s_setupLogMode       = 0;
     memset(s_hLogControls, 0, sizeof(s_hLogControls));
+    s_langDetectionMethod = 0;
+    s_showLanguageDialog  = 0;
     s_installerLangs.assign(kLangCount, false);
     s_installerLangs[0] = true;  // English always included
     s_scrollOffset     = 0;
@@ -785,6 +791,30 @@ int SETT_BuildPage(HWND hwnd, HINSTANCE hInst,
         }
         int numRows = (nLangs + 2) / 3;
         y += numRows * chkStep + S(10);
+    }
+
+    // Language detection method
+    {
+        std::initializer_list<std::wstring> ldItems = {
+            loc(L"sett_lang_detection_uilanguage", L"Windows display language (uilanguage)"),
+            loc(L"sett_lang_detection_locale",     L"Windows region (locale)"),
+            loc(L"sett_lang_detection_none",       L"None"),
+        };
+        y = LabelCombo(hwnd, hInst, hGuiFont, y, clientWidth,
+                       loc(L"sett_lang_detection_lbl", L"Language detection:"),
+                       IDC_SETT_LANG_DETECTION, ldItems, s_langDetectionMethod);
+    }
+
+    // Show language picker dialog
+    {
+        std::initializer_list<std::wstring> sldItems = {
+            loc(L"sett_show_lang_dlg_auto", L"Auto (if no match found)"),
+            loc(L"sett_show_lang_dlg_yes",  L"Always"),
+            loc(L"sett_show_lang_dlg_no",   L"Never"),
+        };
+        y = LabelCombo(hwnd, hInst, hGuiFont, y, clientWidth,
+                       loc(L"sett_show_lang_dlg_lbl", L"Show language picker:"),
+                       IDC_SETT_SHOW_LANG_DLG, sldItems, s_showLanguageDialog);
     }
 
     // ╔══════════════════════════════════════════════════════════════════════
@@ -1366,6 +1396,18 @@ bool SETT_OnCommand(HWND hwnd, int wmId, int wmEvent, HWND /*hCtrl*/)
         MainWindow::MarkAsModified();
         return true;
     }
+    if (wmId == IDC_SETT_LANG_DETECTION && wmEvent == CBN_SELCHANGE) {
+        int sel = (int)SendDlgItemMessageW(hwnd, IDC_SETT_LANG_DETECTION, CB_GETCURSEL, 0, 0);
+        if (sel >= 0) s_langDetectionMethod = sel;
+        MainWindow::MarkAsModified();
+        return true;
+    }
+    if (wmId == IDC_SETT_SHOW_LANG_DLG && wmEvent == CBN_SELCHANGE) {
+        int sel = (int)SendDlgItemMessageW(hwnd, IDC_SETT_SHOW_LANG_DLG, CB_GETCURSEL, 0, 0);
+        if (sel >= 0) s_showLanguageDialog = sel;
+        MainWindow::MarkAsModified();
+        return true;
+    }
     // ── Setup Log ─────────────────────────────────────────────────────────────────────────────────
     if (wmId == IDC_SETT_SETUP_LOG_ENABLE && wmEvent == BN_CLICKED) {
         s_setupLogging =
@@ -1560,6 +1602,8 @@ void SETT_SaveToDb(int projectId)
         }
         DB::SetSetting(K(L"installer_langs"), langs);
     }
+    DB::SetSetting(K(L"lang_detection_method"), std::to_wstring(s_langDetectionMethod));
+    DB::SetSetting(K(L"show_lang_dlg"),         std::to_wstring(s_showLanguageDialog));
 }
 
 // ── SETT_LoadFromDb ───────────────────────────────────────────────────────────
@@ -1639,6 +1683,8 @@ void SETT_LoadFromDb(int projectId)
             for (int i = 1; i < kLangCount; i++)
                 if (tok == kInnoLangs[i].isl) { s_installerLangs[i] = true; break; }
     }
+    if (DB::GetSetting(K(L"lang_detection_method"), val)) s_langDetectionMethod = _wtoi(val.c_str());
+    if (DB::GetSetting(K(L"show_lang_dlg"),         val)) s_showLanguageDialog   = _wtoi(val.c_str());
 }
 
 // ── SETT_GetInstallBasePath ───────────────────────────────────────────────────
@@ -1704,5 +1750,7 @@ SBuildConfig SETT_GetBuildConfig()
     cfg.setupLogFolder      = s_setupLogFolder;
     cfg.setupLogFilename    = s_setupLogFilename;
     cfg.setupLogMode        = s_setupLogMode;
+    cfg.langDetectionMethod = s_langDetectionMethod;
+    cfg.showLanguageDialog  = s_showLanguageDialog;
     return cfg;
 }

@@ -93,6 +93,8 @@ struct InnoLangEntry { std::wstring isl; bool local; };
 #define IDC_SETT_UNINSTALL_DISPLAY_NAME 8080  // Edit: override name in Add/Remove Programs
 #define IDC_SETT_UNINSTALL_FILES_DIR    8084  // Edit: UninstallFilesDir (empty = {app})
 #define IDC_SETT_UNINSTALL_FILES_DIR_BTN 8085  // Button: VFS folder picker for UninstallFilesDir
+#define IDC_SETT_LANG_DETECTION         8086  // Combo: LanguageDetectionMethod (uilanguage/locale/none)
+#define IDC_SETT_SHOW_LANG_DLG          8087  // Combo: ShowLanguageDialog (auto/yes/no)
 
 // ── Setup Log section ────────────────────────────────────────────────────────
 #define IDC_SETT_SETUP_LOG_ENABLE      8075   // Custom checkbox: enable setup log
@@ -213,6 +215,9 @@ struct SBuildConfig {
     bool changesAssociations = false; // ChangesAssociations — auto-derived from FA page rows
     std::wstring uninstallDisplayName;  // UninstallDisplayName override (empty = use AppName)
     std::wstring uninstallFilesDir;     // UninstallFilesDir override (empty = {app})
+    // Language detection
+    int  langDetectionMethod = 0;   // 0=uilanguage  1=locale  2=none
+    int  showLanguageDialog  = 0;   // 0=auto  1=yes  2=no
     // Setup log
     bool setupLogging       = false;  // SetupLogging=yes/no
     std::wstring setupLogFolder;      // destination folder (empty = %TEMP% only)

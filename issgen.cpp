@@ -131,6 +131,26 @@ static const wchar_t* DirExistsWarningStr(int val)
     }
 }
 
+// Map langDetectionMethod index to the Inno LanguageDetectionMethod= string.
+static const wchar_t* LangDetectionMethodStr(int val)
+{
+    switch (val) {
+        case 1:  return L"locale";
+        case 2:  return L"none";
+        default: return L"uilanguage";
+    }
+}
+
+// Map showLanguageDialog index to the Inno ShowLanguageDialog= string.
+static const wchar_t* ShowLanguageDialogStr(int val)
+{
+    switch (val) {
+        case 1:  return L"yes";
+        case 2:  return L"no";
+        default: return L"auto";
+    }
+}
+
 // Map minOsVersion index to the Inno MinVersion= string.
 // Returns L"" for "no minimum" (index 0).
 static const wchar_t* MinVersionStr(int ver)
@@ -362,6 +382,8 @@ std::wstring ISS_GenerateIss(
         { L"SetupMutex",               setupMutex                                                 },
         { L"UninstallDisplayName",     cfg.uninstallDisplayName.empty() ? proj.name : cfg.uninstallDisplayName },
         { L"UninstallFilesDir",        cfg.uninstallFilesDir.empty() ? L"{app}" : cfg.uninstallFilesDir },
+        { L"LanguageDetectionMethod",  LangDetectionMethodStr(cfg.langDetectionMethod) },
+        { L"ShowLanguageDialog",       ShowLanguageDialogStr(cfg.showLanguageDialog)    },
     };
 
     // ── Substitute {#Token} placeholders ─────────────────────────────────────

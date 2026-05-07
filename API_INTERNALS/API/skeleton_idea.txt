@@ -137,6 +137,12 @@
                               inside DeinitializeSetup calls the proc; both
                               expand to empty string when no log path is
                               configured)).
+                              LanguageDetectionMethod (uilanguage/locale/none
+                              — how Inno auto-selects the default language;
+                              default uilanguage).
+                              ShowLanguageDialog (auto/yes/no — whether
+                              the pre-wizard language picker is shown;
+                              default auto).
                               [Languages] body replaced
                               with "; <<LANGUAGES>>" marker expanded by the
                               generator — never hardcoded.
