@@ -414,6 +414,31 @@ static LRESULT CALLBACK VfspDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
 
             // Collect file selections from the listview (if shown)
             if (hList) {
+                // Pre-compute the selected folder's Inno path once, shared by all file results
+                std::wstring folderPath;
+                if (hTree) {
+                    HTREEITEM hSel = TreeView_GetSelection(hTree);
+                    if (hSel) {
+                        TVITEMW tvi2 = {}; tvi2.hItem = hSel; tvi2.mask = TVIF_PARAM;
+                        TreeView_GetItem(hTree, &tvi2);
+                        const TreeNodeSnapshot* snap2 = (const TreeNodeSnapshot*)tvi2.lParam;
+                        if (snap2) {
+                            folderPath = snap2->fullPath;
+                            if (folderPath.empty() && !snap2->virtualPath.empty()) {
+                                const std::wstring& vp = snap2->virtualPath;
+                                if      (vp.size() > 13 && vp.substr(0,13) == L"Program Files")    folderPath = L"{pf}"             + vp.substr(13);
+                                else if (vp.size() > 11 && vp.substr(0,11) == L"ProgramData")      folderPath = L"{commonappdata}" + vp.substr(11);
+                                else if (vp.size() > 18 && vp.substr(0,18) == L"AppData (Roaming)") folderPath = L"{userappdata}"  + vp.substr(18);
+                                else if (vp.size() > 12 && vp.substr(0,12) == L"AskAtInstall")     folderPath = L"{app}"            + vp.substr(12);
+                                else if (vp == L"Program Files")    folderPath = L"{pf}";
+                                else if (vp == L"ProgramData")      folderPath = L"{commonappdata}";
+                                else if (vp == L"AppData (Roaming)") folderPath = L"{userappdata}";
+                                else if (vp == L"AskAtInstall")     folderPath = L"{app}";
+                                else                                 folderPath = vp;
+                            }
+                        }
+                    }
+                }
                 int lvSel = -1;
                 while ((lvSel = ListView_GetNextItem(hList, lvSel, LVNI_SELECTED)) != -1) {
                     LVITEMW lvi = {}; lvi.mask = LVIF_PARAM; lvi.iItem = lvSel;
@@ -421,11 +446,12 @@ static LRESULT CALLBACK VfspDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                     const VirtualFolderFile* vf = (const VirtualFolderFile*)lvi.lParam;
                     if (!vf) continue;
                     std::wstring fname = vf->sourcePath;
-                    size_t sep = fname.find_last_of(L"\\/");
+                    size_t sep = fname.find_last_of(L"\\/ ");
                     if (sep != std::wstring::npos) fname = fname.substr(sep + 1);
                     VfsPickerResult r;
-                    r.sourcePath  = vf->sourcePath;
-                    r.displayName = fname;
+                    r.sourcePath        = vf->sourcePath;
+                    r.displayName       = fname;
+                    r.virtualFolderPath = folderPath;
                     pS->results->push_back(r);
                 }
             }
@@ -461,8 +487,9 @@ static LRESULT CALLBACK VfspDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                         }
                         if (!path.empty()) {
                             VfsPickerResult r;
-                            r.sourcePath  = path;
-                            r.displayName = buf;
+                            r.sourcePath        = path;
+                            r.virtualFolderPath = path;
+                            r.displayName       = buf;
                             pS->results->push_back(r);
                         }
                     }

@@ -71,6 +71,7 @@ static std::wstring s_pathTooltipText;                   // tooltip text buffer 
 static HWND         s_hSettingsPage    = NULL;           // settings page HWND (set in BuildPage)
 static bool         s_changesEnvironment = false;
 static std::wstring s_uninstallDisplayName;   // empty = use AppName (Inno default)
+static std::wstring s_uninstallFilesDir;      // empty = use {app} (Inno default)
 static int          s_installBase        = 0;    // 0={pf} 1={pf64} 2={pf32} 3={localappdata} 4={commonappdata} 5={userdocs} 6=Custom
 static std::wstring s_installBaseCustom;          // used when s_installBase == 6
 static HWND         s_hInstallBaseCustomEdit = NULL;
@@ -279,6 +280,7 @@ void SETT_Reset()
     s_pathFolders.clear();
     s_changesEnvironment = false;
     s_uninstallDisplayName = L"";
+    s_uninstallFilesDir    = L"";
     s_installBase        = 0;
     s_installBaseCustom  = L"";
     s_setupLogging       = false;
@@ -880,6 +882,32 @@ int SETT_BuildPage(HWND hwnd, HINSTANCE hInst,
                       L"Uninstall display name:"),
                   IDC_SETT_UNINSTALL_DISPLAY_NAME, s_uninstallDisplayName);
 
+    // UninstallFilesDir override — edit + VFS folder picker button
+    {
+        const int fldX = S(kPadH) + S(kLblW) + S(kLblGap);
+        const int btnW = S(28);
+        const int fldW = clientWidth - fldX - S(kPadH) - btnW - S(6);
+
+        HWND hL = CreateWindowExW(0, L"STATIC",
+            loc(L"sett_uninstall_files_dir_lbl", L"Uninstaller location:").c_str(),
+            WS_CHILD | WS_VISIBLE | SS_RIGHT | SS_CENTERIMAGE,
+            S(kPadH), y, S(kLblW), S(kRowH),
+            hwnd, NULL, hInst, NULL);
+        if (hGuiFont) SendMessageW(hL, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+
+        HWND hE = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", s_uninstallFilesDir.c_str(),
+            WS_CHILD | WS_VISIBLE | ES_LEFT | ES_AUTOHSCROLL,
+            fldX, y, fldW, S(kRowH),
+            hwnd, (HMENU)(UINT_PTR)IDC_SETT_UNINSTALL_FILES_DIR, hInst, NULL);
+        if (hGuiFont) SendMessageW(hE, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+
+        CreateCustomButtonWithIcon(hwnd, IDC_SETT_UNINSTALL_FILES_DIR_BTN, L"",
+            ButtonColor::Blue, L"shell32.dll", 4,
+            fldX + fldW + S(6), y, btnW, S(kRowH), hInst);
+
+        y += S(kRowStep);
+    }
+
     y += S(20);   // bottom padding
 
     // ════════════════════════════════════════════════════════════════════════
@@ -1234,6 +1262,37 @@ bool SETT_OnCommand(HWND hwnd, int wmId, int wmEvent, HWND /*hCtrl*/)
         MainWindow::MarkAsModified();
         return true;
     }
+    if (wmId == IDC_SETT_UNINSTALL_FILES_DIR && wmEvent == EN_CHANGE) {
+        wchar_t buf[512] = {};
+        GetDlgItemTextW(hwnd, IDC_SETT_UNINSTALL_FILES_DIR, buf, 512);
+        s_uninstallFilesDir = buf;
+        MainWindow::MarkAsModified();
+        return true;
+    }
+    if (wmId == IDC_SETT_UNINSTALL_FILES_DIR_BTN && wmEvent == BN_CLICKED) {
+        VfsPickerParams p;
+        p.title           = loc(L"sett_uninstall_files_dir_picker_title", L"Select uninstaller folder");
+        p.okText          = loc(L"scdlg_ok",                             L"OK");
+        p.cancelText      = loc(L"scdlg_cancel",                          L"Cancel");
+        p.foldersLabel    = loc(L"vfspicker_folders_label",               L"Folders");
+        p.noSelMessage    = loc(L"vfspicker_folder_no_sel",
+            L"Please select a folder from the left pane.");
+        p.rootLabel_ProgramFiles  = loc(L"vfspicker_root_program_files", L"Program Files");
+        p.rootLabel_ProgramData   = loc(L"vfspicker_root_program_data",  L"ProgramData");
+        p.rootLabel_AppData       = loc(L"vfspicker_root_appdata",       L"AppData (Roaming)");
+        p.rootLabel_AskAtInstall  = loc(L"vfspicker_root_ask_install",   L"Ask at install");
+        p.singleSelect    = true;
+        p.showFilePane    = true;
+        p.fileFilter      = VfsPicker_IsExecutable;
+        p.allowFolderPick = true;
+        std::vector<VfsPickerResult> picks;
+        if (s_pLocale && ShowVfsPicker(hwnd, s_hInst, p, *s_pLocale, picks)) {
+            s_uninstallFilesDir = picks[0].virtualFolderPath;
+            SetDlgItemTextW(hwnd, IDC_SETT_UNINSTALL_FILES_DIR, s_uninstallFilesDir.c_str());
+            MainWindow::MarkAsModified();
+        }
+        return true;
+    }
     if (wmId == IDC_SETT_CLOSE_APPS && wmEvent == BN_CLICKED) {
         s_closeApps =
             (SendDlgItemMessageW(hwnd, IDC_SETT_CLOSE_APPS, BM_GETCHECK, 0, 0) == BST_CHECKED);
@@ -1461,6 +1520,7 @@ void SETT_SaveToDb(int projectId)
     DB::SetSetting(K(L"min_os"),            std::to_wstring(s_minOsVersion));
     DB::SetSetting(K(L"allow_uninstall"),   s_allowUninstall ? L"1" : L"0");
     DB::SetSetting(K(L"uninstall_display_name"), s_uninstallDisplayName);
+    DB::SetSetting(K(L"uninstall_files_dir"),    s_uninstallFilesDir);
     DB::SetSetting(K(L"close_apps"),        s_closeApps ? L"1" : L"0");
     {
         std::wstring joined;
@@ -1521,6 +1581,7 @@ void SETT_LoadFromDb(int projectId)
     if (DB::GetSetting(K(L"min_os"),            val)) s_minOsVersion     = _wtoi(val.c_str());
     if (DB::GetSetting(K(L"allow_uninstall"),   val)) s_allowUninstall   = (val != L"0");
     if (DB::GetSetting(K(L"uninstall_display_name"), val)) s_uninstallDisplayName = val;
+    if (DB::GetSetting(K(L"uninstall_files_dir"),    val)) s_uninstallFilesDir    = val;
     if (DB::GetSetting(K(L"close_apps"),        val)) s_closeApps        = (val == L"1");
     s_pathFolders.clear();
     if (DB::GetSetting(K(L"path_folders"), val) && !val.empty()) {
@@ -1621,6 +1682,7 @@ SBuildConfig SETT_GetBuildConfig()
     cfg.minOsVersion      = s_minOsVersion;
     cfg.allowUninstall    = s_allowUninstall;
     cfg.uninstallDisplayName = s_uninstallDisplayName;
+    cfg.uninstallFilesDir    = s_uninstallFilesDir;
     cfg.closeApps         = s_closeApps;
     cfg.pathFolders          = s_pathFolders;
     cfg.changesEnvironment   = s_changesEnvironment;

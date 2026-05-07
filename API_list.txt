@@ -89,7 +89,13 @@
                                                 ShowVfsPicker() entry point, VfsPickerParams config
                                                 struct (singleSelect, showFilePane, allowFolderPick,
                                                 fileFilter), VfsPicker_IsExecutable() predicate,
-                                                VfsPickerResult output, MainWindow::TreeSnapshot_*
+                                                VfsPickerResult output (sourcePath, displayName,
+                                                virtualFolderPath — Inno-constant path of the
+                                                containing folder; equals sourcePath for folder
+                                                picks; for file picks resolved from the selected
+                                                tree node using the same virtualPath → Inno
+                                                constant mapping),
+                                                MainWindow::TreeSnapshot_*
                                                 accessor wiring, locale keys, and usage examples for
                                                 both exe-picker and folder-picker modes.
                                                 Virtual folder support: when allowFolderPick=true and
@@ -182,6 +188,15 @@
                                                 SHA-1 (/t) or SHA-256 (/tr /td) timestamps.
                                                 SetupLogging (yes/no — enables Inno's
                                                 built-in setup log written by the installer).
+                                                UninstallDisplayName (overrides the entry
+                                                shown in Add/Remove Programs; empty →
+                                                evaluates to AppName so the directive is
+                                                always present but a no-op when blank).
+                                                UninstallFilesDir (Inno constant path for
+                                                where the uninstaller .exe is placed;
+                                                empty → evaluates to {app} so the directive
+                                                is always present; populated from
+                                                cfg.uninstallFilesDir).
                                                 EscapePascalString() helper doubles single
                                                 quotes for Pascal string literals.
                                                 Proc markers: "; <<SETUP_LOG_PROC>>"

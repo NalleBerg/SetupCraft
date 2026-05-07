@@ -89,8 +89,10 @@ struct InnoLangEntry { std::wstring isl; bool local; };
 #define IDC_SETT_USE_PREV_GROUP          8073   // Custom checkbox: UsePreviousGroup
 #define IDC_SETT_DIR_EXISTS_WARNING      8074   // Combo: DirExistsWarning (auto/yes/no)
 
-// ── Uninstall display name ─────────────────────────────────────────────────────
+// ── Uninstall display name / location ───────────────────────────────────────────
 #define IDC_SETT_UNINSTALL_DISPLAY_NAME 8080  // Edit: override name in Add/Remove Programs
+#define IDC_SETT_UNINSTALL_FILES_DIR    8084  // Edit: UninstallFilesDir (empty = {app})
+#define IDC_SETT_UNINSTALL_FILES_DIR_BTN 8085  // Button: VFS folder picker for UninstallFilesDir
 
 // ── Setup Log section ────────────────────────────────────────────────────────
 #define IDC_SETT_SETUP_LOG_ENABLE      8075   // Custom checkbox: enable setup log
@@ -210,6 +212,7 @@ struct SBuildConfig {
     bool changesEnvironment = false;  // ChangesEnvironment — broadcast WM_SETTINGCHANGE after install
     bool changesAssociations = false; // ChangesAssociations — auto-derived from FA page rows
     std::wstring uninstallDisplayName;  // UninstallDisplayName override (empty = use AppName)
+    std::wstring uninstallFilesDir;     // UninstallFilesDir override (empty = {app})
     // Setup log
     bool setupLogging       = false;  // SetupLogging=yes/no
     std::wstring setupLogFolder;      // destination folder (empty = %TEMP% only)

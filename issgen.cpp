@@ -361,6 +361,7 @@ std::wstring ISS_GenerateIss(
         { L"SignToolLine",             BuildSignToolLine(cfg)                                     },
         { L"SetupMutex",               setupMutex                                                 },
         { L"UninstallDisplayName",     cfg.uninstallDisplayName.empty() ? proj.name : cfg.uninstallDisplayName },
+        { L"UninstallFilesDir",        cfg.uninstallFilesDir.empty() ? L"{app}" : cfg.uninstallFilesDir },
     };
 
     // ── Substitute {#Token} placeholders ─────────────────────────────────────

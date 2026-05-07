@@ -17,6 +17,7 @@ PrivilegesRequiredOverridesAllowed={#PrivilegesRequiredOverridesAllowed}
 WizardStyle={#WizardStyle}
 Uninstallable={#Uninstallable}
 UninstallDisplayName={#UninstallDisplayName}
+UninstallFilesDir={#UninstallFilesDir}
 CloseApplications={#CloseApplications}
 ChangesEnvironment={#ChangesEnvironment}
 ChangesAssociations={#ChangesAssociations}

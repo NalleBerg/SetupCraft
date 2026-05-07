@@ -2,6 +2,17 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.05.07.09] - 2026-05-07
+
+### mainwindow — crash fix: SETT_TearDown moved before control-destroy loop
+- **mainwindow — `SETT_TearDown` called before `controlIds[]` loop**: The Settings PATH-display tooltip was created with `TTF_SUBCLASS | TTF_IDISHWND`, which makes the Win32 tooltip subclass `s_hPathDisplay`. Previously `SETT_TearDown` (which destroys the tooltip) ran *after* the `controlIds[]` loop that destroyed `s_hPathDisplay`. This left the subclass hook live on a destroyed HWND; if Windows recycled that HWND for a new control on the next page, the tooltip could restore the wrong WndProc, causing a random crash on the second visit to Settings. Fix: `SETT_TearDown` is now called immediately before the `controlIds[]` loop (alongside `DEP_TearDown` and `FA_TearDown`), while `s_hPathDisplay` is still alive.
+
+### settings / issgen — UninstallFilesDir picker
+- **settings — `UninstallFilesDir` edit + VFS picker button (`IDC_SETT_UNINSTALL_FILES_DIR = 8084`, `IDC_SETT_UNINSTALL_FILES_DIR_BTN = 8085`)**: New *Uninstaller location:* row in the Uninstall section, below *Uninstall display name*. Edit accepts any Inno constant path; leave blank for Inno's default (`{app}`). Blue folder button opens the VFS picker with `VfsPicker_IsExecutable` filter — the uninstaller `.exe` is visible in the right pane for identification; picking a file returns the parent folder's Inno constant path via the new `VfsPickerResult.virtualFolderPath`; picking a bare folder also works. Persisted per-project via DB key `uninstall_files_dir`. `SBuildConfig` gains `uninstallFilesDir`. `IDC_SETT_UNINSTALL_FILES_DIR_BTN` added to the `WM_DRAWITEM` guard.
+- **issgen — `UninstallFilesDir` token**: Emitted as `UninstallFilesDir={#UninstallFilesDir}` in both `template.iss` copies. Empty field evaluates to `{app}` (Inno's own default).
+- **vfs_picker — `VfsPickerResult.virtualFolderPath`**: New field carrying the Inno-constant path of the containing folder of a picked file (e.g. picking `uninst.exe` from `{app}` yields `virtualFolderPath = L"{app}"`). For folder picks, `virtualFolderPath` equals `sourcePath`. Resolved from the selected tree node at OK-click time using the same `virtualPath` → Inno constant mapping.
+- **locale — 2 new keys in `en_GB.txt`** (both copies): `sett_uninstall_files_dir_lbl`, `sett_uninstall_files_dir_picker_title`.
+
 ## [2026.05.06.14] - 2026-05-06
 
 ### settings / issgen — PATH folders multi-entry VFS picker (replaces AddToPath checkbox)

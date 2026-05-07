@@ -318,6 +318,21 @@
     This is identical to the pattern used for shell icon tooltips (WarningIcon,
     CompInfoIcon, RegenBtn) throughout SetupCraft.
 
+  - TTF_SUBCLASS teardown rule — CRITICAL:
+    When a tooltip is created with TTF_IDISHWND | TTF_SUBCLASS, Win32 subclasses
+    the target control HWND to intercept mouse messages.  The tooltip MUST be
+    destroyed (or have TTM_DELTOOL called) BEFORE its target control is destroyed.
+    If the control is destroyed first, the subclass hook remains live on the now-
+    dead HWND.  If Windows later reuses that HWND value for a new control, the
+    tooltip will restore the wrong WndProc on that new control — causing corruption
+    and random crashes.
+    Rule: In any teardown / page-switch sequence, call DestroyWindow(hTooltip) or
+    TTM_DELTOOL for every TTF_SUBCLASS tooltip BEFORE running the loop that calls
+    DestroyWindow on the subclassed target controls.
+    In SetupCraft: SETT_TearDown (which destroys s_hPathTooltip) must be called
+    before the controlIds[] destroy loop in SwitchPage, not after it.
+    (Bug found: crash on second Settings-page visit, v2026.05.07.09.)
+
   - Shared subclass proc for many dialog controls via window property (avTip pattern):
     When a dialog has many checkboxes/radios that each need their own tooltip text,
     use SetPropW to attach the tip string to each HWND and a single shared subclass

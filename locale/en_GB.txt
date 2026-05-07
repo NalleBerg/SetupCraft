@@ -712,6 +712,7 @@ sett_changes_env_lbl=Broadcast environment change (required when modifying PATH)
 sett_sec_uninstall=Uninstall
 sett_allow_uninstall_lbl=Allow users to uninstall this application
 sett_uninstall_display_name_lbl=Uninstall display name:
+sett_uninstall_files_dir_lbl=Uninstaller location:
 sett_sec_setup_log=Setup Log
 sett_setup_log_enable_lbl=Write setup log to file
 sett_setup_log_folder_lbl=Log folder:

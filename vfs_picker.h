@@ -24,8 +24,11 @@
 
 // ── Output record ─────────────────────────────────────────────────────────────
 struct VfsPickerResult {
-    std::wstring sourcePath;   // real disk path of the selected file or folder
-    std::wstring displayName;  // leaf name only (e.g. "setup.exe")
+    std::wstring sourcePath;        // real disk path of the selected file or folder
+    std::wstring displayName;       // leaf name only (e.g. "setup.exe")
+    std::wstring virtualFolderPath; // Inno-constant path of the containing folder
+                                    // (e.g. "{app}", "{commonappdata}\\MyApp")
+                                    // equals sourcePath for pure folder picks
 };
 
 // ── Configuration ─────────────────────────────────────────────────────────────

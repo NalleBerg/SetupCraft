@@ -1890,6 +1890,13 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
     DEP_TearDown(hwnd);
     // Same rule applies for the File Associations page ListView.
     FA_TearDown(hwnd);
+    // SETT_TearDown must run here, BEFORE the controlIds[] loop destroys
+    // IDC_SETT_PATH_DISPLAY.  The Settings PATH tooltip uses TTF_SUBCLASS
+    // (subclasses s_hPathDisplay); DestroyWindow(s_hPathTooltip) inside
+    // SETT_TearDown unsubclasses it cleanly while the window is still alive.
+    // If we waited until after the loop the HWND could already be recycled,
+    // corrupting whatever new control inherited that HWND value.
+    SETT_TearDown(hwnd);
 
     // Destroy all known control IDs from previous pages
     int controlIds[] = {
@@ -1909,7 +1916,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         IDC_SETT_SOLID, IDC_SETT_UAC_REQADMIN, IDC_SETT_UAC_INVOKER, IDC_SETT_UAC_HIGHEST, IDC_SETT_PRIV_OVERRIDES, IDC_SETT_WIZARD_STYLE, IDC_SETT_MIN_OS,
         IDC_SETT_ALLOW_UNINSTALL, IDC_SETT_CLOSE_APPS, IDC_SETT_CHANGES_ENV,
         IDC_SETT_PATH_ADD_BTN, IDC_SETT_PATH_REMOVE_BTN, IDC_SETT_PATH_DISPLAY,
-        IDC_SETT_UNINSTALL_DISPLAY_NAME,
+        IDC_SETT_UNINSTALL_DISPLAY_NAME, IDC_SETT_UNINSTALL_FILES_DIR, IDC_SETT_UNINSTALL_FILES_DIR_BTN,
         IDC_SETT_DISABLE_DIR_PAGE,
         IDC_SETT_DISABLE_PROG_GROUP_PAGE,
         IDC_SETT_USE_PREV_APP_DIR, IDC_SETT_USE_PREV_GROUP,
@@ -2029,7 +2036,6 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
     if (s_hMsbSett) { msb_detach(s_hMsbSett); s_hMsbSett = NULL; }
     IDLG_TearDown(hwnd);
     SC_TearDown(hwnd);
-    SETT_TearDown(hwnd);
 
     // Clear registry values map
     s_registryValues.clear();
@@ -13530,7 +13536,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
              dis->CtlID == IDC_SETT_SIGN_PFX_BTN ||
              dis->CtlID == IDC_SETT_SETUP_LOG_FOLDER_BTN ||
              dis->CtlID == IDC_SETT_PATH_ADD_BTN ||
-             dis->CtlID == IDC_SETT_PATH_REMOVE_BTN) {
+             dis->CtlID == IDC_SETT_PATH_REMOVE_BTN ||
+             dis->CtlID == IDC_SETT_UNINSTALL_FILES_DIR_BTN) {
             ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
             // Create bold font for buttons (scaled for DPI)
             HFONT hFont = CreateFontW(-S(12), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
