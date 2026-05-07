@@ -38,7 +38,7 @@ mainwindow.cpp knows nothing about the page internals.  It only:
 
   Table: scripts
   Columns: id, project_id, name, script_type, when_to_run, run_hidden,
-           wait, also_uninstall, finish_label, content
+           wait, also_uninstall, finish_label, content, on_error, working_dir
 
   CRUD in db.cpp / db.h:
     DB::InsertScript()              — insert one ScriptRow
@@ -181,6 +181,9 @@ mainwindow.cpp knows nothing about the page internals.  It only:
     IDC_SCRDLG_RENAME_EDIT      7366   Rename sub-dialog: new name edit
     IDC_SCRDLG_RENAME_OK        7367   Rename sub-dialog: "Rename" button
     IDC_SCRDLG_RENAME_CANCEL    7368   Rename sub-dialog: Cancel button
+    IDC_SCRDLG_ABORT_ON_ERROR   7369   "Abort installation if script fails" checkbox
+    IDC_SCRDLG_WORKING_DIR      7370   Edit: working directory VFS path (e.g. "{app}\\tools")
+    IDC_SCRDLG_WORKING_DIR_BTN  7371   Browse button — opens VFS folder picker (folder-only)
 
 ── Locale key table ──────────────────────────────────────────────────────────────
 

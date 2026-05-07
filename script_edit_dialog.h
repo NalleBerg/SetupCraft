@@ -39,3 +39,6 @@ bool SCR_EditDialog(HWND hwndParent, HINSTANCE hInst,
 #define IDC_SCRDLG_RENAME_EDIT      7366   // Edit: new name input
 #define IDC_SCRDLG_RENAME_OK        7367   // "Rename" button
 #define IDC_SCRDLG_RENAME_CANCEL    7368   // Cancel button
+#define IDC_SCRDLG_ABORT_ON_ERROR   7369   // "Abort installation if script fails" checkbox
+#define IDC_SCRDLG_WORKING_DIR      7370   // Edit: working directory (VFS path, e.g. "{app}\tools")
+#define IDC_SCRDLG_WORKING_DIR_BTN  7371   // Browse button for working directory VFS picker

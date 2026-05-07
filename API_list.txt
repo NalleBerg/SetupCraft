@@ -675,10 +675,21 @@
                                                 (measure-then-create, ScriptDlgData struct,
                                                 pExisting duplicate check, IsDupName helper,
                                                 ShowRenameDialog sub-dialog with RenameDlgProc,
-                                                finish-label overlay), Scintilla runtime load
+                                                finish-label overlay; on_error checkbox
+                                                IDC_SCRDLG_ABORT_ON_ERROR=7369 persisted as
+                                                on_error INTEGER 0=continue/1=abort;
+                                                working_dir edit+VFS picker
+                                                IDC_SCRDLG_WORKING_DIR=7370 /
+                                                IDC_SCRDLG_WORKING_DIR_BTN=7371 persisted as
+                                                working_dir TEXT — Inno constant path,
+                                                empty=default; Load/Test buttons centred;
+                                                SS_ETCHEDHORZ separator above them),
+                                                Scintilla runtime load
                                                 (SciLoad: LoadLibraryW Scintilla.dll+Lexilla.dll,
                                                 Scintilla_RegisterClasses, CreateLexer;
-                                                plain EDIT fallback), DB table (scripts),
+                                                plain EDIT fallback), DB table (scripts;
+                                                includes on_error INTEGER DEFAULT 0 and
+                                                working_dir TEXT DEFAULT ''),
                                                 control ID ranges (page 7300–7349,
                                                 dialog 7350–7399), and full locale key table.
 

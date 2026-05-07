@@ -2,6 +2,13 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.05.07.10] - 2026-05-07
+
+### script_edit_dialog — on_error checkbox + working directory VFS picker
+- **script_edit_dialog — `IDC_SCRDLG_ABORT_ON_ERROR = 7369` (*Abort installation if script fails* checkbox)**: New custom checkbox in the right column of the script edit dialog. When checked (`on_error = 1`), the generated installer aborts if the script exits with a non-zero exit code. Off by default — existing projects unaffected. Right-column checkbox block grows from 3 to 4 rows (`SD_BLOCK_H = SD_CB_H * 4 + SD_GAP_SM * 3`). Persisted in the `scripts` table via new `on_error INTEGER DEFAULT 0` column (idempotent `ALTER TABLE` migration in `InitDb`). Locale key: `scr_dlg_abort_on_error`.
+- **script_edit_dialog — `IDC_SCRDLG_WORKING_DIR = 7370` + `IDC_SCRDLG_WORKING_DIR_BTN = 7371` (working directory row)**: New *Working directory (VFS path, leave empty for default):* label + edit + blue Browse button, positioned between the *When to run* combo and the Scintilla editor. Edit accepts any Inno constant path (e.g. `{app}\tools`); blank = Inno default. Browse button opens the VFS folder picker (`showFilePane=false`, `allowFolderPick=true`, `singleSelect=true`) and writes the selected folder's Inno constant path via `VfsPickerResult.virtualFolderPath` into the edit. Persisted via new `working_dir TEXT DEFAULT ''` column (idempotent `ALTER TABLE` migration). Locale keys: `scr_dlg_working_dir`, `scr_dlg_working_dir_picker_title`.
+- **script_edit_dialog — centered Load/Test buttons + `SS_ETCHEDHORZ` separator line**: *Load from file…* and *Test in terminal* buttons now centred horizontally (previously left-aligned). A 2 px `SS_ETCHEDHORZ` `STATIC` separator line added between the Scintilla editor and the button row.
+
 ## [2026.05.07.09] - 2026-05-07
 
 ### mainwindow — crash fix: SETT_TearDown moved before control-destroy loop

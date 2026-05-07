@@ -14,6 +14,7 @@
 #include "checkbox.h"       // CreateCustomCheckbox(), DrawCustomCheckbox()
 #include "ctrlw.h"          // ShowValidationDialog()
 #include "dpi.h"            // S()
+#include "vfs_picker.h"     // ShowVfsPicker(), VfsPickerParams, VfsPickerResult
 #include <commdlg.h>        // GetOpenFileNameW()
 #include <shellapi.h>       // ShellExecuteW()
 #include <fstream>          // std::ifstream (ReadScriptFile)
@@ -564,6 +565,23 @@ static LRESULT CALLBACK ScrDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lP
             return 0;
         }
 
+        // Working directory VFS browse
+        if (wmId == IDC_SCRDLG_WORKING_DIR_BTN && wmEvent == BN_CLICKED) {
+            if (!pData) return 0;
+            VfsPickerParams pp;
+            pp.showFilePane    = false;
+            pp.allowFolderPick = true;
+            pp.singleSelect    = true;
+            { auto it = pData->pLocale->find(L"scr_dlg_working_dir_picker_title");
+              pp.title = (it != pData->pLocale->end()) ? it->second : L"Select Working Directory"; }
+            { auto it = pData->pLocale->find(L"ok");    if (it != pData->pLocale->end()) pp.okText     = it->second; }
+            { auto it = pData->pLocale->find(L"cancel"); if (it != pData->pLocale->end()) pp.cancelText = it->second; }
+            std::vector<VfsPickerResult> results;
+            if (ShowVfsPicker(hDlg, pData->hInst, pp, *pData->pLocale, results) && !results.empty())
+                SetDlgItemTextW(hDlg, IDC_SCRDLG_WORKING_DIR, results[0].virtualFolderPath.c_str());
+            return 0;
+        }
+
         // Type radio changes: re-apply syntax highlighting for new language
         if ((wmId == IDC_SCRDLG_TYPE_BAT || wmId == IDC_SCRDLG_TYPE_PS1) &&
              wmEvent == BN_CLICKED) {
@@ -716,7 +734,10 @@ static LRESULT CALLBACK ScrDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lP
                     (SendDlgItemMessageW(hDlg, IDC_SCRDLG_WAIT, BM_GETCHECK, 0, 0) == BST_CHECKED) ? 1 : 0;
                 pData->scr.also_uninstall =
                     (SendDlgItemMessageW(hDlg, IDC_SCRDLG_ALSO_UNINSTALL, BM_GETCHECK, 0, 0) == BST_CHECKED) ? 1 : 0;
-                pData->scr.description = GetEditText(hDlg, IDC_SCRDLG_FINISH_LABEL);
+                pData->scr.on_error =
+                    (SendDlgItemMessageW(hDlg, IDC_SCRDLG_ABORT_ON_ERROR, BM_GETCHECK, 0, 0) == BST_CHECKED) ? 1 : 0;
+                pData->scr.description  = GetEditText(hDlg, IDC_SCRDLG_FINISH_LABEL);
+                pData->scr.working_dir  = GetEditText(hDlg, IDC_SCRDLG_WORKING_DIR);
                 pData->okPressed = true;
             }
             s_scrDlgOk = true;
@@ -790,21 +811,22 @@ bool SCR_EditDialog(HWND hwndParent, HINSTANCE hInst,
     }
 
     // ── Measure window height ─────────────────────────────────────────────────
-    // Two-column compact block: left = name + type radios, right = 3 checkboxes.
+    // Two-column compact block: left = name + type radios, right = 4 checkboxes.
     // Rows that are always visible in the compact block:
     //   Row A: name label+edit  (full width)
     //   Row B: [type label | <blank>]  (two columns, same height)
     //   Row C: [Bat radio + PS1 radio stacked | checkboxes stacked]
     // Then: When combo (full width)  → optional Finish-label  → editor  → load/test  → OK/Cancel
-    const int SD_BLOCK_H = SD_CB_H * 3 + SD_GAP_SM * 2; // height of the 3-row right column
+    const int SD_BLOCK_H = SD_CB_H * 4 + SD_GAP_SM * 3; // height of the 4-row right column
 
     int contentH = SD_PAD_T;
     contentH += SD_LABEL_H + SD_GAP_SM + SD_EDIT_H + SD_GAP;  // name
     contentH += SD_LABEL_H + SD_GAP_SM;                        // type label row
     contentH += SD_BLOCK_H + SD_GAP;                           // radios|checkboxes block
     contentH += SD_LABEL_H + SD_GAP_SM + SD_COMBO_H + SD_GAP; // when combo
+    contentH += SD_LABEL_H + SD_GAP_SM + SD_EDIT_H  + SD_GAP; // working dir
     // Finish label overlays the top of the editor when visible (no reserved height)
-    contentH += SD_CONTENT_H + SD_GAP; // script content (no label row)
+    contentH += SD_CONTENT_H + SD_GAP_SM + 2 + SD_GAP_SM; // script content + separator line
     contentH += SD_BTN_H - 6 + SD_GAP;                          // load/test buttons row
     contentH += SD_GAP + SD_BTN_H + SD_PAD_B + 10;             // OK/Cancel (extra breathing room)
 
@@ -944,6 +966,11 @@ bool SCR_EditDialog(HWND hwndParent, HINSTANCE hInst,
             lc(L"scr_dlg_also_uninstall", L"Also run at uninstall"),
             scr.also_uninstall != 0, colRX, yR, colRW, rH, hInst);
           if (hFont) SendMessageW(hCb, WM_SETFONT, (WPARAM)hFont, FALSE); }
+        yR += rH + S(SD_GAP_SM);
+        { HWND hCb = CreateCustomCheckbox(hDlg, IDC_SCRDLG_ABORT_ON_ERROR,
+            lc(L"scr_dlg_abort_on_error", L"Abort installation if script fails"),
+            scr.on_error != 0, colRX, yR, colRW, rH, hInst);
+          if (hFont) SendMessageW(hCb, WM_SETFONT, (WPARAM)hFont, FALSE); }
         yR += rH;
 
         // Advance y past whichever column is taller
@@ -976,6 +1003,28 @@ bool SCR_EditDialog(HWND hwndParent, HINSTANCE hInst,
         }
         SendMessageW(hCb, CB_SETCURSEL, (WPARAM)selIdx, 0);
         y += S(SD_COMBO_H) + S(SD_GAP);
+    }
+
+    // ── Working directory ─────────────────────────────────────────────────────
+    { auto it = locale.find(L"scr_dlg_working_dir");
+      Lbl(it != locale.end() ? it->second.c_str() : L"Working directory (VFS path, empty = default):"); }
+    {
+        const int browseW = S(80);
+        const int editW   = cw - browseW - S(SD_GAP_SM);
+        HWND hWdEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT",
+            scr.working_dir.c_str(),
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
+            lx, y, editW, S(SD_EDIT_H),
+            hDlg, (HMENU)(UINT_PTR)IDC_SCRDLG_WORKING_DIR, hInst, NULL);
+        if (hFont) SendMessageW(hWdEdit, WM_SETFONT, (WPARAM)hFont, FALSE);
+        auto it = locale.find(L"browse");
+        std::wstring browseTxt = (it != locale.end()) ? it->second : L"Browse…";
+        HWND hWdBtn = CreateWindowExW(0, L"BUTTON", browseTxt.c_str(),
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+            lx + editW + S(SD_GAP_SM), y, browseW, S(SD_EDIT_H),
+            hDlg, (HMENU)(UINT_PTR)IDC_SCRDLG_WORKING_DIR_BTN, hInst, NULL);
+        if (hFont) SendMessageW(hWdBtn, WM_SETFONT, (WPARAM)hFont, FALSE);
+        y += S(SD_EDIT_H) + S(SD_GAP);
     }
 
     // ── Finish-page label — overlays the top of the editor when visible ────────
@@ -1020,11 +1069,16 @@ bool SCR_EditDialog(HWND hwndParent, HINSTANCE hInst,
             if (hFont) SendMessageW(hEd, WM_SETFONT, (WPARAM)hFont, FALSE);
         }
         data.hSci = hSciEd;
-        y += S(SD_CONTENT_H) + S(SD_GAP);
+        y += S(SD_CONTENT_H) + S(SD_GAP_SM);   // small gap; separator follows
     }
 
     // ── Load from file + Test in terminal buttons ─────────────────────────────
     {
+        // Separator line between script editor and utility buttons
+        CreateWindowExW(0, L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_ETCHEDHORZ,
+            lx, y, cw, 2, hDlg, NULL, hInst, NULL);
+        y += 2 + S(SD_GAP_SM);
+
         auto lc = [&](const wchar_t* k, const wchar_t* fb) {
             auto it = locale.find(k); return it != locale.end() ? it->second : std::wstring(fb);
         };
@@ -1033,14 +1087,16 @@ bool SCR_EditDialog(HWND hwndParent, HINSTANCE hInst,
         int wLoad = MeasureButtonWidth(loadTxt, true);
         int wTest = MeasureButtonWidth(testTxt, true);
         int btnH  = S(SD_BTN_H) - S(6);   // slightly smaller than the OK/Cancel pair
+        int bAreaW = wLoad + S(SD_GAP) + wTest;
+        int bx     = lx + (cw - bAreaW) / 2;
 
         HWND hLoad = CreateCustomButtonWithIcon(hDlg, IDC_SCRDLG_LOAD, loadTxt.c_str(),
-            ButtonColor::Blue, L"shell32.dll", 3, lx, y, wLoad, btnH, hInst);
+            ButtonColor::Blue, L"shell32.dll", 3, bx, y, wLoad, btnH, hInst);
         SetButtonTooltip(hLoad, lc(L"scr_dlg_load_tip",
             L"Open a .bat, .cmd or .ps1 file from disk").c_str());
 
         HWND hTest = CreateCustomButtonWithIcon(hDlg, IDC_SCRDLG_TEST, testTxt.c_str(),
-            ButtonColor::Blue, L"shell32.dll", 25, lx + wLoad + S(SD_GAP), y, wTest, btnH, hInst);
+            ButtonColor::Blue, L"shell32.dll", 25, bx + wLoad + S(SD_GAP), y, wTest, btnH, hInst);
         SetButtonTooltip(hTest, lc(L"scr_dlg_test_tip",
             L"Write a temporary copy and run it in a terminal window").c_str());
         (void)hTest;

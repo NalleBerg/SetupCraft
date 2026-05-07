@@ -158,6 +158,8 @@ namespace DB {
         std::wstring description;               // Finish-page opt-out checkbox label
         int          also_uninstall      = 0;
         int          sort_order          = 0;
+        int          on_error            = 0;   // 0=continue (fail silently)  1=abort installation
+        std::wstring working_dir;               // VFS path run in (e.g. "{app}\tools"); empty = default
     };
     int  InsertScript(int projectId, const ScriptRow& s);
     bool DeleteScriptsForProject(int projectId);

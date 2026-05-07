@@ -390,13 +390,23 @@ CMakeFiles/SkeletonApp.dir/script_edit_dialog.cpp.obj: \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\checkbox.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\ctrlw.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\dpi.h \
+ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\vfs_picker.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/functional \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/std_function.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/typeinfo \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/unordered_map \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/unordered_map.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/hashtable.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/hashtable_policy.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/enable_special_members.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/array \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/compare \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/fstream \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/istream \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/ios \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/exception \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/exception_ptr.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/cxxabi_init_exception.h \
- C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/typeinfo \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/nested_exception.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/ios_base.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/ext/atomicity.h \
