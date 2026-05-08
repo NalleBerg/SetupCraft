@@ -746,6 +746,17 @@
                                                 \u2713 tile prefix when active;
                                                 Inno: runascurrentuser flag in [Run]/
                                                 [UninstallRun]; ShellExec runas in [Code]),
+                                                notes field + LV_VIEW_TILE subtitles
+                                                (IDC_SCRDLG_NOTES=7377 edit in dialog;
+                                                DB col notes TEXT DEFAULT '';
+                                                InsertScript 17 params; col 16 in SELECT;
+                                                SCR_BuildPage: LVM_SETVIEW LV_VIEW_TILE +
+                                                2 hidden cols + LVTILEVIEWINFO S(240) cLines=2;
+                                                RefreshList: LVTILEINFO per item
+                                                col1=notes col2=when-to-run,
+                                                1 line when notes empty else 2;
+                                                locale keys scr_tile_when_0..3 +
+                                                scr_dlg_notes),
                                                 control ID ranges (page 7300\u20137349,
                                                 dialog 7350\u20137399), and full locale key table.
 

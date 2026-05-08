@@ -71,16 +71,48 @@ static void RefreshList(HWND hwnd)
     if (!s_hScrList) return;
     ListView_DeleteAllItems(s_hScrList);
 
+    // Short when-to-run labels for tile subtitle line 2
+    static const wchar_t* s_whenKeys[4] = {
+        L"scr_tile_when_0", L"scr_tile_when_1",
+        L"scr_tile_when_2", L"scr_tile_when_3" };
+    static const wchar_t* s_whenFb[4] = {
+        L"Before files", L"After files", L"Finish page", L"At uninstall" };
+    auto lc = [&](const wchar_t* k, const wchar_t* fb) -> std::wstring {
+        if (!s_pLocale) return fb;
+        auto it = s_pLocale->find(k);
+        return it != s_pLocale->end() ? it->second : std::wstring(fb);
+    };
+
     for (int i = 0; i < (int)s_scripts.size(); i++) {
+        const DB::ScriptRow& sr = s_scripts[i];
+
         LVITEMW lvi = {};
         lvi.mask    = LVIF_TEXT | LVIF_IMAGE | LVIF_PARAM;
         lvi.iItem   = i;
         lvi.iImage  = 0;          // single icon in the list; image 0 for all
         lvi.lParam  = (LPARAM)i;
-        std::wstring tileName = s_scripts[i].run_elevated
-            ? L"\u2713 " + s_scripts[i].name : s_scripts[i].name;
+        std::wstring tileName = sr.run_elevated
+            ? L"\u2713 " + sr.name : sr.name;
         lvi.pszText = const_cast<wchar_t*>(tileName.c_str());
         ListView_InsertItem(s_hScrList, &lvi);
+
+        // Subitem 1 = notes; subitem 2 = short when-to-run
+        if (!sr.notes.empty())
+            ListView_SetItemText(s_hScrList, i, 1,
+                const_cast<wchar_t*>(sr.notes.c_str()));
+        int wi = (sr.when_to_run >= 0 && sr.when_to_run <= 3) ? sr.when_to_run : 1;
+        std::wstring whenStr = lc(s_whenKeys[wi], s_whenFb[wi]);
+        ListView_SetItemText(s_hScrList, i, 2,
+            const_cast<wchar_t*>(whenStr.c_str()));
+
+        // Tile info: show col 1 (notes) if non-empty, then col 2 (when)
+        UINT cols[2] = { 1, 2 };
+        LVTILEINFO ti = {};
+        ti.cbSize    = sizeof(LVTILEINFO);
+        ti.iItem     = i;
+        ti.cColumns  = sr.notes.empty() ? 1u : 2u;
+        ti.puColumns = sr.notes.empty() ? &cols[1] : cols;  // skip col1 when no notes
+        SendMessageW(s_hScrList, LVM_SETTILEINFO, 0, (LPARAM)&ti);
     }
 
     // Show/hide the empty hint
@@ -463,6 +495,27 @@ void SCR_BuildPage(HWND hwnd, HINSTANCE hInst,
             LVS_EX_DOUBLEBUFFER | LVS_EX_UNDERLINEHOT);
         if (s_hImgList)
             ListView_SetImageList(s_hScrList, s_hImgList, LVSIL_NORMAL);
+
+        // Switch to tile view (icon left, name + subtitle lines right)
+        SendMessageW(s_hScrList, LVM_SETVIEW, LV_VIEW_TILE, 0);
+
+        // Add two hidden columns to carry subitem text (tile view reads these)
+        LVCOLUMNW col = {};
+        col.mask = LVCF_TEXT | LVCF_WIDTH;
+        col.cx   = 0;
+        col.pszText = const_cast<wchar_t*>(L"");
+        SendMessageW(s_hScrList, LVM_INSERTCOLUMN, 1, (LPARAM)&col); // col1 = notes
+        SendMessageW(s_hScrList, LVM_INSERTCOLUMN, 2, (LPARAM)&col); // col2 = when-to-run
+
+        // Configure tile dimensions (fixed width; 2 subtitle lines max)
+        LVTILEVIEWINFO tvi = {};
+        tvi.cbSize  = sizeof(LVTILEVIEWINFO);
+        tvi.dwMask  = LVTVIM_TILESIZE | LVTVIM_COLUMNS;
+        tvi.dwFlags = LVTVIF_FIXEDWIDTH;
+        tvi.sizeTile.cx = S(240);
+        tvi.cLines  = 2;
+        SendMessageW(s_hScrList, LVM_SETTILEVIEWINFO, 0, (LPARAM)&tvi);
+
         // Subclass for drag-to-reorder
         s_listOrigProc = (WNDPROC)SetWindowLongPtrW(
             s_hScrList, GWLP_WNDPROC, (LONG_PTR)ScrListSubclassProc);

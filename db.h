@@ -164,6 +164,7 @@ namespace DB {
         int          finish_checked_by_default = 0; // 1 = checkedonce flag: Finish-page opt-out checkbox starts checked
         std::wstring required_components;           // space-separated component display names; empty = always run
         int          run_elevated                = 0; // 1 = runascurrentuser (force elevated); 0 = default
+        std::wstring notes;                             // developer annotation shown as tile subtitle; empty = none
     };
     int  InsertScript(int projectId, const ScriptRow& s);
     bool DeleteScriptsForProject(int projectId);

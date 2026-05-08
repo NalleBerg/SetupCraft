@@ -48,3 +48,4 @@ bool SCR_EditDialog(HWND hwndParent, HINSTANCE hInst,
 #define IDC_SCRDLG_EXPAND           7374   // Checkbox: toggle expand/collapse editor
 #define IDC_SCRDLG_COMP_EDIT        7375   // Read-only edit: space-separated linked component names
 #define IDC_SCRDLG_COMP_PICK        7376   // "…" picker button: opens the component selector
+#define IDC_SCRDLG_NOTES            7377   // Edit: developer annotation shown as tile subtitle

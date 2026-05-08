@@ -843,6 +843,7 @@ static LRESULT CALLBACK ScrDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lP
                 pData->scr.working_dir  = GetEditText(hDlg, IDC_SCRDLG_WORKING_DIR);
                 pData->scr.parameters   = GetEditText(hDlg, IDC_SCRDLG_PARAMETERS);
                 pData->scr.required_components = GetEditText(hDlg, IDC_SCRDLG_COMP_EDIT);
+                pData->scr.notes        = GetEditText(hDlg, IDC_SCRDLG_NOTES);
                 pData->okPressed = true;
             }
             s_scrDlgOk = true;
@@ -933,6 +934,7 @@ bool SCR_EditDialog(HWND hwndParent, HINSTANCE hInst,
 
     int contentH = SD_PAD_T;
     contentH += SD_LABEL_H + SD_GAP_SM + SD_EDIT_H + SD_GAP;  // name
+    contentH += SD_LABEL_H + SD_GAP_SM + SD_EDIT_H + SD_GAP;  // notes
     contentH += SD_BLOCK_H + SD_GAP;                           // radios|checkboxes block
     contentH += SD_LABEL_H + SD_GAP_SM + SD_COMBO_H + SD_GAP; // when combo
     contentH += SD_LABEL_H + SD_GAP_SM + SD_EDIT_H  + SD_GAP; // working dir
@@ -1023,6 +1025,11 @@ bool SCR_EditDialog(HWND hwndParent, HINSTANCE hInst,
     { auto it = locale.find(L"scr_dlg_name");
       Lbl(it != locale.end() ? it->second.c_str() : L"Script name:"); }
     Edit1(IDC_SCRDLG_NAME, scr.name.c_str());
+
+    // ── Notes (tile subtitle) ─────────────────────────────────────────────────
+    { auto it = locale.find(L"scr_dlg_notes");
+      Lbl(it != locale.end() ? it->second.c_str() : L"Notes (optional, shown in tile):"); }
+    Edit1(IDC_SCRDLG_NOTES, scr.notes.c_str());
 
     // ── Two-column block: type radios (left) | checkboxes (right) ─────────────
     // Column split: left ~45%, right ~55% (checkboxes need more text space)

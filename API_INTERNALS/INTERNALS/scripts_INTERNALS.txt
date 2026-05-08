@@ -39,20 +39,28 @@ mainwindow.cpp knows nothing about the page internals.  It only:
   Table: scripts
   Columns: id, project_id, name, script_type, when_to_run, run_hidden,
            wait, also_uninstall, finish_label, content, on_error, working_dir,
-           parameters, finish_checked_by_default, required_components, run_elevated
+           parameters, finish_checked_by_default, required_components, run_elevated,
+           notes
 
   CRUD in db.cpp / db.h:
-    DB::InsertScript()              — insert one ScriptRow (16 bound params)
+    DB::InsertScript()              — insert one ScriptRow (17 bound params)
     DB::DeleteScriptsForProject()   — wipe all rows for a project on save
-    DB::GetScriptsForProject()      — reload on project open (reads col 15 = run_elevated)
+    DB::GetScriptsForProject()      — reload on project open (reads col 15 = run_elevated,
+                                      col 16 = notes)
 
   Scripts are stored in memory as s_scripts (vector<DB::ScriptRow>) until the
   user saves.  SCR_Reset() is the only function that clears in-memory state.
 
 ── Page layout and ListView tile grid ──────────────────────────────────────────
 
-  The page shows a ListView in large-icon (LVS_ICON) mode — one tile per script.
-  Each tile displays the script name and a "when to run" subtitle.
+  The page shows a ListView in tile view (LV_VIEW_TILE) — one tile per script.
+  Each tile displays the script name and up to two subtitle lines:
+    Line 1 (when notes non-empty): notes text
+    Line 2: short when-to-run label (scr_tile_when_0..3)
+  When notes is empty only the when-to-run line is shown.
+  SCR_BuildPage configures tile view via LVM_SETVIEW + LVM_SETTILEVIEWINFO
+  (fixed width S(240), cLines=2) and inserts two hidden columns (width 0) to
+  carry the subitem text. RefreshList sets per-item LVTILEINFO.
   The ImageList is created by SCR_BuildPage() and freed in SCR_TearDown().
 
   IDC_SCR_ENABLE_HINT is a label shown in place of the ListView when the master
@@ -265,6 +273,48 @@ mainwindow.cpp knows nothing about the page internals.  It only:
     InsertScript: param 16
     Migration: ALTER TABLE scripts ADD COLUMN run_elevated INTEGER DEFAULT 0 (idempotent)
 
+── Notes field + tile subtitles ─────────────────────────────────────────────────────────────
+
+  IDC_SCRDLG_NOTES = 7377  (edit, shown immediately after the Script name row)
+
+  Locale key: scr_dlg_notes  (fallback: "Notes (optional, shown in tile):")
+
+  The notes text is a developer annotation — it is never included in the generated
+  installer.  It appears as the first subtitle line in the Scripts page tile view.
+
+  Dialog layout:
+    Row is always shown (not conditional on component presence).
+    contentH includes: SD_LABEL_H + SD_GAP_SM + SD_EDIT_H + SD_GAP  for the notes row,
+    inserted immediately after the equivalent row for the name field.
+
+  OK handler: pData->scr.notes = GetEditText(hDlg, IDC_SCRDLG_NOTES);
+
+  DB:
+    Column: notes TEXT DEFAULT ''  (col 16 in SELECT)
+    InsertScript: param 17
+    Migration: ALTER TABLE scripts ADD COLUMN notes TEXT DEFAULT '' (idempotent)
+
+  Tile view:
+    SCR_BuildPage:
+      SendMessageW(s_hScrList, LVM_SETVIEW, LV_VIEW_TILE, 0)
+      Insert col 1 (width 0) for notes subitem text
+      Insert col 2 (width 0) for when-to-run subitem text
+      LVTILEVIEWINFO: dwMask = LVTVIM_TILESIZE | LVTVIM_COLUMNS
+                      dwFlags = LVTVIF_FIXEDWIDTH
+                      sizeTile.cx = S(240)
+                      cLines = 2
+    RefreshList per item:
+      ListView_SetItemText col 1 = sr.notes (if non-empty)
+      ListView_SetItemText col 2 = short when-to-run string (lc(scr_tile_when_N, fallback))
+      LVTILEINFO: cColumns = 1 (col 2 only) when notes empty;
+                  cColumns = 2 (cols 1,2) when notes non-empty
+
+  Short when-to-run locale keys:
+    scr_tile_when_0  (fallback: "Before files")
+    scr_tile_when_1  (fallback: "After files")
+    scr_tile_when_2  (fallback: "Finish page")
+    scr_tile_when_3  (fallback: "At uninstall")
+
   Inno Setup emission (to be implemented in issgen.cpp):
     SWR_AFTER_FILES / SWR_FINISH_OPTOUT  [Run]        → append runascurrentuser to Flags:
     SWR_UNINSTALL                        [UninstallRun]→ append runascurrentuser to Flags:
@@ -338,6 +388,9 @@ mainwindow.cpp knows nothing about the page internals.  It only:
     scr_btn_load           Toolbar: [Load from file…]
     scr_btn_edit           Toolbar: [Edit]
     scr_btn_delete         Toolbar: [Delete]
+    scr_ctx_edit           Context menu: Edit…
+    scr_ctx_delete         Context menu: Remove
+    scr_ctx_run_elevated   Context menu: Run as Administrator (checked item toggle)
 
   Editor keys:
     scr_dlg_add_title      Dialog title for Add mode
@@ -364,6 +417,12 @@ mainwindow.cpp knows nothing about the page internals.  It only:
     scr_dlg_parameters     "Parameters" label
     scr_dlg_finish_checked "Checked by default on the Finish page" checkbox label
     scr_dlg_expand         "Big editor" toggle checkbox label
+    scr_dlg_comp_link      "Linked components" label (hidden when no components)
+    scr_dlg_notes          "Notes (optional, shown in tile):" edit label
+    scr_tile_when_0        Short when-to-run label for tile subtitle: "Before files"
+    scr_tile_when_1        Short when-to-run label for tile subtitle: "After files"
+    scr_tile_when_2        Short when-to-run label for tile subtitle: "Finish page"
+    scr_tile_when_3        Short when-to-run label for tile subtitle: "At uninstall"
     scr_list_drag_tip      Tooltip shown on hover over the Scripts ListView ("Drag to alter order")
     scr_dlg_val_empty_name Validation: name must not be empty
     scr_dlg_val_empty_script Validation: script content must not be empty

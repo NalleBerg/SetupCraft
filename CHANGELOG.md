@@ -1,4 +1,4 @@
-# Changelog
+﻿# Changelog
 
 All notable changes to SetupCraft will be documented in this file.
 
@@ -234,6 +234,19 @@ All notable changes to SetupCraft will be documented in this file.
 
 ### Scripts — “Run as Administrator” per-script toggle
 - **scripts / db — `run_elevated` right-click toggle**: Right-clicking a script tile now shows a third context-menu item “Run as Administrator” (locale key: `scr_ctx_run_elevated`), separated from Edit/Remove by a menu separator. The item is a standard Win32 checked menu item (`MF_CHECKED`) reflecting the current state — no modal dialog. Toggling flips `DB::ScriptRow::run_elevated` in memory, marks the project modified, and refreshes the ListView immediately. Active tiles gain a `✓ ` prefix. Stored in new `run_elevated INTEGER DEFAULT 0` column (idempotent `ALTER TABLE` migration). `InsertScript` extended to 16 bound params; `GetScriptsForProject` SELECT extended to column 15. When emitted to Inno Setup: `[Run]`/`[UninstallRun]` entries get `Flags: runascurrentuser`; `[Code]` (`SWR_BEFORE_FILES`) uses `ShellExec('runas',…)`. Locale key: `scr_ctx_run_elevated`.
+
+### Scripts — Notes field + tile subtitles
+- **script_edit_dialog / scripts / db — `notes` field (`IDC_SCRDLG_NOTES = 7377`)**: New optional *Notes (optional, shown in tile):* edit row in the Add/Edit Script dialog, positioned immediately after the Script name field. Developer annotation only — not shown to end users. Stored in `DB::ScriptRow::notes` (`std::wstring`). DB migration: `ALTER TABLE scripts ADD COLUMN notes TEXT DEFAULT ''` (idempotent). `InsertScript` extended to 17 bound params; `GetScriptsForProject` SELECT reads column 16. Locale key: `scr_dlg_notes`.
+- **scripts — ListView switched to `LV_VIEW_TILE` with subtitle lines**: `SCR_BuildPage` calls `LVM_SETVIEW` with `LV_VIEW_TILE` to switch to full tile mode (icon left, text lines right). Two hidden columns (width 0) carry subitem text: col 1 = notes, col 2 = short when-to-run. `LVTILEVIEWINFO` sets fixed tile width `S(240)`, `cLines = 2`. Each item in `RefreshList()` receives an `LVTILEINFO`: when notes is empty, 1 subtitle line (when-to-run only); when notes is non-empty, 2 lines (notes first, then when-to-run). Short when-to-run strings use locale keys `scr_tile_when_0..3` (fallbacks: *Before files*, *After files*, *Finish page*, *At uninstall*).
+
+
+### Scripts - Notes field + tile subtitles
+- **script_edit_dialog / scripts / db - `notes` field (`IDC_SCRDLG_NOTES = 7377`)**: New optional Notes edit row in Add/Edit Script dialog, after Script name. Developer annotation only - not shown to end users. Stored in `DB::ScriptRow::notes` (`std::wstring`). DB migration: `ALTER TABLE scripts ADD COLUMN notes TEXT DEFAULT ''` (idempotent). `InsertScript` extended to 17 bound params; `GetScriptsForProject` SELECT reads column 16. Locale key: `scr_dlg_notes`.
+- **scripts - ListView switched to `LV_VIEW_TILE` with subtitle lines**: `SCR_BuildPage` calls `LVM_SETVIEW` with `LV_VIEW_TILE`. Two hidden columns carry subitem text: col 1 = notes, col 2 = short when-to-run. `LVTILEVIEWINFO` sets fixed tile width `S(240)`, `cLines = 2`. Each `RefreshList()` item gets `LVTILEINFO`: empty notes = 1 subtitle line (when-to-run); non-empty = 2 lines (notes then when-to-run). Locale keys `scr_tile_when_0..3` (fallbacks: Before files / After files / Finish page / At uninstall).
+
+### Scripts - Notes field + tile subtitles
+- **script_edit_dialog / scripts / db - `notes` field (`IDC_SCRDLG_NOTES = 7377`)**: New optional Notes (optional, shown in tile) edit row in the Add/Edit Script dialog, after the Script name field. Developer annotation only - not shown to end users. Stored in `DB::ScriptRow::notes` (`std::wstring`). DB migration: `ALTER TABLE scripts ADD COLUMN notes TEXT DEFAULT '' ` (idempotent). `InsertScript` extended to 17 bound params; `GetScriptsForProject` SELECT reads column 16. Locale key: `scr_dlg_notes`.
+- **scripts - ListView switched to `LV_VIEW_TILE` with subtitle lines**: `SCR_BuildPage` calls `LVM_SETVIEW` with `LV_VIEW_TILE` to switch to full tile mode (icon left, text lines right). Two hidden columns (width 0) carry subitem text: col 1 = notes, col 2 = short when-to-run. `LVTILEVIEWINFO` sets fixed tile width `S(240)`, `cLines = 2`. Each item in `RefreshList()` gets an `LVTILEINFO`: empty notes = 1 subtitle line (when-to-run only); non-empty = 2 lines (notes first, then when-to-run). Short when-to-run strings use locale keys `scr_tile_when_0..3` (fallbacks: Before files / After files / Finish page / At uninstall).
 
 ## [2026.05.03.14] - 2026-05-03
 
