@@ -42,3 +42,6 @@ bool SCR_EditDialog(HWND hwndParent, HINSTANCE hInst,
 #define IDC_SCRDLG_ABORT_ON_ERROR   7369   // "Abort installation if script fails" checkbox
 #define IDC_SCRDLG_WORKING_DIR      7370   // Edit: working directory (VFS path, e.g. "{app}\tools")
 #define IDC_SCRDLG_WORKING_DIR_BTN  7371   // Browse button for working directory VFS picker
+#define IDC_SCRDLG_PARAMETERS       7372   // Edit: command-line parameters passed to the script process
+#define IDC_SCRDLG_FINISH_CHECKED   7373   // Checkbox: start Finish-page opt-out checkbox checked (checkedonce flag)
+#define IDC_SCRDLG_EXPAND           7374   // Checkbox: toggle expand/collapse editor

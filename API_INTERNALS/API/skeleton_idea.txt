@@ -76,6 +76,36 @@
       MakeRow() pattern: add hasHelp/helpId/helpTip optional params and shrink
       editW by S(EDIT_H)+gap when hasHelp is true before creating the edit.
 
+  WM_CREATE child-window Z-order rule
+    Win32 child windows are painted in Z-order: windows created LATER in
+    WM_CREATE have a higher Z-order and paint OVER windows created earlier.
+    This matters whenever a large background control (e.g. Scintilla, RichEdit,
+    ListView) shares vertical screen space with smaller overlay controls.
+    Rule: any control that must appear ABOVE (i.e. in front of) a large background
+    window must be created AFTER it in WM_CREATE, not before.
+    Recommended approach: give every control its own allocated rows in contentH
+    and y so there is no overlap at all.  Only create true overlays when you
+    explicitly want one control to cover another, and always create the overlay
+    control AFTER the background one.
+    Symptom of violation: control is created and GetDlgItem returns a valid HWND,
+    but the control is never visible on screen — the background window repaints
+    over it every time WM_PAINT fires.
+
+  ReleaseCapture() / WM_CAPTURECHANGED ordering
+    ReleaseCapture() delivers WM_CAPTURECHANGED synchronously — the nested
+    message is dispatched and returns BEFORE ReleaseCapture() itself returns.
+    Pattern: if WM_CAPTURECHANGED resets drag state (s_dragging, saved indices),
+    and you call ReleaseCapture() AFTER reading those fields, they will already
+    be zeroed.
+    Correct pattern for WM_LBUTTONUP:
+      int dropIdx = s_dragDropIdx;   // save BEFORE ReleaseCapture
+      int srcIdx  = s_dragSrcIdx;
+      s_dragging  = false;           // make WM_CAPTURECHANGED a no-op
+      s_dragSrcIdx = s_dragDropIdx = -1;
+      ReleaseCapture();              // WM_CAPTURECHANGED fires here; now harmless
+      if (dropIdx >= 0 && dropIdx != srcIdx && dropIdx != srcIdx+1)
+          MoveItem(srcIdx, dropIdx); // use the saved locals, not the reset statics
+
   Localisation stub
     [ ] languages.h / languages.cpp  — locale loading, key lookup, ExpandEscapes
     [ ] locale\en_GB.txt             — seed file with skeleton keys only

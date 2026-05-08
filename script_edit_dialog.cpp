@@ -169,7 +169,7 @@ static HWND SciCreateEditor(HWND hParent, int ctlId, HINSTANCE hInst,
 // ── Layout constants (design pixels @ 96 DPI) ─────────────────────────────────
 static const int SD_PAD_H    = 20;
 static const int SD_PAD_T    = 20;
-static const int SD_PAD_B    = 24;
+static const int SD_PAD_B    = 28;
 static const int SD_GAP      = 10;
 static const int SD_GAP_SM   =  4;
 static const int SD_BTN_H    = 34;
@@ -179,7 +179,7 @@ static const int SD_LABEL_H  = 18;
 static const int SD_EDIT_H   = 26;
 static const int SD_CB_H     = 22;
 static const int SD_COMBO_H  = 26;
-static const int SD_CONTENT_H= 300;   // multiline script editor height (auto-stretched)
+static const int SD_CONTENT_H= 240;   // multiline script editor height (auto-stretched)
 
 // ── Per-invocation state ──────────────────────────────────────────────────────
 struct ScriptDlgData {
@@ -188,7 +188,10 @@ struct ScriptDlgData {
     const std::map<std::wstring, std::wstring>* pLocale;
     const std::vector<DB::ScriptRow>*           pExisting; // for dup-name check
     bool    okPressed;
-    HWND    hSci;   // Scintilla editor window (NULL if DLLs unavailable)
+    HWND    hSci;           // Scintilla editor window (NULL if DLLs unavailable)
+    int     yEditorTop;    // y (dialog client coords) where the editor starts
+    bool    bigEditor;     // true when editor is expanded
+    HWND    hExpandToggle; // the "Big editor" checkbox
 };
 
 static bool s_scrDlgOk = false;
@@ -225,13 +228,42 @@ static void UpdateWhenVisibility(HWND hDlg)
         LRESULT v = SendMessageW(hCombo, CB_GETITEMDATA, (WPARAM)sel, 0);
         if (v != CB_ERR) when = (int)v;
     }
-    bool showFinish  = (when == (int)SWR_FINISH_OPTOUT);
-    bool showUninstall = true;   // "also_uninstall" is always shown
+    bool showFinish = (when == (int)SWR_FINISH_OPTOUT);
 
     HWND hFlbl = GetDlgItem(hDlg, IDC_SCRDLG_FINISH_LABEL_LBL);
     HWND hFed  = GetDlgItem(hDlg, IDC_SCRDLG_FINISH_LABEL);
-    if (hFlbl) ShowWindow(hFlbl, showFinish ? SW_SHOW : SW_HIDE);
-    if (hFed)  ShowWindow(hFed,  showFinish ? SW_SHOW : SW_HIDE);
+    HWND hFChk = GetDlgItem(hDlg, IDC_SCRDLG_FINISH_CHECKED);
+
+    // In big-editor mode always keep finish controls hidden
+    ScriptDlgData* pData2 = (ScriptDlgData*)GetWindowLongPtrW(hDlg, GWLP_USERDATA);
+    bool inBig = pData2 && pData2->bigEditor;
+    if (hFlbl) ShowWindow(hFlbl, (showFinish && !inBig) ? SW_SHOW : SW_HIDE);
+    if (hFed)  ShowWindow(hFed,  (showFinish && !inBig) ? SW_SHOW : SW_HIDE);
+    if (hFChk) ShowWindow(hFChk, (showFinish && !inBig) ? SW_SHOW : SW_HIDE);
+
+    // Resize/reposition the Scintilla editor so finish controls sit ABOVE it
+    // (not overlapping it) when shown, and restore full height when hidden.
+    if (pData2 && pData2->hSci && pData2->yEditorTop > 0 && !inBig) {
+        // Height of the finish section (gap + label + gap + edit + gap + checkbox + gap)
+        const int finishH = S(SD_GAP_SM) + S(SD_LABEL_H) + S(SD_GAP_SM)
+                          + S(SD_EDIT_H)  + S(SD_GAP_SM) + S(SD_CB_H) + S(SD_GAP_SM);
+        RECT rc;
+        GetWindowRect(pData2->hSci, &rc);
+        MapWindowPoints(HWND_DESKTOP, hDlg, (LPPOINT)&rc, 2);
+        int x = rc.left;
+        int w = rc.right - rc.left;
+        if (showFinish) {
+            SetWindowPos(pData2->hSci, NULL,
+                x, pData2->yEditorTop + finishH,
+                w, S(SD_CONTENT_H) - finishH,
+                SWP_NOZORDER | SWP_NOACTIVATE);
+        } else {
+            SetWindowPos(pData2->hSci, NULL,
+                x, pData2->yEditorTop,
+                w, S(SD_CONTENT_H),
+                SWP_NOZORDER | SWP_NOACTIVATE);
+        }
+    }
 }
 
 // ── IsDupName — true if any script other than editingId already has this name ──
@@ -565,7 +597,65 @@ static LRESULT CALLBACK ScrDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lP
             return 0;
         }
 
-        // Working directory VFS browse
+        // Expand editor toggle
+        if (wmId == IDC_SCRDLG_EXPAND && wmEvent == BN_CLICKED) {
+            if (!pData) return 0;
+            bool big = (SendDlgItemMessageW(hDlg, IDC_SCRDLG_EXPAND, BM_GETCHECK, 0, 0) == BST_CHECKED);
+
+            // Threshold = y of the expand toggle itself
+            const int toggleH   = S(SD_CB_H) + S(SD_GAP_SM);
+            const int threshold = pData->yEditorTop - toggleH;
+
+            // Struct passed to EnumChildWindows callback via lParam
+            struct HideCtx { HWND hDlg; HWND hSkip; int threshold; bool show; };
+            HideCtx hctx = { hDlg, pData->hExpandToggle, threshold, !big };
+            EnumChildWindows(hDlg, [](HWND hChild, LPARAM lp) -> BOOL {
+                auto* c = (HideCtx*)lp;
+                if (hChild == c->hSkip) return TRUE;
+                RECT rc; GetWindowRect(hChild, &rc);
+                MapWindowPoints(HWND_DESKTOP, c->hDlg, (LPPOINT)&rc, 2);
+                if (rc.top < c->threshold)
+                    ShowWindow(hChild, c->show ? SW_SHOW : SW_HIDE);
+                return TRUE;
+            }, (LPARAM)&hctx);
+
+            // Move the toggle checkbox and Scintilla
+            if (pData->hExpandToggle) {
+                RECT rcT; GetWindowRect(pData->hExpandToggle, &rcT);
+                MapWindowPoints(HWND_DESKTOP, hDlg, (LPPOINT)&rcT, 2);
+                int newToggleY = big ? S(SD_PAD_T) : threshold;
+                SetWindowPos(pData->hExpandToggle, NULL,
+                    rcT.left, newToggleY, rcT.right - rcT.left, rcT.bottom - rcT.top,
+                    SWP_NOZORDER | SWP_NOACTIVATE);
+            }
+            if (pData->hSci) {
+                RECT rcS; GetWindowRect(pData->hSci, &rcS);
+                MapWindowPoints(HWND_DESKTOP, hDlg, (LPPOINT)&rcS, 2);
+                int sw = rcS.right - rcS.left;
+                int newSciY, newSciH;
+                if (big) {
+                    newSciY = S(SD_PAD_T) + S(SD_CB_H) + S(SD_GAP_SM);
+                    newSciH = pData->yEditorTop + S(SD_CONTENT_H) - newSciY;
+                } else {
+                    newSciY = pData->yEditorTop;
+                    newSciH = S(SD_CONTENT_H);
+                }
+                SetWindowPos(pData->hSci, NULL,
+                    rcS.left, newSciY, sw, newSciH,
+                    SWP_NOZORDER | SWP_NOACTIVATE);
+            }
+
+            // Hide finish overlay in big mode; restore in small mode
+            for (int id : {IDC_SCRDLG_FINISH_LABEL_LBL,
+                           IDC_SCRDLG_FINISH_LABEL,
+                           IDC_SCRDLG_FINISH_CHECKED}) {
+                HWND h = GetDlgItem(hDlg, id);
+                if (h) ShowWindow(h, SW_HIDE);
+            }
+            pData->bigEditor = big;
+            if (!big) UpdateWhenVisibility(hDlg);  // restore finish visibility if needed
+            return 0;
+        }
         if (wmId == IDC_SCRDLG_WORKING_DIR_BTN && wmEvent == BN_CLICKED) {
             if (!pData) return 0;
             VfsPickerParams pp;
@@ -737,7 +827,10 @@ static LRESULT CALLBACK ScrDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lP
                 pData->scr.on_error =
                     (SendDlgItemMessageW(hDlg, IDC_SCRDLG_ABORT_ON_ERROR, BM_GETCHECK, 0, 0) == BST_CHECKED) ? 1 : 0;
                 pData->scr.description  = GetEditText(hDlg, IDC_SCRDLG_FINISH_LABEL);
+                pData->scr.finish_checked_by_default =
+                    (SendDlgItemMessageW(hDlg, IDC_SCRDLG_FINISH_CHECKED, BM_GETCHECK, 0, 0) == BST_CHECKED) ? 1 : 0;
                 pData->scr.working_dir  = GetEditText(hDlg, IDC_SCRDLG_WORKING_DIR);
+                pData->scr.parameters   = GetEditText(hDlg, IDC_SCRDLG_PARAMETERS);
                 pData->okPressed = true;
             }
             s_scrDlgOk = true;
@@ -792,8 +885,11 @@ bool SCR_EditDialog(HWND hwndParent, HINSTANCE hInst,
     data.hInst     = hInst;
     data.pLocale   = &locale;
     data.pExisting = &existing;
-    data.okPressed = false;
-    data.hSci      = NULL;
+    data.okPressed     = false;
+    data.hSci          = NULL;
+    data.yEditorTop    = 0;
+    data.bigEditor     = false;
+    data.hExpandToggle = NULL;
 
     // ── Register window class once ────────────────────────────────────────────
     static bool s_classRegistered = false;
@@ -816,16 +912,18 @@ bool SCR_EditDialog(HWND hwndParent, HINSTANCE hInst,
     //   Row A: name label+edit  (full width)
     //   Row B: [type label | <blank>]  (two columns, same height)
     //   Row C: [Bat radio + PS1 radio stacked | checkboxes stacked]
-    // Then: When combo (full width)  → optional Finish-label  → editor  → load/test  → OK/Cancel
+    // Then: When combo → working dir → parameters → editor (finish overlay at editor top, Z-above) → load/test → OK/Cancel
+    // Note: finish section is NOT in contentH — it overlays the top of the editor and is created
+    // after SciCreateEditor() so it has higher Z-order and paints on top correctly.
     const int SD_BLOCK_H = SD_CB_H * 4 + SD_GAP_SM * 3; // height of the 4-row right column
 
     int contentH = SD_PAD_T;
     contentH += SD_LABEL_H + SD_GAP_SM + SD_EDIT_H + SD_GAP;  // name
-    contentH += SD_LABEL_H + SD_GAP_SM;                        // type label row
     contentH += SD_BLOCK_H + SD_GAP;                           // radios|checkboxes block
     contentH += SD_LABEL_H + SD_GAP_SM + SD_COMBO_H + SD_GAP; // when combo
     contentH += SD_LABEL_H + SD_GAP_SM + SD_EDIT_H  + SD_GAP; // working dir
-    // Finish label overlays the top of the editor when visible (no reserved height)
+    contentH += SD_LABEL_H + SD_GAP_SM + SD_EDIT_H  + SD_GAP; // parameters
+    contentH += SD_CB_H    + SD_GAP_SM;                        // expand-editor toggle
     contentH += SD_CONTENT_H + SD_GAP_SM + 2 + SD_GAP_SM; // script content + separator line
     contentH += SD_BTN_H - 6 + SD_GAP;                          // load/test buttons row
     contentH += SD_GAP + SD_BTN_H + SD_PAD_B + 10;             // OK/Cancel (extra breathing room)
@@ -919,14 +1017,6 @@ bool SCR_EditDialog(HWND hwndParent, HINSTANCE hInst,
         const int colRW  = cw - colLW - colGap;    // right column width
         const int rH     = S(SD_CB_H);
         int yL = y, yR = y;                         // independent y cursors
-
-        // Left: "Script type:" label
-        { auto it = locale.find(L"scr_dlg_type");
-          const wchar_t* txt = (it != locale.end() ? it->second.c_str() : L"Script type:");
-          HWND h = CreateWindowExW(0, L"STATIC", txt, WS_CHILD | WS_VISIBLE | SS_LEFT,
-              lx, yL, colLW, S(SD_LABEL_H), hDlg, NULL, hInst, NULL);
-          if (hFont) SendMessageW(h, WM_SETFONT, (WPARAM)hFont, FALSE);
-          yL += S(SD_LABEL_H) + S(SD_GAP_SM); }
 
         // Left: Batch radio
         { auto it = locale.find(L"scr_dlg_type_bat");
@@ -1027,31 +1117,36 @@ bool SCR_EditDialog(HWND hwndParent, HINSTANCE hInst,
         y += S(SD_EDIT_H) + S(SD_GAP);
     }
 
-    // ── Finish-page label — overlays the top of the editor when visible ────────
-    // Positioned at the editor's top y; no space is reserved in the dialog height.
-    // When SWR_FINISH_OPTOUT is selected the controls float on top of the editor.
+    // ── Parameters ────────────────────────────────────────────────────────────
+    { auto it = locale.find(L"scr_dlg_parameters");
+      Lbl(it != locale.end() ? it->second.c_str() : L"Parameters (passed to the script process, leave empty for none):"); }
     {
-        int yOvr = y;  // same as editor start — no y advancement
-        auto it = locale.find(L"scr_dlg_finish_label_lbl");
-        HWND hFlbl = CreateWindowExW(0, L"STATIC",
-            (it != locale.end() ? it->second.c_str()
-                                : L"Label on Finish page (leave blank for default):"),
-            WS_CHILD | SS_LEFT,
-            lx, yOvr, cw, S(SD_LABEL_H),
-            hDlg, (HMENU)(UINT_PTR)IDC_SCRDLG_FINISH_LABEL_LBL, hInst, NULL);
-        if (hFont) SendMessageW(hFlbl, WM_SETFONT, (WPARAM)hFont, FALSE);
-        yOvr += S(SD_LABEL_H) + S(SD_GAP_SM);
-        HWND hFed = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT",
-            scr.description.c_str(),
-            WS_CHILD | WS_TABSTOP | ES_AUTOHSCROLL,
-            lx, yOvr, cw, S(SD_EDIT_H),
-            hDlg, (HMENU)(UINT_PTR)IDC_SCRDLG_FINISH_LABEL, hInst, NULL);
-        if (hFont) SendMessageW(hFed, WM_SETFONT, (WPARAM)hFont, FALSE);
-        // Visibility driven by selected "when" combo value
-        UpdateWhenVisibility(hDlg);
+        HWND hPrEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT",
+            scr.parameters.c_str(),
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
+            lx, y, cw, S(SD_EDIT_H),
+            hDlg, (HMENU)(UINT_PTR)IDC_SCRDLG_PARAMETERS, hInst, NULL);
+        if (hFont) SendMessageW(hPrEdit, WM_SETFONT, (WPARAM)hFont, FALSE);
+        y += S(SD_EDIT_H) + S(SD_GAP);
     }
 
-    // ── Script content — no label row; editor fills from here to load/test row ──
+    // ── Expand editor toggle ──────────────────────────────────────────────────────────────
+    {
+        auto it = locale.find(L"scr_dlg_expand");
+        HWND hExp = CreateCustomCheckbox(hDlg, IDC_SCRDLG_EXPAND,
+            (it != locale.end() ? it->second : L"Big editor"),
+            false,
+            lx, y, cw, S(SD_CB_H), hInst);
+        if (hFont) SendMessageW(hExp, WM_SETFONT, (WPARAM)hFont, FALSE);
+        data.hExpandToggle = hExp;
+        y += S(SD_CB_H) + S(SD_GAP_SM);
+    }
+
+    // ── Script content ─────────────────────────────────────────────────────────────
+    // The finish-page overlay is created AFTER Scintilla so it has higher Z-order
+    // and paints on top of the editor correctly (Win32: later child = higher Z).
+    const int yEditorTop = y;   // remember editor top for the overlay below
+    data.yEditorTop = yEditorTop;
     {
         HWND hSciEd = SciCreateEditor(hDlg, IDC_SCRDLG_CONTENT, hInst,
                                        lx, y, cw, S(SD_CONTENT_H));
@@ -1070,6 +1165,41 @@ bool SCR_EditDialog(HWND hwndParent, HINSTANCE hInst,
         }
         data.hSci = hSciEd;
         y += S(SD_CONTENT_H) + S(SD_GAP_SM);   // small gap; separator follows
+    }
+
+    // ── Finish-page overlay (shown only when SWR_FINISH_OPTOUT is selected) ──
+    // Created AFTER Scintilla → higher Z-order → paints over editor correctly.
+    // No height is added to contentH; these controls occupy the top portion of
+    // the editor window and are shown/hidden by UpdateWhenVisibility().
+    {
+        int yOvr = yEditorTop + S(SD_GAP_SM);  // small top margin inside the editor
+        auto it = locale.find(L"scr_dlg_finish_label_lbl");
+        HWND hFlbl = CreateWindowExW(0, L"STATIC",
+            (it != locale.end() ? it->second.c_str()
+                                : L"Label on Finish page (leave blank for default):"),
+            WS_CHILD | SS_LEFT,
+            lx, yOvr, cw, S(SD_LABEL_H),
+            hDlg, (HMENU)(UINT_PTR)IDC_SCRDLG_FINISH_LABEL_LBL, hInst, NULL);
+        if (hFont) SendMessageW(hFlbl, WM_SETFONT, (WPARAM)hFont, FALSE);
+        yOvr += S(SD_LABEL_H) + S(SD_GAP_SM);
+
+        HWND hFed = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT",
+            scr.description.c_str(),
+            WS_CHILD | WS_TABSTOP | ES_AUTOHSCROLL,
+            lx, yOvr, cw, S(SD_EDIT_H),
+            hDlg, (HMENU)(UINT_PTR)IDC_SCRDLG_FINISH_LABEL, hInst, NULL);
+        if (hFont) SendMessageW(hFed, WM_SETFONT, (WPARAM)hFont, FALSE);
+        yOvr += S(SD_EDIT_H) + S(SD_GAP_SM);
+
+        { auto it2 = locale.find(L"scr_dlg_finish_checked");
+          HWND hFChk = CreateCustomCheckbox(hDlg, IDC_SCRDLG_FINISH_CHECKED,
+              (it2 != locale.end() ? it2->second
+                                   : L"Checked by default on the Finish page"),
+              scr.finish_checked_by_default != 0,
+              lx, yOvr, cw, S(SD_CB_H), hInst);
+          if (hFont) SendMessageW(hFChk, WM_SETFONT, (WPARAM)hFont, FALSE); }
+
+        UpdateWhenVisibility(hDlg);
     }
 
     // ── Load from file + Test in terminal buttons ─────────────────────────────

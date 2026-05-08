@@ -22,6 +22,8 @@
 #include "dpi.h"                // S()
 #include "button.h"             // CreateCustomButtonWithIcon(), MeasureButtonWidth()
 #include "checkbox.h"           // CreateCustomCheckbox()
+#include "tooltip.h"             // ShowMultilingualTooltip() / HideTooltip()
+#include <windowsx.h>           // GET_X_LPARAM / GET_Y_LPARAM
 #include <shellapi.h>           // ShellExecuteW()
 #include <commdlg.h>            // GetOpenFileNameW()
 #include <fstream>
@@ -43,6 +45,16 @@ static HWND       s_hScrList  = NULL;   // the ListView itself
 static HFONT      s_hGuiFont  = NULL;
 static HINSTANCE  s_hInst     = NULL;
 static const std::map<std::wstring, std::wstring>* s_pLocale = NULL;
+
+// ── Drag-to-reorder state ─────────────────────────────────────────────────────
+static bool    s_dragging      = false;   // drag is active
+static int     s_dragSrcIdx    = -1;      // index of item being dragged
+static int     s_dragDropIdx   = -1;      // insertion index (0..n) during drag
+static POINT   s_dragStartPt   = {};      // mouse-down position for threshold
+static bool    s_dragThreshold = false;   // true once 4 px threshold crossed
+static WNDPROC s_listOrigProc  = NULL;    // original ListView WndProc (subclass)
+
+static bool    s_listTipTracking = false; // true while TME_LEAVE is active
 
 // ── Locale helper ─────────────────────────────────────────────────────────────
 static std::wstring loc(const wchar_t* key, const wchar_t* fallback)
@@ -92,6 +104,177 @@ static void UpdateToolbar(HWND hwnd)
     if (hDelete) EnableWindow(hDelete, (masterOn && hasSel) ? TRUE : FALSE);
 }
 
+// ── ComputeDropIndex — insertion position (0..n) for drag-reorder ─────────────
+static int ComputeDropIndex(HWND hLv, POINT ptClient)
+{
+    int n = ListView_GetItemCount(hLv);
+    if (n == 0) return 0;
+
+    // Try a direct hit on an item first
+    LVHITTESTINFO ht = {};
+    ht.pt = ptClient;
+    int hitIdx = (int)SendMessageW(hLv, LVM_HITTEST, 0, (LPARAM)&ht);
+    if (hitIdx >= 0) {
+        RECT rc = {};
+        ListView_GetItemRect(hLv, hitIdx, &rc, LVIR_BOUNDS);
+        // Left half → insert before; right half → insert after
+        return (ptClient.x < (rc.left + rc.right) / 2) ? hitIdx : hitIdx + 1;
+    }
+
+    // Not over any item — find nearest by Manhattan distance to tile centre
+    int best = n, bestDist = INT_MAX;
+    for (int i = 0; i < n; i++) {
+        RECT rc = {};
+        ListView_GetItemRect(hLv, i, &rc, LVIR_BOUNDS);
+        int cx = (rc.left + rc.right) / 2;
+        int cy = (rc.top  + rc.bottom) / 2;
+        int d  = abs(ptClient.x - cx) + abs(ptClient.y - cy);
+        if (d < bestDist) { bestDist = d; best = i; }
+    }
+    if (best < n) {
+        RECT rc = {};
+        ListView_GetItemRect(hLv, best, &rc, LVIR_BOUNDS);
+        return (ptClient.x < (rc.left + rc.right) / 2) ? best : best + 1;
+    }
+    return n;
+}
+
+// ── MoveScript — commit a drag-reorder in s_scripts ───────────────────────────
+static void MoveScript(HWND hwnd, int srcIdx, int dropIdx)
+{
+    int n = (int)s_scripts.size();
+    if (srcIdx < 0 || srcIdx >= n) return;
+    if (dropIdx < 0) dropIdx = 0;
+    if (dropIdx > n) dropIdx = n;
+    if (dropIdx == srcIdx || dropIdx == srcIdx + 1) return;  // no-op
+
+    DB::ScriptRow moved = s_scripts[srcIdx];
+    s_scripts.erase(s_scripts.begin() + srcIdx);
+    if (dropIdx > srcIdx) dropIdx--;   // adjust index after erase
+    s_scripts.insert(s_scripts.begin() + dropIdx, moved);
+
+    for (int i = 0; i < (int)s_scripts.size(); i++)
+        s_scripts[i].sort_order = i;
+
+    RefreshList(hwnd);
+    if (s_hScrList)
+        ListView_SetItemState(s_hScrList, dropIdx,
+            LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+    UpdateToolbar(hwnd);
+    MainWindow::MarkAsModified();
+}
+
+// ── ScrListSubclassProc — subclass for drag-to-reorder ────────────────────────
+static LRESULT CALLBACK ScrListSubclassProc(HWND hLv, UINT msg,
+                                             WPARAM wParam, LPARAM lParam)
+{
+    switch (msg) {
+    case WM_LBUTTONDOWN: {
+        // Record which tile was pressed; drag will start once threshold is crossed
+        POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+        LVHITTESTINFO ht = {};
+        ht.pt = pt;
+        int idx = (int)SendMessageW(hLv, LVM_HITTEST, 0, (LPARAM)&ht);
+        if (idx >= 0 && (ht.flags & LVHT_ONITEM)) {
+            s_dragSrcIdx    = idx;
+            s_dragStartPt   = pt;
+            s_dragThreshold = false;
+        } else {
+            s_dragSrcIdx = -1;
+        }
+        break;   // also pass to original proc for normal click/select
+    }
+    case WM_MOUSEMOVE: {
+        if (s_dragSrcIdx >= 0 && (wParam & MK_LBUTTON)) {
+            POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+            if (!s_dragThreshold) {
+                if (abs(pt.x - s_dragStartPt.x) >= 4 ||
+                    abs(pt.y - s_dragStartPt.y) >= 4) {
+                    s_dragThreshold = true;
+                    s_dragging      = true;
+                    HideTooltip();
+                    SetCapture(hLv);
+                }
+            }
+            if (s_dragging) {
+                int newDrop = ComputeDropIndex(hLv, pt);
+                if (newDrop != s_dragDropIdx) {
+                    s_dragDropIdx = newDrop;
+                    InvalidateRect(hLv, NULL, FALSE);
+                }
+                SetCursor(LoadCursor(NULL, IDC_SIZEALL));
+                return 0;   // suppress default — prevents stray item selection
+            }
+        }
+        // Not dragging — show custom tooltip
+        if (!s_dragging && !IsTooltipVisible()) {
+            std::wstring tip = s_pLocale
+                ? loc(L"scr_list_drag_tip", L"Drag to alter order")
+                : L"Drag to alter order";
+            POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+            ClientToScreen(hLv, &pt);
+            std::vector<TooltipEntry> entries = { { L"", tip } };
+            ShowMultilingualTooltip(entries, pt.x, pt.y + S(20), GetParent(hLv));
+        }
+        if (!s_listTipTracking) {
+            TRACKMOUSEEVENT tme = {};
+            tme.cbSize    = sizeof(tme);
+            tme.dwFlags   = TME_LEAVE;
+            tme.hwndTrack = hLv;
+            TrackMouseEvent(&tme);
+            s_listTipTracking = true;
+        }
+        break;
+    }
+    case WM_MOUSELEAVE: {
+        HideTooltip();
+        s_listTipTracking = false;
+        break;
+    }
+    case WM_SETCURSOR: {
+        if (s_dragging) {
+            SetCursor(LoadCursor(NULL, IDC_SIZEALL));
+            return TRUE;
+        }
+        break;
+    }
+    case WM_LBUTTONUP: {
+        if (s_dragging) {
+            // Save indices BEFORE ReleaseCapture() — it synchronously delivers
+            // WM_CAPTURECHANGED which resets all drag state.
+            int dropIdx = s_dragDropIdx;
+            int srcIdx  = s_dragSrcIdx;
+            bool doMove = (dropIdx >= 0 &&
+                           dropIdx != srcIdx &&
+                           dropIdx != srcIdx + 1);
+            s_dragging      = false;   // set before ReleaseCapture to suppress WM_CAPTURECHANGED handler
+            s_dragSrcIdx    = -1;
+            s_dragDropIdx   = -1;
+            s_dragThreshold = false;
+            ReleaseCapture();
+            InvalidateRect(hLv, NULL, FALSE);
+            if (doMove)
+                MoveScript(GetParent(hLv), srcIdx, dropIdx);
+            return 0;   // don't let original proc select a new item at cursor
+        }
+        s_dragSrcIdx = -1;
+        break;
+    }
+    case WM_CAPTURECHANGED: {
+        // Drag cancelled (e.g. Alt+Tab)
+        if (s_dragging) {
+            s_dragging      = false;
+            s_dragSrcIdx    = -1;
+            s_dragDropIdx   = -1;
+            s_dragThreshold = false;
+            InvalidateRect(hLv, NULL, FALSE);
+        }
+        break;
+    }
+    }
+    return CallWindowProcW(s_listOrigProc, hLv, msg, wParam, lParam);
+}
+
 // ── Helper: read a script file from disk into a wstring ───────────────────────
 static bool ReadScriptFile(const wchar_t* path, std::wstring& outContent)
 {
@@ -127,14 +310,20 @@ static bool ReadScriptFile(const wchar_t* path, std::wstring& outContent)
 // ── SCR_Reset ─────────────────────────────────────────────────────────────────
 void SCR_Reset()
 {
-    s_scrEnabled = false;
+    s_scrEnabled    = false;
     s_scripts.clear();
-    s_nextScrId  = 1;
+    s_nextScrId     = 1;
     if (s_hImgList) { ImageList_Destroy(s_hImgList); s_hImgList = NULL; }
-    s_hScrList  = NULL;
-    s_hGuiFont  = NULL;
-    s_hInst     = NULL;
-    s_pLocale   = NULL;
+    s_hScrList      = NULL;
+    s_hGuiFont      = NULL;
+    s_hInst         = NULL;
+    s_pLocale       = NULL;
+    s_dragging      = false;
+    s_dragSrcIdx    = -1;
+    s_dragDropIdx   = -1;
+    s_dragThreshold = false;
+    s_listTipTracking = false;
+    s_listOrigProc  = NULL;
 }
 
 // ── SCR_BuildPage ─────────────────────────────────────────────────────────────
@@ -262,7 +451,7 @@ void SCR_BuildPage(HWND hwnd, HINSTANCE hInst,
     s_hScrList = CreateWindowExW(
         WS_EX_CLIENTEDGE, WC_LISTVIEW, L"",
         WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS |
-        LVS_ICON | LVS_SINGLESEL | LVS_AUTOARRANGE | LVS_SHOWSELALWAYS,
+        LVS_ICON | LVS_SINGLESEL | LVS_SHOWSELALWAYS,
         padH, y, clientWidth - padH * 2, listH,
         hwnd, (HMENU)(UINT_PTR)IDC_SCR_LIST, hInst, NULL);
 
@@ -271,6 +460,9 @@ void SCR_BuildPage(HWND hwnd, HINSTANCE hInst,
             LVS_EX_DOUBLEBUFFER | LVS_EX_UNDERLINEHOT);
         if (s_hImgList)
             ListView_SetImageList(s_hScrList, s_hImgList, LVSIL_NORMAL);
+        // Subclass for drag-to-reorder
+        s_listOrigProc = (WNDPROC)SetWindowLongPtrW(
+            s_hScrList, GWLP_WNDPROC, (LONG_PTR)ScrListSubclassProc);
     }
     y += listH + gap;
 
@@ -293,6 +485,17 @@ void SCR_BuildPage(HWND hwnd, HINSTANCE hInst,
 // ── SCR_TearDown ──────────────────────────────────────────────────────────────
 void SCR_TearDown(HWND /*hwnd*/)
 {
+    // Restore original WndProc before the ListView is destroyed so no messages
+    // arrive in ScrListSubclassProc after teardown.
+    if (s_listOrigProc && s_hScrList) {
+        SetWindowLongPtrW(s_hScrList, GWLP_WNDPROC, (LONG_PTR)s_listOrigProc);
+        s_listOrigProc = NULL;
+    }
+    s_dragging      = false;
+    s_dragSrcIdx    = -1;
+    s_dragDropIdx   = -1;
+    s_dragThreshold = false;
+    s_listTipTracking = false;
     // Controls are destroyed by the generic SwitchPage enumeration loop.
     // Free the ImageList here; it's not a child window.
     if (s_hImgList) { ImageList_Destroy(s_hImgList); s_hImgList = NULL; }
@@ -454,11 +657,67 @@ bool SCR_OnCommand(HWND hwnd, int wmId, int wmEvent, HWND /*hCtrl*/)
     return false;
 }
 
+// ── DrawDropIndicator — called from NM_CUSTOMDRAW CDDS_POSTPAINT ─────────────
+static void DrawDropIndicator(HDC hdc)
+{
+    if (!s_dragging || s_dragDropIdx < 0 || !s_hScrList) return;
+    int n = ListView_GetItemCount(s_hScrList);
+    if (n == 0) return;
+
+    const int kW = 3;   // bar width in pixels
+    RECT lineRc  = {};
+
+    if (s_dragDropIdx == 0) {
+        // Before the first tile
+        RECT rc = {};
+        ListView_GetItemRect(s_hScrList, 0, &rc, LVIR_BOUNDS);
+        lineRc = { rc.left, rc.top, rc.left + kW, rc.bottom };
+    } else if (s_dragDropIdx >= n) {
+        // After the last tile
+        RECT rc = {};
+        ListView_GetItemRect(s_hScrList, n - 1, &rc, LVIR_BOUNDS);
+        lineRc = { rc.right - kW, rc.top, rc.right, rc.bottom };
+    } else {
+        RECT rcPrev = {}, rcNext = {};
+        ListView_GetItemRect(s_hScrList, s_dragDropIdx - 1, &rcPrev, LVIR_BOUNDS);
+        ListView_GetItemRect(s_hScrList, s_dragDropIdx,     &rcNext, LVIR_BOUNDS);
+        if (rcPrev.top == rcNext.top) {
+            // Same row: bar centred in the gap between the two tiles
+            int x   = (rcPrev.right + rcNext.left) / 2;
+            int top = (rcPrev.top    < rcNext.top)    ? rcPrev.top    : rcNext.top;
+            int bot = (rcPrev.bottom > rcNext.bottom) ? rcPrev.bottom : rcNext.bottom;
+            lineRc = { x - kW / 2, top, x - kW / 2 + kW, bot };
+        } else {
+            // Wraps to next row: bar at right edge of previous tile
+            lineRc = { rcPrev.right - kW, rcPrev.top, rcPrev.right, rcPrev.bottom };
+        }
+    }
+
+    HBRUSH hBr = CreateSolidBrush(RGB(0, 102, 204));
+    FillRect(hdc, &lineRc, hBr);
+    DeleteObject(hBr);
+}
+
 // ── SCR_OnNotify ──────────────────────────────────────────────────────────────
 LRESULT SCR_OnNotify(HWND hwnd, LPNMHDR nmhdr, bool* handled)
 {
     *handled = false;
     if (!nmhdr || nmhdr->idFrom != IDC_SCR_LIST) return 0;
+
+    // NM_CUSTOMDRAW — draw the "|" drop-indicator bar during drag-reorder
+    if (nmhdr->code == NM_CUSTOMDRAW) {
+        NMLVCUSTOMDRAW* pcd = (NMLVCUSTOMDRAW*)nmhdr;
+        if (pcd->nmcd.dwDrawStage == CDDS_PREPAINT) {
+            *handled = true;
+            return s_dragging ? CDRF_NOTIFYPOSTPAINT : CDRF_DODEFAULT;
+        }
+        if (pcd->nmcd.dwDrawStage == CDDS_POSTPAINT) {
+            DrawDropIndicator(pcd->nmcd.hdc);
+            *handled = true;
+            return CDRF_DODEFAULT;
+        }
+        return 0;
+    }
 
     // Selection changed — update toolbar button states
     if (nmhdr->code == LVN_ITEMCHANGED) {

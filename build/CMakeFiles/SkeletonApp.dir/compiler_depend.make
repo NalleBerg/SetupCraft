@@ -8952,6 +8952,7 @@ CMakeFiles/SkeletonApp.dir/scripts.cpp.obj: C:/Users/NalleBerg/Documents/C++/Wor
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_map.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_multimap.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_pair.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_relops.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_tree.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_uninitialized.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_vector.h \
@@ -9000,6 +9001,7 @@ CMakeFiles/SkeletonApp.dir/scripts.cpp.obj: C:/Users/NalleBerg/Documents/C++/Wor
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/tuple \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/type_traits \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/typeinfo \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/utility \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/vector \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/x86_64-w64-mingw32/bits/atomic_word.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/x86_64-w64-mingw32/bits/basic_file.h \
@@ -9253,6 +9255,7 @@ CMakeFiles/SkeletonApp.dir/scripts.cpp.obj: C:/Users/NalleBerg/Documents/C++/Wor
   C:/mingw64/x86_64-w64-mingw32/include/wincrypt.h \
   C:/mingw64/x86_64-w64-mingw32/include/windef.h \
   C:/mingw64/x86_64-w64-mingw32/include/windows.h \
+  C:/mingw64/x86_64-w64-mingw32/include/windowsx.h \
   C:/mingw64/x86_64-w64-mingw32/include/winefs.h \
   C:/mingw64/x86_64-w64-mingw32/include/winerror.h \
   C:/mingw64/x86_64-w64-mingw32/include/wingdi.h \
@@ -9280,7 +9283,8 @@ CMakeFiles/SkeletonApp.dir/scripts.cpp.obj: C:/Users/NalleBerg/Documents/C++/Wor
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/dpi.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/mainwindow.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/script_edit_dialog.h \
-  C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/scripts.h
+  C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/scripts.h \
+  C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/tooltip.h
 
 CMakeFiles/SkeletonApp.dir/scrollbar.cpp.obj: C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/scrollbar.cpp \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/adxintrin.h \

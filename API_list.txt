@@ -674,25 +674,60 @@
                                                 section mapping (BEFORE_FILES→[Code],
                                                 AFTER_FILES→[Run], FINISH_OPTOUT→[Run]
                                                 postinstall skipifsilent, UNINSTALL→
-                                                [UninstallRun]), SCR_EditDialog modal pattern
-                                                (measure-then-create, ScriptDlgData struct,
+                                                [UninstallRun]),
+                                                drag-to-reorder (ScrListSubclassProc subclass:
+                                                WM_LBUTTONDOWN record hit item, WM_MOUSEMOVE
+                                                start drag after 4px threshold + SetCapture +
+                                                ComputeDropIndex, WM_LBUTTONUP commit via
+                                                MoveScript — save srcIdx/dropIdx BEFORE
+                                                ReleaseCapture() because ReleaseCapture
+                                                synchronously delivers WM_CAPTURECHANGED which
+                                                resets drag state; WM_CAPTURECHANGED cancel;
+                                                LVS_AUTOARRANGE removed; sort_order renumbered;
+                                                NM_CUSTOMDRAW CDDS_POSTPAINT 3px blue bar
+                                                DrawDropIndicator;
+                                                custom tooltip scr_list_drag_tip via
+                                                ShowMultilingualTooltip + TME_LEAVE),
+                                                SCR_EditDialog modal pattern
+                                                (measure-then-create, ScriptDlgData struct
+                                                {hSci, yEditorTop, bigEditor, hExpandToggle},
                                                 pExisting duplicate check, IsDupName helper,
-                                                ShowRenameDialog sub-dialog with RenameDlgProc,
-                                                finish-label overlay; on_error checkbox
-                                                IDC_SCRDLG_ABORT_ON_ERROR=7369 persisted as
-                                                on_error INTEGER 0=continue/1=abort;
+                                                ShowRenameDialog sub-dialog with RenameDlgProc;
+                                                on_error checkbox IDC_SCRDLG_ABORT_ON_ERROR=7369
+                                                persisted as on_error INTEGER 0=continue/1=abort;
                                                 working_dir edit+VFS picker
                                                 IDC_SCRDLG_WORKING_DIR=7370 /
                                                 IDC_SCRDLG_WORKING_DIR_BTN=7371 persisted as
-                                                working_dir TEXT — Inno constant path,
-                                                empty=default; Load/Test buttons centred;
+                                                working_dir TEXT — Inno constant path;
+                                                parameters edit IDC_SCRDLG_PARAMETERS=7372
+                                                persisted as parameters TEXT — command-line
+                                                args, empty=none;
+                                                finish_checked_by_default checkbox
+                                                IDC_SCRDLG_FINISH_CHECKED=7373 persisted as
+                                                finish_checked_by_default INTEGER — maps to
+                                                Inno checkedonce flag, visible only when
+                                                SWR_FINISH_OPTOUT selected;
+                                                Big editor toggle IDC_SCRDLG_EXPAND=7374
+                                                (scr_dlg_expand): EnumChildWindows hides
+                                                controls above threshold, Scintilla resized
+                                                to fill freed space;
+                                                layout: SD_CONTENT_H=240, SD_PAD_B=28,
+                                                Script type: label removed;
+                                                finish-page overlay approach: controls NOT
+                                                in contentH, created AFTER SciCreateEditor
+                                                (higher Z-order), yEditorTop recorded before
+                                                SciCreateEditor, UpdateWhenVisibility resizes
+                                                Scintilla around them when shown;
+                                                Load/Test buttons centred;
                                                 SS_ETCHEDHORZ separator above them),
                                                 Scintilla runtime load
                                                 (SciLoad: LoadLibraryW Scintilla.dll+Lexilla.dll,
                                                 Scintilla_RegisterClasses, CreateLexer;
                                                 plain EDIT fallback), DB table (scripts;
-                                                includes on_error INTEGER DEFAULT 0 and
-                                                working_dir TEXT DEFAULT ''),
+                                                columns: on_error INTEGER DEFAULT 0,
+                                                working_dir TEXT DEFAULT '',
+                                                parameters TEXT DEFAULT '',
+                                                finish_checked_by_default INTEGER DEFAULT 0),
                                                 control ID ranges (page 7300–7349,
                                                 dialog 7350–7399), and full locale key table.
 

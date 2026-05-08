@@ -149,6 +149,63 @@ d) Leave the field blank, recompile — UninstallDisplayName= must equal the
 e) Verify the entry in Add/Remove Programs reverts to plain AppName.
 
 ────────────────────────────────────────────────────────────────────────────────
+11. SCRIPTS — WORKING DIRECTORY (VFS PATH ROUND-TRIP)
+────────────────────────────────────────────────────────────────────────────────
+Requires: a saved project with at least one folder in the VFS tree
+
+a) Scripts page → [+ Add Script].
+b) Set "When to run" to "After files are installed".
+c) Click the browse button next to "Working directory".
+d) In the VFS folder picker, select a subfolder under e.g. Program Files\YourApp.
+e) Confirm the edit shows an Inno constant path, e.g. "{pf}\YourApp\tools",
+   NOT a developer disk path like "C:\Users\...".
+f) Fill in a script name and any content, click Save.
+g) File → Save project.
+h) Close and reopen the project.
+i) Edit the script — working directory field must still show "{pf}\YourApp\tools"
+   (DB round-trip verified).
+
+NOTE: ISS generation for the [Run] / [UninstallRun] sections (including
+WorkingDir:) is not yet implemented in issgen.cpp. Tests a–i only verify
+the UI, DB persistence, and VFS picker semantics. A full end-to-end test
+(WorkingDir appearing in the generated .iss) requires the <<SCRIPTS>> marker
+and ISS generation work to be completed first.
+
+────────────────────────────────────────────────────────────────────────────────
+12. SCRIPTS — PARAMETERS (ROUND-TRIP)
+────────────────────────────────────────────────────────────────────────────────
+Requires: a saved project
+
+a) Scripts page → [+ Add Script].
+b) In the "Parameters" field, type e.g.  -NoProfile -ExecutionPolicy Bypass
+c) Fill in a name and script content, click Save.
+d) File → Save project; close and reopen.
+e) Edit the script — the Parameters field must still contain the text from step b.
+
+NOTE: Like WorkingDir, Parameters will be emitted as Parameters: in the [Run]
+entry only after <<SCRIPTS>> ISS generation is implemented in issgen.cpp.
+
+────────────────────────────────────────────────────────────────────────────────
+13. SCRIPTS — FINISH-PAGE "CHECKED BY DEFAULT" TOGGLE (ROUND-TRIP)
+────────────────────────────────────────────────────────────────────────────────
+Requires: a saved project
+
+a) Scripts page → [+ Add Script].
+b) Set "When to run" to "Finish page — user can skip [Run postinstall]".
+c) Verify the "Checked by default on the Finish page (checkedonce)" checkbox
+   becomes visible (it must be hidden for all other "When to run" selections).
+d) Tick the checkbox, fill in a name and script content, click Save.
+e) File → Save project; close and reopen.
+f) Edit the script — the checkbox must still be ticked (DB round-trip verified).
+g) Repeat with the checkbox unticked — confirm it stays unticked after round-trip.
+h) Switch "When to run" to any other value — the checkbox must disappear.
+   Switch back to Finish-page — it must reappear with its previous state.
+
+NOTE: The checkedonce Inno flag (emitted as Flags: postinstall skipifsilent
+checkedonce in [Run]) will be written by issgen.cpp when <<SCRIPTS>> ISS
+generation is implemented.
+
+────────────────────────────────────────────────────────────────────────────────
 NOTES
 ────────────────────────────────────────────────────────────────────────────────
 - Self-signed certs will pass signtool (Status=Valid) but SmartScreen will

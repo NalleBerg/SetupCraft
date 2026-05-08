@@ -38,7 +38,8 @@ mainwindow.cpp knows nothing about the page internals.  It only:
 
   Table: scripts
   Columns: id, project_id, name, script_type, when_to_run, run_hidden,
-           wait, also_uninstall, finish_label, content, on_error, working_dir
+           wait, also_uninstall, finish_label, content, on_error, working_dir,
+           parameters, finish_checked_by_default
 
   CRUD in db.cpp / db.h:
     DB::InsertScript()              — insert one ScriptRow
@@ -108,19 +109,96 @@ mainwindow.cpp knows nothing about the page internals.  It only:
   If the user completes the rename, ShowRenameDialog() writes the new name back
   to scr->name and returns true; the outer OK handler then proceeds to save.
 
-── Finish-label overlay pattern ─────────────────────────────────────────────────
+── Drag-to-reorder (Scripts ListView) ─────────────────────────────────────────
+
+  The LVS_ICON ListView (IDC_SCR_LIST) is subclassed with ScrListSubclassProc
+  to implement drag-to-reorder without shell DnD plumbing.
+
+  Module-level drag state:
+    s_dragging        bool   — drag is active (threshold crossed + captured)
+    s_dragSrcIdx      int    — s_scripts[] index of the item being dragged
+    s_dragDropIdx     int    — insertion index (0..n) updated on every mouse move
+    s_dragStartPt     POINT  — mouse position at WM_LBUTTONDOWN
+    s_dragThreshold   bool   — true once 4 px threshold crossed
+    s_listTipTracking bool   — true while TME_LEAVE is outstanding
+    s_listOrigProc    WNDPROC— original WNDPROC saved by SetWindowLongPtrW
+
+  Message flow:
+    WM_LBUTTONDOWN   Record hit item index; do not SetCapture yet.
+    WM_MOUSEMOVE     Once the mouse moves 4 px from s_dragStartPt, set
+                     s_dragThreshold=true, s_dragging=true, call HideTooltip()
+                     then SetCapture(hLv).  While dragging, compute the new
+                     ComputeDropIndex and InvalidateRect for redraw.  Return 0
+                     to suppress accidental item selection.
+                     While NOT dragging, show scr_list_drag_tip via
+                     ShowMultilingualTooltip and register TME_LEAVE.
+    WM_MOUSELEAVE    HideTooltip(); clear s_listTipTracking.
+    WM_LBUTTONUP     CRITICAL: save dropIdx/srcIdx and set s_dragging=false
+                     BEFORE calling ReleaseCapture().  ReleaseCapture()
+                     delivers WM_CAPTURECHANGED synchronously; if drag state
+                     were still active the handler would reset it, leaving
+                     invalid indices for MoveScript.  Call MoveScript() after
+                     ReleaseCapture() using the saved locals.
+    WM_CAPTURECHANGED Cancels an in-progress drag (Alt+Tab, etc.); safe because
+                     WM_LBUTTONUP already sets s_dragging=false before calling
+                     ReleaseCapture(), so this handler is a no-op on normal drop.
+    WM_SETCURSOR     Returns TRUE and sets IDC_SIZEALL cursor while dragging.
+
+  ComputeDropIndex(hLv, ptClient) -> int (0..n):
+    Hit-tests the point via LVM_HITTEST; if a tile is hit, uses the midpoint of
+    its bounding rect to decide left-half (insert before) vs right-half (insert
+    after).  If no tile is hit, finds the nearest tile by Manhattan distance.
+
+  MoveScript(hwnd, srcIdx, dropIdx):
+    Erases s_scripts[srcIdx], adjusts dropIdx for the removed element, inserts
+    at the new position, renumbers sort_order 0..n-1, calls RefreshList and
+    ListView_SetItemState to reselect the moved item, then MarkAsModified.
+
+  DrawDropIndicator(hdc):
+    Called from NM_CUSTOMDRAW CDDS_POSTPAINT via SCR_OnNotify.
+    Draws a 3 px blue (RGB 0,102,204) vertical bar between tiles to show the
+    insertion position.  Handles edge cases: dropIdx==0 (before first tile),
+    dropIdx==n (after last tile), same-row gap (midpoint between tiles),
+    and wrap to next row (right edge of previous tile).
+
+  SCR_BuildPage installs the subclass:
+    s_listOrigProc = (WNDPROC)SetWindowLongPtrW(
+        s_hScrList, GWLP_WNDPROC, (LONG_PTR)ScrListSubclassProc);
+
+  SCR_TearDown restores the original WNDPROC before the window is destroyed:
+    SetWindowLongPtrW(s_hScrList, GWLP_WNDPROC, (LONG_PTR)s_listOrigProc);
+
+  LVS_AUTOARRANGE is NOT set on the ListView.  With LVS_AUTOARRANGE Win32
+  re-grids items to the nearest valid slot after every insertion or move,
+  ignoring sort_order and making the drag indicator meaningless.
+
+── Finish-page section layout ───────────────────────────────────────────────────
 
   When SWR_FINISH_OPTOUT is selected, the Inno Setup [Run] entry gets
   Flags: postinstall skipifsilent.  This means a checkbox appears on the Setup
-  Finish page whose label is configurable.
+  Finish page whose label and initial check state are configurable.
 
-  The "Finish page label" controls (IDC_SCRDLG_FINISH_LABEL_LBL / IDC_SCRDLG_FINISH_LABEL)
-  overlay the top of the Scintilla editor window.  They are hidden by default and
-  shown/hidden by the WM_COMBO_WHEN_CHANGE handler (a private message posted by the
-  combo's EN_CHANGE / CBN_SELCHANGE path) whenever the selection changes.
+  Three controls are dedicated to this mode:
+    IDC_SCRDLG_FINISH_LABEL_LBL  (static)   — "Label on Finish page (leave blank for default):"
+    IDC_SCRDLG_FINISH_LABEL      (edit)      — the customisable opt-out checkbox label
+    IDC_SCRDLG_FINISH_CHECKED    (checkbox)  — if checked, emits Inno's checkedonce flag
 
-  The controls float above the editor — the editor itself is not resized.  The label's
-  Y position (finishLblY) is fixed to the top of the editor area minus one row.
+  Layout rule (Z-order + no wasted space):
+    The three controls are NOT included in contentH and do NOT advance y.
+    Instead, they are created AFTER SciCreateEditor() using the overlay approach:
+    the overlay y starts at yEditorTop (the editor's top-left corner, recorded
+    just before SciCreateEditor is called), with a small SD_GAP_SM margin.
+    Because Win32 child windows created later in WM_CREATE have a higher Z-order,
+    these controls paint on top of the Scintilla window correctly.
+    When hidden (non-FINISH_OPTOUT mode) the editor shows fully — no empty gap.
+    When shown they overlay the top ~3 rows of the editor; the rest of the editor
+    remains interactive below them.
+
+  Visibility:
+    UpdateWhenVisibility() shows/hides all three controls via ShowWindow depending
+    on whether the current "When to run" selection is SWR_FINISH_OPTOUT.
+    Called once at the end of WM_CREATE (after the overlay controls are created)
+    and again on every CBN_SELCHANGE of IDC_SCRDLG_WHEN_COMBO.
 
 ── Scintilla runtime integration ────────────────────────────────────────────────
 
@@ -184,6 +262,10 @@ mainwindow.cpp knows nothing about the page internals.  It only:
     IDC_SCRDLG_ABORT_ON_ERROR   7369   "Abort installation if script fails" checkbox
     IDC_SCRDLG_WORKING_DIR      7370   Edit: working directory VFS path (e.g. "{app}\\tools")
     IDC_SCRDLG_WORKING_DIR_BTN  7371   Browse button — opens VFS folder picker (folder-only)
+    IDC_SCRDLG_PARAMETERS       7372   Edit: command-line parameters passed to the script process
+    IDC_SCRDLG_FINISH_CHECKED   7373   Checkbox: start Finish-page opt-out checkbox checked (checkedonce flag)
+                                        Visible only when SWR_FINISH_OPTOUT is selected; overlay (not own row).
+    IDC_SCRDLG_EXPAND           7374   Checkbox: "Big editor" toggle — hides controls above, expands Scintilla
 
 ── Locale key table ──────────────────────────────────────────────────────────────
 
@@ -217,6 +299,12 @@ mainwindow.cpp knows nothing about the page internals.  It only:
     scr_dlg_test_btn       "Test in terminal" button
     scr_dlg_ok_btn         "Save" / OK button
     scr_dlg_cancel_btn     "Cancel" button
+    scr_dlg_working_dir    "Working directory" label
+    scr_dlg_working_dir_picker_title  VFS picker dialog title
+    scr_dlg_parameters     "Parameters" label
+    scr_dlg_finish_checked "Checked by default on the Finish page" checkbox label
+    scr_dlg_expand         "Big editor" toggle checkbox label
+    scr_list_drag_tip      Tooltip shown on hover over the Scripts ListView ("Drag to alter order")
     scr_dlg_val_empty_name Validation: name must not be empty
     scr_dlg_val_empty_script Validation: script content must not be empty
 

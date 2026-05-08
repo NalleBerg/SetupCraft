@@ -229,12 +229,18 @@ bool DB::InitDb() {
         "sort_order INTEGER DEFAULT 0, "
         "on_error INTEGER DEFAULT 0, "
         "working_dir TEXT DEFAULT '', "
+        "parameters TEXT DEFAULT '', "
+        "finish_checked_by_default INTEGER DEFAULT 0, "
         "FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);",
         NULL, NULL, &errmsg);
     // Add on_error column to scripts table for existing databases
     p_exec(db, "ALTER TABLE scripts ADD COLUMN on_error INTEGER DEFAULT 0;", NULL, NULL, &errmsg);
     // Add working_dir column to scripts table for existing databases
     p_exec(db, "ALTER TABLE scripts ADD COLUMN working_dir TEXT DEFAULT '';", NULL, NULL, &errmsg);
+    // Add parameters column to scripts table for existing databases
+    p_exec(db, "ALTER TABLE scripts ADD COLUMN parameters TEXT DEFAULT '';", NULL, NULL, &errmsg);
+    // Add finish_checked_by_default column to scripts table for existing databases
+    p_exec(db, "ALTER TABLE scripts ADD COLUMN finish_checked_by_default INTEGER DEFAULT 0;", NULL, NULL, &errmsg);
 
     p_exec(db, "CREATE TABLE IF NOT EXISTS file_associations ("
         "id INTEGER PRIMARY KEY AUTOINCREMENT, "
@@ -2632,6 +2638,8 @@ int DB::InsertScript(int projectId, const ScriptRow& s)
     std::string sSort  = std::to_string(s.sort_order);
     std::string sOnErr = std::to_string(s.on_error);
     std::string sWDir  = WToUtf8(s.working_dir);
+    std::string sParam = WToUtf8(s.parameters);
+    std::string sFinChk = std::to_string(s.finish_checked_by_default);
 
     p_bind_text(stmt,  1, sPid.c_str(),   -1, NULL);
     p_bind_text(stmt,  2, sName.c_str(),  -1, NULL);
@@ -2645,6 +2653,8 @@ int DB::InsertScript(int projectId, const ScriptRow& s)
     p_bind_text(stmt, 10, sSort.c_str(),  -1, NULL);
     p_bind_text(stmt, 11, sOnErr.c_str(), -1, NULL);
     p_bind_text(stmt, 12, sWDir.c_str(),  -1, NULL);
+    p_bind_text(stmt, 13, sParam.c_str(), -1, NULL);
+    p_bind_text(stmt, 14, sFinChk.c_str(), -1, NULL);
     p_step(stmt);
     if (p_finalize) p_finalize(stmt);
 
@@ -2688,8 +2698,8 @@ std::vector<DB::ScriptRow> DB::GetScriptsForProject(int projectId)
 
     const char* sql =
         "SELECT id, name, type, content, when_to_run, run_hidden, "
-        "wait_for_completion, description, also_uninstall, sort_order, on_error, working_dir "
-        "FROM scripts WHERE project_id=? ORDER BY sort_order ASC, id ASC;";  // col 11 = working_dir
+        "wait_for_completion, description, also_uninstall, sort_order, on_error, working_dir, parameters, finish_checked_by_default "
+        "FROM scripts WHERE project_id=? ORDER BY sort_order ASC, id ASC;";  // col 11 = working_dir, col 12 = parameters, col 13 = finish_checked_by_default
     void* stmt = NULL;
     if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return out; }
     std::string sPid = std::to_string(projectId);
@@ -2714,6 +2724,8 @@ std::vector<DB::ScriptRow> DB::GetScriptsForProject(int projectId)
         r.sort_order          = (int)p_col_int64(stmt, 9);
         r.on_error            = (int)p_col_int64(stmt, 10);
         r.working_dir         = T(11);
+        r.parameters          = T(12);
+        r.finish_checked_by_default = (int)p_col_int64(stmt, 13);
         out.push_back(r);
     }
     if (p_finalize) p_finalize(stmt);
