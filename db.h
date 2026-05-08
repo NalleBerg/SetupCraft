@@ -43,6 +43,17 @@ struct ComponentRow {
     std::wstring source_path;
     std::wstring dest_path;
     std::vector<int> dependencies; // in-memory dep IDs; persisted on Save
+    std::wstring install_types;    // space-separated type names this component belongs to, e.g. L"full compact"
+    std::wstring group_name;       // optional Inno component group (creates Name: "group\comp" hierarchy)
+};
+
+struct InstallTypeRow {
+    int id = 0;
+    int project_id = 0;
+    std::wstring name;         // Inno internal name, e.g. L"full"  (no spaces)
+    std::wstring description;  // shown in installer dropdown, e.g. L"Full installation"
+    int sort_order = 0;
+    int is_custom  = 0;        // 1 = Flags: iscustom  (allows user to manually tweak components)
 };
 
 struct FileRow {
@@ -96,6 +107,12 @@ namespace DB {
     bool InsertComponentDependency(int componentId, int dependsOnId);
     std::vector<int> GetDependenciesForComponent(int componentId);
     bool DeleteDependenciesForComponent(int componentId);
+    // Install type persistence
+    int  InsertInstallType(const InstallTypeRow &t);
+    bool UpdateInstallType(const InstallTypeRow &t);
+    std::vector<InstallTypeRow> GetInstallTypesForProject(int projectId);
+    bool DeleteInstallTypesForProject(int projectId);
+    bool DeleteInstallType(int id);
     // Shortcut menu-node persistence
     struct ScMenuNodeRow {
         int id = 0;          // same id as ScMenuNode::id (0=SM root, 1=Programs, 2+= user)

@@ -220,6 +220,34 @@
                                                 inside DeinitializeSetup() calls the proc.
                                                 Both markers expand to empty string when
                                                 no log folder or filename is configured.
+                                                BuildComponentsSection: generates [Components]
+                                                block; emits one entry per ComponentRow with
+                                                is_required → Flags: fixed; install_types →
+                                                Types: <space-sep names>; group_name → Name:
+                                                "group\comp" (backslash-separated); when any
+                                                component has a group_name, an extra header
+                                                row (Name: "group"; Description: "group";
+                                                Flags: inherited) is emitted before the first
+                                                component in that group. ComponentRow.install_types
+                                                (std::wstring, space-separated type names) and
+                                                ComponentRow.group_name (std::wstring) are new
+                                                fields; persisted via idempotent ALTER TABLE
+                                                migrations; both dialogs (CompEditDlgProc /
+                                                CompFolderEditDlgProc) expose them: install
+                                                types via custom checkboxes (IDC_COMP_TYPE_BASE
+                                                =2100 / IDC_FOLDER_DLG_TYPE_BASE=2000, count in
+                                                "CompTypeCount"/"FolderTypeCount" SetPropW);
+                                                group via CBS_DROPDOWN combobox (IDC_COMPDLG_GROUP
+                                                =312 / IDC_FOLDER_DLG_GROUP=344), pre-populated
+                                                with all existing group names, typed or selected.
+                                                Cascade on folder-edit OK: prefix scan over all
+                                                s_components whose source_path starts with
+                                                snap->fullPath+"\" updates install_types +
+                                                group_name on every subfolder and nested file
+                                                row; paths loop handles virtual-file nodes
+                                                (fullPath empty). Init fallback: if no folder
+                                                row found, reads install_types/group_name from
+                                                first matching file-component row.
                                                 SBuildConfig struct + SETT_GetBuildConfig()
                                                 in settings.h/.cpp provide the build settings
                                                 snapshot consumed by the generator.

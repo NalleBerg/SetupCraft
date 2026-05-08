@@ -246,6 +246,7 @@ static void CALLBACK ScPinTbTT_TimerCallback(HWND hwnd, UINT, UINT_PTR id, DWORD
 static HWND s_hCompListView = NULL;
 static HWND s_hCompTreeView = NULL;
 static std::vector<ComponentRow> s_components;
+static std::vector<InstallTypeRow> s_installTypes;
 static bool s_filesPageHasContent = false; // tracks whether Files page has any files/folders
 
 // Command and control IDs
@@ -293,6 +294,12 @@ static bool s_filesPageHasContent = false; // tracks whether Files page has any 
 #define IDC_COMP_EDIT         5064
 #define IDC_COMP_REMOVE       5065
 #define IDC_COMP_INFO_ICON    5066
+// Install types – IDs used both inside the manage dialog and as WM_COMMAND targets
+#define IDC_COMP_TYPES_LIST    5067   // ListView inside the manage dialog
+#define IDC_COMP_TYPES_ADD     5068   // Add button inside manage dialog
+#define IDC_COMP_TYPES_EDIT    5069   // Edit button inside manage dialog
+#define IDC_COMP_TYPES_REMOVE  5070   // Remove button inside manage dialog
+#define IDC_COMP_TYPES_MANAGE  5071   // "Manage Install Types" button on the page
 
 // Components edit dialog control IDs (scoped to CompEditDlg window)
 #define IDC_COMPDLG_NAME     301
@@ -306,6 +313,7 @@ static bool s_filesPageHasContent = false; // tracks whether Files page has any 
 #define IDC_COMPDLG_DEPS_LIST   309   // deps ListView (Name | Type columns)
 #define IDC_COMPDLG_CHOOSE_DEPS 310   // Choose… button (opens dep picker tree)
 #define IDC_COMPDLG_REMOVE_DEPS 311   // Remove selected deps button
+#define IDC_COMPDLG_GROUP       312   // Component group combobox
 
 // VFS Picker dialog control IDs (scoped to VFSPickerDlg window)
 #define IDC_VFSPICKER_TREE   6100
@@ -373,6 +381,13 @@ static bool s_filesPageHasContent = false; // tracks whether Files page has any 
 // Notes button inside folder edit and component edit dialogs
 #define IDC_FOLDER_DLG_NOTES       340
 #define IDC_COMPDLG_NOTES          341
+// Install types checklist inside component edit dialog
+#define IDC_COMPDLG_TYPES_LIST     342
+// Install types checklist inside folder edit dialog
+#define IDC_FOLDER_DLG_TYPES_LIST  343
+#define IDC_FOLDER_DLG_GROUP       344   // Group combobox inside folder edit dialog
+#define IDC_FOLDER_DLG_TYPE_BASE   2000  // IDs 2000..2099: one custom checkbox per install type
+#define IDC_COMP_TYPE_BASE         2100  // IDs 2100..2199: one custom checkbox per install type
 
 // Files dialog button IDs
 #define IDC_FILES_ADD_DIR   5020
@@ -674,6 +689,7 @@ HWND MainWindow::Create(HINSTANCE hInstance, const ProjectRow &project, const st
     SCR_Reset();
     SETT_Reset();
     s_components.clear();   // load once here, never on page switch
+    s_installTypes.clear(); // load once here, alongside components
     s_currentProject = project;
     s_locale = locale;
 
@@ -686,7 +702,8 @@ HWND MainWindow::Create(HINSTANCE hInstance, const ProjectRow &project, const st
     // They stay in memory for the lifetime of the project window;
     // DB is only written when the user explicitly saves.
     if (project.id > 0) {
-        s_components = DB::GetComponentsForProject(project.id);
+        s_components   = DB::GetComponentsForProject(project.id);
+        s_installTypes = DB::GetInstallTypesForProject(project.id);
         for (auto& comp : s_components)
             if (comp.id > 0)
                 comp.dependencies = DB::GetDependenciesForComponent(comp.id);
@@ -3293,7 +3310,7 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
 
         // Split-pane: TreeView (left) + ListView (right), mirroring the Files page layout
         int splitY  = pageY + S(178);
-        int splitH  = pageHeight - S(185);
+        int splitH  = pageHeight - S(185) - S(56);
         int totalW  = rc.right - S(40);
         int treeW   = S(270);
         int listX   = S(20) + treeW + S(8);
@@ -3381,16 +3398,18 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
             LVCOLUMNW col = {};
             col.mask = LVCF_TEXT | LVCF_WIDTH;
             int colIdx = 0;
-            std::wstring cName = compLocStr(L"comp_col_name",     L"Name");
-            std::wstring cDesc = compLocStr(L"comp_col_desc",     L"Description");
-            std::wstring cReq  = compLocStr(L"comp_col_required", L"Required");
-            std::wstring cType = compLocStr(L"comp_col_type",     L"Type");
-            std::wstring cPath = compLocStr(L"comp_col_path",     L"Source Path");
-            col.pszText = (LPWSTR)cName.c_str(); col.cx = S(170); ListView_InsertColumn(s_hCompListView, colIdx++, &col);
-            col.pszText = (LPWSTR)cDesc.c_str(); col.cx = S(180); ListView_InsertColumn(s_hCompListView, colIdx++, &col);
-            col.pszText = (LPWSTR)cReq.c_str();  col.cx = S(75);  ListView_InsertColumn(s_hCompListView, colIdx++, &col);
-            col.pszText = (LPWSTR)cType.c_str(); col.cx = S(65);  ListView_InsertColumn(s_hCompListView, colIdx++, &col);
-            col.pszText = (LPWSTR)cPath.c_str(); col.cx = S(350); ListView_InsertColumn(s_hCompListView, colIdx++, &col);
+            std::wstring cName  = compLocStr(L"comp_col_name",          L"Name");
+            std::wstring cDesc  = compLocStr(L"comp_col_desc",          L"Description");
+            std::wstring cReq   = compLocStr(L"comp_col_required",      L"Required");
+            std::wstring cType  = compLocStr(L"comp_col_type",          L"Type");
+            std::wstring cPath  = compLocStr(L"comp_col_path",          L"Source Path");
+            std::wstring cTypes = compLocStr(L"comp_col_install_types", L"Install Types");
+            col.pszText = (LPWSTR)cName.c_str();  col.cx = S(150); ListView_InsertColumn(s_hCompListView, colIdx++, &col);
+            col.pszText = (LPWSTR)cDesc.c_str();  col.cx = S(150); ListView_InsertColumn(s_hCompListView, colIdx++, &col);
+            col.pszText = (LPWSTR)cReq.c_str();   col.cx = S(75);  ListView_InsertColumn(s_hCompListView, colIdx++, &col);
+            col.pszText = (LPWSTR)cType.c_str();  col.cx = S(65);  ListView_InsertColumn(s_hCompListView, colIdx++, &col);
+            col.pszText = (LPWSTR)cTypes.c_str(); col.cx = S(130); ListView_InsertColumn(s_hCompListView, colIdx++, &col);
+            col.pszText = (LPWSTR)cPath.c_str();  col.cx = S(320); ListView_InsertColumn(s_hCompListView, colIdx++, &col);
         }
         // Attach custom scrollbars to the ListView now (before population).
         if (s_hMsbCompListV) { msb_detach(s_hMsbCompListV); s_hMsbCompListV = NULL; }
@@ -3487,10 +3506,23 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
             }
         }
 
+        // ── Install Types section ──────────────────────────────────────────────
+        {
+            int typesY = splitY + splitH + S(12);
+            CreateWindowExW(0, L"STATIC", L"", WS_CHILD|WS_VISIBLE|SS_ETCHEDHORZ,
+                S(20), typesY, rc.right - S(40), S(2), hwnd, NULL, hInst, NULL);
+            typesY += S(10);
+            auto itMgr = s_locale.find(L"comp_types_manage");
+            std::wstring manageTxt = (itMgr != s_locale.end()) ? itMgr->second : L"Manage Install Types";
+            int wManage = MeasureButtonWidth(manageTxt, true);
+            int manageX = (rc.right - wManage) / 2;
+            CreateCustomButtonWithIcon(hwnd, IDC_COMP_TYPES_MANAGE, manageTxt.c_str(),
+                ButtonColor::Green, L"imageres.dll", 109, manageX, typesY, wManage, S(30), hInst);
+        }
+
         // Apply system message font to non-button controls
         {
-            NONCLIENTMETRICSW ncm = {};
-            ncm.cbSize = sizeof(ncm);
+            NONCLIENTMETRICSW ncm = {};            ncm.cbSize = sizeof(ncm);
             SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
             if (ncm.lfMessageFont.lfHeight < 0)
                 ncm.lfMessageFont.lfHeight = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
@@ -3509,9 +3541,10 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
 
         // Grey out action controls if components are not enabled
         bool compEnabled = (s_currentProject.use_components != 0);
-        EnableWindow(GetDlgItem(hwnd, IDC_COMP_EDIT),   compEnabled ? TRUE : FALSE);
-        EnableWindow(s_hCompListView,                   compEnabled ? TRUE : FALSE);
-        EnableWindow(s_hCompTreeView,                   compEnabled ? TRUE : FALSE);
+        EnableWindow(GetDlgItem(hwnd, IDC_COMP_EDIT),          compEnabled ? TRUE : FALSE);
+        EnableWindow(s_hCompListView,                           compEnabled ? TRUE : FALSE);
+        EnableWindow(s_hCompTreeView,                           compEnabled ? TRUE : FALSE);
+        // "Manage Install Types" is always enabled — types can be defined before enabling components
 
         // Auto-select the first real folder in the tree (so the list isn't blank)
         if (compEnabled && s_hCompTreeView) {
@@ -6949,6 +6982,16 @@ struct CompFolderDlgData {
     const TreeNodeSnapshot* excludeNode = nullptr;
     std::wstring            sectionName; // VFS section owning this folder (for dep picker exclusion)
     int                     projectId = 0; // for dep picker auto-component creation
+    // Install types checklist
+    std::wstring                typesLabel;
+    std::vector<InstallTypeRow> installTypesForDlg;
+    std::wstring                initInstallTypes;  // space-separated type names
+    std::wstring                outInstallTypes;   // written back on OK
+    // Group
+    std::wstring                groupLabel;
+    std::wstring                initGroupName;
+    std::vector<std::wstring>   existingGroups;
+    std::wstring                outGroupName;
 };
 
 // ── CompFolderEdit dialog layout constants (design-px at 96 DPI) ──────────────
@@ -6975,7 +7018,11 @@ static const int CFE_DEP_BTNS_ROW_H = 34;   // Choose + Remove buttons row heigh
 static const int CFE_GAP_LB         = 6;    // gap: list → dep-buttons row
 static const int CFE_GAP_DN       = 10;  // gap: deps listbox → notes button
 static const int CFE_NOTES_BTN_H  = 32;  // Notes button height
-static const int CFE_GAP_NB2      = 14;  // gap: notes button → OK/Cancel
+static const int CFE_GAP_NB2      = 10;  // gap: notes button → types list (or OK if no types)
+static const int CFE_TYPES_LBL_H  = 24;  // install types label height
+static const int CFE_GAP_LTY      = 6;   // gap: types label → types list
+static const int CFE_TYPES_H      = 80;  // install types checklist height
+static const int CFE_GAP_TK       = 14;  // gap: types list → OK/Cancel
 
 // ─── Folder Dependency Picker Dialog ─────────────────────────────────────────
 // Popup tree-view dialog that lets the user pick one or more OTHER components as
@@ -8023,6 +8070,47 @@ LRESULT CALLBACK CompFolderEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
         SetButtonTooltip(hNotesBtn, L"Edit rich-text notes shown as a tooltip during installation (max 500 characters)");
         y += S(CFE_NOTES_BTN_H) + S(CFE_GAP_NB2);
 
+        // Install types checklist (optional — only when types are defined for this project)
+        if (!pData->installTypesForDlg.empty()) {
+            std::wstring lbl = pData->typesLabel.empty() ? L"Install types:" : pData->typesLabel;
+            CreateWindowExW(0, L"STATIC", lbl.c_str(),
+                WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
+                S(CFE_PAD_H), y, contW, S(CFE_TYPES_LBL_H), hwnd, NULL, hInst, NULL);
+            y += S(CFE_TYPES_LBL_H) + S(CFE_GAP_LTY);
+
+            std::wstring initTypes = L" " + pData->initInstallTypes + L" ";
+            for (int ti = 0; ti < (int)pData->installTypesForDlg.size(); ++ti) {
+                const auto& t = pData->installTypesForDlg[ti];
+                std::wstring needle = L" " + t.name + L" ";
+                bool checked = (initTypes.find(needle) != std::wstring::npos);
+                CreateCustomCheckbox(hwnd, IDC_FOLDER_DLG_TYPE_BASE + ti,
+                    t.name, checked, S(CFE_PAD_H), y, contW, S(CFE_CHECK_H), hInst);
+                y += S(CFE_CHECK_H) + S(CFE_GAP_RPS);
+            }
+            SetPropW(hwnd, L"FolderTypeCount",
+                (HANDLE)(INT_PTR)(int)pData->installTypesForDlg.size());
+            y += S(CFE_GAP_TK) - S(CFE_GAP_RPS);
+        }
+
+        // Group combobox (editable, optional)
+        if (!pData->groupLabel.empty()) {
+            CreateWindowExW(0, L"STATIC", pData->groupLabel.c_str(),
+                WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
+                S(CFE_PAD_H), y, S(130), S(CFE_CHECK_H), hwnd, NULL, hInst, NULL);
+            int grpX = S(CFE_PAD_H) + S(130) + S(6);
+            int grpW = contW - S(130) - S(6);
+            HWND hGrp = CreateWindowExW(WS_EX_CLIENTEDGE, WC_COMBOBOX, L"",
+                WS_CHILD | WS_VISIBLE | CBS_DROPDOWN | CBS_AUTOHSCROLL,
+                grpX, y, grpW, S(CFE_CHECK_H) * 8, hwnd, (HMENU)IDC_FOLDER_DLG_GROUP, hInst, NULL);
+            if (hGrp) {
+                SendMessageW(hGrp, CB_ADDSTRING, 0, (LPARAM)L"");
+                for (const auto& g : pData->existingGroups)
+                    SendMessageW(hGrp, CB_ADDSTRING, 0, (LPARAM)g.c_str());
+                SetWindowTextW(hGrp, pData->initGroupName.c_str());
+            }
+            y += S(CFE_CHECK_H) + S(CFE_GAP_RPS);
+        }
+
         // OK / Cancel — centred
         int wOK_CFE  = MeasureButtonWidth(pData->okText, true);
         int wCnl_CFE = MeasureButtonWidth(pData->cancelText, true);
@@ -8082,6 +8170,26 @@ LRESULT CALLBACK CompFolderEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
                                          BM_GETCHECK, 0, 0) == BST_CHECKED) ? 1 : 0;
             pData->outPreselected = (SendDlgItemMessageW(hwnd, IDC_FOLDER_DLG_PRESELECTED,
                                          BM_GETCHECK, 0, 0) == BST_CHECKED) ? 1 : 0;
+            // Collect install types
+            {
+                int typeCount = (int)(INT_PTR)GetPropW(hwnd, L"FolderTypeCount");
+                std::wstring selectedTypes;
+                for (int i = 0; i < typeCount; ++i) {
+                    HWND hChk = GetDlgItem(hwnd, IDC_FOLDER_DLG_TYPE_BASE + i);
+                    if (!hChk || SendMessageW(hChk, BM_GETCHECK, 0, 0) != BST_CHECKED) continue;
+                    if (i < (int)pData->installTypesForDlg.size()) {
+                        if (!selectedTypes.empty()) selectedTypes += L" ";
+                        selectedTypes += pData->installTypesForDlg[i].name;
+                    }
+                }
+                pData->outInstallTypes = selectedTypes;
+            }
+            // Collect group name
+            {
+                wchar_t grpBuf[256] = {};
+                GetDlgItemTextW(hwnd, IDC_FOLDER_DLG_GROUP, grpBuf, 256);
+                pData->outGroupName = grpBuf;
+            }
             pData->okClicked   = true;
             DestroyWindow(hwnd); return 0;
         }
@@ -8812,6 +8920,10 @@ struct CompDlgData {
     std::wstring browseText;
     std::wstring okText;
     std::wstring cancelText;
+    std::wstring typesLabel;  // "Install types:" label for the checklist
+    std::wstring groupLabel;   // "Group:" label for the group combobox
+    std::wstring initGroupName;
+    std::vector<std::wstring> existingGroups; // all unique group names in the project (for combo suggestions)
     // Output
     bool okClicked = false;
     std::wstring outName;
@@ -8819,9 +8931,14 @@ struct CompDlgData {
     int outRequired = 0;
     std::wstring outSourcePath;
     std::vector<int> outDependencyIds;
+    std::wstring outGroupName;
     // Notes (rich text) — in/out
     std::wstring initNotesRtf;
     std::wstring outNotesRtf;
+    // Install types checklist — all types in the project, and which ones this component belongs to
+    std::vector<InstallTypeRow> installTypesForDlg; // all types (for the checklist)
+    std::wstring initInstallTypes;  // space-separated type names the component currently belongs to
+    std::wstring outInstallTypes;   // written back on OK
 };
 
 // ── CompEditDlg layout constants (design-px at 96 DPI) ──────────────────────
@@ -8838,6 +8955,7 @@ static constexpr int CED_DEP_H      = 90;    // deps ListView height
 static constexpr int CED_DEP_BTN_H  = 30;
 static constexpr int CED_DEP_BTN_GAP= 6;
 static constexpr int CED_NOTE_H     = 30;
+static constexpr int CED_TYPES_H    = 80;   // install types checklist height in component edit dialog
 static constexpr int CED_BTN_H      = 34;
 static constexpr int CED_BTN_GAP    = 8;
 
@@ -8916,11 +9034,28 @@ LRESULT CALLBACK CompEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
             editX, y, editW, rowH, hwnd, (HMENU)IDC_COMPDLG_DESC, hInst, NULL);
         y += rowH + rowGap;
 
+        // Group (combobox with editable text + existing group suggestions)
+        if (!pData->groupLabel.empty()) {
+            CreateWindowExW(0, L"STATIC", pData->groupLabel.c_str(),
+                WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
+                padL, y, lblW, rowH, hwnd, NULL, hInst, NULL);
+            HWND hGrp = CreateWindowExW(WS_EX_CLIENTEDGE, WC_COMBOBOX, L"",
+                WS_CHILD | WS_VISIBLE | CBS_DROPDOWN | CBS_AUTOHSCROLL,
+                editX, y, editW, rowH * 8, hwnd, (HMENU)IDC_COMPDLG_GROUP, hInst, NULL);
+            if (hGrp) {
+                // Add blank entry first (= no group)
+                SendMessageW(hGrp, CB_ADDSTRING, 0, (LPARAM)L"");
+                for (const auto& g : pData->existingGroups)
+                    SendMessageW(hGrp, CB_ADDSTRING, 0, (LPARAM)g.c_str());
+                SetWindowTextW(hGrp, pData->initGroupName.c_str());
+            }
+            y += rowH + rowGap;
+        }
+
         // Required checkbox
-        HWND hReq = CreateWindowExW(0, L"BUTTON", pData->requiredLabel.c_str(),
-            WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
-            editX, y, editW, rowH, hwnd, (HMENU)IDC_COMPDLG_REQUIRED, hInst, NULL);
-        if (pData->initRequired) SendMessageW(hReq, BM_SETCHECK, BST_CHECKED, 0);
+        CreateCustomCheckbox(hwnd, IDC_COMPDLG_REQUIRED, pData->requiredLabel,
+            pData->initRequired != 0,
+            editX, y, editW, rowH, hInst);
         y += rowH + rowGap;
 
         // Source Path
@@ -8990,6 +9125,36 @@ LRESULT CALLBACK CompEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
                 EnableWindow(hRemBtn, FALSE);
             }
             y += S(CED_DEP_BTN_H) + rowGap;
+        }
+
+        // Install types checklist (only shown when there are types defined in the project)
+        if (!pData->installTypesForDlg.empty()) {
+            // Parse the current install_types space-separated string into a set
+            std::wstring curTypes = pData->initInstallTypes;
+            auto inTypes = [&](const std::wstring& name) -> bool {
+                std::wstring needle = L" " + name + L" ";
+                std::wstring haystack = L" " + curTypes + L" ";
+                return haystack.find(needle) != std::wstring::npos;
+            };
+
+            // Label
+            std::wstring typesLblTxt = pData->typesLabel.empty() ? L"Install types:" : pData->typesLabel;
+            CreateWindowExW(0, L"STATIC", typesLblTxt.c_str(),
+                WS_CHILD | WS_VISIBLE | SS_LEFT,
+                padL, y, contW, S(20), hwnd, NULL, hInst, NULL);
+            y += S(20) + S(4);
+
+            // Custom checkboxes — one per install type
+            for (int ti = 0; ti < (int)pData->installTypesForDlg.size(); ++ti) {
+                const auto& t = pData->installTypesForDlg[ti];
+                CreateCustomCheckbox(hwnd, IDC_COMP_TYPE_BASE + ti,
+                    t.name, inTypes(t.name), padL, y, contW, rowH, hInst);
+                y += rowH + rowGap;
+            }
+            SetPropW(hwnd, L"CompTypeCount",
+                (HANDLE)(INT_PTR)(int)pData->installTypesForDlg.size());
+            // initialise outInstallTypes from initInstallTypes
+            pData->outInstallTypes = pData->initInstallTypes;
         }
 
         // Notes button (own row)
@@ -9093,8 +9258,23 @@ LRESULT CALLBACK CompEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
             GetDlgItemTextW(hwnd, IDC_COMPDLG_DESC, buf, 512); pData->outDesc = buf;
             pData->outRequired = (SendDlgItemMessageW(hwnd, IDC_COMPDLG_REQUIRED, BM_GETCHECK, 0, 0) == BST_CHECKED) ? 1 : 0;
             GetDlgItemTextW(hwnd, IDC_COMPDLG_SRC, buf, 512); pData->outSourcePath = buf;
+            GetDlgItemTextW(hwnd, IDC_COMPDLG_GROUP, buf, 512); pData->outGroupName = buf;
             // outDependencyIds maintained by Choose/Remove handlers
             // outNotesRtf already updated by IDC_COMPDLG_NOTES handler
+            // Collect checked install types
+            {
+                int typeCount = (int)(INT_PTR)GetPropW(hwnd, L"CompTypeCount");
+                std::wstring selectedTypes;
+                for (int i = 0; i < typeCount; ++i) {
+                    HWND hChk = GetDlgItem(hwnd, IDC_COMP_TYPE_BASE + i);
+                    if (!hChk || SendMessageW(hChk, BM_GETCHECK, 0, 0) != BST_CHECKED) continue;
+                    if (i < (int)pData->installTypesForDlg.size()) {
+                        if (!selectedTypes.empty()) selectedTypes += L" ";
+                        selectedTypes += pData->installTypesForDlg[i].name;
+                    }
+                }
+                pData->outInstallTypes = selectedTypes;
+            }
             pData->okClicked = true;
             DestroyWindow(hwnd);
             return 0;
@@ -9193,6 +9373,8 @@ LRESULT CALLBACK CompEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
 
     case WM_DRAWITEM: {
         LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
+        // Let custom checkbox handle its own drawing first
+        if (DrawCustomCheckbox(dis)) return TRUE;
         if (dis->CtlID == IDC_COMPDLG_OK     || dis->CtlID == IDC_COMPDLG_CANCEL ||
             dis->CtlID == IDC_COMPDLG_CHOOSE_DEPS || dis->CtlID == IDC_COMPDLG_REMOVE_DEPS) {
             ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
@@ -9210,6 +9392,10 @@ LRESULT CALLBACK CompEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
         }
         break;
     }
+
+    case WM_SETTINGCHANGE:
+        OnCheckboxSettingChange(hwnd);
+        break;
 
     case WM_CTLCOLORSTATIC: {
         HDC hdc = (HDC)wParam;
@@ -9381,14 +9567,24 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         // ── Components page (index 9) — direct children of hwnd ─────────
         if (s_currentPageIndex == 9 && s_hCompTreeView && IsWindow(s_hCompTreeView)) {
             int pageHeight = rc.bottom - s_toolbarHeight - 25;
+            // Reserve S(56) at the bottom for separator + Manage Install Types button
             int splitY     = s_toolbarHeight + S(178);
-            int splitH     = pageHeight - S(185);
+            int splitH     = pageHeight - S(185) - S(56);
             int totalW     = rc.right - S(40);
             int treeW      = S(270); // fixed-width left pane
             int listX      = S(20) + treeW + S(8);
             int listW      = totalW - treeW - S(8);
+            // Manage button: centred, below the split pane
+            HWND hManage   = GetDlgItem(hwnd, IDC_COMP_TYPES_MANAGE);
+            int manageY    = splitY + splitH + S(22); // S(10) gap + S(2) sep + S(10) gap
+            int manageW    = 0;
+            if (hManage && IsWindow(hManage)) {
+                RECT rm; GetWindowRect(hManage, &rm);
+                manageW = rm.right - rm.left;
+            }
+            int manageX = (rc.right - manageW) / 2;
 
-            HDWP hdwp = BeginDeferWindowPos(5);
+            HDWP hdwp = BeginDeferWindowPos(7);
             auto DeferCtrl = [&](HWND h, int x, int y, int w, int hh) {
                 if (h && IsWindow(h))
                     hdwp = DeferWindowPos(hdwp, h, NULL, x, y, w, hh,
@@ -9404,6 +9600,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                       S(20), splitY, treeW, splitH);
             DeferCtrl(s_hCompListView,
                       listX, splitY, listW, splitH);
+            if (manageW > 0)
+                DeferCtrl(hManage, manageX, manageY, manageW, S(30));
             EndDeferWindowPos(hdwp);
 
             // Reposition all four comp bars so they track the new control corners.
@@ -9955,7 +10153,15 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                     auto itType2 = s_locale.find(srcType == L"folder" ? L"comp_type_folder" : L"comp_type_file");
                     std::wstring typeStr = (itType2 != s_locale.end()) ? itType2->second : srcType;
                     ListView_SetItemText(s_hCompListView, lrow, 3, (LPWSTR)typeStr.c_str());
-                    ListView_SetItemText(s_hCompListView, lrow, 4, (LPWSTR)vf.sourcePath.c_str());
+                    // Install types column: show assigned types, or "(all)" when types are
+                    // defined for the project but none are assigned (= installed in all types).
+                    std::wstring instTypes = (compIdx >= 0) ? s_components[compIdx].install_types : L"";
+                    if (instTypes.empty() && !s_installTypes.empty()) {
+                        auto itAll = s_locale.find(L"comp_types_all");
+                        instTypes = (itAll != s_locale.end()) ? itAll->second : L"(all)";
+                    }
+                    ListView_SetItemText(s_hCompListView, lrow, 4, (LPWSTR)instTypes.c_str());
+                    ListView_SetItemText(s_hCompListView, lrow, 5, (LPWSTR)vf.sourcePath.c_str());
                 }
             }
             ListView_SetColumnWidth(s_hCompListView, 4, LVSCW_AUTOSIZE_USEHEADER);
@@ -12254,9 +12460,243 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 }
             } else {
                 s_components.clear();
+                s_installTypes.clear();
             }
             SwitchPage(hwnd, 9);
             MarkAsModified();
+            return 0;
+        }
+
+        case IDC_COMP_TYPES_MANAGE: {
+            if (s_currentProject.id <= 0) return 0;
+
+            // Data structs for the two levels of dialogs
+            struct TypeDlgData {
+                std::wstring initName, initDesc, outName, outDesc;
+                std::wstring titleTxt, nameLbl, descLbl, customLbl, okTxt, cancelTxt;
+                int initCustom = 0, outCustom = 0;
+                bool okClicked = false;
+            };
+            struct ManageDlgData {
+                std::vector<InstallTypeRow> types;
+                bool modified = false;
+                HWND hList    = NULL;
+                std::wstring addTxt, editTxt, removeTxt, closeTxt, noSelMsg;
+                std::wstring colName, colDesc, colCustom, yesStr;
+                std::wstring nameLbl, descLbl, customLbl, addTitle, editTitle, okTxt, cancelTxt;
+            };
+
+            auto LS3 = [&](const wchar_t* k, const wchar_t* fb) -> std::wstring {
+                auto it = s_locale.find(k); return it != s_locale.end() ? it->second : fb;
+            };
+            ManageDlgData md;
+            md.types     = s_installTypes;
+            md.addTxt    = LS3(L"comp_types_add",          L"Add");
+            md.editTxt   = LS3(L"comp_types_edit",         L"Edit");
+            md.removeTxt = LS3(L"comp_types_remove",       L"Remove");
+            md.closeTxt  = LS3(L"close",                   L"Close");
+            md.noSelMsg  = LS3(L"comp_types_no_selection", L"Please select an install type first.");
+            md.colName   = LS3(L"comp_types_col_name",     L"Name");
+            md.colDesc   = LS3(L"comp_types_col_desc",     L"Description");
+            md.colCustom = LS3(L"comp_types_col_custom",   L"Custom");
+            md.yesStr    = LS3(L"yes",                     L"Yes");
+            md.nameLbl   = LS3(L"comp_types_name_label",   L"Internal name:");
+            md.descLbl   = LS3(L"comp_types_desc_label",   L"Description:");
+            md.customLbl = LS3(L"comp_types_custom_label", L"Custom (allows manual selection)");
+            md.addTitle  = LS3(L"comp_types_add_title",    L"Add Install Type");
+            md.editTitle = LS3(L"comp_types_edit_title",   L"Edit Install Type");
+            md.okTxt     = LS3(L"ok",                      L"OK");
+            md.cancelTxt = LS3(L"cancel",                  L"Cancel");
+
+            // ── Register TypeEditDlg (name/desc/custom sub-dialog) ──
+            {
+                WNDCLASSEXW wcTd = {}; wcTd.cbSize = sizeof(wcTd);
+                if (!GetClassInfoExW(GetModuleHandleW(NULL), L"TypeEditDlg", &wcTd)) {
+                    wcTd.lpfnWndProc = [](HWND hw, UINT m, WPARAM wp, LPARAM lp) -> LRESULT {
+                        if (m == WM_CREATE) {
+                            auto* cs2=(CREATESTRUCTW*)lp; TypeDlgData* pd=(TypeDlgData*)cs2->lpCreateParams;
+                            SetWindowLongPtrW(hw,GWLP_USERDATA,(LONG_PTR)pd);
+                            HINSTANCE hi2=cs2->hInstance; RECT rc2; GetClientRect(hw,&rc2);
+                            int px=S(20),py=S(16),lw=S(140),ew=rc2.right-S(20)-px-lw,rh=S(26),rg=S(10);
+                            CreateWindowExW(0,L"STATIC",pd->nameLbl.c_str(),WS_CHILD|WS_VISIBLE|SS_LEFT|SS_CENTERIMAGE,px,py,lw,rh,hw,NULL,hi2,NULL);
+                            CreateWindowExW(WS_EX_CLIENTEDGE,L"EDIT",pd->initName.c_str(),WS_CHILD|WS_VISIBLE|ES_AUTOHSCROLL,px+lw,py,ew,rh,hw,(HMENU)101,hi2,NULL);
+                            py+=rh+rg;
+                            CreateWindowExW(0,L"STATIC",pd->descLbl.c_str(),WS_CHILD|WS_VISIBLE|SS_LEFT|SS_CENTERIMAGE,px,py,lw,rh,hw,NULL,hi2,NULL);
+                            CreateWindowExW(WS_EX_CLIENTEDGE,L"EDIT",pd->initDesc.c_str(),WS_CHILD|WS_VISIBLE|ES_AUTOHSCROLL,px+lw,py,ew,rh,hw,(HMENU)102,hi2,NULL);
+                            py+=rh+rg;
+                            HWND hCk=CreateWindowExW(0,L"BUTTON",pd->customLbl.c_str(),WS_CHILD|WS_VISIBLE|BS_AUTOCHECKBOX,px+lw,py,ew,rh,hw,(HMENU)103,hi2,NULL);
+                            if(pd->initCustom) SendMessageW(hCk,BM_SETCHECK,BST_CHECKED,0);
+                            py+=rh+rg;
+                            int wOk=S(90),wCnl=S(90),gap=S(8),btX=(rc2.right-(wOk+gap+wCnl))/2;
+                            CreateWindowExW(0,L"BUTTON",pd->okTxt.c_str(),WS_CHILD|WS_VISIBLE|BS_PUSHBUTTON,btX,py,wOk,S(30),hw,(HMENU)IDOK,hi2,NULL);
+                            CreateWindowExW(0,L"BUTTON",pd->cancelTxt.c_str(),WS_CHILD|WS_VISIBLE|BS_PUSHBUTTON,btX+wOk+gap,py,wCnl,S(30),hw,(HMENU)IDCANCEL,hi2,NULL);
+                            NONCLIENTMETRICSW ncm2={}; ncm2.cbSize=sizeof(ncm2);
+                            SystemParametersInfoW(SPI_GETNONCLIENTMETRICS,sizeof(ncm2),&ncm2,0);
+                            if(ncm2.lfMessageFont.lfHeight<0) ncm2.lfMessageFont.lfHeight=(LONG)(ncm2.lfMessageFont.lfHeight*1.2f);
+                            HFONT hF2=CreateFontIndirectW(&ncm2.lfMessageFont);
+                            if(hF2){EnumChildWindows(hw,[](HWND hc,LPARAM f)->BOOL{SendMessageW(hc,WM_SETFONT,(WPARAM)(HFONT)f,TRUE);return TRUE;},(LPARAM)hF2);SetPropW(hw,L"hF2",(HANDLE)hF2);}
+                            return 0;
+                        }
+                        if (m == WM_COMMAND) {
+                            int id2=LOWORD(wp); TypeDlgData* pd=(TypeDlgData*)GetWindowLongPtrW(hw,GWLP_USERDATA);
+                            if(id2==IDOK&&pd){wchar_t b[512];GetDlgItemTextW(hw,101,b,512);pd->outName=b;GetDlgItemTextW(hw,102,b,512);pd->outDesc=b;pd->outCustom=(SendDlgItemMessageW(hw,103,BM_GETCHECK,0,0)==BST_CHECKED)?1:0;pd->okClicked=true;DestroyWindow(hw);return 0;}
+                            if(id2==IDCANCEL){DestroyWindow(hw);return 0;}
+                        }
+                        if(m==WM_DESTROY){HFONT hF3=(HFONT)GetPropW(hw,L"hF2");if(hF3)DeleteObject(hF3);}
+                        return DefWindowProcW(hw,m,wp,lp);
+                    };
+                    wcTd.hInstance=GetModuleHandleW(NULL); wcTd.lpszClassName=L"TypeEditDlg";
+                    wcTd.hbrBackground=(HBRUSH)(COLOR_WINDOW+1); wcTd.hCursor=LoadCursor(NULL,IDC_ARROW);
+                    RegisterClassExW(&wcTd);
+                }
+            }
+
+            // ── Register ManageTypesDlg (list + Add/Edit/Remove + Close) ──
+            {
+                WNDCLASSEXW wcMd = {}; wcMd.cbSize = sizeof(wcMd);
+                if (!GetClassInfoExW(GetModuleHandleW(NULL), L"ManageTypesDlg", &wcMd)) {
+                    wcMd.lpfnWndProc = [](HWND hw, UINT m, WPARAM wp, LPARAM lp) -> LRESULT {
+                        auto* pmd = (ManageDlgData*)GetWindowLongPtrW(hw, GWLP_USERDATA);
+                        // Refresh helper
+                        if (m == WM_USER+1 && pmd) {
+                            ListView_DeleteAllItems(pmd->hList);
+                            int row=0;
+                            for (const auto& t : pmd->types) {
+                                LVITEMW lvi={}; lvi.mask=LVIF_TEXT|LVIF_PARAM; lvi.iItem=row; lvi.lParam=(LPARAM)row;
+                                lvi.pszText=const_cast<LPWSTR>(t.name.c_str());
+                                ListView_InsertItem(pmd->hList,&lvi);
+                                ListView_SetItemText(pmd->hList,row,1,const_cast<LPWSTR>(t.description.c_str()));
+                                std::wstring cs2=t.is_custom?pmd->yesStr:L"";
+                                ListView_SetItemText(pmd->hList,row,2,const_cast<LPWSTR>(cs2.c_str()));
+                                ++row;
+                            }
+                            return 0;
+                        }
+                        if (m == WM_CREATE) {
+                            auto* cs2=(CREATESTRUCTW*)lp; ManageDlgData* pd=(ManageDlgData*)cs2->lpCreateParams;
+                            SetWindowLongPtrW(hw,GWLP_USERDATA,(LONG_PTR)pd);
+                            HINSTANCE hi2=cs2->hInstance; RECT rc2; GetClientRect(hw,&rc2);
+                            int px=S(10),py=S(10),bh=S(30),bw=S(90),gap=S(6);
+                            // Button row: Add / Edit / Remove (left), Close (right)
+                            int bx=px;
+                            CreateWindowExW(0,L"BUTTON",pd->addTxt.c_str(),WS_CHILD|WS_VISIBLE|BS_PUSHBUTTON,bx,py,bw,bh,hw,(HMENU)IDC_COMP_TYPES_ADD,hi2,NULL);    bx+=bw+gap;
+                            CreateWindowExW(0,L"BUTTON",pd->editTxt.c_str(),WS_CHILD|WS_VISIBLE|BS_PUSHBUTTON,bx,py,bw,bh,hw,(HMENU)IDC_COMP_TYPES_EDIT,hi2,NULL);   bx+=bw+gap;
+                            CreateWindowExW(0,L"BUTTON",pd->removeTxt.c_str(),WS_CHILD|WS_VISIBLE|BS_PUSHBUTTON,bx,py,bw,bh,hw,(HMENU)IDC_COMP_TYPES_REMOVE,hi2,NULL);
+                            CreateWindowExW(0,L"BUTTON",pd->closeTxt.c_str(),WS_CHILD|WS_VISIBLE|BS_PUSHBUTTON,rc2.right-px-bw,py,bw,bh,hw,(HMENU)IDCANCEL,hi2,NULL);
+                            py+=bh+gap;
+                            // ListView fills the rest
+                            pd->hList=CreateWindowExW(WS_EX_CLIENTEDGE,WC_LISTVIEW,L"",WS_CHILD|WS_VISIBLE|LVS_REPORT|LVS_SHOWSELALWAYS,px,py,rc2.right-2*px,rc2.bottom-py-S(10),hw,(HMENU)IDC_COMP_TYPES_LIST,hi2,NULL);
+                            ListView_SetExtendedListViewStyle(pd->hList,LVS_EX_FULLROWSELECT|LVS_EX_GRIDLINES);
+                            LVCOLUMNW col={}; col.mask=LVCF_TEXT|LVCF_WIDTH; int ci=0;
+                            col.pszText=const_cast<LPWSTR>(pd->colName.c_str());   col.cx=S(140); ListView_InsertColumn(pd->hList,ci++,&col);
+                            col.pszText=const_cast<LPWSTR>(pd->colDesc.c_str());   col.cx=S(300); ListView_InsertColumn(pd->hList,ci++,&col);
+                            col.pszText=const_cast<LPWSTR>(pd->colCustom.c_str()); col.cx=S(70);  ListView_InsertColumn(pd->hList,ci++,&col);
+                            // Font
+                            NONCLIENTMETRICSW ncm2={}; ncm2.cbSize=sizeof(ncm2);
+                            SystemParametersInfoW(SPI_GETNONCLIENTMETRICS,sizeof(ncm2),&ncm2,0);
+                            if(ncm2.lfMessageFont.lfHeight<0) ncm2.lfMessageFont.lfHeight=(LONG)(ncm2.lfMessageFont.lfHeight*1.2f);
+                            HFONT hF2=CreateFontIndirectW(&ncm2.lfMessageFont);
+                            if(hF2){EnumChildWindows(hw,[](HWND hc,LPARAM f)->BOOL{SendMessageW(hc,WM_SETFONT,(WPARAM)(HFONT)f,TRUE);return TRUE;},(LPARAM)hF2);SetPropW(hw,L"hF2Mgr",(HANDLE)hF2);}
+                            SendMessageW(hw,WM_USER+1,0,0);
+                            return 0;
+                        }
+                        if (m == WM_COMMAND) {
+                            int wid=LOWORD(wp);
+                            if(wid==IDCANCEL){DestroyWindow(hw);return 0;}
+                            if(!pmd) return 0;
+                            if(wid==IDC_COMP_TYPES_REMOVE){
+                                int selRow=ListView_GetNextItem(pmd->hList,-1,LVNI_SELECTED);
+                                if(selRow<0){MessageBoxW(hw,pmd->noSelMsg.c_str(),L"",MB_OK|MB_ICONINFORMATION);return 0;}
+                                LVITEMW lvi2={}; lvi2.mask=LVIF_PARAM; lvi2.iItem=selRow; ListView_GetItem(pmd->hList,&lvi2);
+                                int ti=(int)lvi2.lParam;
+                                if(ti>=0&&ti<(int)pmd->types.size()){pmd->types.erase(pmd->types.begin()+ti);pmd->modified=true;SendMessageW(hw,WM_USER+1,0,0);}
+                                return 0;
+                            }
+                            if(wid==IDC_COMP_TYPES_ADD||wid==IDC_COMP_TYPES_EDIT){
+                                int editIdx2=-1;
+                                if(wid==IDC_COMP_TYPES_EDIT){
+                                    int selRow=ListView_GetNextItem(pmd->hList,-1,LVNI_SELECTED);
+                                    if(selRow>=0){LVITEMW lvi2={}; lvi2.mask=LVIF_PARAM; lvi2.iItem=selRow; ListView_GetItem(pmd->hList,&lvi2); editIdx2=(int)lvi2.lParam;}
+                                    if(editIdx2<0||editIdx2>=(int)pmd->types.size()){MessageBoxW(hw,pmd->noSelMsg.c_str(),L"",MB_OK|MB_ICONINFORMATION);return 0;}
+                                }
+                                TypeDlgData td2;
+                                if(editIdx2>=0){td2.initName=pmd->types[editIdx2].name;td2.initDesc=pmd->types[editIdx2].description;td2.initCustom=pmd->types[editIdx2].is_custom;}
+                                td2.titleTxt=(editIdx2<0)?pmd->addTitle:pmd->editTitle;
+                                td2.nameLbl=pmd->nameLbl; td2.descLbl=pmd->descLbl; td2.customLbl=pmd->customLbl;
+                                td2.okTxt=pmd->okTxt; td2.cancelTxt=pmd->cancelTxt;
+                                int cW2=S(480),cH2=S(4*(26+10)+16+16+10);
+                                RECT wrc2={0,0,cW2,cH2};
+                                AdjustWindowRectEx(&wrc2,WS_POPUP|WS_CAPTION|WS_SYSMENU,FALSE,WS_EX_DLGMODALFRAME);
+                                RECT rcMgr; GetWindowRect(hw,&rcMgr);
+                                EnableWindow(hw,FALSE);
+                                HWND hTD=CreateWindowExW(WS_EX_DLGMODALFRAME,L"TypeEditDlg",td2.titleTxt.c_str(),
+                                    WS_POPUP|WS_CAPTION|WS_SYSMENU|WS_VISIBLE,
+                                    rcMgr.left+((rcMgr.right-rcMgr.left)-(wrc2.right-wrc2.left))/2,
+                                    rcMgr.top+((rcMgr.bottom-rcMgr.top)-(wrc2.bottom-wrc2.top))/2,
+                                    wrc2.right-wrc2.left,wrc2.bottom-wrc2.top,
+                                    hw,NULL,GetModuleHandleW(NULL),&td2);
+                                MSG msgTD;
+                                while(GetMessageW(&msgTD,NULL,0,0)>0){if(!IsWindow(hTD))break;TranslateMessage(&msgTD);DispatchMessageW(&msgTD);}
+                                EnableWindow(hw,TRUE); SetForegroundWindow(hw);
+                                if(td2.okClicked){
+                                    if(editIdx2>=0){pmd->types[editIdx2].name=td2.outName;pmd->types[editIdx2].description=td2.outDesc;pmd->types[editIdx2].is_custom=td2.outCustom;}
+                                    else{InstallTypeRow nr2;nr2.name=td2.outName;nr2.description=td2.outDesc;nr2.is_custom=td2.outCustom;nr2.sort_order=(int)pmd->types.size();pmd->types.push_back(nr2);}
+                                    pmd->modified=true; SendMessageW(hw,WM_USER+1,0,0);
+                                }
+                                return 0;
+                            }
+                        }
+                        if(m==WM_CLOSE){DestroyWindow(hw);return 0;}
+                        if(m==WM_DESTROY){HFONT hF=(HFONT)GetPropW(hw,L"hF2Mgr");if(hF)DeleteObject(hF);}
+                        return DefWindowProcW(hw,m,wp,lp);
+                    };
+                    wcMd.hInstance=GetModuleHandleW(NULL); wcMd.lpszClassName=L"ManageTypesDlg";
+                    wcMd.hbrBackground=(HBRUSH)(COLOR_WINDOW+1); wcMd.hCursor=LoadCursor(NULL,IDC_ARROW);
+                    RegisterClassExW(&wcMd);
+                }
+            }
+
+            // ── Create and run the manage dialog ──
+            {
+                int cW3=S(580), cH3=S(400);
+                RECT wrc3={0,0,cW3,cH3};
+                AdjustWindowRectEx(&wrc3,WS_POPUP|WS_CAPTION|WS_SYSMENU,FALSE,WS_EX_DLGMODALFRAME);
+                RECT rcMain4; GetWindowRect(hwnd,&rcMain4);
+                auto itMgTitle=s_locale.find(L"comp_types_manage");
+                std::wstring mgTitle=(itMgTitle!=s_locale.end())?itMgTitle->second:L"Manage Install Types";
+                EnableWindow(hwnd,FALSE);
+                HWND hMgr=CreateWindowExW(WS_EX_DLGMODALFRAME,L"ManageTypesDlg",mgTitle.c_str(),
+                    WS_POPUP|WS_CAPTION|WS_SYSMENU|WS_VISIBLE,
+                    rcMain4.left+((rcMain4.right-rcMain4.left)-(wrc3.right-wrc3.left))/2,
+                    rcMain4.top +((rcMain4.bottom-rcMain4.top )-(wrc3.bottom-wrc3.top))/2,
+                    wrc3.right-wrc3.left,wrc3.bottom-wrc3.top,
+                    hwnd,NULL,GetModuleHandleW(NULL),&md);
+                MSG msgMgr;
+                while(GetMessageW(&msgMgr,NULL,0,0)>0){if(!IsWindow(hMgr))break;TranslateMessage(&msgMgr);DispatchMessageW(&msgMgr);}
+                EnableWindow(hwnd,TRUE); SetForegroundWindow(hwnd);
+            }
+
+            // Always sync back — modified flag only controls MarkAsModified
+            {
+                // Strip any type names from components that no longer exist
+                for (auto& c : s_components) {
+                    std::wstring updated;
+                    std::wstringstream ss(c.install_types);
+                    std::wstring tok;
+                    while (std::getline(ss, tok, L' ')) {
+                        if (tok.empty()) continue;
+                        bool found=false;
+                        for (const auto& t : md.types) if (t.name==tok){found=true;break;}
+                        if (!found) continue;
+                        if (!updated.empty()) updated+=L' ';
+                        updated+=tok;
+                    }
+                    c.install_types=updated;
+                }
+                s_installTypes = md.types;
+            }
+            if (md.modified)
+                MarkAsModified();
             return 0;
         }
 
@@ -12374,6 +12814,16 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             dlgData2.otherComponents   = otherComps;
             dlgData2.initDependencyIds = currentDeps;
             dlgData2.initNotesRtf      = cmp.notes_rtf;
+            dlgData2.initInstallTypes  = cmp.install_types;
+            dlgData2.installTypesForDlg = s_installTypes;
+            dlgData2.initGroupName      = cmp.group_name;
+            // Collect unique group names from all components for combo suggestions
+            for (const auto& oc : s_components)
+                if (!oc.group_name.empty()) {
+                    bool found = false;
+                    for (const auto& g : dlgData2.existingGroups) if (g == oc.group_name) { found = true; break; }
+                    if (!found) dlgData2.existingGroups.push_back(oc.group_name);
+                }
             dlgData2.titleText     = lstrE(L"comp_edit_title",    L"Edit Component");
             dlgData2.nameLabel     = lstrE(L"comp_name_label",    L"Display Name:");
             dlgData2.descLabel     = lstrE(L"comp_desc_label",    L"Description:");
@@ -12381,6 +12831,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             dlgData2.sourceLabel   = lstrE(L"comp_source_label",  L"Source Path:");
             dlgData2.browseText    = lstrE(L"comp_browse",        L"Browse...");
             dlgData2.depsLabel     = lstrE(L"comp_deps_label",    L"Requires:");
+            dlgData2.typesLabel    = lstrE(L"comp_types_label",   L"Install types:");
+            dlgData2.groupLabel    = lstrE(L"comp_group_label",   L"Group:");
             dlgData2.okText        = lstrE(L"ok",                 L"OK");
             dlgData2.cancelText    = lstrE(L"cancel",             L"Cancel");
 
@@ -12398,11 +12850,14 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 // Compute exact outer window size from layout constants
                 int clientW = S(CED_EDIT_X + CED_EDIT_W + CED_PAD_H);
                 int clientH;
+                int typesExtra = dlgData2.installTypesForDlg.empty() ? 0
+                    : S(20 + 4) + (int)dlgData2.installTypesForDlg.size() * (S(CED_ROW_H) + S(CED_ROW_GAP));
+                int groupExtra = dlgData2.groupLabel.empty() ? 0 : S(CED_ROW_H + CED_ROW_GAP);
                 if (otherComps.empty())
                     clientH = S(CED_PAD_T
                         + 4*(CED_ROW_H + CED_ROW_GAP)
                         + CED_NOTE_H + CED_ROW_GAP
-                        + CED_BTN_H  + CED_PAD_B);
+                        + CED_BTN_H  + CED_PAD_B) + typesExtra + groupExtra;
                 else
                     clientH = S(CED_PAD_T
                         + 4*(CED_ROW_H + CED_ROW_GAP)
@@ -12410,7 +12865,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                         + CED_DEP_H + 6    // deps ListView
                         + CED_DEP_BTN_H + CED_ROW_GAP
                         + CED_NOTE_H + CED_ROW_GAP
-                        + CED_BTN_H  + CED_PAD_B);
+                        + CED_BTN_H  + CED_PAD_B) + typesExtra + groupExtra;
                 RECT wrc = {0, 0, clientW, clientH};
                 AdjustWindowRectEx(&wrc, WS_POPUP | WS_CAPTION | WS_SYSMENU, FALSE, WS_EX_DLGMODALFRAME);
                 int dlgW2 = wrc.right  - wrc.left;
@@ -12430,12 +12885,14 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             }
             if (dlgData2.okClicked) {
                 // Update in memory only — written to DB on Save.
-                s_components[selIdx].display_name = dlgData2.outName;
-                s_components[selIdx].description  = dlgData2.outDesc;
-                s_components[selIdx].is_required  = dlgData2.outRequired;
-                s_components[selIdx].source_path  = dlgData2.outSourcePath;
-                s_components[selIdx].dependencies = dlgData2.outDependencyIds;
-                s_components[selIdx].notes_rtf    = dlgData2.outNotesRtf;
+                s_components[selIdx].display_name  = dlgData2.outName;
+                s_components[selIdx].description   = dlgData2.outDesc;
+                s_components[selIdx].is_required   = dlgData2.outRequired;
+                s_components[selIdx].source_path   = dlgData2.outSourcePath;
+                s_components[selIdx].dependencies  = dlgData2.outDependencyIds;
+                s_components[selIdx].notes_rtf     = dlgData2.outNotesRtf;
+                s_components[selIdx].install_types = dlgData2.outInstallTypes;
+                s_components[selIdx].group_name    = dlgData2.outGroupName;
                 SwitchPage(hwnd, 9);
                 MarkAsModified();
             }
@@ -12566,10 +13023,46 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                     // open and kept in sync. Never fall back to DB here, as that
                     // would discard in-memory edits the user just made.
                     fd.initDependencyIds = cmp.dependencies;
-                    fd.initNotesRtf = cmp.notes_rtf;
+                    fd.initNotesRtf      = cmp.notes_rtf;
+                    fd.initInstallTypes  = cmp.install_types;
                     break;
                 }
             }
+            // If no folder row matched (e.g. virtual-file node), fall back to
+            // reading install_types from the first matching file component.
+            if (fd.initInstallTypes.empty() && !paths.empty()) {
+                for (const auto& path : paths) {
+                    for (const auto& cmp : s_components) {
+                        if (cmp.source_path != path) continue;
+                        if (!cmp.dest_path.empty() && cmp.dest_path != section) continue;
+                        if (!cmp.install_types.empty()) {
+                            fd.initInstallTypes = cmp.install_types;
+                        }
+                        goto init_types_done;
+                    }
+                }
+                init_types_done:;
+            }
+            fd.installTypesForDlg = s_installTypes;
+            fd.typesLabel         = LS(L"comp_types_label", L"Install types:");
+            fd.initGroupName      = L"";
+            // Read group_name from folder component row
+            if (!snap->fullPath.empty()) {
+                for (const auto& cmp : s_components) {
+                    if (cmp.source_path != snap->fullPath) continue;
+                    if (cmp.source_type != L"folder") continue;
+                    if (!cmp.dest_path.empty() && cmp.dest_path != section) continue;
+                    fd.initGroupName = cmp.group_name;
+                    break;
+                }
+            }
+            for (const auto& oc : s_components)
+                if (!oc.group_name.empty()) {
+                    bool found = false;
+                    for (const auto& g : fd.existingGroups) if (g == oc.group_name) { found = true; break; }
+                    if (!found) fd.existingGroups.push_back(oc.group_name);
+                }
+            fd.groupLabel = LS(L"comp_group_label", L"Group:");
 
             WNDCLASSEXW wcFd = {};
             wcFd.cbSize = sizeof(wcFd);
@@ -12609,6 +13102,11 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                          + S(CFE_DEPLIST_H)+S(CFE_GAP_LB)
                          + S(CFE_DEP_BTNS_ROW_H)+S(CFE_GAP_DN)
                          + S(CFE_NOTES_BTN_H)+S(CFE_GAP_NB2)
+                         + (fd.installTypesForDlg.empty() ? 0
+                            : S(CFE_TYPES_LBL_H)+S(CFE_GAP_LTY)
+                              + (int)fd.installTypesForDlg.size()*(S(CFE_CHECK_H)+S(CFE_GAP_RPS))
+                              + S(CFE_GAP_TK)-S(CFE_GAP_RPS))
+                         + (fd.groupLabel.empty() ? 0 : S(CFE_CHECK_H)+S(CFE_GAP_RPS))
                          + S(CFE_BTN_H)+S(CFE_PAD_B);
             RECT wrc3 = {0,0,clientW3,clientH3};
             AdjustWindowRectEx(&wrc3, WS_POPUP|WS_CAPTION|WS_SYSMENU, FALSE,
@@ -12628,12 +13126,42 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             }
 
             if (fd.okClicked) {
+                // Cascade to every component (file or folder) whose source_path
+                // is inside this folder tree — i.e. starts with snap->fullPath\.
+                // This covers files, subfolders, and sub-subfolders alike.
+                if (!snap->fullPath.empty()) {
+                    std::wstring prefix = snap->fullPath + L"\\";
+                    for (auto& cmp : s_components) {
+                        bool underFolder =
+                            (cmp.source_path.size() > prefix.size() - 1 &&
+                             _wcsnicmp(cmp.source_path.c_str(), prefix.c_str(),
+                                       prefix.size()) == 0);
+                        bool isFolder =
+                            (cmp.source_path == snap->fullPath &&
+                             cmp.source_type == L"folder");
+                        if (!underFolder && !isFolder) continue;
+                        if (!cmp.dest_path.empty() && cmp.dest_path != section) continue;
+                        cmp.is_required    = fd.outRequired;
+                        cmp.is_preselected = fd.outPreselected;
+                        cmp.install_types  = fd.outInstallTypes;
+                        cmp.group_name     = fd.outGroupName;
+                        // Keep per-component dependencies/notes on non-folder rows
+                        if (isFolder) {
+                            cmp.dependencies = fd.outDependencyIds;
+                            cmp.notes_rtf    = fd.outNotesRtf;
+                        }
+                    }
+                }
+                // Also update the individual file paths that CollectSnapshotPaths
+                // found (handles virtual-file nodes where fullPath may be empty)
                 for (const auto& path : paths) {
                     for (auto& cmp : s_components) {
                         if (cmp.source_path != path) continue;
                         if (!cmp.dest_path.empty() && cmp.dest_path != section) continue;
                         cmp.is_required    = fd.outRequired;
                         cmp.is_preselected = fd.outPreselected;
+                        cmp.install_types  = fd.outInstallTypes;
+                        cmp.group_name     = fd.outGroupName;
                         break;
                     }
                 }
@@ -12643,12 +13171,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                         if (cmp.source_path != snap->fullPath) continue;
                         if (cmp.source_type  != L"folder")      continue;
                         if (!cmp.dest_path.empty() && cmp.dest_path != section) continue;
-                        cmp.is_required    = fd.outRequired;
-                        cmp.is_preselected = fd.outPreselected;
-                        cmp.dependencies   = fd.outDependencyIds;
-                        cmp.notes_rtf      = fd.outNotesRtf;
-                        folderRowFound     = true;
-                        break;
+                        folderRowFound = true;
+                        break;  // already updated in the cascade loop above
                     }
                     if (!folderRowFound) {
                         ComponentRow newComp;
@@ -12663,6 +13187,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                         newComp.dest_path      = section;
                         newComp.dependencies   = fd.outDependencyIds;
                         newComp.notes_rtf      = fd.outNotesRtf;
+                        newComp.install_types  = fd.outInstallTypes;
+                        newComp.group_name     = fd.outGroupName;
                         s_components.push_back(newComp);
                     }
                 }
@@ -12682,6 +13208,12 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                             auto itR = s_locale.find(req ? L"yes" : L"no");
                             std::wstring rs = (itR != s_locale.end()) ? itR->second : (req ? L"Yes" : L"No");
                             ListView_SetItemText(s_hCompListView, i, 2, (LPWSTR)rs.c_str());
+                            std::wstring instT = s_components[ci].install_types;
+                            if (instT.empty() && !s_installTypes.empty()) {
+                                auto itAll = s_locale.find(L"comp_types_all");
+                                instT = (itAll != s_locale.end()) ? itAll->second : L"(all)";
+                            }
+                            ListView_SetItemText(s_hCompListView, i, 4, (LPWSTR)instT.c_str());
                         }
                     }
                 }
@@ -12852,6 +13384,15 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             DB::SetSetting(L"ask_at_install_" + std::to_wstring(s_currentProject.id),
                            s_askAtInstallEnabled ? L"1" : L"0");
 
+            // Persist install types (delete-and-reinsert; stable by sort_order / name)
+            DB::DeleteInstallTypesForProject(s_currentProject.id);
+            for (int ti = 0; ti < (int)s_installTypes.size(); ++ti) {
+                s_installTypes[ti].project_id = s_currentProject.id;
+                s_installTypes[ti].sort_order  = ti;
+                int newTid = DB::InsertInstallType(s_installTypes[ti]);
+                if (newTid > 0) s_installTypes[ti].id = newTid;
+            }
+
             s_hasUnsavedChanges = false;
             if (s_hStatus && IsWindow(s_hStatus)) InvalidateRect(s_hStatus, NULL, TRUE);
             SC_SaveToDb(s_currentProject.id);    // persist shortcuts + menu nodes
@@ -12924,9 +13465,16 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             // ── Generate the .iss file ────────────────────────────────────────
             SBuildConfig          cfg   = SETT_GetBuildConfig();
             std::vector<InnoLangEntry> langs = SETT_GetInstallerLanguages();
+            std::vector<InstallTypeRow> installTypes;
+            std::vector<ComponentRow>   buildComps;
+            if (s_currentProject.use_components && s_currentProject.id > 0) {
+                installTypes = DB::GetInstallTypesForProject(s_currentProject.id);
+                buildComps   = s_components;
+            }
             std::wstring genErr = ISS_GenerateIss(templatePath, outIssPath,
                                                   s_currentProject, cfg, langs,
-                                                  FA_GetAssociations());
+                                                  FA_GetAssociations(),
+                                                  installTypes, buildComps);
             if (!genErr.empty()) {
                 MessageBoxW(hwnd, genErr.c_str(), L"Compile", MB_OK | MB_ICONERROR);
                 return 0;
@@ -13523,6 +14071,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             (dis->CtlID >= IDC_REG_CHECKBOX && dis->CtlID <= IDC_REG_BACKUP) ||
             dis->CtlID == IDC_SETT_REGEN_GUID ||
             (dis->CtlID >= IDC_COMP_ADD && dis->CtlID <= IDC_COMP_REMOVE) ||
+             dis->CtlID == IDC_COMP_TYPES_MANAGE ||
             (dis->CtlID >= IDC_SC_DESKTOP_BTN && dis->CtlID <= IDC_SC_SM_REMOVE) ||
              dis->CtlID == IDC_SC_SM_ADDSC ||
             (dis->CtlID >= IDC_DEP_ADD && dis->CtlID <= IDC_DEP_REMOVE) ||

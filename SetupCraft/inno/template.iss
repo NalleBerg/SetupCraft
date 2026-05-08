@@ -67,6 +67,8 @@ swedish.mutex_message=En annan kopia av det här installationsprogrammet körs r
 turkish.mutex_message=Bu yükleyicinin başka bir kopyası zaten çalışıyor.%n%nDevam etmek için çalışan yükleyiciyi kapatabilir, diğerinin devam etmesi için bu yükleyiciyi kapatabilir veya iptal edebilirsiniz.
 ukrainian.mutex_message=Інша копія цього інсталятора вже запущена.%n%nВи можете закрити запущений інсталятор, щоб продовжити, закрити цей інсталятор, щоб дозволити іншому продовжити, або скасувати.
 
+; <<TYPES>>
+; <<COMPONENTS>>
 [Tasks]
 Name: desktopicon; Description: "Create a &desktop icon"; GroupDescription: "Additional icons:"; Flags: unchecked
 

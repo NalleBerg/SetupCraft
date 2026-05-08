@@ -286,6 +286,23 @@ comp_deps_files_popup_title=Files in dependency
 comp_deps_files_popup_close=Close
 comp_info_icon_label=FYI!
 comp_info_tooltip=Files and folders will not appear in the dependency picker until the project has been saved at least once.
+comp_types_label=Install types:
+comp_types_add=Add
+comp_types_edit=Edit
+comp_types_remove=Remove
+comp_types_col_name=Name
+comp_types_col_desc=Description
+comp_types_col_custom=Custom
+comp_types_name_label=Internal name:
+comp_types_desc_label=Description:
+comp_types_custom_label=Custom (allows manual selection)
+comp_types_add_title=Add Install Type
+comp_types_edit_title=Edit Install Type
+comp_types_no_selection=Please select an install type first.
+comp_types_manage=Manage Install Types
+comp_col_install_types=Install Types
+comp_types_all=(all)
+comp_group_label=Group:
 
 # Entry page button tooltips
 new_project_hint=Create a new installer project

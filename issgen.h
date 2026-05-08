@@ -27,11 +27,15 @@ std::wstring ISS_FindInnoDir();
 // cfg     — build-output settings from SETT_GetBuildConfig()
 // langs   — enabled installer languages from SETT_GetInstallerLanguages()
 // assocs  — file associations from FA_GetAssociations(); empty vector = none
+// types   — install type presets from DB::GetInstallTypesForProject(); empty = no [Types] section
+// comps   — components from DB::GetComponentsForProject(); empty = no [Components] section
 // Returns an empty string on success, or a human-readable error message.
 std::wstring ISS_GenerateIss(
-    const std::wstring&              templatePath,
-    const std::wstring&              outPath,
-    const ProjectRow&                proj,
-    const SBuildConfig&              cfg,
-    const std::vector<InnoLangEntry>& langs,
-    const std::vector<FileAssocRow>& assocs);
+    const std::wstring&                  templatePath,
+    const std::wstring&                  outPath,
+    const ProjectRow&                    proj,
+    const SBuildConfig&                  cfg,
+    const std::vector<InnoLangEntry>&    langs,
+    const std::vector<FileAssocRow>&     assocs,
+    const std::vector<InstallTypeRow>&   types,
+    const std::vector<ComponentRow>&     comps);

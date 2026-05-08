@@ -53,6 +53,66 @@ static void ReplaceAll(std::wstring& str,
     }
 }
 
+// Build the Inno [Types] section body (no header line) from the given type list.
+// Each line:  Name: "full"; Description: "Full installation"[; Flags: iscustom]
+// Returns an empty string if the list is empty (section will be omitted).
+static std::wstring BuildTypesSection(const std::vector<InstallTypeRow>& types)
+{
+    std::wstring out;
+    for (const auto& t : types) {
+        if (t.name.empty()) continue;
+        out += L"Name: \"" + t.name + L"\"; Description: \"" + t.description + L"\"";
+        if (t.is_custom)
+            out += L"; Flags: iscustom";
+        out += L"\r\n";
+    }
+    return out;
+}
+
+// Build the Inno [Components] section body (no header line) from the given component list.
+// Components with a group_name get Name: "group\comp" and the group header is emitted once.
+// is_required maps to Flags: fixed (always installed regardless of type selection).
+// Returns an empty string if the list is empty.
+static std::wstring BuildComponentsSection(const std::vector<ComponentRow>& comps)
+{
+    // Helper: normalise an identifier (lowercase, spaces→underscores).
+    auto ident = [](const std::wstring& s) {
+        std::wstring out = s;
+        for (auto& ch : out) ch = (ch == L' ') ? L'_' : (wchar_t)towlower(ch);
+        return out;
+    };
+
+    std::wstring out;
+
+    // Emit one group-header row per unique non-empty group_name (first occurrence wins
+    // for description — group rows carry no Types/Flags of their own).
+    std::vector<std::wstring> seenGroups;
+    for (const auto& c : comps) {
+        if (c.group_name.empty()) continue;
+        std::wstring gid = ident(c.group_name);
+        bool seen = false;
+        for (const auto& s : seenGroups) if (s == gid) { seen = true; break; }
+        if (seen) continue;
+        seenGroups.push_back(gid);
+        // The group description is the group_name itself (human-readable).
+        out += L"Name: \"" + gid + L"\"; Description: \"" + c.group_name + L"\"\r\n";
+    }
+
+    for (const auto& c : comps) {
+        if (c.display_name.empty()) continue;
+        std::wstring compId = ident(c.display_name);
+        if (!c.group_name.empty())
+            compId = ident(c.group_name) + L"\\" + compId;
+        out += L"Name: \"" + compId + L"\"; Description: \"" + c.description + L"\"";
+        if (!c.install_types.empty())
+            out += L"; Types: " + c.install_types;
+        if (c.is_required)
+            out += L"; Flags: fixed";
+        out += L"\r\n";
+    }
+    return out;
+}
+
 // Build the Inno [Languages] section body (no header line) from the given
 // language list.  'innoDir' is the directory that contains local .isl files.
 // Each line:
@@ -265,12 +325,14 @@ std::wstring ISS_FindInnoDir()
 // ── ISS_GenerateIss ───────────────────────────────────────────────────────────
 
 std::wstring ISS_GenerateIss(
-    const std::wstring&              templatePath,
-    const std::wstring&              outPath,
-    const ProjectRow&                proj,
-    const SBuildConfig&              cfg,
-    const std::vector<InnoLangEntry>& langs,
-    const std::vector<FileAssocRow>& assocs)
+    const std::wstring&                  templatePath,
+    const std::wstring&                  outPath,
+    const ProjectRow&                    proj,
+    const SBuildConfig&                  cfg,
+    const std::vector<InnoLangEntry>&    langs,
+    const std::vector<FileAssocRow>&     assocs,
+    const std::vector<InstallTypeRow>&   types,
+    const std::vector<ComponentRow>&     comps)
 {
     // ── Read template ─────────────────────────────────────────────────────────
     // Use Win32 to read the file so wide paths work on MinGW.
@@ -393,6 +455,27 @@ std::wstring ISS_GenerateIss(
     // ── Replace the "; <<LANGUAGES>>" marker with actual language entries ─────
     std::wstring langBlock = BuildLanguagesSection(langs);
     ReplaceAll(tmpl, L"; <<LANGUAGES>>", langBlock);
+
+    // ── Replace the "; <<TYPES>>" and "; <<COMPONENTS>>" markers ─────────────
+    // Only emit [Types] and [Components] sections when component-based install is
+    // active and at least some types / components are defined.
+    {
+        std::wstring typesBlock;
+        if (!types.empty()) {
+            typesBlock = L"[Types]\r\n";
+            typesBlock += BuildTypesSection(types);
+            typesBlock += L"\r\n";
+        }
+        ReplaceAll(tmpl, L"; <<TYPES>>", typesBlock);
+
+        std::wstring compsBlock;
+        if (!comps.empty()) {
+            compsBlock = L"[Components]\r\n";
+            compsBlock += BuildComponentsSection(comps);
+            compsBlock += L"\r\n";
+        }
+        ReplaceAll(tmpl, L"; <<COMPONENTS>>", compsBlock);
+    }
 
     // ── Replace the "; <<PATH_REGISTRY>>" marker ──────────────────────────────
     // For each folder in pathFolders, append a [Registry] entry that appends it
