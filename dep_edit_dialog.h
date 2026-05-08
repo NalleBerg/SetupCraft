@@ -63,3 +63,12 @@ bool DEP_EditDialog(HWND hwndParent, HINSTANCE hInst,
 #define IDC_DEPDLG_COMP_EDIT   426   // read-only edit: space-separated linked component names
 #define IDC_DEPDLG_COMP_PICK   427   // "…" picker button: opens the component selector
 #define IDC_DEPDLG_VER_SOURCE  428   // combo: where the version string is read from (DepVersionSource)
+
+// ── Shared component picker ───────────────────────────────────────────────────
+// Opens the multi-select component picker modal and writes the result as a
+// space-separated list of display names into outResult.  Returns true on OK.
+bool RunPickCompDialog(HWND hwndParent, HINSTANCE hInst,
+                       const std::wstring& current,
+                       const std::vector<std::wstring>& compNames,
+                       const std::map<std::wstring,std::wstring>& locale,
+                       std::wstring& outResult);

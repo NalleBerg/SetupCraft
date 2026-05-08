@@ -727,9 +727,21 @@
                                                 columns: on_error INTEGER DEFAULT 0,
                                                 working_dir TEXT DEFAULT '',
                                                 parameters TEXT DEFAULT '',
-                                                finish_checked_by_default INTEGER DEFAULT 0),
-                                                control ID ranges (page 7300–7349,
-                                                dialog 7350–7399), and full locale key table.
+                                                finish_checked_by_default INTEGER DEFAULT 0,
+                                                required_components TEXT DEFAULT ''),
+                                                per-script component linkage
+                                                (required_components wstring;
+                                                IDC_SCRDLG_COMP_EDIT=7375 read-only edit +
+                                                IDC_SCRDLG_COMP_PICK=7376 "\u2026" button
+                                                -> reuses RunPickCompDialog from
+                                                dep_edit_dialog.cpp (now non-static, declared
+                                                in dep_edit_dialog.h); section hidden when no
+                                                components; InsertScript 15 params; column 14
+                                                in SELECT; SCR_EditDialog gains compNames
+                                                const vector<wstring>& parameter; call sites
+                                                in scripts.cpp build from GetComponents()),
+                                                control ID ranges (page 7300\u20137349,
+                                                dialog 7350\u20137399), and full locale key table.
 
   preview_autofit_INTERNALS.txt                 Preview dialog auto-fit, positioning, and
                                                 scrollbar system —

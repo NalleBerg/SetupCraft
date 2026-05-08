@@ -9,6 +9,7 @@
  */
 
 #include "script_edit_dialog.h"
+#include "dep_edit_dialog.h"   // RunPickCompDialog()
 #include "scripts.h"        // ScrWhenToRun enum, SCR_TYPE_BAT/PS1
 #include "button.h"         // CreateCustomButtonWithIcon(), MeasureButtonWidth()
 #include "checkbox.h"       // CreateCustomCheckbox(), DrawCustomCheckbox()
@@ -187,6 +188,7 @@ struct ScriptDlgData {
     HINSTANCE     hInst;
     const std::map<std::wstring, std::wstring>* pLocale;
     const std::vector<DB::ScriptRow>*           pExisting; // for dup-name check
+    std::vector<std::wstring>                   compNames; // project component names (empty = no section)
     bool    okPressed;
     HWND    hSci;           // Scintilla editor window (NULL if DLLs unavailable)
     int     yEditorTop;    // y (dialog client coords) where the editor starts
@@ -671,6 +673,15 @@ static LRESULT CALLBACK ScrDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lP
                 SetDlgItemTextW(hDlg, IDC_SCRDLG_WORKING_DIR, results[0].virtualFolderPath.c_str());
             return 0;
         }
+        if (wmId == IDC_SCRDLG_COMP_PICK && wmEvent == BN_CLICKED) {
+            if (!pData || pData->compNames.empty()) return 0;
+            std::wstring current = GetEditText(hDlg, IDC_SCRDLG_COMP_EDIT);
+            std::wstring result;
+            if (RunPickCompDialog(hDlg, pData->hInst, current,
+                                  pData->compNames, *pData->pLocale, result))
+                SetDlgItemTextW(hDlg, IDC_SCRDLG_COMP_EDIT, result.c_str());
+            return 0;
+        }
 
         // Type radio changes: re-apply syntax highlighting for new language
         if ((wmId == IDC_SCRDLG_TYPE_BAT || wmId == IDC_SCRDLG_TYPE_PS1) &&
@@ -831,6 +842,7 @@ static LRESULT CALLBACK ScrDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lP
                     (SendDlgItemMessageW(hDlg, IDC_SCRDLG_FINISH_CHECKED, BM_GETCHECK, 0, 0) == BST_CHECKED) ? 1 : 0;
                 pData->scr.working_dir  = GetEditText(hDlg, IDC_SCRDLG_WORKING_DIR);
                 pData->scr.parameters   = GetEditText(hDlg, IDC_SCRDLG_PARAMETERS);
+                pData->scr.required_components = GetEditText(hDlg, IDC_SCRDLG_COMP_EDIT);
                 pData->okPressed = true;
             }
             s_scrDlgOk = true;
@@ -876,7 +888,8 @@ static LRESULT CALLBACK ScrDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lP
 bool SCR_EditDialog(HWND hwndParent, HINSTANCE hInst,
                     const std::map<std::wstring, std::wstring>& locale,
                     const std::vector<DB::ScriptRow>& existing,
-                    DB::ScriptRow& scr)
+                    DB::ScriptRow& scr,
+                    const std::vector<std::wstring>& compNames)
 {
     s_scrDlgOk = false;
 
@@ -885,6 +898,7 @@ bool SCR_EditDialog(HWND hwndParent, HINSTANCE hInst,
     data.hInst     = hInst;
     data.pLocale   = &locale;
     data.pExisting = &existing;
+    data.compNames     = compNames;
     data.okPressed     = false;
     data.hSci          = NULL;
     data.yEditorTop    = 0;
@@ -923,6 +937,8 @@ bool SCR_EditDialog(HWND hwndParent, HINSTANCE hInst,
     contentH += SD_LABEL_H + SD_GAP_SM + SD_COMBO_H + SD_GAP; // when combo
     contentH += SD_LABEL_H + SD_GAP_SM + SD_EDIT_H  + SD_GAP; // working dir
     contentH += SD_LABEL_H + SD_GAP_SM + SD_EDIT_H  + SD_GAP; // parameters
+    if (!data.compNames.empty())
+        contentH += SD_LABEL_H + SD_GAP_SM + SD_EDIT_H  + SD_GAP; // component linkage
     contentH += SD_CB_H    + SD_GAP_SM;                        // expand-editor toggle
     contentH += SD_CONTENT_H + SD_GAP_SM + 2 + SD_GAP_SM; // script content + separator line
     contentH += SD_BTN_H - 6 + SD_GAP;                          // load/test buttons row
@@ -1128,6 +1144,26 @@ bool SCR_EditDialog(HWND hwndParent, HINSTANCE hInst,
             hDlg, (HMENU)(UINT_PTR)IDC_SCRDLG_PARAMETERS, hInst, NULL);
         if (hFont) SendMessageW(hPrEdit, WM_SETFONT, (WPARAM)hFont, FALSE);
         y += S(SD_EDIT_H) + S(SD_GAP);
+    }
+
+    // ── Component linkage (only when project has components) ──────────────────
+    if (!data.compNames.empty()) {
+        { auto it = locale.find(L"scr_dlg_comp_link");
+          Lbl(it != locale.end() ? it->second.c_str() : L"Required components (optional):"); }
+        {
+            HWND hCmpEd = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT",
+                scr.required_components.c_str(),
+                WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_BORDER | ES_AUTOHSCROLL | ES_READONLY,
+                lx, y, cw - S(34) - S(SD_GAP_SM), S(SD_EDIT_H),
+                hDlg, (HMENU)(UINT_PTR)IDC_SCRDLG_COMP_EDIT, hInst, NULL);
+            if (hFont) SendMessageW(hCmpEd, WM_SETFONT, (WPARAM)hFont, FALSE);
+            HWND hCmpBtn = CreateWindowExW(0, L"BUTTON", L"\u2026",
+                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+                lx + cw - S(34), y, S(34), S(SD_EDIT_H),
+                hDlg, (HMENU)(UINT_PTR)IDC_SCRDLG_COMP_PICK, hInst, NULL);
+            if (hFont) SendMessageW(hCmpBtn, WM_SETFONT, (WPARAM)hFont, FALSE);
+            y += S(SD_EDIT_H) + S(SD_GAP);
+        }
     }
 
     // ── Expand editor toggle ──────────────────────────────────────────────────────────────

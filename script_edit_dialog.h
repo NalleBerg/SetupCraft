@@ -16,7 +16,8 @@
 bool SCR_EditDialog(HWND hwndParent, HINSTANCE hInst,
                     const std::map<std::wstring, std::wstring>& locale,
                     const std::vector<DB::ScriptRow>& existing,
-                    DB::ScriptRow& scr);
+                    DB::ScriptRow& scr,
+                    const std::vector<std::wstring>& compNames);
 
 // ── Control IDs ───────────────────────────────────────────────────────────────
 #define IDC_SCRDLG_NAME             7350   // Name edit
@@ -45,3 +46,5 @@ bool SCR_EditDialog(HWND hwndParent, HINSTANCE hInst,
 #define IDC_SCRDLG_PARAMETERS       7372   // Edit: command-line parameters passed to the script process
 #define IDC_SCRDLG_FINISH_CHECKED   7373   // Checkbox: start Finish-page opt-out checkbox checked (checkedonce flag)
 #define IDC_SCRDLG_EXPAND           7374   // Checkbox: toggle expand/collapse editor
+#define IDC_SCRDLG_COMP_EDIT        7375   // Read-only edit: space-separated linked component names
+#define IDC_SCRDLG_COMP_PICK        7376   // "…" picker button: opens the component selector

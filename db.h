@@ -162,6 +162,7 @@ namespace DB {
         std::wstring working_dir;               // VFS path run in (e.g. "{app}\tools"); empty = default
         std::wstring parameters;                // extra command-line parameters passed to the script process; empty = none
         int          finish_checked_by_default = 0; // 1 = checkedonce flag: Finish-page opt-out checkbox starts checked
+        std::wstring required_components;           // space-separated component display names; empty = always run
     };
     int  InsertScript(int projectId, const ScriptRow& s);
     bool DeleteScriptsForProject(int projectId);

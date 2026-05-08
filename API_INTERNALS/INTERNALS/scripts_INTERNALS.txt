@@ -39,12 +39,12 @@ mainwindow.cpp knows nothing about the page internals.  It only:
   Table: scripts
   Columns: id, project_id, name, script_type, when_to_run, run_hidden,
            wait, also_uninstall, finish_label, content, on_error, working_dir,
-           parameters, finish_checked_by_default
+           parameters, finish_checked_by_default, required_components
 
   CRUD in db.cpp / db.h:
-    DB::InsertScript()              — insert one ScriptRow
+    DB::InsertScript()              — insert one ScriptRow (15 bound params)
     DB::DeleteScriptsForProject()   — wipe all rows for a project on save
-    DB::GetScriptsForProject()      — reload on project open
+    DB::GetScriptsForProject()      — reload on project open (reads col 14 = required_components)
 
   Scripts are stored in memory as s_scripts (vector<DB::ScriptRow>) until the
   user saves.  SCR_Reset() is the only function that clears in-memory state.
@@ -68,11 +68,14 @@ mainwindow.cpp knows nothing about the page internals.  It only:
     bool SCR_EditDialog(HWND hwndParent, HINSTANCE hInst,
                         const map<wstring,wstring>& locale,
                         const vector<DB::ScriptRow>& existing,
-                        DB::ScriptRow& scr);
+                        DB::ScriptRow& scr,
+                        const vector<wstring>& compNames);
 
   Returns true on OK, false on Cancel.
   'scr' is read for initial values and written back on OK.
   'existing' is passed so the dialog can detect duplicate names.
+  'compNames' is the sorted+deduped list of project component display names;
+  empty = no component-linkage section shown.
 
   The dialog uses the measure-then-create pattern:
     1. Measure label widths and compute layout constants.
@@ -83,6 +86,7 @@ mainwindow.cpp knows nothing about the page internals.  It only:
     scr          DB::ScriptRow      — working copy of the edited row
     pExisting    const vector<DB::ScriptRow>*  — caller's live list for dup check
     locale       const map<wstring,wstring>&   — locale reference
+    compNames    vector<wstring>    — project component display names (copy; empty = no section)
     hFont        HFONT              — body font
     hSci         HWND               — Scintilla editor window (NULL if DLLs unavailable)
     finishLblY   int                — Y offset of finish-label controls within the dialog
@@ -227,7 +231,34 @@ mainwindow.cpp knows nothing about the page internals.  It only:
 
   Page controls        7300–7349  (scripts.h)
   Editor controls      7350–7399  (script_edit_dialog.h)
+  Notable editor control IDs:
+    IDC_SCRDLG_ABORT_ON_ERROR   7369   on_error checkbox
+    IDC_SCRDLG_WORKING_DIR      7370   working dir edit
+    IDC_SCRDLG_WORKING_DIR_BTN  7371   VFS picker button
+    IDC_SCRDLG_PARAMETERS       7372   parameters edit
+    IDC_SCRDLG_FINISH_CHECKED   7373   finish checkedonce checkbox
+    IDC_SCRDLG_EXPAND           7374   big-editor toggle checkbox
+    IDC_SCRDLG_COMP_EDIT        7375   read-only edit: space-separated linked component names
+    IDC_SCRDLG_COMP_PICK        7376   "…" button: opens RunPickCompDialog from dep_edit_dialog
 
+── Component linkage section ──────────────────────────────────────────────────────────────
+
+  Appears between the Parameters row and the expand-editor toggle.
+  Hidden entirely when compNames is empty (project has no components).
+  contentH includes the section's row height only when compNames is non-empty.
+
+  Controls:
+    label (scr_dlg_comp_link)
+    IDC_SCRDLG_COMP_EDIT  ES_READONLY edit  — space-separated component names
+    IDC_SCRDLG_COMP_PICK  BUTTON "…"        — opens RunPickCompDialog (dep_edit_dialog)
+
+  RunPickCompDialog (dep_edit_dialog.cpp / dep_edit_dialog.h):
+    Shared with the Dependencies page.  Formerly static; exposed in v2026.05.08.10.
+    Opens a modal LBS_EXTENDEDSEL listbox picker (class DepPickCompDlg, registered once)
+    pre-selecting names already in the space-separated current string.
+    Returns true on OK; writes result as space-separated wstring into outResult.
+
+  OK handler reads IDC_SCRDLG_COMP_EDIT text into scr.required_components.
   Page IDs:
     IDC_SCR_PAGE_TITLE      7300   — page heading label
     IDC_SCR_MASTER_ENABLE   7301   — master enable custom checkbox

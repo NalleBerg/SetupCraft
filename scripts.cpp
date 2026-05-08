@@ -23,6 +23,7 @@
 #include "button.h"             // CreateCustomButtonWithIcon(), MeasureButtonWidth()
 #include "checkbox.h"           // CreateCustomCheckbox()
 #include "tooltip.h"             // ShowMultilingualTooltip() / HideTooltip()
+#include <algorithm>            // std::sort, std::unique
 #include <windowsx.h>           // GET_X_LPARAM / GET_Y_LPARAM
 #include <shellapi.h>           // ShellExecuteW()
 #include <commdlg.h>            // GetOpenFileNameW()
@@ -510,7 +511,14 @@ static void OpenEditorForItem(HWND hwnd, int idx)
 {
     if (idx < 0 || idx >= (int)s_scripts.size()) return;
     DB::ScriptRow copy = s_scripts[idx];
-    if (SCR_EditDialog(hwnd, s_hInst, *s_pLocale, s_scripts, copy)) {
+    std::vector<std::wstring> compNames;
+    if (MainWindow::UseComponents()) {
+        for (const ComponentRow& c : MainWindow::GetComponents())
+            if (!c.display_name.empty()) compNames.push_back(c.display_name);
+        std::sort(compNames.begin(), compNames.end());
+        compNames.erase(std::unique(compNames.begin(), compNames.end()), compNames.end());
+    }
+    if (SCR_EditDialog(hwnd, s_hInst, *s_pLocale, s_scripts, copy, compNames)) {
         copy.sort_order = idx;
         s_scripts[idx]  = copy;
         RefreshList(hwnd);
@@ -543,7 +551,14 @@ bool SCR_OnCommand(HWND hwnd, int wmId, int wmEvent, HWND /*hCtrl*/)
         newScr.when_to_run  = (int)SWR_AFTER_FILES;
         newScr.type         = SCR_TYPE_PS1;
         newScr.wait_for_completion = 1;
-        if (SCR_EditDialog(hwnd, s_hInst, *s_pLocale, s_scripts, newScr)) {
+        std::vector<std::wstring> compNames;
+        if (MainWindow::UseComponents()) {
+            for (const ComponentRow& c : MainWindow::GetComponents())
+                if (!c.display_name.empty()) compNames.push_back(c.display_name);
+            std::sort(compNames.begin(), compNames.end());
+            compNames.erase(std::unique(compNames.begin(), compNames.end()), compNames.end());
+        }
+        if (SCR_EditDialog(hwnd, s_hInst, *s_pLocale, s_scripts, newScr, compNames)) {
             newScr.sort_order = (int)s_scripts.size();
             s_scripts.push_back(newScr);
             s_nextScrId++;
@@ -596,7 +611,14 @@ bool SCR_OnCommand(HWND hwnd, int wmId, int wmEvent, HWND /*hCtrl*/)
                 newScr.when_to_run   = (int)SWR_AFTER_FILES;
                 newScr.wait_for_completion = 1;
 
-                if (SCR_EditDialog(hwnd, s_hInst, *s_pLocale, s_scripts, newScr)) {
+                std::vector<std::wstring> compNames;
+                if (MainWindow::UseComponents()) {
+                    for (const ComponentRow& c : MainWindow::GetComponents())
+                        if (!c.display_name.empty()) compNames.push_back(c.display_name);
+                    std::sort(compNames.begin(), compNames.end());
+                    compNames.erase(std::unique(compNames.begin(), compNames.end()), compNames.end());
+                }
+                if (SCR_EditDialog(hwnd, s_hInst, *s_pLocale, s_scripts, newScr, compNames)) {
                     newScr.sort_order = (int)s_scripts.size();
                     s_scripts.push_back(newScr);
                     s_nextScrId++;

@@ -584,6 +584,7 @@ scr_dlg_abort_on_error=Abort installation if script fails
 scr_dlg_working_dir=Working directory (VFS path, leave empty for default):
 scr_dlg_working_dir_picker_title=Select Working Directory
 scr_dlg_parameters=Parameters (passed to the script process, leave empty for none):
+scr_dlg_comp_link=Required components (optional):
 scr_dlg_finish_checked=Checked by default on the Finish page (checkedonce)
 scr_dlg_expand=Big editor
 scr_dlg_finish_label_lbl=Label on Finish page (leave blank for default):

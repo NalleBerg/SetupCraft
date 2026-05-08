@@ -385,6 +385,7 @@ CMakeFiles/SkeletonApp.dir/script_edit_dialog.cpp.obj: \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_map.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_multimap.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/erase_if.h \
+ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\dep_edit_dialog.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\scripts.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\button.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\checkbox.h \

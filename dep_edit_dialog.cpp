@@ -699,7 +699,7 @@ static LRESULT CALLBACK PickCompDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPAR
 
 // Opens the component picker modal.  Returns true if user pressed OK,
 // and sets outResult to the new space-separated component string.
-static bool RunPickCompDialog(HWND hwndParent, HINSTANCE hInst,
+bool RunPickCompDialog(HWND hwndParent, HINSTANCE hInst,
     const std::wstring& current,
     const std::vector<std::wstring>& compNames,
     const std::map<std::wstring,std::wstring>& locale,
