@@ -288,6 +288,11 @@
 <li><strong>db &mdash; <code>InsertScript</code> column-list fix:</strong> The INSERT SQL had only 12 column names listed while binding 14 parameters, silently skipping <code>parameters</code> and <code>finish_checked_by_default</code> in the column list (SQLite matched them positionally, so the values were stored in the wrong columns on DBs that had the ALTER-added columns in a different physical order). All 15 columns now explicitly listed, matching the 15 bound parameters.</li>
 </ul>
 
+<p><strong>Scripts &mdash; &ldquo;Run as Administrator&rdquo; per-script toggle (08.05.2026, 10:36):</strong></p>
+<ul>
+<li><strong>scripts / db &mdash; <code>run_elevated</code> right-click toggle:</strong> Right-clicking a script tile in the Scripts page now shows a third context-menu item <em>&ldquo;Run as Administrator&rdquo;</em> (locale key: <code>scr_ctx_run_elevated</code>), separated from Edit/Remove by a menu separator. The item is a standard Win32 checked menu item (<code>MF_CHECKED</code>) reflecting the current state &mdash; no modal dialog involved. Toggling it flips <code>DB::ScriptRow::run_elevated</code> in memory, marks the project modified, and refreshes the ListView immediately. While active, the tile gains a <code>&#x2713;&thinsp;</code> prefix in the ListView. Stored in a new <code>run_elevated INTEGER DEFAULT 0</code> DB column (idempotent <code>ALTER TABLE</code> migration). <code>InsertScript</code> extended to 16 bound parameters; <code>GetScriptsForProject</code> SELECT extended to column&thinsp;15. When emitted to Inno Setup, a <code>run_elevated=1</code> script in <code>[Run]</code> / <code>[UninstallRun]</code> will receive <code>Flags: runascurrentuser</code>; in <code>[Code]</code> (<code>SWR_BEFORE_FILES</code>) the <code>Exec()</code> call will be replaced with <code>ShellExec(&#39;runas&#39;,&hellip;)</code>. Locale key: <code>scr_ctx_run_elevated</code>.</li>
+</ul>
+
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.05.03.14</span></h3>
 <p><strong>Dependencies &mdash; Per-dep component linkage (03.05.2026, 13:57&ndash;14:02):</strong></p>
 <ul>

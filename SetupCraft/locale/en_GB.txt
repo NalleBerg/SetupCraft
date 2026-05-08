@@ -565,6 +565,7 @@ scr_delete_confirm=Remove the script "%s"?\nThis cannot be undone.
 scr_delete_title=Remove Script
 scr_ctx_edit=Edit…
 scr_ctx_delete=Remove
+scr_ctx_run_elevated=Run as Administrator
 scr_list_drag_tip=Drag to alter order
 scr_dlg_add_title=Add Script
 scr_dlg_edit_title=Edit Script

@@ -243,6 +243,7 @@ bool DB::InitDb() {
     p_exec(db, "ALTER TABLE scripts ADD COLUMN finish_checked_by_default INTEGER DEFAULT 0;", NULL, NULL, &errmsg);
     // Add required_components column to scripts table for existing databases
     p_exec(db, "ALTER TABLE scripts ADD COLUMN required_components TEXT DEFAULT '';", NULL, NULL, &errmsg);
+    p_exec(db, "ALTER TABLE scripts ADD COLUMN run_elevated INTEGER DEFAULT 0;", NULL, NULL, &errmsg);
 
     p_exec(db, "CREATE TABLE IF NOT EXISTS file_associations ("
         "id INTEGER PRIMARY KEY AUTOINCREMENT, "
@@ -2624,8 +2625,8 @@ int DB::InsertScript(int projectId, const ScriptRow& s)
     const char* sql =
         "INSERT INTO scripts (project_id, name, type, content, when_to_run, "
         "run_hidden, wait_for_completion, description, also_uninstall, sort_order, on_error, working_dir, "
-        "parameters, finish_checked_by_default, required_components) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);";  // 15 params
+        "parameters, finish_checked_by_default, required_components, run_elevated) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);";  // 16 params
     void* stmt = NULL;
     if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return -1; }
 
@@ -2643,7 +2644,8 @@ int DB::InsertScript(int projectId, const ScriptRow& s)
     std::string sWDir  = WToUtf8(s.working_dir);
     std::string sParam  = WToUtf8(s.parameters);
     std::string sFinChk = std::to_string(s.finish_checked_by_default);
-    std::string sReqCmp = WToUtf8(s.required_components);
+    std::string sReqCmp  = WToUtf8(s.required_components);
+    std::string sRunElev = std::to_string(s.run_elevated);
 
     p_bind_text(stmt,  1, sPid.c_str(),   -1, NULL);
     p_bind_text(stmt,  2, sName.c_str(),  -1, NULL);
@@ -2659,7 +2661,8 @@ int DB::InsertScript(int projectId, const ScriptRow& s)
     p_bind_text(stmt, 12, sWDir.c_str(),  -1, NULL);
     p_bind_text(stmt, 13, sParam.c_str(),  -1, NULL);
     p_bind_text(stmt, 14, sFinChk.c_str(), -1, NULL);
-    p_bind_text(stmt, 15, sReqCmp.c_str(), -1, NULL);
+    p_bind_text(stmt, 15, sReqCmp.c_str(),  -1, NULL);
+    p_bind_text(stmt, 16, sRunElev.c_str(), -1, NULL);
     p_step(stmt);
     if (p_finalize) p_finalize(stmt);
 
@@ -2703,8 +2706,8 @@ std::vector<DB::ScriptRow> DB::GetScriptsForProject(int projectId)
 
     const char* sql =
         "SELECT id, name, type, content, when_to_run, run_hidden, "
-        "wait_for_completion, description, also_uninstall, sort_order, on_error, working_dir, parameters, finish_checked_by_default, required_components "
-        "FROM scripts WHERE project_id=? ORDER BY sort_order ASC, id ASC;";  // col 11=working_dir col 12=parameters col 13=finish_checked_by_default col 14=required_components
+        "wait_for_completion, description, also_uninstall, sort_order, on_error, working_dir, parameters, finish_checked_by_default, required_components, run_elevated "
+        "FROM scripts WHERE project_id=? ORDER BY sort_order ASC, id ASC;";  // col 15=run_elevated
     void* stmt = NULL;
     if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return out; }
     std::string sPid = std::to_string(projectId);
@@ -2732,6 +2735,7 @@ std::vector<DB::ScriptRow> DB::GetScriptsForProject(int projectId)
         r.parameters          = T(12);
         r.finish_checked_by_default = (int)p_col_int64(stmt, 13);
         r.required_components       = T(14);
+        r.run_elevated              = (int)p_col_int64(stmt, 15);
         out.push_back(r);
     }
     if (p_finalize) p_finalize(stmt);

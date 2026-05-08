@@ -77,7 +77,9 @@ static void RefreshList(HWND hwnd)
         lvi.iItem   = i;
         lvi.iImage  = 0;          // single icon in the list; image 0 for all
         lvi.lParam  = (LPARAM)i;
-        lvi.pszText = const_cast<wchar_t*>(s_scripts[i].name.c_str());
+        std::wstring tileName = s_scripts[i].run_elevated
+            ? L"\u2713 " + s_scripts[i].name : s_scripts[i].name;
+        lvi.pszText = const_cast<wchar_t*>(tileName.c_str());
         ListView_InsertItem(s_hScrList, &lvi);
     }
 
@@ -773,6 +775,10 @@ LRESULT SCR_OnNotify(HWND hwnd, LPNMHDR nmhdr, bool* handled)
                     loc(L"scr_ctx_edit",   L"Edit\u2026").c_str());
         AppendMenuW(hMenu, MF_STRING, 2,
                     loc(L"scr_ctx_delete", L"Remove").c_str());
+        AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
+        UINT elevFlags = MF_STRING | (s_scripts[sel].run_elevated ? MF_CHECKED : 0u);
+        AppendMenuW(hMenu, elevFlags, 3,
+                    loc(L"scr_ctx_run_elevated", L"Run as Administrator").c_str());
         POINT pt; GetCursorPos(&pt);
         int cmd = TrackPopupMenu(hMenu,
             TPM_RETURNCMD | TPM_RIGHTBUTTON, pt.x, pt.y, 0, hwnd, NULL);
@@ -785,6 +791,13 @@ LRESULT SCR_OnNotify(HWND hwnd, LPNMHDR nmhdr, bool* handled)
             // Delegate to the Delete button handler
             SendMessageW(hwnd, WM_COMMAND,
                 MAKEWPARAM(IDC_SCR_TOOLBAR_DELETE, BN_CLICKED), 0);
+        } else if (cmd == 3) {
+            s_scripts[sel].run_elevated ^= 1;
+            MainWindow::MarkAsModified();
+            RefreshList(hwnd);
+            if (s_hScrList)
+                ListView_SetItemState(s_hScrList, sel,
+                    LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
         }
         *handled = true;
         return 0;

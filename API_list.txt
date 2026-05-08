@@ -728,7 +728,8 @@
                                                 working_dir TEXT DEFAULT '',
                                                 parameters TEXT DEFAULT '',
                                                 finish_checked_by_default INTEGER DEFAULT 0,
-                                                required_components TEXT DEFAULT ''),
+                                                required_components TEXT DEFAULT '',
+                                                run_elevated INTEGER DEFAULT 0),
                                                 per-script component linkage
                                                 (required_components wstring;
                                                 IDC_SCRDLG_COMP_EDIT=7375 read-only edit +
@@ -736,10 +737,15 @@
                                                 -> reuses RunPickCompDialog from
                                                 dep_edit_dialog.cpp (now non-static, declared
                                                 in dep_edit_dialog.h); section hidden when no
-                                                components; InsertScript 15 params; column 14
+                                                components; InsertScript 16 params; column 15
                                                 in SELECT; SCR_EditDialog gains compNames
                                                 const vector<wstring>& parameter; call sites
                                                 in scripts.cpp build from GetComponents()),
+                                                run_elevated right-click toggle
+                                                (scr_ctx_run_elevated; MF_CHECKED menu item;
+                                                \u2713 tile prefix when active;
+                                                Inno: runascurrentuser flag in [Run]/
+                                                [UninstallRun]; ShellExec runas in [Code]),
                                                 control ID ranges (page 7300\u20137349,
                                                 dialog 7350\u20137399), and full locale key table.
 

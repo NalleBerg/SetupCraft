@@ -39,12 +39,12 @@ mainwindow.cpp knows nothing about the page internals.  It only:
   Table: scripts
   Columns: id, project_id, name, script_type, when_to_run, run_hidden,
            wait, also_uninstall, finish_label, content, on_error, working_dir,
-           parameters, finish_checked_by_default, required_components
+           parameters, finish_checked_by_default, required_components, run_elevated
 
   CRUD in db.cpp / db.h:
-    DB::InsertScript()              — insert one ScriptRow (15 bound params)
+    DB::InsertScript()              — insert one ScriptRow (16 bound params)
     DB::DeleteScriptsForProject()   — wipe all rows for a project on save
-    DB::GetScriptsForProject()      — reload on project open (reads col 14 = required_components)
+    DB::GetScriptsForProject()      — reload on project open (reads col 15 = run_elevated)
 
   Scripts are stored in memory as s_scripts (vector<DB::ScriptRow>) until the
   user saves.  SCR_Reset() is the only function that clears in-memory state.
@@ -90,6 +90,9 @@ mainwindow.cpp knows nothing about the page internals.  It only:
     hFont        HFONT              — body font
     hSci         HWND               — Scintilla editor window (NULL if DLLs unavailable)
     finishLblY   int                — Y offset of finish-label controls within the dialog
+
+  Note: run_elevated is NOT edited in the dialog.  It is toggled exclusively via the
+  right-click context menu on the Scripts page ListView (see “Run as Administrator toggle” below).
 
 ── Duplicate-name detection and rename sub-dialog ───────────────────────────────
 
@@ -231,6 +234,7 @@ mainwindow.cpp knows nothing about the page internals.  It only:
 
   Page controls        7300–7349  (scripts.h)
   Editor controls      7350–7399  (script_edit_dialog.h)
+
   Notable editor control IDs:
     IDC_SCRDLG_ABORT_ON_ERROR   7369   on_error checkbox
     IDC_SCRDLG_WORKING_DIR      7370   working dir edit
@@ -240,6 +244,31 @@ mainwindow.cpp knows nothing about the page internals.  It only:
     IDC_SCRDLG_EXPAND           7374   big-editor toggle checkbox
     IDC_SCRDLG_COMP_EDIT        7375   read-only edit: space-separated linked component names
     IDC_SCRDLG_COMP_PICK        7376   "…" button: opens RunPickCompDialog from dep_edit_dialog
+
+── Run as Administrator toggle ──────────────────────────────────────────────────────────────
+
+  Not a dialog field.  Toggled exclusively via the right-click context menu on the
+  Scripts page ListView (cmd=3, locale key: scr_ctx_run_elevated).
+
+  NM_RCLICK handler:
+    Separator added before the item.  Item built with MF_CHECKED when
+    s_scripts[sel].run_elevated is non-zero.
+    On cmd==3: XOR-toggle run_elevated, call MarkAsModified(), RefreshList(),
+    then re-select the toggled item so focus stays.
+
+  Tile display:
+    RefreshList() prepends L"\u2713 " to the tile name when run_elevated != 0.
+    The actual ScriptRow::name is unchanged — only the ListView display string is prefixed.
+
+  DB:
+    Column: run_elevated INTEGER DEFAULT 0  (col 15 in SELECT)
+    InsertScript: param 16
+    Migration: ALTER TABLE scripts ADD COLUMN run_elevated INTEGER DEFAULT 0 (idempotent)
+
+  Inno Setup emission (to be implemented in issgen.cpp):
+    SWR_AFTER_FILES / SWR_FINISH_OPTOUT  [Run]        → append runascurrentuser to Flags:
+    SWR_UNINSTALL                        [UninstallRun]→ append runascurrentuser to Flags:
+    SWR_BEFORE_FILES                     [Code]       → use ShellExec('runas', ...) instead of Exec(...)
 
 ── Component linkage section ──────────────────────────────────────────────────────────────
 
