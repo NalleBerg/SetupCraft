@@ -9648,6 +9648,7 @@ CMakeFiles/SkeletonApp.dir/settings.cpp.obj: C:/Users/NalleBerg/Documents/C++/Wo
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_map.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_multimap.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_pair.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_relops.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_tempbuf.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_tree.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_uninitialized.h \
@@ -9692,6 +9693,7 @@ CMakeFiles/SkeletonApp.dir/settings.cpp.obj: C:/Users/NalleBerg/Documents/C++/Wo
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/type_traits \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/typeinfo \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/unordered_map \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/utility \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/vector \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/x86_64-w64-mingw32/bits/c++allocator.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/x86_64-w64-mingw32/bits/c++config.h \
@@ -9960,6 +9962,7 @@ CMakeFiles/SkeletonApp.dir/settings.cpp.obj: C:/Users/NalleBerg/Documents/C++/Wo
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/file_assoc.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/mainwindow.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/settings.h \
+  C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/tooltip.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/vfs_picker.h
 
 CMakeFiles/SkeletonApp.dir/shortcuts.cpp.obj: C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/shortcuts.cpp \

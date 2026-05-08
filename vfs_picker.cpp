@@ -469,26 +469,30 @@ static LRESULT CALLBACK VfspDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                     TreeView_GetItem(hTree, &tvi);
                     const TreeNodeSnapshot* snap = (const TreeNodeSnapshot*)tvi.lParam;
                     if (snap) {
-                        // Prefer the real disk source path; fall back to the VFS virtual path
-                        // (converting the DB section root to an Inno runtime constant).
-                        std::wstring path = snap->fullPath;
-                        if (path.empty() && !snap->virtualPath.empty()) {
-                            // Map section root → Inno constant
+                        // sourcePath  = real disk path of the source folder (for callers
+                        //               that need to locate files on the developer's machine).
+                        // virtualFolderPath = Inno constant path of the installed location
+                        //               (always derived from virtualPath; this is what ends
+                        //               up in PATH, UninstallFilesDir, etc. after install).
+                        std::wstring innoPath;
+                        if (!snap->virtualPath.empty()) {
                             const std::wstring& vp = snap->virtualPath;
-                            if      (vp.size() > 13 && vp.substr(0,13) == L"Program Files")   path = L"{pf}"             + vp.substr(13);
-                            else if (vp.size() > 11 && vp.substr(0,11) == L"ProgramData")     path = L"{commonappdata}" + vp.substr(11);
-                            else if (vp.size() > 18 && vp.substr(0,18) == L"AppData (Roaming)") path = L"{userappdata}" + vp.substr(18);
-                            else if (vp.size() > 12 && vp.substr(0,12) == L"AskAtInstall")    path = L"{app}"            + vp.substr(12);
-                            else if (vp == L"Program Files")   path = L"{pf}";
-                            else if (vp == L"ProgramData")     path = L"{commonappdata}";
-                            else if (vp == L"AppData (Roaming)") path = L"{userappdata}";
-                            else if (vp == L"AskAtInstall")    path = L"{app}";
-                            else                               path = vp; // fallback: use as-is
+                            if      (vp.size() > 13 && vp.substr(0,13) == L"Program Files")    innoPath = L"{pf}"           + vp.substr(13);
+                            else if (vp.size() > 11 && vp.substr(0,11) == L"ProgramData")      innoPath = L"{commonappdata}" + vp.substr(11);
+                            else if (vp.size() > 18 && vp.substr(0,18) == L"AppData (Roaming)") innoPath = L"{userappdata}"  + vp.substr(18);
+                            else if (vp.size() > 12 && vp.substr(0,12) == L"AskAtInstall")     innoPath = L"{app}"          + vp.substr(12);
+                            else if (vp == L"Program Files")    innoPath = L"{pf}";
+                            else if (vp == L"ProgramData")      innoPath = L"{commonappdata}";
+                            else if (vp == L"AppData (Roaming)") innoPath = L"{userappdata}";
+                            else if (vp == L"AskAtInstall")     innoPath = L"{app}";
+                            else                                innoPath = vp; // unknown root — use as-is
                         }
-                        if (!path.empty()) {
+                        // Fall back to the real disk path only when no virtualPath is available
+                        if (innoPath.empty()) innoPath = snap->fullPath;
+                        if (!innoPath.empty()) {
                             VfsPickerResult r;
-                            r.sourcePath        = path;
-                            r.virtualFolderPath = path;
+                            r.sourcePath        = snap->fullPath;  // real disk source folder
+                            r.virtualFolderPath = innoPath;        // Inno constant (installed location)
                             r.displayName       = buf;
                             pS->results->push_back(r);
                         }

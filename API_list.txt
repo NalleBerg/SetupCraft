@@ -89,20 +89,23 @@
                                                 ShowVfsPicker() entry point, VfsPickerParams config
                                                 struct (singleSelect, showFilePane, allowFolderPick,
                                                 fileFilter), VfsPicker_IsExecutable() predicate,
-                                                VfsPickerResult output (sourcePath, displayName,
-                                                virtualFolderPath — Inno-constant path of the
-                                                containing folder; equals sourcePath for folder
-                                                picks; for file picks resolved from the selected
-                                                tree node using the same virtualPath → Inno
-                                                constant mapping),
+                                                VfsPickerResult output: sourcePath = real disk
+                                                source path (may be empty for pure-virtual folders;
+                                                do not use for installer fields), displayName,
+                                                virtualFolderPath = Inno-constant installed-location
+                                                path, always derived from virtualPath regardless of
+                                                whether fullPath is empty; for file picks = Inno
+                                                constant of the containing folder; for folder picks
+                                                = Inno constant of the selected folder. Always use
+                                                virtualFolderPath for PATH entries,
+                                                UninstallFilesDir, script working-dir, etc.
                                                 MainWindow::TreeSnapshot_*
                                                 accessor wiring, locale keys, and usage examples for
                                                 both exe-picker and folder-picker modes.
-                                                Virtual folder support: when allowFolderPick=true and
-                                                the selected node has empty fullPath (virtual folder —
-                                                no real disk source), the picker falls back to
-                                                TreeNodeSnapshot.virtualPath and converts the DB
-                                                section root prefix to an Inno constant:
+                                                Virtual folder support: when allowFolderPick=true,
+                                                virtualFolderPath is unconditionally derived from
+                                                TreeNodeSnapshot.virtualPath using the DB section
+                                                root prefix → Inno constant mapping:
                                                 "Program Files\..." → "{pf}\...",
                                                 "ProgramData\..." → "{commonappdata}\...",
                                                 "AppData (Roaming)\..." → "{userappdata}\...",

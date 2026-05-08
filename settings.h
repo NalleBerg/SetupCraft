@@ -114,8 +114,8 @@ struct InnoLangEntry { std::wstring isl; bool local; };
 
 // ── PATH folder picker (System Integration section) ───────────────────────────
 #define IDC_SETT_PATH_ADD_BTN    8081   // Button: open folder picker and append to PATH list
-#define IDC_SETT_PATH_REMOVE_BTN 8082   // Button: remove last folder from PATH list
-#define IDC_SETT_PATH_DISPLAY    8083   // Static: shows short names of PATH folders (tooltip=full paths)
+#define IDC_SETT_PATH_REMOVE_BTN 8082   // Button: remove selected folder from PATH list
+#define IDC_SETT_PATH_DISPLAY    8083   // Listbox: one leaf name per row; tooltip shows full path on hover
 
 // ── Page title (no interaction; just kept in controlIds[]) ────────────────────
 #define IDC_SETT_PAGE_TITLE      8099

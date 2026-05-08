@@ -18,6 +18,7 @@
 #include "settings.h"
 #include "file_assoc.h"   // FA_HasAnyEnabled()
 #include "mainwindow.h"   // MainWindow::MarkAsModified()
+#include "tooltip.h"      // ShowMultilingualTooltip, HideTooltip, IsTooltipVisible
 #include "vfs_picker.h"   // ShowVfsPicker, VfsPickerParams
 #include "db.h"
 #include "dpi.h"          // S()
@@ -65,9 +66,10 @@ static int          s_dirExistsWarning        = 0;   // 0=auto 1=yes 2=no
 static bool         s_allowUninstall          = true;
 static bool         s_closeApps        = false;
 static std::vector<std::wstring> s_pathFolders;          // full paths added by user for PATH
-static HWND         s_hPathDisplay     = NULL;           // static label showing short names
-static HWND         s_hPathTooltip     = NULL;           // Win32 tooltip for full paths
-static std::wstring s_pathTooltipText;                   // tooltip text buffer (kept alive)
+static HWND         s_hPathDisplay      = NULL;          // listbox showing leaf names of PATH folders
+static WNDPROC      s_pathListOrigProc  = NULL;          // original listbox WNDPROC (subclassed)
+static int          s_pathListHoverItem = -1;            // listbox item currently under the cursor
+static bool         s_pathListTracking  = false;         // TrackMouseEvent active on listbox
 static HWND         s_hSettingsPage    = NULL;           // settings page HWND (set in BuildPage)
 static bool         s_changesEnvironment = false;
 static std::wstring s_uninstallDisplayName;   // empty = use AppName (Inno default)
@@ -313,7 +315,9 @@ void SETT_TearDown(HWND /*hwnd*/)
     s_hInstallBaseCustomEdit = NULL;
     s_hPathDisplay           = NULL;
     s_hSettingsPage          = NULL;
-    if (s_hPathTooltip)  { DestroyWindow(s_hPathTooltip);  s_hPathTooltip  = NULL; }
+    s_pathListOrigProc  = NULL;
+    s_pathListHoverItem = -1;
+    s_pathListTracking  = false;
     if (s_hSectionFont)  { DeleteObject(s_hSectionFont);   s_hSectionFont  = NULL; }
 }
 
@@ -336,41 +340,81 @@ static void ApplyLogEnable(BOOL enable)
         if (s_hLogControls[i]) EnableWindow(s_hLogControls[i], enable);
 }
 
+// ── PathListSubclassProc ──────────────────────────────────────────────────────
+// Subclass proc for s_hPathDisplay (LISTBOX).
+// WM_MOUSEMOVE — detects hovered item; shows project tooltip (full Inno path).
+// WM_MOUSELEAVE — hides tooltip when cursor leaves the listbox.
+// WM_NCDESTROY  — restores original WNDPROC.
+static LRESULT CALLBACK PathListSubclassProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    switch (msg) {
+    case WM_MOUSEMOVE: {
+        POINT pt = { (LONG)(short)LOWORD(lParam), (LONG)(short)HIWORD(lParam) };
+        LRESULT r    = SendMessageW(hWnd, LB_ITEMFROMPOINT, 0, MAKELPARAM(pt.x, pt.y));
+        int  idx     = (int)LOWORD(r);
+        BOOL outside = (BOOL)HIWORD(r);
+        if (outside) idx = -1;
+
+        if (idx != s_pathListHoverItem) {
+            s_pathListHoverItem = idx;
+            HideTooltip();  // item changed — dismiss previous tip immediately
+        }
+
+        if (idx >= 0 && idx < (int)s_pathFolders.size()) {
+            if (!IsTooltipVisible()) {
+                const std::wstring& fullPath = s_pathFolders[idx];
+                std::vector<TooltipEntry> entries;
+                entries.push_back({ L"", fullPath });
+                // Convert client-coords to screen before passing to ShowMultilingualTooltip
+                POINT scr = pt;
+                ClientToScreen(hWnd, &scr);
+                ShowMultilingualTooltip(entries, scr.x + S(12), scr.y + S(20),
+                                        GetParent(hWnd));
+            }
+        } else {
+            HideTooltip();
+        }
+
+        // Start TrackMouseEvent so WM_MOUSELEAVE fires when cursor exits the listbox
+        if (!s_pathListTracking) {
+            TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, hWnd, 0 };
+            TrackMouseEvent(&tme);
+            s_pathListTracking = true;
+        }
+        break;
+    }
+    case WM_MOUSELEAVE:
+        HideTooltip();
+        s_pathListHoverItem = -1;
+        s_pathListTracking  = false;
+        break;
+    case WM_NCDESTROY:
+        SetWindowLongPtrW(hWnd, GWLP_WNDPROC, (LONG_PTR)s_pathListOrigProc);
+        break;
+    }
+    return CallWindowProcW(s_pathListOrigProc, hWnd, msg, wParam, lParam);
+}
+
 // ── RefreshPathDisplay ────────────────────────────────────────────────────────
-// Rebuilds the display label text (short leaf names) and Win32 tooltip (full paths).
-// Also syncs the Remove-last button enabled state and the ChangesEnvironment checkbox.
+// Rebuilds the listbox items (leaf names) from s_pathFolders.
+// Syncs the Remove button enabled state and the ChangesEnvironment checkbox.
 static void RefreshPathDisplay(HWND hwndPage)
 {
-    std::wstring display;
-    std::wstring tip;
-    for (const auto& p : s_pathFolders) {
-        if (!display.empty()) { display += L" ; "; tip += L"\r\n"; }
-        size_t pos = p.find_last_of(L"\\/");
-        std::wstring leaf = (pos != std::wstring::npos) ? p.substr(pos + 1) : p;
-        if (leaf.empty()) leaf = p;
-        display += leaf;
-        tip     += p;
-    }
-    s_pathTooltipText = tip;
-    if (s_hPathDisplay)
-        SetWindowTextW(s_hPathDisplay,
-            display.empty() ? loc(L"sett_path_none", L"(none)").c_str()
-                            : display.c_str());
-
-    if (s_hPathTooltip && s_hPathDisplay && hwndPage) {
-        TOOLINFOW ti = {};
-        ti.cbSize   = sizeof(TOOLINFOW);
-        ti.uFlags   = TTF_IDISHWND;
-        ti.hwnd     = hwndPage;
-        ti.uId      = (UINT_PTR)s_hPathDisplay;
-        ti.lpszText = s_pathTooltipText.empty()
-                          ? const_cast<wchar_t*>(L"")
-                          : const_cast<wchar_t*>(s_pathTooltipText.c_str());
-        SendMessageW(s_hPathTooltip, TTM_UPDATETIPTEXTW, 0, (LPARAM)&ti);
+    if (s_hPathDisplay) {
+        SendMessageW(s_hPathDisplay, LB_RESETCONTENT, 0, 0);
+        for (const auto& p : s_pathFolders) {
+            size_t pos = p.find_last_of(L"\\/");
+            std::wstring leaf = (pos != std::wstring::npos) ? p.substr(pos + 1) : p;
+            if (leaf.empty()) leaf = p;
+            SendMessageW(s_hPathDisplay, LB_ADDSTRING, 0, (LPARAM)leaf.c_str());
+        }
     }
     if (hwndPage) {
+        int sel = s_hPathDisplay
+                ? (int)SendMessageW(s_hPathDisplay, LB_GETCURSEL, 0, 0)
+                : LB_ERR;
         HWND hRem = GetDlgItem(hwndPage, IDC_SETT_PATH_REMOVE_BTN);
-        if (hRem) EnableWindow(hRem, s_pathFolders.empty() ? FALSE : TRUE);
+        if (hRem) EnableWindow(hRem, (sel != LB_ERR) ? TRUE : FALSE);
         bool hasPath = !s_pathFolders.empty();
         if (!hasPath) {
             s_changesEnvironment = false;
@@ -855,32 +899,26 @@ int SETT_BuildPage(HWND hwnd, HINSTANCE hInst,
 
         y += S(kRowStep);
 
-        // Display label — shows leaf names separated by " ; "
-        s_hPathDisplay = CreateWindowExW(WS_EX_CLIENTEDGE, L"STATIC",
-            loc(L"sett_path_none", L"(none)").c_str(),
-            WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE | SS_NOPREFIX,
-            fldX, y, clientWidth - fldX - S(kPadH), S(kRowH),
+        // Listbox — one leaf name per row; single-select; scrollable;
+        // tooltip shows the full Inno constant path for the hovered item.
+        s_hPathDisplay = CreateWindowExW(WS_EX_CLIENTEDGE, L"LISTBOX",
+            NULL,
+            WS_CHILD | WS_VISIBLE | WS_VSCROLL | LBS_NOTIFY | LBS_NOINTEGRALHEIGHT,
+            fldX, y, clientWidth - fldX - S(kPadH), S(kRowH) * 3,
             hwnd, (HMENU)(UINT_PTR)IDC_SETT_PATH_DISPLAY, hInst, NULL);
         if (hGuiFont) SendMessageW(s_hPathDisplay, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
 
-        // Win32 tooltip — shows full paths on mouseover of display label
-        s_hPathTooltip = CreateWindowExW(WS_EX_TOPMOST, TOOLTIPS_CLASS, NULL,
-            WS_POPUP | TTS_NOPREFIX | TTS_ALWAYSTIP,
-            CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
-            hwnd, NULL, hInst, NULL);
-        if (s_hPathTooltip) {
-            TOOLINFOW ti = {};
-            ti.cbSize   = sizeof(TOOLINFOW);
-            ti.uFlags   = TTF_SUBCLASS | TTF_IDISHWND;
-            ti.hwnd     = hwnd;
-            ti.uId      = (UINT_PTR)s_hPathDisplay;
-            ti.lpszText = const_cast<wchar_t*>(L"");
-            SendMessageW(s_hPathTooltip, TTM_ADDTOOLW, 0, (LPARAM)&ti);
-        }
+        // Per-item tooltip — driven by PathListSubclassProc on WM_MOUSEMOVE;
+        // uses project ShowMultilingualTooltip / HideTooltip (tooltip.h).
 
-        // Populate label and tooltip from current state
+        // Subclass listbox to show/hide tooltip and track hovered item
+        if (s_hPathDisplay)
+            s_pathListOrigProc = (WNDPROC)SetWindowLongPtrW(
+                s_hPathDisplay, GWLP_WNDPROC, (LONG_PTR)PathListSubclassProc);
+
+        // Populate listbox from current state
         RefreshPathDisplay(hwnd);
-        y += S(kRowStep);
+        y += S(kRowH) * 3 + S(9);
     }
 
     // Broadcast WM_SETTINGCHANGE after install (needed when adding to PATH)
@@ -1352,16 +1390,42 @@ bool SETT_OnCommand(HWND hwnd, int wmId, int wmEvent, HWND /*hCtrl*/)
         p.allowFolderPick = true;
         std::vector<VfsPickerResult> picks;
         if (s_pLocale && ShowVfsPicker(hwnd, s_hInst, p, *s_pLocale, picks)) {
-            s_pathFolders.push_back(picks[0].sourcePath);
+            // virtualFolderPath is the Inno constant installed-location path
+            // (e.g. {pf}\MyApp\bin); sourcePath is the real disk source folder.
+            s_pathFolders.push_back(picks[0].virtualFolderPath);
             RefreshPathDisplay(hwnd);
+            // Auto-select the newly added item
+            int newIdx = (int)s_pathFolders.size() - 1;
+            if (s_hPathDisplay) {
+                SendMessageW(s_hPathDisplay, LB_SETCURSEL, newIdx, 0);
+                EnableWindow(GetDlgItem(hwnd, IDC_SETT_PATH_REMOVE_BTN), TRUE);
+            }
             MainWindow::MarkAsModified();
         }
         return true;
     }
+    if (wmId == IDC_SETT_PATH_DISPLAY && wmEvent == LBN_SELCHANGE) {
+        int sel = s_hPathDisplay
+                ? (int)SendMessageW(s_hPathDisplay, LB_GETCURSEL, 0, 0)
+                : LB_ERR;
+        HWND hRem = GetDlgItem(hwnd, IDC_SETT_PATH_REMOVE_BTN);
+        if (hRem) EnableWindow(hRem, (sel != LB_ERR) ? TRUE : FALSE);
+        return true;
+    }
     if (wmId == IDC_SETT_PATH_REMOVE_BTN && wmEvent == BN_CLICKED) {
-        if (!s_pathFolders.empty()) {
-            s_pathFolders.pop_back();
+        int sel = s_hPathDisplay
+                ? (int)SendMessageW(s_hPathDisplay, LB_GETCURSEL, 0, 0)
+                : LB_ERR;
+        if (sel != LB_ERR && sel < (int)s_pathFolders.size()) {
+            s_pathFolders.erase(s_pathFolders.begin() + sel);
             RefreshPathDisplay(hwnd);
+            // Re-select the nearest remaining item
+            int remaining = (int)s_pathFolders.size();
+            if (remaining > 0 && s_hPathDisplay) {
+                int newSel = (sel < remaining) ? sel : remaining - 1;
+                SendMessageW(s_hPathDisplay, LB_SETCURSEL, newSel, 0);
+                EnableWindow(GetDlgItem(hwnd, IDC_SETT_PATH_REMOVE_BTN), TRUE);
+            }
             MainWindow::MarkAsModified();
         }
         return true;

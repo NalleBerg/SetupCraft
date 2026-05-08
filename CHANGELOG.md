@@ -2,6 +2,16 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.05.08.08] - 2026-05-08
+
+### settings — PATH folders listbox + per-item tooltip
+- **settings — `IDC_SETT_PATH_DISPLAY = 8083` changed from `STATIC` to `LISTBOX`**: The single-line display label showing all PATH folder leaf names joined by ` ; ` is replaced with a proper `LISTBOX` control (`LBS_NOTIFY | LBS_NOINTEGRALHEIGHT | WS_VSCROLL`, 3 rows tall). Each entry appears on its own row; clicking an item highlights it with native listbox selection colouring. A `LBN_SELCHANGE` handler keeps the Remove button enabled/disabled in sync with the current selection.
+- **settings — Remove button removes selected item**: Previously called `pop_back()` (always removed the last item). Now reads `LB_GETCURSEL` and erases the selected index from both `s_pathFolders` and the listbox. After removal the nearest remaining item is auto-selected. Adding a folder auto-selects the newly appended row.
+- **settings — per-item tooltip via project tooltip system (`PathListSubclassProc`)**: The old flat `TOOLTIPS_CLASS` Win32 tooltip is replaced with the project's `ShowMultilingualTooltip`/`HideTooltip` system (`tooltip.h`). The listbox is subclassed with `PathListSubclassProc`: `WM_MOUSEMOVE` → `LB_ITEMFROMPOINT` → show full Inno constant path for the hovered item; `WM_MOUSELEAVE` → `HideTooltip()`. `TrackMouseEvent(TME_LEAVE, hwndTrack=listbox)` used per the project tooltip API pattern. `WM_NCDESTROY` restores the original `WNDPROC`.
+
+### vfs_picker — `VfsPickerResult` folder-pick semantics corrected
+- **vfs_picker — `sourcePath` always real disk path; `virtualFolderPath` always Inno constant**: Previously for folder picks the Inno constant was stored in *both* `sourcePath` and `virtualFolderPath` when the folder was virtual (no real `fullPath`). The OK handler now unconditionally derives the Inno constant from `snap->virtualPath` and stores it in `virtualFolderPath` only; `sourcePath` holds `snap->fullPath` (the real disk source path, may be empty for pure-virtual folders). Callers needing the installed-location path (PATH entries, `UninstallFilesDir`, script working-dir) read `virtualFolderPath`; callers needing the developer's disk source folder read `sourcePath`. Settings PATH handler updated to `picks[0].virtualFolderPath`: entries now correctly store `{pf}\…` instead of the developer's `C:\…` source path.
+
 ## [2026.05.07.10] - 2026-05-07
 
 ### script_edit_dialog — on_error checkbox + working directory VFS picker

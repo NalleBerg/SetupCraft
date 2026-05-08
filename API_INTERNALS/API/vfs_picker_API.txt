@@ -57,18 +57,23 @@ WINDOW CLASS
 ================================================================================
 
 struct VfsPickerResult {
-    wstring sourcePath;          // real disk path of the selected file or folder, OR an Inno
-                                 // constant path for virtual folders (e.g. "{pf}\App\bin").
+    wstring sourcePath;          // Real disk source path of the selected file or folder.
+                                 // For folder picks: the developer's disk source path
+                                 // (snap->fullPath); may be empty when the folder is
+                                 // purely virtual (created with New Folder, never dragged
+                                 // from disk).  Do NOT use this for PATH entries,
+                                 // UninstallFilesDir, or any installer field — use
+                                 // virtualFolderPath instead.
     wstring displayName;         // leaf name only (e.g. "setup.exe" or "bin")
-    wstring virtualFolderPath;   // Inno-constant path of the containing folder.
-                                 // For file picks: Inno constant of the folder that contains
-                                 // the selected file (e.g. picking "uninst.exe" from {app}
-                                 // yields "{app}"). Resolved from the selected tree node at
-                                 // OK-click time using the same virtualPath → Inno constant
-                                 // mapping as folder picks.
-                                 // For folder picks: equals sourcePath.
-                                 // Use this when you need the folder path in Inno-constant
-                                 // form (e.g. UninstallFilesDir) rather than the file itself.
+    wstring virtualFolderPath;   // Inno-constant installed-location path of the folder.
+                                 // For folder picks: always the Inno constant derived from
+                                 // snap->virtualPath (e.g. {pf}\MyApp\bin), regardless of
+                                 // whether fullPath is empty.  Never equals sourcePath.
+                                 // For file picks: Inno constant of the containing folder
+                                 // (e.g. picking "uninst.exe" from {app} yields "{app}").
+                                 // Use this for any installer field that references an
+                                 // installed location (PATH entries, UninstallFilesDir,
+                                 // script working directory, etc.).
 };
 
 struct VfsPickerParams {

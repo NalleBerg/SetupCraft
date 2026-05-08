@@ -1891,11 +1891,10 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
     // Same rule applies for the File Associations page ListView.
     FA_TearDown(hwnd);
     // SETT_TearDown must run here, BEFORE the controlIds[] loop destroys
-    // IDC_SETT_PATH_DISPLAY.  The Settings PATH tooltip uses TTF_SUBCLASS
-    // (subclasses s_hPathDisplay); DestroyWindow(s_hPathTooltip) inside
-    // SETT_TearDown unsubclasses it cleanly while the window is still alive.
-    // If we waited until after the loop the HWND could already be recycled,
-    // corrupting whatever new control inherited that HWND value.
+    // IDC_SETT_PATH_DISPLAY.  The PATH listbox is subclassed via
+    // SetWindowLongPtrW; SETT_TearDown nulls s_pathListOrigProc so the
+    // subclass proc no longer dereferences stale state, and calls HideTooltip()
+    // (via WM_MOUSELEAVE) is no longer dispatched to a dead HWND.
     SETT_TearDown(hwnd);
 
     // Destroy all known control IDs from previous pages
