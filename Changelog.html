@@ -1,6 +1,16 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 09 May 2026 &mdash; v2026.05.09.10 (10:32)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 09 May 2026 &mdash; v2026.05.09.11 (11:00)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.05.09.11</span></h3>
+<p><strong>Components &mdash; Exclusive flag (radio-button style, Inno Flags: exclusive) (09.05.2026, 11:00):</strong></p>
+<ul>
+<li><strong><code>is_exclusive</code> field &mdash; <code>db.h</code> / <code>db.cpp</code>:</strong> New <code>int is_exclusive = 0</code> field on <code>ComponentRow</code>. Idempotent migration: <code>ALTER TABLE components ADD COLUMN is_exclusive INTEGER DEFAULT 0</code>. <code>UpdateComponent</code> SQL updated to 13 bindings. <code>GetComponentsForProject</code> SELECT now includes <code>is_exclusive</code> at column index&thinsp;7; all subsequent column indices shifted by&thinsp;1.</li>
+<li><strong><code>IDC_COMPDLG_EXCLUSIVE&thinsp;=&thinsp;314</code> / <code>IDC_FOLDER_DLG_EXCLUSIVE&thinsp;=&thinsp;329</code> &mdash; <code>mainwindow.cpp</code>:</strong> Exclusive custom checkbox added to both <code>CompEditDlgProc</code> and <code>CompFolderEditDlgProc</code>, positioned after the Fixed checkbox. Both dialogs read the state on OK via <code>BM_GETCHECK</code> into <code>outExclusive</code>. <code>CompDlgData</code> and <code>CompFolderDlgData</code> gain <code>initExclusive</code>, <code>outExclusive</code>, <code>exclusiveLabel</code>. Locale key: <code>comp_exclusive_label</code>.</li>
+<li><strong>Folder dialog &mdash; <code>exclusiveState</code> detection + cascade:</strong> Same <code>goto</code>-based mixed-state scan as <code>fixedState</code>. Cascade on OK writes <code>cmp.is_exclusive&thinsp;=&thinsp;fd.outExclusive</code> to all children (file and folder rows, including new folder rows created by the upsert path). Dialog height gains one extra checkbox row.</li>
+<li><strong><code>issgen.cpp</code> &mdash; <code>Flags:</code> combined string:</strong> <code>is_fixed</code> and <code>is_exclusive</code> are now combined into a single <code>Flags:</code> suffix &mdash; <code>fixed</code>, <code>exclusive</code>, or <code>fixed exclusive</code> &mdash; sharing one <code>; Flags: &hellip;</code> token as Inno requires.</li>
+<li><strong><code>locale/en_GB.txt</code></strong> (both copies): <code>comp_exclusive_label=Exclusive (selecting this deselects all others in the group)</code>.</li>
+</ul>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.05.09.10</span></h3>
 <p><strong>Icon system &mdash; SCLogo.svg balloon SC monogram + full icon deployment (09.05.2026, 10:32):</strong></p>

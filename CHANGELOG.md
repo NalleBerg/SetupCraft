@@ -2,6 +2,15 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.05.09.11] - 2026-05-09
+
+### Components — Exclusive flag (radio-button style, Inno Flags: exclusive)
+- **`is_exclusive` field — `db.h` / `db.cpp`**: New `int is_exclusive = 0` field on `ComponentRow`. Idempotent migration: `ALTER TABLE components ADD COLUMN is_exclusive INTEGER DEFAULT 0`. `UpdateComponent` SQL updated to 13 bindings. `GetComponentsForProject` SELECT now includes `is_exclusive` at column index 7; all subsequent column indices shifted by 1.
+- **`IDC_COMPDLG_EXCLUSIVE = 314` / `IDC_FOLDER_DLG_EXCLUSIVE = 329` — `mainwindow.cpp`**: Exclusive custom checkbox added to both `CompEditDlgProc` and `CompFolderEditDlgProc`. Positioned immediately after the Fixed checkbox. Both dialogs read the state on OK via `BM_GETCHECK` into `outExclusive`. `CompDlgData` and `CompFolderDlgData` gain `initExclusive`, `outExclusive`, `exclusiveLabel`. Locale key: `comp_exclusive_label`.
+- **Folder dialog — `exclusiveState` detection + cascade**: Same `goto`-based mixed-state scan as `fixedState`. Cascade on OK writes `cmp.is_exclusive = fd.outExclusive` to all children (file and folder rows, including new folder rows created by the upsert path). Dialog height gains one extra `CFE_CHECK_H + CFE_GAP_RPS` row for the Exclusive checkbox, with the old `CFE_GAP_RC` gap shifted to after Exclusive.
+- **`issgen.cpp` — `Flags:` combined string**: `is_fixed` and `is_exclusive` are now combined into a single `Flags:` suffix (`fixed`, `exclusive`, or `fixed exclusive`). Previously `Flags: fixed` was emitted as a standalone; now both flags share one `; Flags: …` token, which is what Inno expects.
+- **`locale/en_GB.txt`** (both copies): `comp_exclusive_label=Exclusive (selecting this deselects all others in the group)`.
+
 ## [2026.05.09.10] - 2026-05-09
 
 ### Icon system — SCLogo.svg balloon SC monogram + full icon deployment

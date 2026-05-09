@@ -127,6 +127,9 @@
     [ ] about_icon.h/.cpp   — entry-screen About button: SS_ICON STATIC + SS_NOTIFY
                               + subclass; LoadImageW(MAKEINTRESOURCEW(1)) for DPI-
                               correct size; tooltip + click → ShowAboutDialog.
+                              Note: main.cpp entry-screen IDC_ABOUT_ICON also uses
+                              LoadImageW(MAKEINTRESOURCEW(1)) — parent WndProc
+                              rect-hit-test handles tooltip and click (no subclass).
     Note: window-class icon pattern:
       wc.hIcon   = LoadIconW(hInst, MAKEINTRESOURCEW(1));
       wc.hIconSm = (HICON)LoadImageW(hInst, MAKEINTRESOURCEW(1),

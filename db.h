@@ -40,6 +40,7 @@ struct ComponentRow {
     int is_required    = 0;        // 1 = always installed silently (hidden from wizard), 0 = optional
     int is_preselected = 0;        // 1 = ticked by default at install (implied when is_required==1)
     int is_fixed       = 0;        // 1 = shown in wizard but greyed-out, cannot be deselected (Inno: Flags: fixed)
+    int is_exclusive   = 0;        // 1 = radio-button style: selecting deselects all others in the group (Inno: Flags: exclusive)
     std::wstring source_type;      // L"folder" or L"file"
     std::wstring source_path;
     std::wstring dest_path;
