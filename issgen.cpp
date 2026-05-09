@@ -69,6 +69,26 @@ static std::wstring BuildTypesSection(const std::vector<InstallTypeRow>& types)
     return out;
 }
 
+// Recursively sum on-disk file sizes for all files under a directory tree.
+// Used at .iss generation time to embed the required disk space in the installer script.
+static long long CalculateDirSize(const std::wstring& dir)
+{
+    long long total = 0;
+    WIN32_FIND_DATAW fd = {};
+    HANDLE hFind = FindFirstFileW((dir + L"\\*").c_str(), &fd);
+    if (hFind == INVALID_HANDLE_VALUE) return 0;
+    do {
+        if (wcscmp(fd.cFileName, L".") == 0 || wcscmp(fd.cFileName, L"..") == 0) continue;
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+            total += CalculateDirSize(dir + L"\\" + fd.cFileName);
+        } else {
+            total += ((long long)fd.nFileSizeHigh << 32) | (long long)fd.nFileSizeLow;
+        }
+    } while (FindNextFileW(hFind, &fd));
+    FindClose(hFind);
+    return total;
+}
+
 // Build the Inno [Components] section body (no header line) from the given component list.
 // Components with a group_name get Name: "group\comp" and the group header is emitted once.
 // is_required maps to Flags: fixed (always installed regardless of type selection).
@@ -394,6 +414,11 @@ std::wstring ISS_GenerateIss(
     // SourceDir for the [Files] wildcard.
     std::wstring sourceDir = StripTrailingSep(proj.directory);
 
+    // Calculate total installed size at generation time for Ready-page disk space display.
+    // requiredMB is embedded as a literal in the generated [Code] Pascal functions.
+    long long totalBytes = CalculateDirSize(sourceDir);
+    long long requiredMB = totalBytes > 0 ? (totalBytes + 1048575LL) / 1048576LL : 0LL;
+
     // ExeName defaults to AppName.exe (the project doesn't store it separately yet).
     std::wstring exeName = proj.name.empty() ? L"Setup.exe" : proj.name + L".exe";
 
@@ -558,6 +583,59 @@ std::wstring ISS_GenerateIss(
         faBlock += L"\r\n";
     }
     ReplaceAll(tmpl, L"; <<FILE_ASSOCIATIONS>>", faBlock);
+
+    // ── Replace the "; <<DISK_SPACE_CODE>>" marker ──────────────────────────────────────────
+    // Always emits UpdateReadyMemo (shows required MB and available MB on the Ready page).
+    // Emits NextButtonClick only when requiredMB > 0: blocks the install if free space on
+    // the target drive is insufficient — user must click Back and pick a different folder.
+    {
+        std::wstring reqStr = std::to_wstring(requiredMB);
+        std::wstring diskCode =
+            L"function UpdateReadyMemo(Space, NewLine, MemoUserInfoInfo, MemoDirInfo, MemoTypeInfo, MemoComponentsInfo, MemoGroupInfo, MemoTasksInfo: String): String;\r\n"
+            L"var\r\n"
+            L"  Drive: String;\r\n"
+            L"  FreeMB, TotalMB: Cardinal;\r\n"
+            L"begin\r\n"
+            L"  Result := '';\r\n"
+            L"  if MemoUserInfoInfo <> '' then Result := Result + MemoUserInfoInfo + NewLine + NewLine;\r\n"
+            L"  if MemoDirInfo <> '' then Result := Result + MemoDirInfo + NewLine + NewLine;\r\n"
+            L"  if MemoTypeInfo <> '' then Result := Result + MemoTypeInfo + NewLine + NewLine;\r\n"
+            L"  if MemoComponentsInfo <> '' then Result := Result + MemoComponentsInfo + NewLine + NewLine;\r\n"
+            L"  if MemoGroupInfo <> '' then Result := Result + MemoGroupInfo + NewLine + NewLine;\r\n"
+            L"  if MemoTasksInfo <> '' then Result := Result + MemoTasksInfo + NewLine + NewLine;\r\n"
+            L"  Drive := ExtractFileDrive(WizardDirValue());\r\n"
+            L"  GetSpaceOnDisk(Drive, True, FreeMB, TotalMB);\r\n"
+            L"  Result := Result + 'Disk space required:  " + reqStr + L" MB' + NewLine;\r\n"
+            L"  Result := Result + 'Disk space available (' + Drive + '): ' + IntToStr(FreeMB) + ' MB';\r\n"
+            L"end;\r\n"
+            L"\r\n";
+        if (requiredMB > 0) {
+            diskCode +=
+                L"function NextButtonClick(CurPageID: Integer): Boolean;\r\n"
+                L"var\r\n"
+                L"  Drive: String;\r\n"
+                L"  FreeMB, TotalMB: Cardinal;\r\n"
+                L"begin\r\n"
+                L"  Result := True;\r\n"
+                L"  if CurPageID = wpReady then\r\n"
+                L"  begin\r\n"
+                L"    Drive := ExtractFileDrive(WizardDirValue());\r\n"
+                L"    GetSpaceOnDisk(Drive, True, FreeMB, TotalMB);\r\n"
+                L"    if FreeMB < " + reqStr + L" then\r\n"
+                L"    begin\r\n"
+                L"      MsgBox('Not enough disk space on ' + Drive + '.'#13#10 +\r\n"
+                L"             'Required:  " + reqStr + L" MB'#13#10 +\r\n"
+                L"             'Available: ' + IntToStr(FreeMB) + ' MB'#13#10#13#10 +\r\n"
+                L"             'Please go back and choose a different destination folder.',\r\n"
+                L"             mbError, MB_OK);\r\n"
+                L"      Result := False;\r\n"
+                L"    end;\r\n"
+                L"  end;\r\n"
+                L"end;\r\n"
+                L"\r\n";
+        }
+        ReplaceAll(tmpl, L"; <<DISK_SPACE_CODE>>", diskCode);
+    }
 
     // ── Replace ; <<SETUP_LOG_PROC>> and ; <<SETUP_LOG_CALL>> markers ───────────────────────
     // When logging is enabled AND a destination path can be formed, generate a

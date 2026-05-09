@@ -16,10 +16,11 @@
  *
  * ── Conditionality ────────────────────────────────────────────────────────────
  *   Some dialog rows only appear when their feature is enabled elsewhere:
- *     IDLG_DEPENDENCIES — shown when the project has ≥1 external dependency
- *     IDLG_FOR_ME_ALL   — shown when AskAtInstall (install-scope choice) is enabled
- *     IDLG_COMPONENTS   — shown when the project uses component-based install
- *     IDLG_SHORTCUTS    — shown when any shortcut opt-out checkbox is enabled
+ *     IDLG_DEPENDENCIES  — shown when the project has ≥1 external dependency
+ *     IDLG_FOR_ME_ALL    — shown when AskAtInstall (install-scope choice) is enabled
+ *     IDLG_SELECT_FOLDER — always shown; active unless DisableDirPage=yes in Settings
+ *     IDLG_COMPONENTS    — shown when the project uses component-based install
+ *     IDLG_SHORTCUTS     — shown when any shortcut opt-out checkbox is enabled
  *   These rows appear/disappear instantly: IDLG_BuildPage reads live state.
  *
  *   The always-present rows (WELCOME, LICENSE, READY, FINISH) each have an
@@ -29,8 +30,9 @@
  *
  * ── Architecture notes ────────────────────────────────────────────────────────
  *   Full implementation in dialogs.cpp, including the inline preview dialog.
- *   Control IDs range: 7000–7136; enable checkboxes: 7060–7068;
+ *   Control IDs range: 7000–7136; enable checkboxes: 7060–7069;
  *   finish launch section: 7070–7073; ready summary: 7074–7075;
+ *   select folder preview: 7118–7119; license sub-controls: 7110–7117;
  *   sizer font section: 7128–7133; sizer color section: 7134–7136.
  */
 
@@ -43,16 +45,17 @@
 // ── Dialog-type enum ──────────────────────────────────────────────────────────
 // The order matches the wizard sequence the end user sees at install time.
 enum InstallerDialogType {
-    IDLG_WELCOME      = 0,
-    IDLG_LICENSE      = 1,
-    IDLG_DEPENDENCIES = 2,
-    IDLG_FOR_ME_ALL   = 3,
-    IDLG_COMPONENTS   = 4,
-    IDLG_SHORTCUTS    = 5,
-    IDLG_READY        = 6,
-    IDLG_INSTALL      = 7,
-    IDLG_FINISH       = 8,
-    IDLG_COUNT        = 9
+    IDLG_WELCOME        = 0,
+    IDLG_LICENSE        = 1,
+    IDLG_DEPENDENCIES   = 2,
+    IDLG_FOR_ME_ALL     = 3,
+    IDLG_SELECT_FOLDER  = 4,   // «Select Installation Folder» — controlled by Settings DisableDirPage
+    IDLG_COMPONENTS     = 5,
+    IDLG_SHORTCUTS      = 6,
+    IDLG_READY          = 7,
+    IDLG_INSTALL        = 8,
+    IDLG_FINISH         = 9,
+    IDLG_COUNT          = 10
 };
 
 // ── Dialog content record ─────────────────────────────────────────────────────
@@ -82,11 +85,11 @@ constexpr COLORREF IDLG_NOCOLOR = (COLORREF)-1;
 //   offset 1 → name label STATIC  (or absent when an enable checkbox is used)
 //   offset 2 → "Edit Content…" button
 //   offset 3 → "Preview…" button
-// Maximum ID used: 7010 + 8*4 + 3 = 7045; license sub-controls: 7046–7053
+// Maximum ID used: 7010 + 9*4 + 3 = 7049; license sub-controls moved to 7110–7117
 #define IDC_IDLG_ROW_BASE    7010
 
 // Per-row enable checkboxes (WELCOME/LICENSE/READY/FINISH only):
-//   IDC_IDLG_ROW_ENABLE_BASE + InstallerDialogType  (range 7060–7068)
+//   IDC_IDLG_ROW_ENABLE_BASE + InstallerDialogType  (range 7060–7069)
 // When unchecked the dialog is excluded from the installer and skipped during
 // preview Back/Next navigation.  The row itself always remains visible so the
 // developer can re-enable it at any time.
@@ -108,15 +111,19 @@ constexpr COLORREF IDLG_NOCOLOR = (COLORREF)-1;
 #define IDC_IDLG_READY_SHOW_DIR   7074  // checkbox: AlwaysShowDirOnReadyPage
 #define IDC_IDLG_READY_SHOW_GROUP 7075  // checkbox: AlwaysShowGroupOnReadyPage
 
-// License-row sub-controls
-#define IDC_IDLG_LICENSE_SRC_LBL       7049   // static label: "License source:"
-#define IDC_IDLG_LICENSE_SRC           7050   // combobox: Built-in RTF editor / External file
-#define IDC_IDLG_LICENSE_FILE_LBL      7051   // static label: "File path:" (visible when external)
-#define IDC_IDLG_LICENSE_FILE_EDIT     7052   // read-only edit: path to external .rtf/.txt file
-#define IDC_IDLG_LICENSE_FILE_BROWSE   7053   // "Browse…" button to pick the external file
-#define IDC_IDLG_LICENSE_ACCEPT        7046   // checkbox: require end-user acceptance before Next
-#define IDC_IDLG_LICENSE_TEMPLATE      7047   // combobox: choose a license template to load
-#define IDC_IDLG_LICENSE_TEMPLATE_LBL  7048   // static label: "License template:"
+// License-row sub-controls (moved to 7110–7117 to avoid overlap with row controls)
+#define IDC_IDLG_LICENSE_ACCEPT        7110   // checkbox: require end-user acceptance before Next
+#define IDC_IDLG_LICENSE_TEMPLATE      7111   // combobox: choose a license template to load
+#define IDC_IDLG_LICENSE_TEMPLATE_LBL  7112   // static label: "License template:"
+#define IDC_IDLG_LICENSE_SRC_LBL       7113   // static label: "License source:"
+#define IDC_IDLG_LICENSE_SRC           7114   // combobox: Built-in RTF editor / External file
+#define IDC_IDLG_LICENSE_FILE_LBL      7115   // static label: "File path:" (visible when external)
+#define IDC_IDLG_LICENSE_FILE_EDIT     7116   // read-only edit: path to external .rtf/.txt file
+#define IDC_IDLG_LICENSE_FILE_BROWSE   7117   // "Browse…" button to pick the external file
+
+// Select Installation Folder — preview extras controls
+#define IDC_IDLG_SELECT_FOLDER_PATH    7118   // read-only path edit in Select Folder preview
+#define IDC_IDLG_SELECT_FOLDER_BROWSE  7119   // "Browse…" button in Select Folder preview (visual only)
 
 // Preview dialog internal controls (range 7100–7109)
 #define IDC_IDLG_PRV_CONTENT      7100   // RichEdit showing dialog content

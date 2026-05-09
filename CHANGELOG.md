@@ -2,7 +2,20 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
-## [2026.05.09.11] - 2026-05-09
+## [2026.05.09.12] - 2026-05-09
+
+### Dialogs — Select Installation Folder page + Ready to Install disk-space display
+- **`IDLG_SELECT_FOLDER = 4` — new dialog type**: Inserted as enum value 4, shifting old types 4–8 to 5–9 (`IDLG_COUNT = 10`). DB migration block in `InitDb` detects the old 9-type schema (absence of type-9 row) and shifts `dialog_defaults` and `installer_dialogs` rows descending (8→9, 7→8, … 4→5) to avoid PK conflicts. Seed loop extended to 10 entries; new entry uses `<<DlgDefaultSelectFolderBody>>` RTF placeholder.
+- **Select Installation Folder preview**: `PopulateExtras` case resolves the current install-base Inno token (`{pf}`, `{pf64}`, `{localappdata}`, etc.) to a real Windows path via `SHGetKnownFolderPath`, appends the app name, and displays it in a read-only `ES_READONLY` edit field. An icon-only Browse button (shell32.dll index 127) opens `SHBrowseForFolderW` pre-navigated to the current base folder; on selection the app name is always re-appended to the chosen path. Controlled by `SETT_IsSelectFolderDisabled()` → Settings «Hide Where to install? page» checkbox → `DisableDirPage=yes/no` in generated `.iss`.
+- **`IDC_IDLG_SELECT_FOLDER_PATH = 7118` / `IDC_IDLG_SELECT_FOLDER_BROWSE = 7119`**: New control IDs. License IDC constants moved from 7046–7053 to 7110–7117 to avoid overlap with the row base (max 7010 + 9×4 + 3 = 7049).
+- **`SETT_IsSelectFolderDisabled()` — `settings.h/.cpp`**: New public accessor returning `s_disableDirPage` (already persisted and emitted by `issgen`).
+- **`MainWindow::GetProjectDirectory()` — `mainwindow.h`**: New inline accessor returning `s_currentProject.directory`.
+- **Browse button icon-only rule**: Disabled custom buttons with text render as a blank gray rectangle (DrawCustomButton paints the base color with no text). Browse/folder-picker buttons must always use `L""` (icon-only) and must NOT be `EnableWindow(FALSE)`. `WM_DRAWITEM` in the preview WndProc must explicitly route the button's ID to `DrawCustomButton`; the default `DrawCustomCheckbox`-only handler leaves it blank.
+- **`WM_DRAWITEM` routing fix**: Preview WndProc `WM_DRAWITEM` now routes `IDC_IDLG_SELECT_FOLDER_BROWSE` to `DrawCustomButton(dis, color, pd->hGuiFont)` before falling through to `DrawCustomCheckbox`.
+- **Ready to Install — disk space preview**: `PopulateExtras` IDLG_READY case calls `MainWindow::GetTotalInstalledFileSize()` which walks all four VFS tree snapshots (`s_treeSnapshot_ProgramFiles/ProgramData/AppData/AskAtInstall`) via `CollectSnapshotPaths` and sums actual on-disk sizes via `GetFileAttributesExW`. Displays three lines: *Disk space required* (omitted silently if no files registered), *Disk space available (C:)*, *Free disk space after install (C:)*. Smart formatter scales bytes → KB / MB / GB / TB at 2 decimal places using `%ls` for wide-string units (MinGW `%s` swallows wide strings in `swprintf`). Label height `extLblH` is `S(62)` for IDLG_READY (3 lines) and `S(22)` for all other extras types.
+- **`MainWindow::GetTotalInstalledFileSize()` — `mainwindow.h/.cpp`**: New static method. Calls `EnsureTreeSnapshotsFromDb()`, collects all source paths via `CollectSnapshotPaths` across all four snapshots, stats each with `GetFileAttributesExW`, returns total bytes.
+- **Components page — Manage Install Types spacing**: Gap between the list pane bottom and the «Manage Install Types» button increased from `S(22)` to `S(34)` for better visual breathing room.
+
 
 ### Components — Exclusive flag (radio-button style, Inno Flags: exclusive)
 - **`is_exclusive` field — `db.h` / `db.cpp`**: New `int is_exclusive = 0` field on `ComponentRow`. Idempotent migration: `ALTER TABLE components ADD COLUMN is_exclusive INTEGER DEFAULT 0`. `UpdateComponent` SQL updated to 13 bindings. `GetComponentsForProject` SELECT now includes `is_exclusive` at column index 7; all subsequent column indices shifted by 1.

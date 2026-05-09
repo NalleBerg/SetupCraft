@@ -46,6 +46,7 @@ public:
     static HTREEITEM GetAppDataRoot()       { return s_hAppDataRoot; }
     // Accessors for conditional dialog-row visibility (used by dialogs.cpp)
     static bool UseComponents()       { return s_currentProject.use_components != 0; }
+    static const std::wstring& GetProjectDirectory() { return s_currentProject.directory; }
     static const std::vector<ComponentRow>& GetComponents();
     static bool AskAtInstallEnabled() { return s_askAtInstallEnabled; }
     static HTREEITEM AddTreeNode(HWND hTree, HTREEITEM hParent, const std::wstring &text, const std::wstring &fullPath);
@@ -54,7 +55,8 @@ public:
     static const std::vector<TreeNodeSnapshot>& TreeSnapshot_ProgramData();
     static const std::vector<TreeNodeSnapshot>& TreeSnapshot_AppData();
     static const std::vector<TreeNodeSnapshot>& TreeSnapshot_AskAtInstall();
-    
+    static long long GetTotalInstalledFileSize();  // sum of all Files-page source file sizes
+
 private:
     static void CreateMenuBar(HWND hwnd);
     static void CreateToolbar(HWND hwnd, HINSTANCE hInst);

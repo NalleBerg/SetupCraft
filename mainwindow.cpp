@@ -8528,6 +8528,25 @@ static void CollectAllFiles(const std::vector<TreeNodeSnapshot>& nodes,
     }
 }
 
+// Sum the on-disk sizes of every file registered on the Files page by walking
+// all four tree snapshots via CollectSnapshotPaths, then stat-ing each path.
+long long MainWindow::GetTotalInstalledFileSize()
+{
+    EnsureTreeSnapshotsFromDb();
+    std::vector<std::wstring> paths;
+    for (const auto& snap : s_treeSnapshot_ProgramFiles)  CollectSnapshotPaths(snap, paths);
+    for (const auto& snap : s_treeSnapshot_ProgramData)   CollectSnapshotPaths(snap, paths);
+    for (const auto& snap : s_treeSnapshot_AppData)       CollectSnapshotPaths(snap, paths);
+    for (const auto& snap : s_treeSnapshot_AskAtInstall)  CollectSnapshotPaths(snap, paths);
+    long long total = 0;
+    for (const auto& p : paths) {
+        WIN32_FILE_ATTRIBUTE_DATA info = {};
+        if (GetFileAttributesExW(p.c_str(), GetFileExInfoStandard, &info))
+            total += ((long long)info.nFileSizeHigh << 32) | (long long)info.nFileSizeLow;
+    }
+    return total;
+}
+
 // ─── EnsureTreeSnapshotsFromDb ───────────────────────────────────────────────
 // Rebuilds any empty s_treeSnapshot_* vectors from the persisted DB rows so
 // the dep picker can show the full VFS hierarchy even when the user has not
@@ -9642,7 +9661,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             int listW      = totalW - treeW - S(8);
             // Manage button: centred, below the split pane
             HWND hManage   = GetDlgItem(hwnd, IDC_COMP_TYPES_MANAGE);
-            int manageY    = splitY + splitH + S(22); // S(10) gap + S(2) sep + S(10) gap
+            int manageY    = splitY + splitH + S(34); // gap below list before button
             int manageW    = 0;
             if (hManage && IsWindow(hManage)) {
                 RECT rm; GetWindowRect(hManage, &rm);

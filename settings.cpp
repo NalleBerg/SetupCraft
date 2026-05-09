@@ -1751,6 +1751,9 @@ void SETT_LoadFromDb(int projectId)
     if (DB::GetSetting(K(L"show_lang_dlg"),         val)) s_showLanguageDialog   = _wtoi(val.c_str());
 }
 
+// ── SETT_IsSelectFolderDisabled ───────────────────────────────────────────────
+bool SETT_IsSelectFolderDisabled() { return s_disableDirPage; }
+
 // ── SETT_GetInstallBasePath ───────────────────────────────────────────────────
 std::wstring SETT_GetInstallBasePath()
 {

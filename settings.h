@@ -155,6 +155,9 @@ void SETT_TearDown(HWND hwnd);
 // Returns the bold font used for section headers (valid between BuildPage and TearDown).
 HFONT SETT_GetSectionFont();
 
+// Returns true when the developer has checked "Hide Select Installation Folder page".
+bool SETT_IsSelectFolderDisabled();
+
 // Route WM_COMMAND for new-settings-only controls.  Returns true when handled.
 // Does NOT consume IDC_SETT_APP_NAME / IDC_SETT_APP_VERSION / IDC_SETT_PUBLISHER
 // / IDC_SETT_CHANGE_ICON — those are handled by mainwindow.cpp.

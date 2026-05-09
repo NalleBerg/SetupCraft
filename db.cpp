@@ -303,15 +303,46 @@ bool DB::InitDb() {
             { 1, LR"({\rtf1\ansi\deff0{\fonttbl{\f0\fswiss\fcharset0 Arial;}}{\colortbl ;\red0\green70\blue140;\red40\green40\blue40;\red100\green100\blue100;\red139\green0\blue0;}\f0\pard\qc\sb0\sa60\cf1{\b\fs28 Public Domain License}\par\pard\qc\sb0\sa200\cf1\fs18 The Unlicense\par\pard\ql\sb0\sa120\cf2\fs20 <<AppName>> is released into the public domain.\par Anyone is free to copy, modify, publish, use, compile, sell, or distribute this software, either in source code form or as a compiled binary, for any purpose, commercial or non-commercial, and by any means.\par In jurisdictions that recognise copyright laws, the author or authors dedicate any and all copyright interest in this software to the public domain. This dedication is intended to be an overt act of relinquishment in perpetuity of all present and future rights to this software under copyright law.\par{\cf4\b THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.}\par\pard\ql\sb120\sa0\cf3\fs18\i <<LicenseCreditNote>>\i0\par})" },
             { 2, LR"({\rtf1\ansi\deff0{\fonttbl{\f0\fswiss\fcharset0 Arial;}}\f0\fs20\pard\ql <<DlgDefaultDepsBody>>\par})" },
             { 3, LR"({\rtf1\ansi\deff0{\fonttbl{\f0\fswiss\fcharset0 Arial;}}\f0\fs20\pard\ql <<DlgDefaultForMeAllBody>>\par})" },
-            { 4, LR"({\rtf1\ansi\deff0{\fonttbl{\f0\fswiss\fcharset0 Arial;}}\f0\fs20\pard\ql <<DlgDefaultComponentsBody>>\par})" },
-            { 5, LR"({\rtf1\ansi\deff0{\fonttbl{\f0\fswiss\fcharset0 Arial;}}\f0\fs20\pard\ql <<DlgDefaultShortcutsBody>>\par})" },
-            { 6, LR"({\rtf1\ansi\deff0{\fonttbl{\f0\fswiss\fcharset0 Arial;}}\f0\fs20\pard\ql <<DlgDefaultReadyBody1>>\par\pard\ql\sb120 <<DlgDefaultReadyBody2>>\par})" },
-            { 7, LR"({\rtf1\ansi\deff0{\fonttbl{\f0\fswiss\fcharset0 Arial;}}\f0\fs20\pard\ql <<DlgDefaultInstallingBody>>\par})" },
-            { 8, LR"({\rtf1\ansi\deff0{\fonttbl{\f0\fswiss\fcharset0 Arial;}}\f0\fs20\pard\qc{\b\fs28 <<DlgDefaultFinishTitle>>}\par\pard\ql\sb120 <<DlgDefaultFinishBody1>>\par\pard\ql\sb120 <<DlgDefaultFinishBody2>>\par})" },
+            { 4, LR"({\rtf1\ansi\deff0{\fonttbl{\f0\fswiss\fcharset0 Arial;}}\f0\fs20\pard\ql <<DlgDefaultSelectFolderBody>>\par})" },
+            { 5, LR"({\rtf1\ansi\deff0{\fonttbl{\f0\fswiss\fcharset0 Arial;}}\f0\fs20\pard\ql <<DlgDefaultComponentsBody>>\par})" },
+            { 6, LR"({\rtf1\ansi\deff0{\fonttbl{\f0\fswiss\fcharset0 Arial;}}\f0\fs20\pard\ql <<DlgDefaultShortcutsBody>>\par})" },
+            { 7, LR"({\rtf1\ansi\deff0{\fonttbl{\f0\fswiss\fcharset0 Arial;}}\f0\fs20\pard\ql <<DlgDefaultReadyBody1>>\par\pard\ql\sb120 <<DlgDefaultReadyBody2>>\par})" },
+            { 8, LR"({\rtf1\ansi\deff0{\fonttbl{\f0\fswiss\fcharset0 Arial;}}\f0\fs20\pard\ql <<DlgDefaultInstallingBody>>\par})" },
+            { 9, LR"({\rtf1\ansi\deff0{\fonttbl{\f0\fswiss\fcharset0 Arial;}}\f0\fs20\pard\qc{\b\fs28 <<DlgDefaultFinishTitle>>}\par\pard\ql\sb120 <<DlgDefaultFinishBody1>>\par\pard\ql\sb120 <<DlgDefaultFinishBody2>>\par})" },
         };
+        // Migration: if dialog_defaults still uses the old 9-type numbering
+        // (type 4 = COMPONENTS), shift types 4-8 → 5-9 to make room for the
+        // new IDLG_SELECT_FOLDER at position 4.  Detected by the absence of a
+        // type-9 row (which only exists after the shift).  Also migrate the
+        // project-specific installer_dialogs table the same way.
+        {
+            bool type9missing = true;
+            {
+                void* sc = NULL;
+                const char* chk = "SELECT 1 FROM dialog_defaults WHERE dialog_type=9 LIMIT 1;";
+                if (p_prepare(db, chk, -1, &sc, NULL) == 0) {
+                    if (p_step(sc) == 100 /*SQLITE_ROW*/) type9missing = false;
+                    if (p_finalize) p_finalize(sc);
+                }
+            }
+            if (type9missing) {
+                // Shift in descending order to avoid PK conflicts.
+                p_exec(db, "UPDATE dialog_defaults SET dialog_type=9 WHERE dialog_type=8;", NULL, NULL, NULL);
+                p_exec(db, "UPDATE dialog_defaults SET dialog_type=8 WHERE dialog_type=7;", NULL, NULL, NULL);
+                p_exec(db, "UPDATE dialog_defaults SET dialog_type=7 WHERE dialog_type=6;", NULL, NULL, NULL);
+                p_exec(db, "UPDATE dialog_defaults SET dialog_type=6 WHERE dialog_type=5;", NULL, NULL, NULL);
+                p_exec(db, "UPDATE dialog_defaults SET dialog_type=5 WHERE dialog_type=4;", NULL, NULL, NULL);
+                // Same shift for all projects' installer_dialogs rows.
+                p_exec(db, "UPDATE installer_dialogs SET dialog_type=9 WHERE dialog_type=8;", NULL, NULL, NULL);
+                p_exec(db, "UPDATE installer_dialogs SET dialog_type=8 WHERE dialog_type=7;", NULL, NULL, NULL);
+                p_exec(db, "UPDATE installer_dialogs SET dialog_type=7 WHERE dialog_type=6;", NULL, NULL, NULL);
+                p_exec(db, "UPDATE installer_dialogs SET dialog_type=6 WHERE dialog_type=5;", NULL, NULL, NULL);
+                p_exec(db, "UPDATE installer_dialogs SET dialog_type=5 WHERE dialog_type=4;", NULL, NULL, NULL);
+            }
+        }
         const char* seedSql =
             "INSERT OR IGNORE INTO dialog_defaults (dialog_type, content_rtf) VALUES (?,?);";
-        for (int i = 0; i < 9; i++) {
+        for (int i = 0; i < 10; i++) {
             void* s2 = NULL;
             if (p_prepare(db, seedSql, -1, &s2, NULL) == 0) {
                 std::string sT = std::to_string(kDD[i].type);
@@ -350,8 +381,9 @@ bool DB::InitDb() {
                 "UPDATE dialog_defaults SET content_rtf=? "
                 "WHERE dialog_type=? "
                 "AND content_rtf NOT LIKE '%<<DlgDefault%';";
-            for (int i = 0; i < 9; i++) {
+            for (int i = 0; i < 10; i++) {
                 if (i == 1) continue; // License handled separately above
+                if (i == 4) continue; // SELECT_FOLDER is new — no old English text to replace
                 void* s3 = NULL;
                 if (p_prepare(db, migSql, -1, &s3, NULL) == 0) {
                     std::string sR = WToUtf8(kDD[i].rtf);

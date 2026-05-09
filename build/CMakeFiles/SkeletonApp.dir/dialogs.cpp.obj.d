@@ -383,9 +383,36 @@ CMakeFiles/SkeletonApp.dir/dialogs.cpp.obj: \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_vector.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_bvector.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/vector.tcc \
+ C:/mingw64/x86_64-w64-mingw32/include/shlobj.h \
+ C:/mingw64/x86_64-w64-mingw32/include/shlguid.h \
+ C:/mingw64/x86_64-w64-mingw32/include/isguids.h \
+ C:/mingw64/x86_64-w64-mingw32/include/exdisp.h \
+ C:/mingw64/x86_64-w64-mingw32/include/ocidl.h \
+ C:/mingw64/x86_64-w64-mingw32/include/docobj.h \
+ C:/mingw64/x86_64-w64-mingw32/include/shldisp.h \
+ C:/mingw64/x86_64-w64-mingw32/include/knownfolders.h \
+ C:/mingw64/x86_64-w64-mingw32/include/shtypes.h \
+ C:/mingw64/x86_64-w64-mingw32/include/shobjidl.h \
+ C:/mingw64/x86_64-w64-mingw32/include/comcat.h \
+ C:/mingw64/x86_64-w64-mingw32/include/propsys.h \
+ C:/mingw64/x86_64-w64-mingw32/include/structuredquerycondition.h \
+ C:/mingw64/x86_64-w64-mingw32/include/propkeydef.h \
+ C:/mingw64/x86_64-w64-mingw32/include/objectarray.h \
+ C:/mingw64/x86_64-w64-mingw32/include/sherrors.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\mainwindow.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\db.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\deps.h \
+ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\settings.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/functional \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/std_function.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/typeinfo \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/unordered_map \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/unordered_map.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/hashtable.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/hashtable_policy.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/enable_special_members.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/array \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/compare \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\shortcuts.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\edit_rtf.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\dpi.h \

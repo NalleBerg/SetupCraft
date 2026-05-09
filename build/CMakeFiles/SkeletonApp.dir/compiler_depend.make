@@ -3285,6 +3285,7 @@ CMakeFiles/SkeletonApp.dir/dialogs.cpp.obj: C:/Users/NalleBerg/Documents/C++/Wor
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/avxvnniintrin.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/bmi2intrin.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/bmiintrin.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/array \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/backward/binders.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bit \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/alloc_traits.h \
@@ -3296,12 +3297,15 @@ CMakeFiles/SkeletonApp.dir/dialogs.cpp.obj: C:/Users/NalleBerg/Documents/C++/Wor
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/concept_check.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/cpp_type_traits.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/cxxabi_forced.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/enable_special_members.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/erase_if.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/exception.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/exception_defines.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/functexcept.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/functional_hash.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/hash_bytes.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/hashtable.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/hashtable_policy.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/invoke.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/localefwd.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/memory_resource.h \
@@ -3317,6 +3321,7 @@ CMakeFiles/SkeletonApp.dir/dialogs.cpp.obj: C:/Users/NalleBerg/Documents/C++/Wor
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/refwrap.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/requires_hosted.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/std_abs.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/std_function.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_algobase.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_bvector.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_construct.h \
@@ -3333,6 +3338,7 @@ CMakeFiles/SkeletonApp.dir/dialogs.cpp.obj: C:/Users/NalleBerg/Documents/C++/Wor
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_vector.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/string_view.tcc \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stringfwd.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/unordered_map.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/uses_allocator.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/uses_allocator_args.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/utility.h \
@@ -3341,6 +3347,7 @@ CMakeFiles/SkeletonApp.dir/dialogs.cpp.obj: C:/Users/NalleBerg/Documents/C++/Wor
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/cctype \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/cerrno \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/clocale \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/compare \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/concepts \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/cstddef \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/cstdio \
@@ -3353,6 +3360,7 @@ CMakeFiles/SkeletonApp.dir/dialogs.cpp.obj: C:/Users/NalleBerg/Documents/C++/Wor
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/ext/numeric_traits.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/ext/string_conversions.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/ext/type_traits.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/functional \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/initializer_list \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/iosfwd \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/map \
@@ -3363,6 +3371,8 @@ CMakeFiles/SkeletonApp.dir/dialogs.cpp.obj: C:/Users/NalleBerg/Documents/C++/Wor
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/string_view \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/tuple \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/type_traits \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/typeinfo \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/unordered_map \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/utility \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/vector \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/x86_64-w64-mingw32/bits/c++allocator.h \
@@ -3452,6 +3462,7 @@ CMakeFiles/SkeletonApp.dir/dialogs.cpp.obj: C:/Users/NalleBerg/Documents/C++/Wor
   C:/mingw64/x86_64-w64-mingw32/include/cderr.h \
   C:/mingw64/x86_64-w64-mingw32/include/cguid.h \
   C:/mingw64/x86_64-w64-mingw32/include/combaseapi.h \
+  C:/mingw64/x86_64-w64-mingw32/include/comcat.h \
   C:/mingw64/x86_64-w64-mingw32/include/commctrl.h \
   C:/mingw64/x86_64-w64-mingw32/include/commdlg.h \
   C:/mingw64/x86_64-w64-mingw32/include/concurrencysal.h \
@@ -3469,11 +3480,13 @@ CMakeFiles/SkeletonApp.dir/dialogs.cpp.obj: C:/Users/NalleBerg/Documents/C++/Wor
   C:/mingw64/x86_64-w64-mingw32/include/ddeml.h \
   C:/mingw64/x86_64-w64-mingw32/include/debugapi.h \
   C:/mingw64/x86_64-w64-mingw32/include/dlgs.h \
+  C:/mingw64/x86_64-w64-mingw32/include/docobj.h \
   C:/mingw64/x86_64-w64-mingw32/include/dpapi.h \
   C:/mingw64/x86_64-w64-mingw32/include/driverspecs.h \
   C:/mingw64/x86_64-w64-mingw32/include/errhandlingapi.h \
   C:/mingw64/x86_64-w64-mingw32/include/errno.h \
   C:/mingw64/x86_64-w64-mingw32/include/excpt.h \
+  C:/mingw64/x86_64-w64-mingw32/include/exdisp.h \
   C:/mingw64/x86_64-w64-mingw32/include/fibersapi.h \
   C:/mingw64/x86_64-w64-mingw32/include/fileapi.h \
   C:/mingw64/x86_64-w64-mingw32/include/fltwinerror.h \
@@ -3484,8 +3497,10 @@ CMakeFiles/SkeletonApp.dir/dialogs.cpp.obj: C:/Users/NalleBerg/Documents/C++/Wor
   C:/mingw64/x86_64-w64-mingw32/include/inaddr.h \
   C:/mingw64/x86_64-w64-mingw32/include/interlockedapi.h \
   C:/mingw64/x86_64-w64-mingw32/include/ioapiset.h \
+  C:/mingw64/x86_64-w64-mingw32/include/isguids.h \
   C:/mingw64/x86_64-w64-mingw32/include/jobapi.h \
   C:/mingw64/x86_64-w64-mingw32/include/joystickapi.h \
+  C:/mingw64/x86_64-w64-mingw32/include/knownfolders.h \
   C:/mingw64/x86_64-w64-mingw32/include/ktmtypes.h \
   C:/mingw64/x86_64-w64-mingw32/include/libloaderapi.h \
   C:/mingw64/x86_64-w64-mingw32/include/limits.h \
@@ -3509,8 +3524,10 @@ CMakeFiles/SkeletonApp.dir/dialogs.cpp.obj: C:/Users/NalleBerg/Documents/C++/Wor
   C:/mingw64/x86_64-w64-mingw32/include/ncrypt.h \
   C:/mingw64/x86_64-w64-mingw32/include/oaidl.h \
   C:/mingw64/x86_64-w64-mingw32/include/objbase.h \
+  C:/mingw64/x86_64-w64-mingw32/include/objectarray.h \
   C:/mingw64/x86_64-w64-mingw32/include/objidl.h \
   C:/mingw64/x86_64-w64-mingw32/include/objidlbase.h \
+  C:/mingw64/x86_64-w64-mingw32/include/ocidl.h \
   C:/mingw64/x86_64-w64-mingw32/include/ole2.h \
   C:/mingw64/x86_64-w64-mingw32/include/oleauto.h \
   C:/mingw64/x86_64-w64-mingw32/include/oleidl.h \
@@ -3521,6 +3538,8 @@ CMakeFiles/SkeletonApp.dir/dialogs.cpp.obj: C:/Users/NalleBerg/Documents/C++/Wor
   C:/mingw64/x86_64-w64-mingw32/include/processtopologyapi.h \
   C:/mingw64/x86_64-w64-mingw32/include/profileapi.h \
   C:/mingw64/x86_64-w64-mingw32/include/propidl.h \
+  C:/mingw64/x86_64-w64-mingw32/include/propkeydef.h \
+  C:/mingw64/x86_64-w64-mingw32/include/propsys.h \
   C:/mingw64/x86_64-w64-mingw32/include/prsht.h \
   C:/mingw64/x86_64-w64-mingw32/include/psdk_inc/_fd_types.h \
   C:/mingw64/x86_64-w64-mingw32/include/psdk_inc/_ip_mreq1.h \
@@ -3558,6 +3577,12 @@ CMakeFiles/SkeletonApp.dir/dialogs.cpp.obj: C:/Users/NalleBerg/Documents/C++/Wor
   C:/mingw64/x86_64-w64-mingw32/include/securitybaseapi.h \
   C:/mingw64/x86_64-w64-mingw32/include/servprov.h \
   C:/mingw64/x86_64-w64-mingw32/include/shellapi.h \
+  C:/mingw64/x86_64-w64-mingw32/include/sherrors.h \
+  C:/mingw64/x86_64-w64-mingw32/include/shldisp.h \
+  C:/mingw64/x86_64-w64-mingw32/include/shlguid.h \
+  C:/mingw64/x86_64-w64-mingw32/include/shlobj.h \
+  C:/mingw64/x86_64-w64-mingw32/include/shobjidl.h \
+  C:/mingw64/x86_64-w64-mingw32/include/shtypes.h \
   C:/mingw64/x86_64-w64-mingw32/include/specstrings.h \
   C:/mingw64/x86_64-w64-mingw32/include/stdarg.h \
   C:/mingw64/x86_64-w64-mingw32/include/stddef.h \
@@ -3566,6 +3591,7 @@ CMakeFiles/SkeletonApp.dir/dialogs.cpp.obj: C:/Users/NalleBerg/Documents/C++/Wor
   C:/mingw64/x86_64-w64-mingw32/include/stralign.h \
   C:/mingw64/x86_64-w64-mingw32/include/string.h \
   C:/mingw64/x86_64-w64-mingw32/include/stringapiset.h \
+  C:/mingw64/x86_64-w64-mingw32/include/structuredquerycondition.h \
   C:/mingw64/x86_64-w64-mingw32/include/swprintf.inl \
   C:/mingw64/x86_64-w64-mingw32/include/synchapi.h \
   C:/mingw64/x86_64-w64-mingw32/include/sysinfoapi.h \
@@ -3620,6 +3646,7 @@ CMakeFiles/SkeletonApp.dir/dialogs.cpp.obj: C:/Users/NalleBerg/Documents/C++/Wor
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/mainwindow.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/my_scrollbar_hscroll.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/my_scrollbar_vscroll.h \
+  C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/settings.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/shortcuts.h \
   C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/tooltip.h
 
@@ -12695,8 +12722,6 @@ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/uniform_int_dist.h
 
 C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/my_scrollbar_hscroll.h:
 
-C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/dragdrop.cpp:
-
 C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/array:
 
 C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/hashtable.h:
@@ -12708,30 +12733,6 @@ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/unordered_map.h:
 C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/compare:
 
 C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/unordered_map:
-
-C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/dragdrop.h:
-
-C:/mingw64/x86_64-w64-mingw32/include/sherrors.h:
-
-C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/file_assoc.cpp:
-
-C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/file_assoc.h:
-
-C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/file_assoc_dialog.cpp:
-
-C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/issgen.cpp:
-
-C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/settings.h:
-
-C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/languages.cpp:
-
-C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/main.cpp:
-
-C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/codecvt.h:
-
-C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/fstream:
-
-C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/x86_64-w64-mingw32/bits/basic_file.h:
 
 C:/mingw64/x86_64-w64-mingw32/include/comcat.h:
 
@@ -12745,11 +12746,37 @@ C:/mingw64/x86_64-w64-mingw32/include/propkeydef.h:
 
 C:/mingw64/x86_64-w64-mingw32/include/propsys.h:
 
+C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/file_assoc.cpp:
+
+C:/mingw64/x86_64-w64-mingw32/include/sherrors.h:
+
 C:/mingw64/x86_64-w64-mingw32/include/shldisp.h:
 
 C:/mingw64/x86_64-w64-mingw32/include/shlobj.h:
 
 C:/mingw64/x86_64-w64-mingw32/include/shobjidl.h:
+
+C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/settings.h:
+
+C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/dragdrop.cpp:
+
+C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/dragdrop.h:
+
+C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/file_assoc.h:
+
+C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/file_assoc_dialog.cpp:
+
+C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/issgen.cpp:
+
+C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/languages.cpp:
+
+C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/main.cpp:
+
+C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/codecvt.h:
+
+C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/fstream:
+
+C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/x86_64-w64-mingw32/bits/basic_file.h:
 
 C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_multiset.h:
 

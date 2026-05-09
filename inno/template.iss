@@ -152,6 +152,7 @@ begin
     Result := True;
 end;
 
+; <<DISK_SPACE_CODE>>
 ; <<SETUP_LOG_PROC>>
 procedure DeinitializeSetup();
 begin

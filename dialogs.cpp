@@ -15,7 +15,11 @@
  */
 
 #include "dialogs.h"
-#include "mainwindow.h"   // MarkAsModified(), UseComponents(), AskAtInstallEnabled()
+#include <shlobj.h>       // SHGetKnownFolderPath, FOLDERID_*
+#include <objbase.h>      // CoTaskMemFree
+#include "mainwindow.h"   // MarkAsModified(), UseComponents(), AskAtInstallEnabled(), GetProjectDirectory()
+#include "settings.h"     // SETT_IsSelectFolderDisabled(), SETT_GetInstallBasePath()
+#include <functional>     // std::function (used for recursive lambda in PopulateExtras IDLG_READY)
 #include "deps.h"         // DEP_HasAny()
 #include "shortcuts.h"    // SC_HasOptOut()
 #include "edit_rtf.h"     // OpenRtfEditor()
@@ -104,15 +108,16 @@ static WNDPROC s_origIconProc            = NULL;
 // shell32.dll sequential icon index for each dialog type.
 // These are visual hints only — any close-enough icon works.
 static const int kDialogIconIdx[IDLG_COUNT] = {
-    13,   // WELCOME      — information / greeting
-    70,   // LICENSE      — document
-   257,   // DEPENDENCIES — package / download
-   166,   // FOR_ME_ALL   — users / group
-   247,   // COMPONENTS   — component
-    29,   // SHORTCUTS    — arrow / link
-   144,   // READY        — shield / ready to install
-    35,   // INSTALL      — installation wheels
-    43    // FINISH        — checkmark / complete
+    13,   // WELCOME         — information / greeting
+    70,   // LICENSE         — document
+   257,   // DEPENDENCIES    — package / download
+   166,   // FOR_ME_ALL      — users / group
+     4,   // SELECT_FOLDER   — folder
+   247,   // COMPONENTS      — component
+    29,   // SHORTCUTS       — arrow / link
+   144,   // READY           — shield / ready to install
+    35,   // INSTALL         — installation wheels
+    43    // FINISH          — checkmark / complete
 };
 
 // Locale key and English fallback for each dialog type name.
@@ -121,6 +126,7 @@ static const wchar_t* const kDialogNameKeys[IDLG_COUNT] = {
     L"idlg_name_license",
     L"idlg_name_dependencies",
     L"idlg_name_for_me_all",
+    L"idlg_name_select_folder",
     L"idlg_name_components",
     L"idlg_name_shortcuts",
     L"idlg_name_ready",
@@ -132,6 +138,7 @@ static const wchar_t* const kDialogNameFallbacks[IDLG_COUNT] = {
     L"License",
     L"Dependencies",
     L"For Me / All Users",
+    L"Select Installation Folder",
     L"Components",
     L"Shortcuts",
     L"Ready to Install",
@@ -154,6 +161,7 @@ static bool IsDialogVisible(InstallerDialogType type)
     switch (type) {
     case IDLG_WELCOME:
     case IDLG_LICENSE:
+    case IDLG_SELECT_FOLDER:
     case IDLG_READY:
     case IDLG_INSTALL:
     case IDLG_FINISH:
@@ -176,7 +184,8 @@ static bool IsDialogVisible(InstallerDialogType type)
 static bool IsDialogActiveInInstaller(InstallerDialogType type)
 {
     if (!IsDialogVisible(type)) return false;
-    if (type == IDLG_INSTALL)  return true;   // always active
+    if (type == IDLG_INSTALL)       return true;   // always active
+    if (type == IDLG_SELECT_FOLDER) return !SETT_IsSelectFolderDisabled();
     return s_dialogEnabled[(int)type];
 }
 
@@ -355,7 +364,8 @@ static void LayoutPreviewControls(HWND hwnd, PreviewData* pd)
         // Split layout: RTF content on top, extras panel (checkboxes/radios) below.
         // Exception: if contentHidden is set (e.g. IDLG_COMPONENTS with no RTF),
         // the RichEdit is hidden and the extras panel gets the full available height.
-        const int extLblH = S(22);
+        // READY shows 3 lines of disk-space info; all other extras labels are 1 line.
+        const int extLblH = (pd->type == IDLG_READY) ? S(62) : S(22);
         const int extGap  = S(6);
 
         // Content height:
@@ -443,8 +453,21 @@ static void LayoutPreviewControls(HWND hwnd, PreviewData* pd)
                          cW - pad * 2 - S(4), rH, SWP_NOZORDER | SWP_NOACTIVATE);
         }
 
-        // Position component checkboxes when visible.
-        {
+        // Position component checkboxes (or Select Folder path+button) when visible.
+        if (pd->type == IDLG_SELECT_FOLDER && pd->hCompChecks.size() >= 2) {
+            // Path edit fills available width minus icon-only Browse button (S(55) min).
+            const int editH   = S(24);
+            const int browseW = S(55);
+            const int editW   = cW - pad * 2 - S(4) - S(8) - browseW;
+            HWND hEdit   = pd->hCompChecks[0];
+            HWND hBrowse = pd->hCompChecks[1];
+            if (hEdit   && IsWindow(hEdit))
+                SetWindowPos(hEdit,   NULL, pad + S(4), ctrlY,
+                             editW, editH, SWP_NOZORDER | SWP_NOACTIVATE);
+            if (hBrowse && IsWindow(hBrowse))
+                SetWindowPos(hBrowse, NULL, pad + S(4) + editW + S(8), ctrlY,
+                             browseW, editH, SWP_NOZORDER | SWP_NOACTIVATE);
+        } else {
             int cy = ctrlY;
             for (HWND h : pd->hCompChecks) {
                 if (h && IsWindow(h)) {
@@ -666,6 +689,54 @@ static void PopulateExtras(HWND hwnd, PreviewData* pd, InstallerDialogType newTy
             pd->hCompChecks.push_back(hLbl);
         }
 
+    } else if (newType == IDLG_SELECT_FOLDER) {
+        pd->showExtras = true;
+        if (pd->hExtrasLabel && IsWindow(pd->hExtrasLabel))
+            SetWindowTextW(pd->hExtrasLabel,
+                L10n(L"idlg_prv_folder_dest_lbl", L"Destination folder:").c_str());
+        // Build a representative preview path: resolve the Inno token to a real
+        // Windows path so end-users see something like C:\Program Files\MyApp.
+        std::wstring basePath = SETT_GetInstallBasePath();
+        std::wstring appName  = s_previewAppName.empty() ? L"AppName" : s_previewAppName;
+        // Map common Inno constants to real folder paths via SHGetKnownFolderPath.
+        auto resolveInnoPath = [](const std::wstring& token) -> std::wstring {
+            struct { const wchar_t* tok; KNOWNFOLDERID fid; } map[] = {
+                { L"{pf}",           FOLDERID_ProgramFiles     },
+                { L"{pf64}",         FOLDERID_ProgramFiles     },
+                { L"{pf32}",         FOLDERID_ProgramFilesX86  },
+                { L"{localappdata}", FOLDERID_LocalAppData      },
+                { L"{commonappdata}",FOLDERID_ProgramData       },
+                { L"{userdocs}",     FOLDERID_Documents         },
+            };
+            for (auto& e : map) {
+                if (_wcsicmp(token.c_str(), e.tok) == 0) {
+                    PWSTR p = nullptr;
+                    if (SUCCEEDED(SHGetKnownFolderPath(e.fid, 0, NULL, &p))) {
+                        std::wstring r(p); CoTaskMemFree(p); return r;
+                    }
+                }
+            }
+            return token;  // custom string or unrecognised — show as-is
+        };
+        std::wstring previewPath = resolveInnoPath(basePath) + L"\\" + appName;
+        // Read-only path edit field
+        HWND hPathEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT",
+            previewPath.c_str(),
+            WS_CHILD | WS_VISIBLE | ES_LEFT | ES_AUTOHSCROLL | ES_READONLY,
+            0, 0, 10, 10,
+            hwnd, (HMENU)(UINT_PTR)IDC_IDLG_SELECT_FOLDER_PATH, s_hInst, NULL);
+        if (s_hGuiFont) SendMessageW(hPathEdit, WM_SETFONT, (WPARAM)s_hGuiFont, TRUE);
+        pd->hCompChecks.push_back(hPathEdit);
+        // Browse button (visual only — non-functional in preview; icon-only style)
+        HWND hBrowse = CreateCustomButtonWithIcon(
+            hwnd, IDC_IDLG_SELECT_FOLDER_BROWSE,
+            L"",                  // icon-only: centres the icon, no text
+            ButtonColor::Blue,
+            L"shell32.dll", 127,
+            0, 0, 10, 10, s_hInst);
+        if (s_hGuiFont) SendMessageW(hBrowse, WM_SETFONT, (WPARAM)s_hGuiFont, TRUE);
+        pd->hCompChecks.push_back(hBrowse);
+
     } else if (newType == IDLG_FINISH && s_finishLaunchEnabled) {
         pd->showExtras = true;
         if (pd->hExtrasLabel && IsWindow(pd->hExtrasLabel))
@@ -681,6 +752,50 @@ static void PopulateExtras(HWND hwnd, PreviewData* pd, InstallerDialogType newTy
             s_hInst);
         if (s_hGuiFont) SendMessageW(hChk, WM_SETFONT, (WPARAM)s_hGuiFont, TRUE);
         pd->hCompChecks.push_back(hChk);
+
+    } else if (newType == IDLG_READY) {
+        // Show disk space required (source dir size), available, and free-after-install.
+        pd->showExtras = true;
+        if (pd->hExtrasLabel && IsWindow(pd->hExtrasLabel)) {
+            // Smart size formatter: picks KB / MB / GB / TB with 2 decimal places.
+            auto formatSize = [](long long bytes) -> std::wstring {
+                const wchar_t* units[] = { L" KB", L" MB", L" GB", L" TB" };
+                double v = (double)bytes / 1024.0;  // start at KB
+                int u = 0;
+                while (v >= 1024.0 && u < 3) { v /= 1024.0; u++; }
+                wchar_t buf[64];
+                // Round to 2 dp; suppress trailing zeros only for exact values.
+                if (v == (long long)v)
+                    swprintf(buf, 64, L"%lld%ls", (long long)v, units[u]);
+                else
+                    swprintf(buf, 64, L"%.2f%ls", v, units[u]);
+                return buf;
+            };
+
+            // Sum the actual sizes of all files registered on the Files page.
+            long long totalBytes = MainWindow::GetTotalInstalledFileSize();
+
+            // Free space on C: drive.
+            ULARGE_INTEGER freeBytesAvail = {}, totalBytes2 = {}, totalFree = {};
+            GetDiskFreeSpaceExW(L"C:\\", &freeBytesAvail, &totalBytes2, &totalFree);
+            long long freeBytes = (long long)freeBytesAvail.QuadPart;
+
+            std::wstring line;
+            if (totalBytes > 0) {
+                line += L10n(L"idlg_ready_required", L"Disk space required: ")
+                     + formatSize(totalBytes)
+                     + L"\r\n";
+            }
+            line += L10n(L"idlg_ready_available", L"Disk space available (C:): ")
+                 + formatSize(freeBytes)
+                 + L"\r\n";
+            long long freeAfter = freeBytes - totalBytes;
+            if (freeAfter < 0) freeAfter = 0;
+            line += L10n(L"idlg_ready_free_after", L"Free disk space after install (C:): ")
+                 + formatSize(freeAfter);
+
+            SetWindowTextW(pd->hExtrasLabel, line.c_str());
+        }
 
     } else {
         pd->showExtras = false;
@@ -1347,6 +1462,47 @@ static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
             TryCancelPreview(hwnd, pd);
             return 0;
         }
+        if (id == IDC_IDLG_SELECT_FOLDER_BROWSE && pd->type == IDLG_SELECT_FOLDER
+                && pd->hCompChecks.size() >= 2) {
+            // Read current path, strip the appname suffix to get the initial dir.
+            HWND hEdit = pd->hCompChecks[0];
+            wchar_t curPath[MAX_PATH] = {};
+            GetWindowTextW(hEdit, curPath, MAX_PATH);
+            std::wstring appName = s_previewAppName.empty() ? L"AppName" : s_previewAppName;
+            // Strip trailing \<AppName> if present.
+            std::wstring initDir(curPath);
+            if (initDir.size() > appName.size() + 1) {
+                std::wstring suffix = L"\\" + appName;
+                if (_wcsicmp(initDir.c_str() + initDir.size() - suffix.size(),
+                             suffix.c_str()) == 0)
+                    initDir.resize(initDir.size() - suffix.size());
+            }
+            struct BrowseInit { wchar_t path[MAX_PATH]; };
+            BrowseInit bi_init;
+            wcsncpy(bi_init.path, initDir.c_str(), MAX_PATH - 1);
+            bi_init.path[MAX_PATH - 1] = L'\0';
+            BROWSEINFOW bi = {};
+            bi.hwndOwner = hwnd;
+            bi.ulFlags   = BIF_RETURNONLYFSDIRS | BIF_USENEWUI | BIF_NEWDIALOGSTYLE;
+            bi.lpszTitle = L10n(L"idlg_prv_folder_pick_title",
+                                L"Select installation base folder:").c_str();
+            bi.lParam    = (LPARAM)bi_init.path;
+            bi.lpfn      = [](HWND hwndDlg, UINT uMsg, LPARAM, LPARAM lpData) -> int {
+                if (uMsg == BFFM_INITIALIZED)
+                    SendMessageW(hwndDlg, BFFM_SETSELECTION, TRUE, lpData);
+                return 0;
+            };
+            LPITEMIDLIST pidl = SHBrowseForFolderW(&bi);
+            if (pidl) {
+                wchar_t picked[MAX_PATH] = {};
+                if (SHGetPathFromIDListW(pidl, picked)) {
+                    std::wstring newPath = std::wstring(picked) + L"\\" + appName;
+                    SetWindowTextW(hEdit, newPath.c_str());
+                }
+                CoTaskMemFree(pidl);
+            }
+            return 0;
+        }
         return 0;
     }
 
@@ -1406,6 +1562,10 @@ static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
     case WM_DRAWITEM: {
         // Required by custom themed checkboxes (BS_OWNERDRAW internals).
         LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
+        if (dis->CtlID == IDC_IDLG_SELECT_FOLDER_BROWSE) {
+            ButtonColor color = (ButtonColor)GetWindowLongPtrW(dis->hwndItem, GWLP_USERDATA);
+            return DrawCustomButton(dis, color, pd ? pd->hGuiFont : NULL);
+        }
         if (DrawCustomCheckbox(dis)) return TRUE;
         return 0;
     }
@@ -3373,6 +3533,9 @@ static std::wstring SubstitutePlaceholders(std::wstring rtf,
         { L"<<DlgDefaultForMeAllBody>>",   L"idlg_default_for_me_all_body",
           L"Choose whether to install <<AppName>> for yourself only, "
           L"or for all users of this computer." },
+        { L"<<DlgDefaultSelectFolderBody>>", L"idlg_default_select_folder_body",
+          L"Choose the folder in which <<AppName>> should be installed, "
+          L"then click \u00abNext\u00bb." },
         { L"<<DlgDefaultComponentsBody>>", L"idlg_default_components_body",
           L"Select the components of <<AppName>> you want to install." },
         { L"<<DlgDefaultShortcutsBody>>",  L"idlg_default_shortcuts_body",

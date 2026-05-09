@@ -114,6 +114,12 @@
                                                 (parentVirtualPath parameter, built recursively
                                                 from section root name) and EnsureTreeSnapshotsFromDb
                                                 (destination_path key).
+                                                MainWindow::GetTotalInstalledFileSize() —
+                                                calls EnsureTreeSnapshotsFromDb(), walks all
+                                                four s_treeSnapshot_* via CollectSnapshotPaths,
+                                                stats each source path with GetFileAttributesExW,
+                                                returns total bytes as long long. Used by the
+                                                Ready-to-Install preview to show installed size.
 
   API_INTERNALS\API\checkbox_API.txt            Custom theme-aware checkbox — CreateCustomCheckbox,
                                                 DrawCustomCheckbox, OnCheckboxSettingChange,
@@ -655,26 +661,56 @@
                                                 guide for adding a new locale key.
 
   API_INTERNALS\INTERNALS\dialogs_INTERNALS.txt Dialogs page module (toolbar index 4) —
-                                                InstallerDialogType enum (0–8) and row
-                                                visibility rules, installer-title section
+                                                InstallerDialogType enum (0–9) and row
+                                                visibility rules:
+                                                  0=WELCOME, 1=LICENSE, 2=DEPENDENCIES,
+                                                  3=FOR_ME_ALL, 4=SELECT_FOLDER (new),
+                                                  5=COMPONENTS, 6=SHORTCUTS, 7=READY,
+                                                  8=INSTALL, 9=FINISH; IDLG_COUNT=10.
+                                                DB migration: InitDb detects old 9-type
+                                                schema (missing type-9 row) and shifts
+                                                dialog_defaults + installer_dialogs rows
+                                                4→5…8→9 (descending to avoid PK conflict).
+                                                installer-title section
                                                 (48×48 icon preview, OFN_EXPLORER .ico picker,
                                                 title edit field, IDLG_SetInstallerInfo /
                                                 IDLG_GetInstallerTitle / IDLG_GetInstallerIconPath),
                                                 control ID ranges (7000-7137; enable checkboxes
-                                                7060-7068; finish launch section 7070-7073),
+                                                7060-7069; finish launch section 7070-7073;
+                                                license IDCs 7110-7117; select-folder IDCs
+                                                7118-7119; row base max = 7010+9×4+3=7049),
                                                 per-dialog enable toggles
                                                 (IDC_IDLG_ROW_ENABLE_BASE=7060; WELCOME/LICENSE/
                                                 READY/FINISH rows each carry a custom checkbox
-                                                replacing the plain label; s_dialogEnabled[9]
+                                                replacing the plain label; s_dialogEnabled[10]
                                                 bool array; IsDialogActiveInInstaller() combines
-                                                IsDialogVisible()+s_dialogEnabled[]; Next/
-                                                PrevVisibleType use IsDialogActiveInInstaller;
+                                                IsDialogVisible()+s_dialogEnabled[];
+                                                SELECT_FOLDER active = !SETT_IsSelectFolderDisabled();
+                                                Next/PrevVisibleType use IsDialogActiveInInstaller;
                                                 IDLG_IsDialogEnabled() public accessor for
                                                 script generation — emit DisableWelcomePage=yes/
                                                 DisableReadyPage=yes/DisableFinishedPage=yes;
                                                 persisted as installer_dialog_enabled_<pid>
-                                                compact 9-char string; reset to all-true in
+                                                compact 10-char string; reset to all-true in
                                                 IDLG_Reset(); INSTALL row always active),
+                                                Select-folder preview
+                                                (IDC_IDLG_SELECT_FOLDER_PATH=7118 ES_READONLY edit
+                                                shows SHGetKnownFolderPath(token)+"\"+ appName;
+                                                IDC_IDLG_SELECT_FOLDER_BROWSE=7119 icon-only
+                                                Blue button opens SHBrowseForFolderW pre-navigated
+                                                to current base; on pick appName always appended;
+                                                WM_DRAWITEM must route 7119 to DrawCustomButton —
+                                                the DrawCustomCheckbox-only fallback leaves it blank;
+                                                icon-only (L"") buttons must NOT be EnableWindow(FALSE);
+                                                SETT_IsSelectFolderDisabled() controls row visibility),
+                                                Ready-row disk space preview
+                                                (GetTotalInstalledFileSize() walks all four VFS
+                                                snapshots via CollectSnapshotPaths + GetFileAttributesExW;
+                                                formatSize lambda: bytes→KB/MB/GB/TB 2dp, %ls for
+                                                wide unit suffix in swprintf; 3 lines: required /
+                                                available C: / free-after-install; required omitted
+                                                silently when 0; extLblH=S(62) for IDLG_READY,
+                                                S(22) for all other extras types),
                                                 Finish-row launch sub-section
                                                 (IDC_IDLG_FINISH_LAUNCH=7070 checkbox;
                                                 IDC_IDLG_FINISH_LAUNCH_DESC=7072 edit;
