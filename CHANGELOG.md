@@ -12,6 +12,7 @@ All notable changes to SetupCraft will be documented in this file.
 - **About dialog center image**: New `SetupCraft.png` (256×256, from `SCLogo.svg` via ImageMagick) replaces old globe image. GDI+ `Image::FromFile` from exe directory; drawn at 75% size, centred, scroll-offset-aware in `EditSubclassProc`.
 - **Entry-screen About button icon**: `about_icon.cpp` — uses `LoadImageW(hInst, MAKEINTRESOURCEW(1), IMAGE_ICON, size, size, LR_DEFAULTCOLOR)`. Shell32.dll extraction removed.
 - **icon_INTERNALS.txt**: New INTERNALS document: SVG design, ICO generation commands, RC wiring, window-class + dialog icon loading, About GDI+ center image flow, entry-screen button pattern, icon cache gotcha, update checklist. Entry added to `API_list.txt`.
+- **Entry-screen About icon — SC logo**: `main.cpp` — the `IDC_ABOUT_ICON` static on the entry screen now loads the app icon via `LoadImageW(hInst, MAKEINTRESOURCEW(1), IMAGE_ICON, …)` instead of `PrivateExtractIconsW` (shell32 icon #221 «i»). Tooltip and click handling unchanged (parent WndProc rect-hit-test path).
 
 ## [2026.05.08.09] - 2026-05-08
 

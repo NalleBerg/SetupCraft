@@ -1043,10 +1043,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             aboutIconLeft, S(10), aboutIconSize, aboutIconSize,
             hwnd, (HMENU)IDC_ABOUT_ICON, hInst, NULL);
         
-        // Load info icon from shell32.dll (icon #221 is information/about icon)
-        HICON hAboutIconImage = NULL;
-        extracted = PrivateExtractIconsW(dllPath, 221, aboutIconSize, aboutIconSize, &hAboutIconImage, NULL, 1, 0);
-        if (extracted > 0 && hAboutIconImage) {
+        // Load app icon (SC logo) from exe resource at the exact requested size
+        HICON hAboutIconImage = (HICON)LoadImageW(hInst, MAKEINTRESOURCEW(1),
+            IMAGE_ICON, aboutIconSize, aboutIconSize, LR_DEFAULTCOLOR);
+        if (!hAboutIconImage) hAboutIconImage = LoadIconW(NULL, IDI_APPLICATION);
+        if (hAboutIconImage) {
             SendMessageW(hAboutIcon, STM_SETICON, (WPARAM)hAboutIconImage, 0);
         }
         
