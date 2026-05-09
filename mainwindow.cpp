@@ -314,6 +314,7 @@ static bool s_filesPageHasContent = false; // tracks whether Files page has any 
 #define IDC_COMPDLG_CHOOSE_DEPS 310   // Choose… button (opens dep picker tree)
 #define IDC_COMPDLG_REMOVE_DEPS 311   // Remove selected deps button
 #define IDC_COMPDLG_GROUP       312   // Component group combobox
+#define IDC_COMPDLG_FIXED       313   // Fixed (visible but locked) custom checkbox
 
 // VFS Picker dialog control IDs (scoped to VFSPickerDlg window)
 #define IDC_VFSPICKER_TREE   6100
@@ -334,6 +335,7 @@ static bool s_filesPageHasContent = false; // tracks whether Files page has any 
 #define IDC_FDDP_CANCEL            325
 #define IDC_FOLDER_DLG_PRESELECTED 326  // Pre-selected checkbox (locked when Required is checked)
 #define IDC_FOLDER_DLG_REMOVE_DEPS  327  // "Remove" button in fold-edit dep list
+#define IDC_FOLDER_DLG_FIXED        328  // Fixed (visible but locked) custom checkbox
 #define IDM_DEPS_CTX_REMOVE         6210 // dep-list context menu: Remove
 #define IDM_DEPS_CTX_SHOWFILES      6211 // dep-list context menu: Show files…
 #define IDM_FILES_FLAGS             6220 // files context menu: File Flags…
@@ -6992,6 +6994,10 @@ struct CompFolderDlgData {
     std::wstring                initGroupName;
     std::vector<std::wstring>   existingGroups;
     std::wstring                outGroupName;
+    // Fixed
+    int          initFixed = 0;   // 1 = shown but greyed-out (Inno: Flags: fixed)
+    int          outFixed  = 0;
+    std::wstring fixedLabel;
 };
 
 // ── CompFolderEdit dialog layout constants (design-px at 96 DPI) ──────────────
@@ -7991,6 +7997,16 @@ LRESULT CALLBACK CompFolderEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
             preselInited, S(CFE_PAD_H), y, contW, S(CFE_CHECK_H), hInst);
         if (pData->initRequired == 1 && hPresel)
             EnableWindow(hPresel, FALSE);  // can't un-tick while Required is on
+        y += S(CFE_CHECK_H) + S(CFE_GAP_RPS);
+
+        // Fixed — component shown in wizard but greyed-out (cannot be deselected)
+        {
+            std::wstring fixLbl = pData->fixedLabel.empty()
+                ? L"Fixed (visible but cannot be deselected)" : pData->fixedLabel;
+            CreateCustomCheckbox(hwnd, IDC_FOLDER_DLG_FIXED, fixLbl,
+                pData->initFixed == 1,
+                S(CFE_PAD_H), y, contW, S(CFE_CHECK_H), hInst);
+        }
         y += S(CFE_CHECK_H) + S(CFE_GAP_RC);
 
         // Cascade hint (may wrap over multiple lines)
@@ -8169,6 +8185,8 @@ LRESULT CALLBACK CompFolderEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
             pData->outRequired    = (SendDlgItemMessageW(hwnd, IDC_FOLDER_DLG_REQUIRED,
                                          BM_GETCHECK, 0, 0) == BST_CHECKED) ? 1 : 0;
             pData->outPreselected = (SendDlgItemMessageW(hwnd, IDC_FOLDER_DLG_PRESELECTED,
+                                         BM_GETCHECK, 0, 0) == BST_CHECKED) ? 1 : 0;
+            pData->outFixed       = (SendDlgItemMessageW(hwnd, IDC_FOLDER_DLG_FIXED,
                                          BM_GETCHECK, 0, 0) == BST_CHECKED) ? 1 : 0;
             // Collect install types
             {
@@ -8924,11 +8942,15 @@ struct CompDlgData {
     std::wstring groupLabel;   // "Group:" label for the group combobox
     std::wstring initGroupName;
     std::vector<std::wstring> existingGroups; // all unique group names in the project (for combo suggestions)
+    // Fixed
+    int          initFixed = 0;   // 1 = shown but greyed-out (Inno: Flags: fixed)
+    std::wstring fixedLabel;
     // Output
     bool okClicked = false;
     std::wstring outName;
     std::wstring outDesc;
     int outRequired = 0;
+    int outFixed    = 0;
     std::wstring outSourcePath;
     std::vector<int> outDependencyIds;
     std::wstring outGroupName;
@@ -9056,6 +9078,16 @@ LRESULT CALLBACK CompEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
         CreateCustomCheckbox(hwnd, IDC_COMPDLG_REQUIRED, pData->requiredLabel,
             pData->initRequired != 0,
             editX, y, editW, rowH, hInst);
+        y += rowH + rowGap;
+
+        // Fixed checkbox — component visible in wizard but greyed-out (cannot deselect)
+        {
+            std::wstring fixLbl = pData->fixedLabel.empty()
+                ? L"Fixed (visible but cannot be deselected)" : pData->fixedLabel;
+            CreateCustomCheckbox(hwnd, IDC_COMPDLG_FIXED, fixLbl,
+                pData->initFixed != 0,
+                editX, y, editW, rowH, hInst);
+        }
         y += rowH + rowGap;
 
         // Source Path
@@ -9257,6 +9289,7 @@ LRESULT CALLBACK CompEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
             GetDlgItemTextW(hwnd, IDC_COMPDLG_NAME, buf, 512); pData->outName = buf;
             GetDlgItemTextW(hwnd, IDC_COMPDLG_DESC, buf, 512); pData->outDesc = buf;
             pData->outRequired = (SendDlgItemMessageW(hwnd, IDC_COMPDLG_REQUIRED, BM_GETCHECK, 0, 0) == BST_CHECKED) ? 1 : 0;
+            pData->outFixed    = (SendDlgItemMessageW(hwnd, IDC_COMPDLG_FIXED,    BM_GETCHECK, 0, 0) == BST_CHECKED) ? 1 : 0;
             GetDlgItemTextW(hwnd, IDC_COMPDLG_SRC, buf, 512); pData->outSourcePath = buf;
             GetDlgItemTextW(hwnd, IDC_COMPDLG_GROUP, buf, 512); pData->outGroupName = buf;
             // outDependencyIds maintained by Choose/Remove handlers
@@ -12809,6 +12842,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             dlgData2.initName          = cmp.display_name;
             dlgData2.initDesc          = cmp.description;
             dlgData2.initRequired      = cmp.is_required;
+            dlgData2.initFixed         = cmp.is_fixed;
             dlgData2.initSourceType    = cmp.source_type;
             dlgData2.initSourcePath    = cmp.source_path;
             dlgData2.otherComponents   = otherComps;
@@ -12833,6 +12867,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             dlgData2.depsLabel     = lstrE(L"comp_deps_label",    L"Requires:");
             dlgData2.typesLabel    = lstrE(L"comp_types_label",   L"Install types:");
             dlgData2.groupLabel    = lstrE(L"comp_group_label",   L"Group:");
+            dlgData2.fixedLabel    = lstrE(L"comp_fixed_label",   L"Fixed (visible but cannot be deselected)");
             dlgData2.okText        = lstrE(L"ok",                 L"OK");
             dlgData2.cancelText    = lstrE(L"cancel",             L"Cancel");
 
@@ -12855,12 +12890,12 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 int groupExtra = dlgData2.groupLabel.empty() ? 0 : S(CED_ROW_H + CED_ROW_GAP);
                 if (otherComps.empty())
                     clientH = S(CED_PAD_T
-                        + 4*(CED_ROW_H + CED_ROW_GAP)
+                        + 5*(CED_ROW_H + CED_ROW_GAP)
                         + CED_NOTE_H + CED_ROW_GAP
                         + CED_BTN_H  + CED_PAD_B) + typesExtra + groupExtra;
                 else
                     clientH = S(CED_PAD_T
-                        + 4*(CED_ROW_H + CED_ROW_GAP)
+                        + 5*(CED_ROW_H + CED_ROW_GAP)
                         + 20 + 4           // deps label
                         + CED_DEP_H + 6    // deps ListView
                         + CED_DEP_BTN_H + CED_ROW_GAP
@@ -12888,6 +12923,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 s_components[selIdx].display_name  = dlgData2.outName;
                 s_components[selIdx].description   = dlgData2.outDesc;
                 s_components[selIdx].is_required   = dlgData2.outRequired;
+                s_components[selIdx].is_fixed       = dlgData2.outFixed;
                 s_components[selIdx].source_path   = dlgData2.outSourcePath;
                 s_components[selIdx].dependencies  = dlgData2.outDependencyIds;
                 s_components[selIdx].notes_rtf     = dlgData2.outNotesRtf;
@@ -12984,10 +13020,32 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 }
             }
 
+            int fixedState = -1;
+            for (const auto& path : paths) {
+                for (const auto& cmp : s_components) {
+                    if (cmp.source_path != path) continue;
+                    if (!cmp.dest_path.empty() && cmp.dest_path != section) continue;
+                    if (fixedState == -1) fixedState = cmp.is_fixed;
+                    else if (fixedState != cmp.is_fixed) { fixedState = -1; goto fixed_mixed_done; }
+                    break;
+                }
+            }
+            fixed_mixed_done:
+            if (fixedState == -1 && !snap->fullPath.empty()) {
+                for (const auto& cmp : s_components) {
+                    if (cmp.source_path != snap->fullPath) continue;
+                    if (cmp.source_type  != L"folder")     continue;
+                    if (!cmp.dest_path.empty() && cmp.dest_path != section) continue;
+                    fixedState = cmp.is_fixed;
+                    break;
+                }
+            }
+
             CompFolderDlgData fd;
             fd.folderName       = snap->text;
             fd.initRequired     = (reqState    == 1) ? 1 : 0;
             fd.initPreselected  = (preselState == 1) ? 1 : 0;
+            fd.initFixed        = (fixedState  == 1) ? 1 : 0;
             fd.titleText        = LS(L"comp_folder_edit_title",  L"Edit Folder");
             fd.requiredLabel    = LS(L"comp_required_label",     L"Required (always installed)");
             fd.preselectedLabel = LS(L"comp_preselected_label",  L"Pre-selected (ticked by default at install)");
@@ -13063,6 +13121,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                     if (!found) fd.existingGroups.push_back(oc.group_name);
                 }
             fd.groupLabel = LS(L"comp_group_label", L"Group:");
+            fd.fixedLabel = LS(L"comp_fixed_label", L"Fixed (visible but cannot be deselected)");
 
             WNDCLASSEXW wcFd = {};
             wcFd.cbSize = sizeof(wcFd);
@@ -13095,8 +13154,9 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             int clientW3 = S(CFE_PAD_H)+S(CFE_CONT_W)+S(CFE_PAD_H);
             int clientH3 = S(CFE_PAD_T)
                          + S(CFE_NAME_H)+S(CFE_GAP_NR)
-                         + S(CFE_CHECK_H)+S(CFE_GAP_RPS)
-                         + S(CFE_CHECK_H)+S(CFE_GAP_RC)
+                         + S(CFE_CHECK_H)+S(CFE_GAP_RPS)   // Required
+                         + S(CFE_CHECK_H)+S(CFE_GAP_RPS)   // Pre-selected
+                         + S(CFE_CHECK_H)+S(CFE_GAP_RC)    // Fixed
                          + fd.hintH+S(CFE_GAP_CD)
                          + S(CFE_DEPS_ROW_H)+S(CFE_GAP_LD)
                          + S(CFE_DEPLIST_H)+S(CFE_GAP_LB)
@@ -13143,6 +13203,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                         if (!cmp.dest_path.empty() && cmp.dest_path != section) continue;
                         cmp.is_required    = fd.outRequired;
                         cmp.is_preselected = fd.outPreselected;
+                        cmp.is_fixed       = fd.outFixed;
                         cmp.install_types  = fd.outInstallTypes;
                         cmp.group_name     = fd.outGroupName;
                         // Keep per-component dependencies/notes on non-folder rows
@@ -13160,6 +13221,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                         if (!cmp.dest_path.empty() && cmp.dest_path != section) continue;
                         cmp.is_required    = fd.outRequired;
                         cmp.is_preselected = fd.outPreselected;
+                        cmp.is_fixed       = fd.outFixed;
                         cmp.install_types  = fd.outInstallTypes;
                         cmp.group_name     = fd.outGroupName;
                         break;
@@ -13182,6 +13244,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                         newComp.description    = L"";
                         newComp.is_required    = fd.outRequired;
                         newComp.is_preselected = fd.outPreselected;
+                        newComp.is_fixed       = fd.outFixed;
                         newComp.source_type    = L"folder";
                         newComp.source_path    = snap->fullPath;
                         newComp.dest_path      = section;

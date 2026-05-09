@@ -1,0 +1,130 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+
+    <!-- ── Background ──────────────────────────────────── -->
+    <linearGradient id="bg" x1="0" y1="0" x2="200" y2="200" gradientUnits="userSpaceOnUse">
+      <stop offset="0%"   stop-color="#1e2c48"/>
+      <stop offset="100%" stop-color="#0a1220"/>
+    </linearGradient>
+
+    <!-- ── Border: reflects the letter colours subtly ──── -->
+    <!-- Top-left is cool steel-blue (echoes C), bottom-right is muted crimson (echoes S) -->
+    <linearGradient id="bdr" x1="0" y1="0" x2="200" y2="200" gradientUnits="userSpaceOnUse">
+      <stop offset="0%"   stop-color="#5a8ab8"/>
+      <stop offset="50%"  stop-color="#6e8090"/>
+      <stop offset="100%" stop-color="#906070"/>
+    </linearGradient>
+
+    <!-- ── S: crimson red, 3-stop for 3D depth ────────── -->
+    <linearGradient id="sg" x1="28" y1="38" x2="124" y2="162" gradientUnits="userSpaceOnUse">
+      <stop offset="0%"   stop-color="#ff8080"/>
+      <stop offset="40%"  stop-color="#e01010"/>
+      <stop offset="100%" stop-color="#4a0000"/>
+    </linearGradient>
+    <!-- S extrusion / depth shadow -->
+    <linearGradient id="sd" x1="28" y1="38" x2="124" y2="162" gradientUnits="userSpaceOnUse">
+      <stop offset="0%"   stop-color="#580000"/>
+      <stop offset="100%" stop-color="#140000"/>
+    </linearGradient>
+
+    <!-- ── C: sky blue, 3-stop ────────────────────────── -->
+    <linearGradient id="cg" x1="78" y1="64" x2="150" y2="156" gradientUnits="userSpaceOnUse">
+      <stop offset="0%"   stop-color="#90d8ff"/>
+      <stop offset="40%"  stop-color="#1470cc"/>
+      <stop offset="100%" stop-color="#003080"/>
+    </linearGradient>
+    <!-- C extrusion / depth shadow -->
+    <linearGradient id="cd" x1="78" y1="64" x2="150" y2="156" gradientUnits="userSpaceOnUse">
+      <stop offset="0%"   stop-color="#001e4a"/>
+      <stop offset="100%" stop-color="#00080e"/>
+    </linearGradient>
+
+
+    <!-- Braiding clip regions -->
+    <clipPath id="cb"><rect x="0" y="130" width="200" height="80"/></clipPath>
+
+    <!-- Highlight soft-edge blur -->
+    <filter id="hl" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="3"/>
+    </filter>
+
+  </defs>
+
+  <!-- ════════════════════════════════════════════════════
+       BACKGROUND SQUARE
+  ════════════════════════════════════════════════════ -->
+  <rect x="4" y="4" width="192" height="192" rx="30" fill="url(#bg)"/>
+
+  <!-- Very subtle top-centre gloss (like a polished icon surface) -->
+  <ellipse cx="100" cy="28" rx="62" ry="16" fill="rgba(255,255,255,0.04)"/>
+
+  <!-- ════════════════════════════════════════════════════
+       BORDER  (3 layers → outer shadow / colour / inner gleam)
+  ════════════════════════════════════════════════════ -->
+  <rect x="4"  y="4"  width="192" height="192" rx="30"
+        fill="none" stroke="#040a16"      stroke-width="9"/>
+  <rect x="4"  y="4"  width="192" height="192" rx="30"
+        fill="none" stroke="url(#bdr)"   stroke-width="5.5"/>
+  <rect x="8"  y="8"  width="184" height="184" rx="26"
+        fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="1.5"/>
+
+  <!-- ════════════════════════════════════════════════════
+       3-D EXTRUSIONS
+       Both letters are drawn offset (3 right, 5 down) in their
+       dark depth colour BEFORE the main letters, creating the
+       illusion of thickness / embossing.
+  ════════════════════════════════════════════════════ -->
+
+  <!--
+    S skeleton:
+      (116,42) → upper-right start
+      C 56,42  40,70  60,90   upper-left bowl
+      C 80,110 130,106 128,128 diagonal crossing to lower-right
+      C 126,150 62,158 60,158  lower-left bowl
+  -->
+  <path d="M 120,37 C 48,42 32,70 52,90 C 72,110 122,106 120,128
+           C 118,150 54,158 47,158"
+        fill="none" stroke="url(#sd)" stroke-width="34" stroke-linecap="round"
+        transform="translate(3,5)"/>
+
+  <!--
+    C skeleton — smaller: tighter arc, less leftward reach
+      (138,58) → top arm
+      C 88,58  72,78  72,100  left curve
+      C 72,122 88,142 138,142 bottom arm
+  -->
+  <path d="M 148,68 C 98,68 82,88 82,110 C 82,132 98,152 148,152"
+        fill="none" stroke="url(#cd)" stroke-width="26" stroke-linecap="round"
+        transform="translate(3,5)"/>
+
+  <!-- LETTERS + SHINES interlaced so each layer covers the previous shine bleed -->
+
+  <!-- 1. C full -->
+  <path d="M 148,68 C 98,68 82,88 82,110 C 82,132 98,152 148,152"
+        fill="none" stroke="url(#cg)" stroke-width="24" stroke-linecap="round"/>
+  <!-- C shine — S painted next will cover any bleed onto S area -->
+  <path d="M 148,68 C 98,68 82,88 82,110 C 82,132 98,152 148,152"
+        fill="none" stroke="rgb(210,242,255)" stroke-width="8"
+        stroke-linecap="round" transform="translate(-3,-4)" filter="url(#hl)"/>
+
+  <!-- 2. S full — opaque, covers C and C shine at upper crossing -->
+  <path d="M 120,37 C 48,42 32,70 52,90 C 72,110 122,106 120,128
+           C 118,150 54,158 47,158"
+        fill="none" stroke="url(#sg)" stroke-width="32" stroke-linecap="round"/>
+  <!-- S shine — C bottom painted next will cover any bleed onto C area -->
+  <path d="M 120,37 C 48,42 32,70 52,90 C 72,110 122,106 120,128
+           C 118,150 54,158 47,158"
+        fill="none" stroke="rgb(255,210,210)" stroke-width="11"
+        stroke-linecap="round" transform="translate(-3,-4)" filter="url(#hl)"/>
+
+  <!-- 3. C bottom half — opaque, covers S shine bleed at lower crossing -->
+  <path d="M 148,68 C 98,68 82,88 82,110 C 82,132 98,152 148,152"
+        fill="none" stroke="url(#cg)" stroke-width="24" stroke-linecap="round"
+        clip-path="url(#cb)"/>
+  <!-- C bottom shine — topmost layer -->
+  <path d="M 148,68 C 98,68 82,88 82,110 C 82,132 98,152 148,152"
+        fill="none" stroke="rgb(210,242,255)" stroke-width="8"
+        stroke-linecap="round" transform="translate(-3,-4)" filter="url(#hl)"
+        clip-path="url(#cb)"/>
+
+</svg>

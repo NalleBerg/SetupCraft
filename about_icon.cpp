@@ -77,16 +77,13 @@ HWND CreateAboutIconControl(HWND parent, HINSTANCE hInst, int x, int y, int size
         x, y, size, size,
         parent, (HMENU)(INT_PTR)id, hInst, NULL);
 
-    // Load info icon from shell32.dll (icon #221 is information/about icon)
-    wchar_t dllPath[MAX_PATH];
-    GetSystemDirectoryW(dllPath, MAX_PATH);
-    PathAppendW(dllPath, L"\\shell32.dll");
-
-    HICON hAboutIconImage = NULL;
-    UINT extracted = PrivateExtractIconsW(dllPath, 221, size, size, &hAboutIconImage, NULL, 1, 0);
-    if (extracted > 0 && hAboutIconImage) {
+    // Load app icon from resources, scaled to requested size
+    HICON hAboutIconImage = (HICON)LoadImageW(hInst, MAKEINTRESOURCEW(1),
+        IMAGE_ICON, size, size, LR_DEFAULTCOLOR);
+    if (!hAboutIconImage)
+        hAboutIconImage = LoadIconW(NULL, IDI_APPLICATION);
+    if (hAboutIconImage)
         SendMessageW(s_aboutIcon, STM_SETICON, (WPARAM)hAboutIconImage, 0);
-    }
 
     // store parent and locale pointer
     s_parentWnd = parent;

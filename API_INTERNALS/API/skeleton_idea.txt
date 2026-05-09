@@ -115,7 +115,28 @@
 
   Icons / branding
     [ ] icons\README.txt    — slot conventions (app icon, toolbar icons)
-    [ ] make_ico.ps1        — PNG → .ico conversion script
+    [ ] make_ico.ps1        — PNG/SVG → multi-frame .ico conversion script
+                              (sizes 16,24,32,40,48,64,96,128 px via ImageMagick)
+    [ ] SCLogo.svg          — master app icon source (pure SVG, viewBox 200×200);
+                              generate ICO: magick SCLogo.svg -background none
+                              -define icon:auto-resize=256,128,64,48,32,16 App.ico;
+                              generate About PNG: magick SCLogo.svg -background none
+                              -resize 256x256 App.png
+    [ ] App.rc              — 1 ICON "App.ico" (resource ID 1 = app icon;
+                              LoadIconW/LoadImageW via MAKEINTRESOURCEW(1))
+    [ ] about_icon.h/.cpp   — entry-screen About button: SS_ICON STATIC + SS_NOTIFY
+                              + subclass; LoadImageW(MAKEINTRESOURCEW(1)) for DPI-
+                              correct size; tooltip + click → ShowAboutDialog.
+    Note: window-class icon pattern:
+      wc.hIcon   = LoadIconW(hInst, MAKEINTRESOURCEW(1));
+      wc.hIconSm = (HICON)LoadImageW(hInst, MAKEINTRESOURCEW(1),
+                       IMAGE_ICON, 16, 16, 0);
+      WM_CREATE: SendMessageW(hwnd, WM_SETICON, ICON_BIG/ICON_SMALL, ...);
+    Note: About-dialog center image via GDI+ (see icon_INTERNALS.txt):
+      gdiplus.lib; GdiplusStartup in main(); Image::FromFile(exeDir+L"\\App.png");
+      EditSubclassProc draws at 75% scale, scroll-offset-aware.
+    Note: Windows icon cache must be cleared after ICO replacement
+      (see icon_INTERNALS.txt §2 for the PowerShell one-liner).
 
   Inno Setup stub
     [ ] inno\template.iss   — minimal installer template; uses {#DefaultDirBase}

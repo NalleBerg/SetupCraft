@@ -37,8 +37,9 @@ struct ComponentRow {
     std::wstring display_name;
     std::wstring description;
     std::wstring notes_rtf;         // RTF-encoded rich notes (stored in DB, shown as installer tooltip)
-    int is_required    = 0;        // 1 = always installed, 0 = optional
+    int is_required    = 0;        // 1 = always installed silently (hidden from wizard), 0 = optional
     int is_preselected = 0;        // 1 = ticked by default at install (implied when is_required==1)
+    int is_fixed       = 0;        // 1 = shown in wizard but greyed-out, cannot be deselected (Inno: Flags: fixed)
     std::wstring source_type;      // L"folder" or L"file"
     std::wstring source_path;
     std::wstring dest_path;

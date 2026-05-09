@@ -1,0 +1,239 @@
+================================================================================
+  SetupCraft — App Icon System Internals
+================================================================================
+
+FILES:
+  SCLogo.svg          Master source — the SC balloon-letter logo (SVG)
+  SetupCraft.ico      Multi-size ICO file embedded in the exe via RC
+  SetupCraft.rc       Resource script: `1 ICON "SetupCraft.ico"`
+  SetupCraft\SetupCraft.png   256×256 PNG placed next to the exe (About dialog)
+  make_ico.ps1        PowerShell helper — repacks any .ico into multi-frame
+  about.cpp           Loads PNG (GDI+) + draws in RichEdit; sets dialog icons
+  about_icon.cpp      Entry-screen About button — loads resource icon, subclass
+  mainwindow.cpp      Window-class icon (WNDCLASSEX.hIcon / .hIconSm)
+
+================================================================================
+1. SCLogo.svg — DESIGN
+================================================================================
+
+  A "balloon letter" SC monogram on a dark (#111) background with a
+  gradient border (dark-grey → mid-grey → dark-grey radial sweep).
+
+  Letters:
+    S — red stroke (#cc2222, stroke-width=32), path:
+        M 120,37 C 48,42 32,70 52,90 C 72,110 122,106 120,128
+                 C 118,150 54,158 47,158
+        Rounded balloon feel; arms intentionally slightly uneven for
+        a hand-crafted aesthetic.
+    C — blue stroke (#1155cc, stroke-width=24), path:
+        M 148,68 C 98,68 82,88 82,110 C 82,132 98,152 148,152
+        Open arc; deliberately smaller than S so it tucks beside it.
+
+  Braiding (interlaced draw order):
+    C in front at bottom crossing (clip rect y=130..210):
+      C full body + C shine are drawn first.
+      S full body + S shine are drawn on top → S covers C at the top
+      crossing automatically (S is drawn second).
+      A clipped copy of C (clipPath id="cb": rect x=0 y=130 w=200 h=80)
+      is drawn last → C paints over S at the bottom crossing.
+    Result: C is behind S at the top; C is in front of S at the bottom.
+
+  Balloon shine (specular highlight):
+    Each letter gets a narrow white stroke drawn immediately after the
+    letter body, positioned up-left (translate(-3,-4)), feGaussianBlur
+    stdDeviation=3, fully opaque rgb() colors (no alpha channel) to prevent
+    bleed-through onto adjacent letters.
+      S shine: rgb(255,210,210), stroke-width=11
+      C shine: rgb(210,242,255), stroke-width=8
+    Draw order per interlace pass: letter body → shine → (next letter).
+    Fully opaque shine + next letter drawn on top eliminates any colour
+    bleed from the blur spreading onto the wrong letter.
+
+  Gradient border:
+    linearGradient id="bg" sweeping across the 200×200 viewBox.
+    Rect covering the full canvas, rx=18 for rounded corners.
+    SVG viewBox="0 0 200 200", no external fonts or images.
+
+================================================================================
+2. ICO FILE — GENERATION
+================================================================================
+
+  Source: SCLogo.svg
+  Tool:   ImageMagick 7.x  (C:\Program Files\ImageMagick-7.1.2-Q16-HDRI\magick.exe)
+
+  Generation command (run from workspace root):
+    magick SCLogo.svg -background none `
+        -define icon:auto-resize=256,128,64,48,32,16 `
+        SetupCraft.ico
+
+  Or via make_ico.ps1 (repacks an existing ICO into multi-frame):
+    .\make_ico.ps1 -Source SetupCraft.ico
+
+  make_ico.ps1 sizes: 16, 24, 32, 40, 48, 64, 96, 128 px.
+  Direct SVG → ICO generation uses sizes: 16, 32, 48, 64, 128, 256 px.
+
+  Deployment:
+    SetupCraft.ico must exist in both locations before building:
+      <workspace root>\SetupCraft.ico    — referenced by SetupCraft.rc
+      <workspace root>\SetupCraft\SetupCraft.ico   — packaged with the exe
+    Copy with:
+      Copy-Item SetupCraft.ico SetupCraft\SetupCraft.ico
+
+  Icon cache gotcha:
+    Windows caches thumbnail icons in %LOCALAPPDATA%\IconCache.db and
+    iconcache_*.db.  After replacing the ICO and rebuilding, the taskbar
+    and Explorer may still show the old icon until the cache is deleted:
+      Get-Process explorer | Stop-Process
+      Remove-Item "$env:LOCALAPPDATA\IconCache.db" -Force
+      Remove-Item "$env:LOCALAPPDATA\Microsoft\Windows\Explorer\iconcache*" -Force
+      Start-Process explorer
+    After cache deletion the new icon appears immediately.
+
+================================================================================
+3. RESOURCE SCRIPT (SetupCraft.rc)
+================================================================================
+
+  Line 1:  1 ICON "SetupCraft.ico"      ← app icon, resource ID 1
+  Line 2:  2 ICON "icons/trashcan_empty.ico"  ← trash icon, resource ID 2 (IDI_TRASHCAN)
+
+  The RC is compiled by windres (MinGW) into the object file linked into the exe.
+  Rebuilding the RC (without a full CMake rebuild):
+    windres SetupCraft.rc -O coff -o build\SetupCraft.rc.obj
+  Then re-link.  Normally makeit.bat handles this end-to-end.
+
+================================================================================
+4. WINDOW-CLASS ICON (mainwindow.cpp)
+================================================================================
+
+  Called once during window-class registration (RegisterClassExW):
+
+    HICON hIcon   = LoadIconW(hInstance, MAKEINTRESOURCEW(1));
+    HICON hIconSm = (HICON)LoadImageW(hInstance, MAKEINTRESOURCEW(1),
+                        IMAGE_ICON, 16, 16, 0);
+    wc.hIcon   = hIcon   ? hIcon   : LoadIcon(NULL, IDI_APPLICATION);
+    wc.hIconSm = hIconSm ? hIconSm : LoadIcon(NULL, IDI_APPLICATION);
+
+  WM_CREATE also sends WM_SETICON to the main window HWND explicitly
+  (belt-and-suspenders, ensures the title bar and taskbar get the resource icon
+  immediately without waiting for the window-class default to propagate):
+
+    SendMessageW(hwnd, WM_SETICON, ICON_BIG,   (LPARAM)hIcon);
+    SendMessageW(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)hIconSm);
+
+  LoadIconW returns the system-default size (32×32 on 96 DPI) from the ICO's
+  nearest frame.  LoadImageW with explicit 16×16 picks the smallest frame for
+  the title bar.
+
+================================================================================
+5. MODAL DIALOG ICONS (about.cpp)
+================================================================================
+
+  All three About-system dialogs (About, License, Credits) set their title-bar
+  icon from the app resource — not from shell32.dll or a hard-coded path:
+
+    HICON hIcon = LoadIconW(GetModuleHandleW(NULL), MAKEINTRESOURCEW(1));
+    if (!hIcon) hIcon = LoadIcon(NULL, IDI_APPLICATION);
+    if (hIcon) {
+        SendMessageW(dlg, WM_SETICON, ICON_SMALL, (LPARAM)hIcon);
+        SendMessageW(dlg, WM_SETICON, ICON_BIG,   (LPARAM)hIcon);
+    }
+
+  Both ICON_SMALL and ICON_BIG are set so the icon appears correctly at all
+  DPI levels and in Alt+Tab.
+
+================================================================================
+6. ABOUT DIALOG CENTER IMAGE (about.cpp)
+================================================================================
+
+  The About dialog displays the logo as a large center image inside the RichEdit,
+  rendered via GDI+ for transparency support.
+
+  Load path:
+    GetModuleFileNameW → strip filename → append "SetupCraft.png"
+    g_logoImage = Image::FromFile(logoPath);   // GDI+ Gdiplus::Image
+
+  The PNG must live next to the exe.  In the packaged release this is
+  SetupCraft\SetupCraft.png.
+
+  Draw path (EditSubclassProc, WM_PAINT):
+    The RichEdit is subclassed with EditSubclassProc.
+    On WM_PAINT:
+      1. CallWindowProcW (let RichEdit draw text first).
+      2. GetDC(hwnd) → Gdiplus::Graphics.
+      3. EM_GETSCROLLPOS → current scroll offset (pt.y).
+      4. Draw at 75% of the PNG's native size, horizontally centred,
+         y = 10 - pt.y (scrolls with the RichEdit content).
+      5. Skip draw if the image rect is completely off-screen.
+      6. ReleaseDC.
+    Return 0 (suppress default WM_PAINT processing after CallWindowProcW
+    has already been called).
+
+  Blank lines reserved for logo:
+    After attaching the custom scrollbar, the init code calculates
+      logoSpaceLines = (logoH + 20) / S(15)
+    and prepends that many "\r\n" paragraphs so the body text starts below
+    the image even at 75% scale.  S(15) is the per-line height estimate
+    scaled to DPI.
+
+  PNG generation (when updating the logo):
+    magick SCLogo.svg -background none -resize 256x256 SetupCraft\SetupCraft.png
+    Copy-Item SetupCraft\SetupCraft.png SetupCraft.png
+
+  GDI+ initialisation:
+    GdiplusStartupInput gdiplusStartupInput;
+    ULONG_PTR gdiplusToken;
+    GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, NULL);
+    Called once in main() before the message loop; GdiplusShutdown at exit.
+    Requires linking gdiplus.lib (#pragma comment(lib, "gdiplus.lib")).
+
+================================================================================
+7. ENTRY-SCREEN ABOUT BUTTON (about_icon.cpp)
+================================================================================
+
+  The compact icon-only About button on the entry screen is an SS_ICON STATIC
+  control subclassed with AboutIcon_SubclassProc.
+
+  Creation (CreateAboutIconControl):
+    CreateWindowExW(..., L"STATIC", ..., SS_ICON | SS_CENTERIMAGE | SS_NOTIFY, ...)
+    HICON hAboutIconImage = (HICON)LoadImageW(hInst, MAKEINTRESOURCEW(1),
+        IMAGE_ICON, size, size, LR_DEFAULTCOLOR);
+    SendMessageW(s_aboutIcon, STM_SETICON, (WPARAM)hAboutIconImage, 0);
+
+  Key points:
+    SS_NOTIFY is required — without it the STATIC control eats all mouse
+    messages and the subclass proc never sees WM_MOUSEMOVE or WM_LBUTTONDOWN.
+    LoadImageW with explicit size is used (not LoadIconW) so the icon scales
+    correctly to the requested pixel size at any DPI.
+    Resource ID 1 is always the app icon — no shell32.dll extraction needed.
+
+  Subclass behavior (AboutIcon_SubclassProc):
+    WM_MOUSEMOVE  → ShowMultilingualTooltip ("About SetupCraft") + TrackMouseEvent
+    WM_MOUSELEAVE → HideTooltip(), clear tracking state
+    WM_LBUTTONDOWN → HideTooltip() first (§9 of tooltip API — hide before
+                     EnableWindow(parent, FALSE) in ShowAboutDialog's modal loop)
+                     → ShowAboutDialog(s_parentWnd, *s_localePtr)
+    WM_NCDESTROY  → restore original WNDPROC (SetWindowLongPtrW GWLP_WNDPROC)
+
+================================================================================
+8. UPDATING THE ICON (checklist)
+================================================================================
+
+  When SCLogo.svg changes:
+
+  1. Regenerate ICO:
+       magick SCLogo.svg -background none `
+           -define icon:auto-resize=256,128,64,48,32,16 SetupCraft.ico
+       Copy-Item SetupCraft.ico SetupCraft\SetupCraft.ico
+
+  2. Regenerate PNG (About dialog center image):
+       magick SCLogo.svg -background none -resize 256x256 SetupCraft\SetupCraft.png
+       Copy-Item SetupCraft\SetupCraft.png SetupCraft.png
+
+  3. Rebuild the exe (recompiles SetupCraft.rc → links new ICO):
+       .\makeit.bat
+
+  4. Clear Windows icon cache if the taskbar still shows the old icon:
+       Stop-Process -Name explorer
+       Remove-Item "$env:LOCALAPPDATA\IconCache.db" -Force
+       Remove-Item "$env:LOCALAPPDATA\Microsoft\Windows\Explorer\iconcache*" -Force
+       Start-Process explorer

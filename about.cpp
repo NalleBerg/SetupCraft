@@ -288,7 +288,8 @@ void ShowAboutDialog(HWND parent, const std::map<std::wstring, std::wstring>& lo
     }
     
     // Set app icon
-    HICON hIcon = LoadIcon(NULL, IDI_APPLICATION);
+    HICON hIcon = LoadIconW(GetModuleHandleW(NULL), MAKEINTRESOURCEW(1));
+    if (!hIcon) hIcon = LoadIcon(NULL, IDI_APPLICATION);
     if (hIcon) {
         SendMessageW(dlg, WM_SETICON, ICON_SMALL, (LPARAM)hIcon);
         SendMessageW(dlg, WM_SETICON, ICON_BIG, (LPARAM)hIcon);
@@ -472,7 +473,8 @@ void ShowLicenseDialog(HWND parent, const std::map<std::wstring, std::wstring>& 
     }
     
     // Set app icon
-    HICON hIcon = LoadIcon(NULL, IDI_APPLICATION);
+    HICON hIcon = LoadIconW(GetModuleHandleW(NULL), MAKEINTRESOURCEW(1));
+    if (!hIcon) hIcon = LoadIcon(NULL, IDI_APPLICATION);
     if (hIcon) {
         SendMessageW(dlg, WM_SETICON, ICON_SMALL, (LPARAM)hIcon);
         SendMessageW(dlg, WM_SETICON, ICON_BIG, (LPARAM)hIcon);
@@ -746,7 +748,8 @@ void ShowCreditsDialog(HWND parent, const std::map<std::wstring, std::wstring>& 
 
     if (!dlg) return;
 
-    HICON hIcon = LoadIcon(NULL, IDI_APPLICATION);
+    HICON hIcon = LoadIconW(GetModuleHandleW(NULL), MAKEINTRESOURCEW(1));
+    if (!hIcon) hIcon = LoadIcon(NULL, IDI_APPLICATION);
     if (hIcon) {
         SendMessageW(dlg, WM_SETICON, ICON_SMALL, (LPARAM)hIcon);
         SendMessageW(dlg, WM_SETICON, ICON_BIG,   (LPARAM)hIcon);

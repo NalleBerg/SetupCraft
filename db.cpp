@@ -119,7 +119,7 @@ bool DB::InitDb() {
     const char *createSettings = "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);";
     const char *createRegistry = "CREATE TABLE IF NOT EXISTS registry_entries (id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER NOT NULL, hive TEXT NOT NULL, path TEXT NOT NULL, name TEXT NOT NULL, type TEXT NOT NULL, data TEXT, FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);";
     const char *createFiles = "CREATE TABLE IF NOT EXISTS files (id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER NOT NULL, source_path TEXT NOT NULL, destination_path TEXT NOT NULL, install_scope TEXT DEFAULT '', FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);";
-    const char *createComponents = "CREATE TABLE IF NOT EXISTS components (id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER NOT NULL, display_name TEXT NOT NULL DEFAULT '', description TEXT DEFAULT '', notes_rtf TEXT DEFAULT '', is_required INTEGER DEFAULT 0, is_preselected INTEGER DEFAULT 0, source_type TEXT DEFAULT 'folder', source_path TEXT DEFAULT '', dest_path TEXT DEFAULT '', install_types TEXT DEFAULT '', FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);";
+    const char *createComponents = "CREATE TABLE IF NOT EXISTS components (id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER NOT NULL, display_name TEXT NOT NULL DEFAULT '', description TEXT DEFAULT '', notes_rtf TEXT DEFAULT '', is_required INTEGER DEFAULT 0, is_preselected INTEGER DEFAULT 0, is_fixed INTEGER DEFAULT 0, source_type TEXT DEFAULT 'folder', source_path TEXT DEFAULT '', dest_path TEXT DEFAULT '', install_types TEXT DEFAULT '', group_name TEXT DEFAULT '', FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);";
     const char *createCompDeps = "CREATE TABLE IF NOT EXISTS component_dependencies (id INTEGER PRIMARY KEY AUTOINCREMENT, component_id INTEGER NOT NULL, depends_on_id INTEGER NOT NULL, UNIQUE(component_id, depends_on_id), FOREIGN KEY(component_id) REFERENCES components(id) ON DELETE CASCADE, FOREIGN KEY(depends_on_id) REFERENCES components(id) ON DELETE CASCADE);";
     char *errmsg = NULL;
     if (p_exec(db, createProjects, NULL, NULL, &errmsg) != 0) {
@@ -179,6 +179,8 @@ bool DB::InitDb() {
     p_exec(db, "ALTER TABLE components ADD COLUMN install_types TEXT DEFAULT '';", NULL, NULL, &errmsg);
     // Add group_name column to components table for existing databases
     p_exec(db, "ALTER TABLE components ADD COLUMN group_name TEXT DEFAULT '';", NULL, NULL, &errmsg);
+    // Add is_fixed column to components table for existing databases
+    p_exec(db, "ALTER TABLE components ADD COLUMN is_fixed INTEGER DEFAULT 0;", NULL, NULL, &errmsg);
     // Ensure install_types table exists for older databases
     p_exec(db, "CREATE TABLE IF NOT EXISTS install_types ("
         "id INTEGER PRIMARY KEY AUTOINCREMENT, "
@@ -1975,6 +1977,7 @@ int DB::InsertComponent(const ComponentRow &comp) {
     std::string sNotes   = WToUtf8(comp.notes_rtf);
     std::string sReq     = std::to_string(comp.is_required);
     std::string sPresel  = std::to_string(comp.is_preselected);
+    std::string sFixed   = std::to_string(comp.is_fixed);
     std::string sType    = WToUtf8(comp.source_type);
     std::string sSrc     = WToUtf8(comp.source_path);
     std::string sDst     = WToUtf8(comp.dest_path);
@@ -1986,11 +1989,12 @@ int DB::InsertComponent(const ComponentRow &comp) {
     if (p_bind_text) p_bind_text(stmt,  4, sNotes.c_str(),   -1, NULL);
     if (p_bind_text) p_bind_text(stmt,  5, sReq.c_str(),     -1, NULL);
     if (p_bind_text) p_bind_text(stmt,  6, sPresel.c_str(),  -1, NULL);
-    if (p_bind_text) p_bind_text(stmt,  7, sType.c_str(),    -1, NULL);
-    if (p_bind_text) p_bind_text(stmt,  8, sSrc.c_str(),     -1, NULL);
-    if (p_bind_text) p_bind_text(stmt,  9, sDst.c_str(),     -1, NULL);
-    if (p_bind_text) p_bind_text(stmt, 10, sInstT.c_str(),   -1, NULL);
-    if (p_bind_text) p_bind_text(stmt, 11, sGroup.c_str(),   -1, NULL);
+    if (p_bind_text) p_bind_text(stmt,  7, sFixed.c_str(),   -1, NULL);
+    if (p_bind_text) p_bind_text(stmt,  8, sType.c_str(),    -1, NULL);
+    if (p_bind_text) p_bind_text(stmt,  9, sSrc.c_str(),     -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 10, sDst.c_str(),     -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 11, sInstT.c_str(),   -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 12, sGroup.c_str(),   -1, NULL);
     int rc = p_step(stmt); (void)rc;
     int newId = (p_last_insert && p_finalize) ? (int)p_last_insert(db) : 0;
     if (p_finalize) p_finalize(stmt);
@@ -2005,7 +2009,7 @@ bool DB::UpdateComponent(const ComponentRow &comp) {
     int flags = 0x00000002 | 0x00000004;
     if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return false;
 
-    const char *sql = "UPDATE components SET display_name=?, description=?, notes_rtf=?, is_required=?, is_preselected=?, source_type=?, source_path=?, dest_path=?, install_types=?, group_name=? WHERE id=?;";  // ?11=id
+    const char *sql = "UPDATE components SET display_name=?, description=?, notes_rtf=?, is_required=?, is_preselected=?, is_fixed=?, source_type=?, source_path=?, dest_path=?, install_types=?, group_name=? WHERE id=?;";  // ?12=id
     void *stmt = NULL;
     if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return false; }
     std::string sName  = WToUtf8(comp.display_name);
@@ -2013,6 +2017,7 @@ bool DB::UpdateComponent(const ComponentRow &comp) {
     std::string sNotes = WToUtf8(comp.notes_rtf);
     std::string sReq    = std::to_string(comp.is_required);
     std::string sPresel = std::to_string(comp.is_preselected);
+    std::string sFixed  = std::to_string(comp.is_fixed);
     std::string sType   = WToUtf8(comp.source_type);
     std::string sSrc    = WToUtf8(comp.source_path);
     std::string sDst    = WToUtf8(comp.dest_path);
@@ -2024,12 +2029,13 @@ bool DB::UpdateComponent(const ComponentRow &comp) {
     if (p_bind_text) p_bind_text(stmt,  3, sNotes.c_str(),  -1, NULL);
     if (p_bind_text) p_bind_text(stmt,  4, sReq.c_str(),    -1, NULL);
     if (p_bind_text) p_bind_text(stmt,  5, sPresel.c_str(), -1, NULL);
-    if (p_bind_text) p_bind_text(stmt,  6, sType.c_str(),   -1, NULL);
-    if (p_bind_text) p_bind_text(stmt,  7, sSrc.c_str(),    -1, NULL);
-    if (p_bind_text) p_bind_text(stmt,  8, sDst.c_str(),    -1, NULL);
-    if (p_bind_text) p_bind_text(stmt,  9, sInstT.c_str(),  -1, NULL);
-    if (p_bind_text) p_bind_text(stmt, 10, sGroup.c_str(),  -1, NULL);
-    if (p_bind_text) p_bind_text(stmt, 11, sId.c_str(),     -1, NULL);
+    if (p_bind_text) p_bind_text(stmt,  6, sFixed.c_str(),  -1, NULL);
+    if (p_bind_text) p_bind_text(stmt,  7, sType.c_str(),   -1, NULL);
+    if (p_bind_text) p_bind_text(stmt,  8, sSrc.c_str(),    -1, NULL);
+    if (p_bind_text) p_bind_text(stmt,  9, sDst.c_str(),    -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 10, sInstT.c_str(),  -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 11, sGroup.c_str(),  -1, NULL);
+    if (p_bind_text) p_bind_text(stmt, 12, sId.c_str(),     -1, NULL);
     int rc = p_step(stmt); (void)rc;
     if (p_finalize) p_finalize(stmt);
     p_close(db);
@@ -2044,7 +2050,7 @@ std::vector<ComponentRow> DB::GetComponentsForProject(int projectId) {
     int flags = 0x00000002 | 0x00000004;
     if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return out;
 
-    const char *sql = "SELECT id, display_name, description, notes_rtf, is_required, is_preselected, source_type, source_path, dest_path, install_types, group_name FROM components WHERE project_id=? ORDER BY id ASC;";
+    const char *sql = "SELECT id, display_name, description, notes_rtf, is_required, is_preselected, is_fixed, source_type, source_path, dest_path, install_types, group_name FROM components WHERE project_id=? ORDER BY id ASC;";
     void *stmt = NULL;
     if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return out; }
     std::string sProjId = std::to_string(projectId);
@@ -2059,19 +2065,20 @@ std::vector<ComponentRow> DB::GetComponentsForProject(int projectId) {
         const unsigned char *c3 = p_col_text(stmt, 3);
         r.is_required    = (int)p_col_int64(stmt, 4);
         r.is_preselected = (int)p_col_int64(stmt, 5);
-        const unsigned char *c6 = p_col_text(stmt, 6);
-        const unsigned char *c7 = p_col_text(stmt, 7);
-        const unsigned char *c8 = p_col_text(stmt, 8);
+        r.is_fixed       = (int)p_col_int64(stmt, 6);
+        const unsigned char *c7  = p_col_text(stmt, 7);
+        const unsigned char *c8  = p_col_text(stmt, 8);
         const unsigned char *c9  = p_col_text(stmt, 9);
         const unsigned char *c10 = p_col_text(stmt, 10);
+        const unsigned char *c11 = p_col_text(stmt, 11);
         r.display_name  = Utf8ToW(c1  ? (const char*)c1  : "");
         r.description   = Utf8ToW(c2  ? (const char*)c2  : "");
         r.notes_rtf     = Utf8ToW(c3  ? (const char*)c3  : "");
-        r.source_type   = Utf8ToW(c6  ? (const char*)c6  : "");
-        r.source_path   = Utf8ToW(c7  ? (const char*)c7  : "");
-        r.dest_path     = Utf8ToW(c8  ? (const char*)c8  : "");
-        r.install_types = Utf8ToW(c9  ? (const char*)c9  : "");
-        r.group_name    = Utf8ToW(c10 ? (const char*)c10 : "");
+        r.source_type   = Utf8ToW(c7  ? (const char*)c7  : "");
+        r.source_path   = Utf8ToW(c8  ? (const char*)c8  : "");
+        r.dest_path     = Utf8ToW(c9  ? (const char*)c9  : "");
+        r.install_types = Utf8ToW(c10 ? (const char*)c10 : "");
+        r.group_name    = Utf8ToW(c11 ? (const char*)c11 : "");
         out.push_back(r);
     }
     if (p_finalize) p_finalize(stmt);

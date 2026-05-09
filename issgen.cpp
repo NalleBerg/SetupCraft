@@ -100,14 +100,15 @@ static std::wstring BuildComponentsSection(const std::vector<ComponentRow>& comp
 
     for (const auto& c : comps) {
         if (c.display_name.empty()) continue;
+        if (c.is_required) continue;  // is_required = always installed silently (not listed in [Components])
         std::wstring compId = ident(c.display_name);
         if (!c.group_name.empty())
             compId = ident(c.group_name) + L"\\" + compId;
         out += L"Name: \"" + compId + L"\"; Description: \"" + c.description + L"\"";
         if (!c.install_types.empty())
             out += L"; Types: " + c.install_types;
-        if (c.is_required)
-            out += L"; Flags: fixed";
+        if (c.is_fixed)
+            out += L"; Flags: fixed";  // is_fixed = visible in wizard but greyed-out
         out += L"\r\n";
     }
     return out;

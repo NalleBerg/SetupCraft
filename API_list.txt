@@ -222,32 +222,39 @@
                                                 no log folder or filename is configured.
                                                 BuildComponentsSection: generates [Components]
                                                 block; emits one entry per ComponentRow with
-                                                is_required → Flags: fixed; install_types →
+                                                ComponentRow has two distinct installation
+                                                behavior flags: is_required (int, DEFAULT 0)
+                                                = always installed silently, hidden from wizard
+                                                (component skipped in [Components] block);
+                                                is_fixed (int, DEFAULT 0) = shown in wizard
+                                                but greyed-out / locked, cannot be deselected
+                                                (emits Flags: fixed). install_types →
                                                 Types: <space-sep names>; group_name → Name:
                                                 "group\comp" (backslash-separated); when any
                                                 component has a group_name, an extra header
-                                                row (Name: "group"; Description: "group";
-                                                Flags: inherited) is emitted before the first
-                                                component in that group. ComponentRow.install_types
-                                                (std::wstring, space-separated type names) and
-                                                ComponentRow.group_name (std::wstring) are new
-                                                fields; persisted via idempotent ALTER TABLE
-                                                migrations; both dialogs (CompEditDlgProc /
-                                                CompFolderEditDlgProc) expose them: install
-                                                types via custom checkboxes (IDC_COMP_TYPE_BASE
-                                                =2100 / IDC_FOLDER_DLG_TYPE_BASE=2000, count in
-                                                "CompTypeCount"/"FolderTypeCount" SetPropW);
+                                                row (Name: "group"; Description: "group") is
+                                                emitted. is_fixed and is_preselected are new
+                                                fields alongside install_types and group_name;
+                                                all persisted via idempotent ALTER TABLE
+                                                migrations (12-param INSERT/UPDATE); both
+                                                dialogs (CompEditDlgProc / CompFolderEditDlgProc)
+                                                expose them: install types via custom checkboxes
+                                                (IDC_COMP_TYPE_BASE=2100 / IDC_FOLDER_DLG_TYPE_BASE
+                                                =2000, count in "CompTypeCount"/"FolderTypeCount");
                                                 group via CBS_DROPDOWN combobox (IDC_COMPDLG_GROUP
-                                                =312 / IDC_FOLDER_DLG_GROUP=344), pre-populated
-                                                with all existing group names, typed or selected.
-                                                Cascade on folder-edit OK: prefix scan over all
-                                                s_components whose source_path starts with
-                                                snap->fullPath+"\" updates install_types +
-                                                group_name on every subfolder and nested file
-                                                row; paths loop handles virtual-file nodes
-                                                (fullPath empty). Init fallback: if no folder
-                                                row found, reads install_types/group_name from
-                                                first matching file-component row.
+                                                =312 / IDC_FOLDER_DLG_GROUP=344); fixed via
+                                                custom checkbox (IDC_COMPDLG_FIXED=313 /
+                                                IDC_FOLDER_DLG_FIXED=328), locale key
+                                                comp_fixed_label. Cascade on folder-edit OK:
+                                                prefix scan over all s_components whose
+                                                source_path starts with snap->fullPath+"\\"
+                                                updates is_required, is_preselected, is_fixed,
+                                                install_types + group_name on every subfolder
+                                                and nested file row; paths loop handles
+                                                virtual-file nodes (fullPath empty). Init
+                                                fallback: if no folder row found, reads
+                                                install_types/group_name from first matching
+                                                file-component row.
                                                 SBuildConfig struct + SETT_GetBuildConfig()
                                                 in settings.h/.cpp provide the build settings
                                                 snapshot consumed by the generator.
@@ -293,12 +300,57 @@
                                                 URL hover: CreditsEditSubclassProc intercepts
                                                 WM_SETCURSOR, calls EM_CHARFROMPOS +
                                                 EM_GETCHARFORMAT, sets IDC_HAND when CFE_LINK
-                                                is present. Locale keys: about_title,
+                                                is present.
+                                                Center image: GDI+ Image::FromFile loads
+                                                SetupCraft.png (256×256, generated from
+                                                SCLogo.svg) from the exe directory;
+                                                EditSubclassProc draws it at 75% native size,
+                                                horizontally centred, EM_GETSCROLLPOS-aware.
+                                                Blank lines for logo reserved after msb_attach:
+                                                logoSpaceLines = (logoH+20)/S(15).
+                                                Dialog title-bar icons: LoadIconW(
+                                                GetModuleHandleW(NULL), MAKEINTRESOURCEW(1));
+                                                both ICON_SMALL and ICON_BIG set via WM_SETICON.
+                                                Locale keys: about_title,
                                                 about_license_btn, about_credits_btn,
                                                 about_credits_title, about_close_btn,
                                                 about_license_title, about_license_ok_btn,
                                                 credits_inno_heading, credits_inno_desc,
                                                 credits_scintilla_heading, credits_scintilla_desc.
+
+  about_icon.h / about_icon.cpp                 Entry-screen About icon button — SS_ICON STATIC
+                                                control subclassed with AboutIcon_SubclassProc.
+                                                CreateAboutIconControl(parent, hInst, x, y,
+                                                size, id, locale) creates the control, loads
+                                                the app icon via LoadImageW(hInst,
+                                                MAKEINTRESOURCEW(1), IMAGE_ICON, size, size,
+                                                LR_DEFAULTCOLOR), sends STM_SETICON.
+                                                SS_NOTIFY required — without it the STATIC
+                                                eats mouse messages. Subclass handles:
+                                                WM_MOUSEMOVE → ShowMultilingualTooltip
+                                                ("About SetupCraft") + TrackMouseEvent(TME_LEAVE);
+                                                WM_MOUSELEAVE → HideTooltip();
+                                                WM_LBUTTONDOWN → HideTooltip() then
+                                                ShowAboutDialog (tooltip hidden before
+                                                EnableWindow(parent,FALSE) — §9 of tooltip API);
+                                                WM_NCDESTROY → restore WNDPROC.
+
+  SCLogo.svg                                    Master app icon source — balloon-letter SC
+                                                monogram (pure SVG, viewBox 200×200, no
+                                                external deps). Red S + blue C, braided,
+                                                specular balloon shines, gradient border.
+                                                Source for both SetupCraft.ico (multi-frame,
+                                                via ImageMagick) and SetupCraft.png (256×256,
+                                                About dialog center image). See
+                                                icon_INTERNALS.txt for full design notes and
+                                                update checklist.
+
+  SetupCraft.rc                                 Win32 resource script.
+                                                1 ICON "SetupCraft.ico"  (resource ID 1 = app)
+                                                2 ICON "icons/trashcan_empty.ico"  (IDI_TRASHCAN)
+                                                Compiled by windres; linked into the exe.
+                                                All LoadIconW/LoadImageW calls reference
+                                                MAKEINTRESOURCEW(1) for the app icon.
 
   ctrlw.h / ctrlw.cpp                           Custom modal dialog module — fully i18n,
                                                 owner-drawn, non-native (no MessageBoxW /
@@ -334,6 +386,29 @@
                                                 auto-widen to the widest label at any DPI.
 
   ── INTERNALS (project-internal architecture) ────────────────────────────────
+
+  API_INTERNALS\INTERNALS\icon_INTERNALS.txt    App icon system — SCLogo.svg design (balloon SC
+                                                monogram, braided S+C, specular shines, gradient
+                                                border), ICO generation via ImageMagick
+                                                (magick SCLogo.svg → 16/32/48/64/128/256 px
+                                                frames; make_ico.ps1 repacks any .ico),
+                                                resource script (SetupCraft.rc: 1 ICON
+                                                "SetupCraft.ico"; 2 ICON trashcan_empty.ico),
+                                                window-class icon wiring (LoadIconW +
+                                                LoadImageW 16px + WM_SETICON in WM_CREATE),
+                                                modal dialog icons (About/License/Credits —
+                                                LoadIconW(GetModuleHandleW(NULL),
+                                                MAKEINTRESOURCEW(1)); both ICON_SMALL and
+                                                ICON_BIG set), About dialog center image
+                                                (GDI+ Image::FromFile("SetupCraft.png") from
+                                                exe directory; EditSubclassProc draws at 75%
+                                                native size, scroll-offset-aware, blank-lines
+                                                reserved for logo space), entry-screen About
+                                                button (SS_ICON STATIC + SS_NOTIFY;
+                                                LoadImageW MAKEINTRESOURCEW(1) at explicit
+                                                size; subclass handles tooltip + click →
+                                                ShowAboutDialog), icon cache pitfall and
+                                                step-by-step update checklist.
 
   API_INTERNALS\INTERNALS\files_save_load_INTERNALS.txt
                                                 Files-page save/load architecture — data flow

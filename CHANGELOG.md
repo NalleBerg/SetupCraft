@@ -2,6 +2,17 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.05.09.10] - 2026-05-09
+
+### Icon system — SCLogo.svg balloon SC monogram + full icon deployment
+- **SCLogo.svg — balloon SC monogram**: New master app icon: balloon-letter SC monogram on dark (#111) background with gradient border. S = red stroke (#cc2222, stroke-width=32), cubic-Bézier path for organic curve. C = blue stroke (#1155cc, stroke-width=24), open arc tucked beside S. Intentionally slightly uneven — deliberate hand-crafted aesthetic. Braiding: C behind S at top crossing; C in front of S at bottom crossing (clipped copy of C drawn last, clipPath rect y=130). Specular balloon shines: fully opaque `rgb()` strokes, translate(-3,-4), `feGaussianBlur stdDeviation=3`; draw order interlaced (letter → shine → next letter) so opaque next letter covers any blur bleed. viewBox 200×200, no external fonts or images.
+- **SetupCraft.ico — multi-frame ICO from SVG**: ImageMagick converts `SCLogo.svg` → multi-frame ICO (16/32/48/64/128/256 px). Both copies updated: workspace root (linked by `SetupCraft.rc` as `1 ICON "SetupCraft.ico"`) and `SetupCraft\SetupCraft.ico` (packaged with exe). RC recompiled and linked.
+- **Main window + taskbar icon**: `mainwindow.cpp` — window-class uses `LoadIconW(hInstance, MAKEINTRESOURCEW(1))` for `hIcon` and `LoadImageW(…, 16, 16, 0)` for `hIconSm`. `WM_CREATE` also sends `WM_SETICON` (both `ICON_BIG` and `ICON_SMALL`) to the main HWND.
+- **About / License / Credits dialog title-bar icons**: All three dialogs in `about.cpp` load icon from exe resource (`LoadIconW(GetModuleHandleW(NULL), MAKEINTRESOURCEW(1))`), set both `ICON_SMALL` and `ICON_BIG`. Removed shell32.dll extraction.
+- **About dialog center image**: New `SetupCraft.png` (256×256, from `SCLogo.svg` via ImageMagick) replaces old globe image. GDI+ `Image::FromFile` from exe directory; drawn at 75% size, centred, scroll-offset-aware in `EditSubclassProc`.
+- **Entry-screen About button icon**: `about_icon.cpp` — uses `LoadImageW(hInst, MAKEINTRESOURCEW(1), IMAGE_ICON, size, size, LR_DEFAULTCOLOR)`. Shell32.dll extraction removed.
+- **icon_INTERNALS.txt**: New INTERNALS document: SVG design, ICO generation commands, RC wiring, window-class + dialog icon loading, About GDI+ center image flow, entry-screen button pattern, icon cache gotcha, update checklist. Entry added to `API_list.txt`.
+
 ## [2026.05.08.09] - 2026-05-08
 
 ### scripts — drag-to-reorder + custom tooltip; script_edit_dialog — Big editor toggle + layout compaction + finish overlay
