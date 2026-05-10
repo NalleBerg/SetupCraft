@@ -316,6 +316,7 @@ static bool s_filesPageHasContent = false; // tracks whether Files page has any 
 #define IDC_COMPDLG_GROUP       312   // Component group combobox
 #define IDC_COMPDLG_FIXED       313   // Fixed (visible but locked) custom checkbox
 #define IDC_COMPDLG_EXCLUSIVE   314   // Exclusive (radio-button style) custom checkbox
+#define IDC_COMPDLG_RESTART     315   // Restart required (reboot after this component) custom checkbox
 
 // VFS Picker dialog control IDs (scoped to VFSPickerDlg window)
 #define IDC_VFSPICKER_TREE   6100
@@ -338,6 +339,7 @@ static bool s_filesPageHasContent = false; // tracks whether Files page has any 
 #define IDC_FOLDER_DLG_REMOVE_DEPS  327  // "Remove" button in fold-edit dep list
 #define IDC_FOLDER_DLG_FIXED        328  // Fixed (visible but locked) custom checkbox
 #define IDC_FOLDER_DLG_EXCLUSIVE    329  // Exclusive (radio-button style) custom checkbox
+#define IDC_FOLDER_DLG_RESTART      330  // Restart required (reboot after this component) custom checkbox
 #define IDM_DEPS_CTX_REMOVE         6210 // dep-list context menu: Remove
 #define IDM_DEPS_CTX_SHOWFILES      6211 // dep-list context menu: Show files…
 #define IDM_FILES_FLAGS             6220 // files context menu: File Flags…
@@ -7004,6 +7006,10 @@ struct CompFolderDlgData {
     int          initExclusive = 0;  // 1 = radio-button style (Inno: Flags: exclusive)
     int          outExclusive  = 0;
     std::wstring exclusiveLabel;
+    // Restart
+    int          initRestart = 0;    // 1 = reboot required after this component (Inno: Flags: restart)
+    int          outRestart  = 0;
+    std::wstring restartLabel;
 };
 
 // ── CompFolderEdit dialog layout constants (design-px at 96 DPI) ──────────────
@@ -8023,6 +8029,16 @@ LRESULT CALLBACK CompFolderEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
                 pData->initExclusive == 1,
                 S(CFE_PAD_H), y, contW, S(CFE_CHECK_H), hInst);
         }
+        y += S(CFE_CHECK_H) + S(CFE_GAP_RPS);
+
+        // Restart — reboot required after installing this component
+        {
+            std::wstring restLbl = pData->restartLabel.empty()
+                ? L"Restart required (reboot after installing this component)" : pData->restartLabel;
+            CreateCustomCheckbox(hwnd, IDC_FOLDER_DLG_RESTART, restLbl,
+                pData->initRestart == 1,
+                S(CFE_PAD_H), y, contW, S(CFE_CHECK_H), hInst);
+        }
         y += S(CFE_CHECK_H) + S(CFE_GAP_RC);
 
         // Cascade hint (may wrap over multiple lines)
@@ -8205,6 +8221,8 @@ LRESULT CALLBACK CompFolderEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
             pData->outFixed       = (SendDlgItemMessageW(hwnd, IDC_FOLDER_DLG_FIXED,
                                          BM_GETCHECK, 0, 0) == BST_CHECKED) ? 1 : 0;
             pData->outExclusive   = (SendDlgItemMessageW(hwnd, IDC_FOLDER_DLG_EXCLUSIVE,
+                                         BM_GETCHECK, 0, 0) == BST_CHECKED) ? 1 : 0;
+            pData->outRestart     = (SendDlgItemMessageW(hwnd, IDC_FOLDER_DLG_RESTART,
                                          BM_GETCHECK, 0, 0) == BST_CHECKED) ? 1 : 0;
             // Collect install types
             {
@@ -8985,6 +9003,9 @@ struct CompDlgData {
     // Exclusive
     int          initExclusive = 0;  // 1 = radio-button style (Inno: Flags: exclusive)
     std::wstring exclusiveLabel;
+    // Restart
+    int          initRestart = 0;    // 1 = reboot required after this component (Inno: Flags: restart)
+    std::wstring restartLabel;
     // Output
     bool okClicked = false;
     std::wstring outName;
@@ -8992,6 +9013,7 @@ struct CompDlgData {
     int outRequired = 0;
     int outFixed    = 0;
     int outExclusive = 0;
+    int outRestart   = 0;
     std::wstring outSourcePath;
     std::vector<int> outDependencyIds;
     std::wstring outGroupName;
@@ -9137,6 +9159,16 @@ LRESULT CALLBACK CompEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
                 ? L"Exclusive (selecting this deselects all others in the group)" : pData->exclusiveLabel;
             CreateCustomCheckbox(hwnd, IDC_COMPDLG_EXCLUSIVE, exclLbl,
                 pData->initExclusive != 0,
+                editX, y, editW, rowH, hInst);
+        }
+        y += rowH + rowGap;
+
+        // Restart checkbox — reboot required after installing this component
+        {
+            std::wstring restLbl = pData->restartLabel.empty()
+                ? L"Restart required (reboot after installing this component)" : pData->restartLabel;
+            CreateCustomCheckbox(hwnd, IDC_COMPDLG_RESTART, restLbl,
+                pData->initRestart != 0,
                 editX, y, editW, rowH, hInst);
         }
         y += rowH + rowGap;
@@ -9342,6 +9374,7 @@ LRESULT CALLBACK CompEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
             pData->outRequired = (SendDlgItemMessageW(hwnd, IDC_COMPDLG_REQUIRED, BM_GETCHECK, 0, 0) == BST_CHECKED) ? 1 : 0;
             pData->outFixed    = (SendDlgItemMessageW(hwnd, IDC_COMPDLG_FIXED,    BM_GETCHECK, 0, 0) == BST_CHECKED) ? 1 : 0;
             pData->outExclusive = (SendDlgItemMessageW(hwnd, IDC_COMPDLG_EXCLUSIVE, BM_GETCHECK, 0, 0) == BST_CHECKED) ? 1 : 0;
+            pData->outRestart   = (SendDlgItemMessageW(hwnd, IDC_COMPDLG_RESTART,   BM_GETCHECK, 0, 0) == BST_CHECKED) ? 1 : 0;
             GetDlgItemTextW(hwnd, IDC_COMPDLG_SRC, buf, 512); pData->outSourcePath = buf;
             GetDlgItemTextW(hwnd, IDC_COMPDLG_GROUP, buf, 512); pData->outGroupName = buf;
             // outDependencyIds maintained by Choose/Remove handlers
@@ -12896,6 +12929,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             dlgData2.initRequired      = cmp.is_required;
             dlgData2.initFixed         = cmp.is_fixed;
             dlgData2.initExclusive     = cmp.is_exclusive;
+            dlgData2.initRestart       = cmp.is_restart;
             dlgData2.initSourceType    = cmp.source_type;
             dlgData2.initSourcePath    = cmp.source_path;
             dlgData2.otherComponents   = otherComps;
@@ -12922,6 +12956,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             dlgData2.groupLabel    = lstrE(L"comp_group_label",   L"Group:");
             dlgData2.fixedLabel    = lstrE(L"comp_fixed_label",   L"Fixed (visible but cannot be deselected)");
             dlgData2.exclusiveLabel = lstrE(L"comp_exclusive_label", L"Exclusive (selecting this deselects all others in the group)");
+            dlgData2.restartLabel   = lstrE(L"comp_restart_label",   L"Restart required (reboot after installing this component)");
             dlgData2.okText        = lstrE(L"ok",                 L"OK");
             dlgData2.cancelText    = lstrE(L"cancel",             L"Cancel");
 
@@ -12944,12 +12979,12 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 int groupExtra = dlgData2.groupLabel.empty() ? 0 : S(CED_ROW_H + CED_ROW_GAP);
                 if (otherComps.empty())
                     clientH = S(CED_PAD_T
-                        + 6*(CED_ROW_H + CED_ROW_GAP)
+                        + 7*(CED_ROW_H + CED_ROW_GAP)
                         + CED_NOTE_H + CED_ROW_GAP
                         + CED_BTN_H  + CED_PAD_B) + typesExtra + groupExtra;
                 else
                     clientH = S(CED_PAD_T
-                        + 6*(CED_ROW_H + CED_ROW_GAP)
+                        + 7*(CED_ROW_H + CED_ROW_GAP)
                         + 20 + 4           // deps label
                         + CED_DEP_H + 6    // deps ListView
                         + CED_DEP_BTN_H + CED_ROW_GAP
@@ -12979,6 +13014,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 s_components[selIdx].is_required   = dlgData2.outRequired;
                 s_components[selIdx].is_fixed       = dlgData2.outFixed;
                 s_components[selIdx].is_exclusive   = dlgData2.outExclusive;
+                s_components[selIdx].is_restart     = dlgData2.outRestart;
                 s_components[selIdx].source_path   = dlgData2.outSourcePath;
                 s_components[selIdx].dependencies  = dlgData2.outDependencyIds;
                 s_components[selIdx].notes_rtf     = dlgData2.outNotesRtf;
@@ -13117,12 +13153,34 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 }
             }
 
+            int restartState = -1;
+            for (const auto& path : paths) {
+                for (const auto& cmp : s_components) {
+                    if (cmp.source_path != path) continue;
+                    if (!cmp.dest_path.empty() && cmp.dest_path != section) continue;
+                    if (restartState == -1) restartState = cmp.is_restart;
+                    else if (restartState != cmp.is_restart) { restartState = -1; goto restart_mixed_done; }
+                    break;
+                }
+            }
+            restart_mixed_done:
+            if (restartState == -1 && !snap->fullPath.empty()) {
+                for (const auto& cmp : s_components) {
+                    if (cmp.source_path != snap->fullPath) continue;
+                    if (cmp.source_type  != L"folder")     continue;
+                    if (!cmp.dest_path.empty() && cmp.dest_path != section) continue;
+                    restartState = cmp.is_restart;
+                    break;
+                }
+            }
+
             CompFolderDlgData fd;
             fd.folderName       = snap->text;
             fd.initRequired     = (reqState    == 1) ? 1 : 0;
             fd.initPreselected  = (preselState == 1) ? 1 : 0;
             fd.initFixed        = (fixedState  == 1) ? 1 : 0;
             fd.initExclusive    = (exclusiveState == 1) ? 1 : 0;
+            fd.initRestart      = (restartState  == 1) ? 1 : 0;
             fd.titleText        = LS(L"comp_folder_edit_title",  L"Edit Folder");
             fd.requiredLabel    = LS(L"comp_required_label",     L"Required (always installed)");
             fd.preselectedLabel = LS(L"comp_preselected_label",  L"Pre-selected (ticked by default at install)");
@@ -13199,6 +13257,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 }
             fd.groupLabel = LS(L"comp_group_label", L"Group:");
             fd.fixedLabel = LS(L"comp_fixed_label", L"Fixed (visible but cannot be deselected)");
+            fd.restartLabel   = LS(L"comp_restart_label",   L"Restart required (reboot after installing this component)");
             fd.exclusiveLabel = LS(L"comp_exclusive_label", L"Exclusive (selecting this deselects all others in the group)");
 
             WNDCLASSEXW wcFd = {};
@@ -13235,7 +13294,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                          + S(CFE_CHECK_H)+S(CFE_GAP_RPS)   // Required
                          + S(CFE_CHECK_H)+S(CFE_GAP_RPS)   // Pre-selected
                          + S(CFE_CHECK_H)+S(CFE_GAP_RPS)   // Fixed
-                         + S(CFE_CHECK_H)+S(CFE_GAP_RC)    // Exclusive
+                         + S(CFE_CHECK_H)+S(CFE_GAP_RPS)   // Exclusive
+                         + S(CFE_CHECK_H)+S(CFE_GAP_RC)    // Restart
                          + fd.hintH+S(CFE_GAP_CD)
                          + S(CFE_DEPS_ROW_H)+S(CFE_GAP_LD)
                          + S(CFE_DEPLIST_H)+S(CFE_GAP_LB)
@@ -13283,7 +13343,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                         cmp.is_required    = fd.outRequired;
                         cmp.is_preselected = fd.outPreselected;
                         cmp.is_fixed       = fd.outFixed;
-                        cmp.is_exclusive   = fd.outExclusive;
+                        cmp.is_restart     = fd.outRestart;
                         cmp.install_types  = fd.outInstallTypes;
                         cmp.group_name     = fd.outGroupName;
                         // Keep per-component dependencies/notes on non-folder rows
@@ -13303,6 +13363,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                         cmp.is_preselected = fd.outPreselected;
                         cmp.is_fixed       = fd.outFixed;
                         cmp.is_exclusive   = fd.outExclusive;
+                        cmp.is_restart     = fd.outRestart;
                         cmp.install_types  = fd.outInstallTypes;
                         cmp.group_name     = fd.outGroupName;
                         break;
@@ -13324,6 +13385,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                         newComp.display_name   = snap->text;
                         newComp.description    = L"";
                         newComp.is_required    = fd.outRequired;
+                        newComp.is_restart     = fd.outRestart;
                         newComp.is_preselected = fd.outPreselected;
                         newComp.is_fixed       = fd.outFixed;
                         newComp.is_exclusive   = fd.outExclusive;

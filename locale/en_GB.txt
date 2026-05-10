@@ -257,6 +257,7 @@ comp_desc_label=Description:
 comp_required_label=Required (always installed silently, hidden from wizard)
 comp_fixed_label=Fixed (visible but cannot be deselected)
 comp_exclusive_label=Exclusive (selecting this deselects all others in the group)
+comp_restart_label=Restart required (reboot after installing this component)
 comp_preselected_label=Pre-selected (ticked by default at install)
 comp_type_folder=Folder
 comp_type_file=File

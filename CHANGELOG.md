@@ -2,6 +2,15 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.05.10.08] - 2026-05-10
+
+### Components — Restart flag (reboot required after installing a component, Inno Flags: restart)
+- **`is_restart` field — `db.h` / `db.cpp`**: New `int is_restart = 0` field on `ComponentRow`. Idempotent migration: `ALTER TABLE components ADD COLUMN is_restart INTEGER DEFAULT 0`. `UpdateComponent` SQL updated to 14 bindings (`?8=is_restart`); all subsequent bind positions shifted. `GetComponentsForProject` SELECT includes `is_restart` at column index 8; subsequent column indices shifted by 1.
+- **`IDC_COMPDLG_RESTART = 315` / `IDC_FOLDER_DLG_RESTART = 330` — `mainwindow.cpp`**: Restart custom checkbox added to both `CompEditDlgProc` and `CompFolderEditDlgProc`, positioned after the Exclusive checkbox. Both dialogs read the state on OK via `BM_GETCHECK` into `outRestart`. `CompDlgData` and `CompFolderDlgData` gain `initRestart`, `outRestart`, `restartLabel`. `CompEditDlgProc` `clientH` bumped from `6×` to `7×(CED_ROW_H + CED_ROW_GAP)`. `CompFolderEditDlgProc` `clientH3` extended by one `CFE_CHECK_H + CFE_GAP_RC` row; Exclusive gap changed from `CFE_GAP_RC` to `CFE_GAP_RPS`. Locale key: `comp_restart_label`.
+- **Folder dialog — `restartState` detection + cascade**: Same `goto`-based mixed-state scan as `exclusiveState` (label `restart_mixed_done`). Cascade on OK writes `cmp.is_restart = fd.outRestart` to all children (file rows, folder rows, and new folder rows from the upsert path).
+- **`issgen.cpp` — `Flags:` combined string**: `restart` appended to the shared `; Flags: …` token after `exclusive` — all three flags (`fixed`, `exclusive`, `restart`) share one token as Inno requires.
+- **`locale/en_GB.txt`** (both copies): `comp_restart_label=Restart required (reboot after installing this component)`.
+
 ## [2026.05.09.12] - 2026-05-09
 
 ### Dialogs — Select Installation Folder page + Ready to Install disk-space display

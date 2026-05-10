@@ -237,17 +237,20 @@
                                                 (emits Flags: fixed); is_exclusive (int,
                                                 DEFAULT 0) = radio-button style, selecting
                                                 deselects all others in the same group (emits
-                                                Flags: exclusive). Flags: fixed and exclusive
-                                                are combined into a single "; Flags: ..." token
+                                                Flags: exclusive); is_restart (int, DEFAULT 0)
+                                                = reboot required after installing this component
+                                                (emits Flags: restart). Flags: fixed, exclusive
+                                                and restart are combined into a single
+                                                "; Flags: ..." token
                                                 (never two separate Flags: entries). install_types →
                                                 Types: <space-sep names>; group_name → Name:
                                                 "group\comp" (backslash-separated); when any
                                                 component has a group_name, an extra header
                                                 row (Name: "group"; Description: "group") is
-                                                emitted. is_fixed, is_exclusive and is_preselected are
+                                                is_fixed, is_exclusive, is_restart and is_preselected are
                                                 fields alongside install_types and group_name;
                                                 all persisted via idempotent ALTER TABLE
-                                                migrations (13-param INSERT/UPDATE); both
+                                                migrations (14-param INSERT/UPDATE); both
                                                 dialogs (CompEditDlgProc / CompFolderEditDlgProc)
                                                 expose them: install types via custom checkboxes
                                                 (IDC_COMP_TYPE_BASE=2100 / IDC_FOLDER_DLG_TYPE_BASE
@@ -259,11 +262,14 @@
                                                 comp_fixed_label; exclusive via custom checkbox
                                                 (IDC_COMPDLG_EXCLUSIVE=314 /
                                                 IDC_FOLDER_DLG_EXCLUSIVE=329), locale key
-                                                comp_exclusive_label. Cascade on folder-edit OK:
+                                                comp_exclusive_label. Restart via custom checkbox
+                                                (IDC_COMPDLG_RESTART=315 /
+                                                IDC_FOLDER_DLG_RESTART=330), locale key
+                                                comp_restart_label. Cascade on folder-edit OK:
                                                 prefix scan over all s_components whose
                                                 source_path starts with snap->fullPath+"\\"
                                                 updates is_required, is_preselected, is_fixed,
-                                                is_exclusive, install_types + group_name on
+                                                is_exclusive, is_restart, install_types + group_name on
                                                 every subfolder and nested file row; paths loop
                                                 handles virtual-file nodes (fullPath empty).
                                                 Init fallback: if no folder row found, reads

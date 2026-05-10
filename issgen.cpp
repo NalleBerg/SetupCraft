@@ -131,6 +131,7 @@ static std::wstring BuildComponentsSection(const std::vector<ComponentRow>& comp
             std::wstring flags;
             if (c.is_fixed) flags = L"fixed";
             if (c.is_exclusive) { if (!flags.empty()) flags += L" "; flags += L"exclusive"; }
+            if (c.is_restart)   { if (!flags.empty()) flags += L" "; flags += L"restart"; }
             if (!flags.empty()) out += L"; Flags: " + flags;
         }
         out += L"\r\n";
