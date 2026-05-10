@@ -57,6 +57,22 @@
                               Red IDCANCEL "Cancel"; returns true on IDYES
                               so caller can close the running instance and
                               retry the mutex)
+    [ ] page_manual         — contextual per-page manual popup. ShowPageManual
+                              (hwndParent, pageIndex, locale) dispatches to a
+                              per-page populate function. RICHEDIT50W for full
+                              Unicode font-linking + emoji. AppendManual (AM
+                              macro) + ML locale helper + AppendManualHRule
+                              centered dividers. RegisterShell32Icon / Register
+                              SystemIcon overlay system: because GDI cannot
+                              render COLR emoji, records char position before
+                              each heading, loads icon via ExtractIconExW, and
+                              draws it in WM_PAINT via DrawIconEx at
+                              EM_POSFROMCHAR. Toolbar ? button (flat SS_NOTIFY
+                              static, ManualIcon_SubclassProc) opens the correct
+                              manual for the active page (page-aware via the
+                              current page index). Highly effective substitute
+                              for external documentation — no browser, no PDF,
+                              locale-aware, ships inside the exe.
 
   Form help-icon pattern (reusable in any dialog)
     Any modal dialog form can append a shell32.dll index-23 (ℹ) button to the

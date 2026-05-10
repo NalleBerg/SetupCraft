@@ -78,6 +78,58 @@
                                                 Preferred over notes_editor for component notes,
                                                 dep notes, and any field with no char limit.
 
+  page_manual.h / page_manual.cpp               Contextual per-page manual popup — one entry
+                                                point: ShowPageManual(hwndParent, pageIndex,
+                                                locale). Resizable WS_THICKFRAME |
+                                                WS_MAXIMIZEBOX popup with RICHEDIT50W (Msftedit
+                                                .dll v4.1; falls back to RichEdit20W) for full
+                                                Unicode font-linking and emoji glyph rendering.
+                                                CHARFORMAT2W CFM_CHARSET|DEFAULT_CHARSET enables
+                                                Segoe UI Emoji fallback. EM_SETTARGETDEVICE(NULL,0)
+                                                word-wraps to control width (no H-scroll).
+                                                AppendManual(hEdit, pd, text, bold, color,
+                                                fontSize=0, centered=false) — AM macro shorthand.
+                                                ML(pd, key, fallback) — locale lookup with English
+                                                fallback.
+                                                AppendManualHRule(hEdit, pd) — centered horizontal
+                                                divider (RGB(100,140,180), fontSize=0, centered=true).
+                                                Color shell32 icon overlays — because GDI cannot
+                                                render OpenType COLR tables, emoji are monochrome.
+                                                RegisterShell32Icon(hEdit, pd, idx) records the
+                                                char position and loads the icon via ExtractIconExW.
+                                                RegisterSystemIcon variant handles IDI_WARNING etc.
+                                                ManualEditSubclassProc WM_PAINT draws each icon
+                                                via DrawIconEx at EM_POSFROMCHAR coordinates after
+                                                the original proc; icons freed in WM_DESTROY.
+                                                SC logo drawn via GDI+ at top of each page:
+                                                blank lines reserved = (logoH+S(10))/S(15).
+                                                Implemented pages (as of v2026.05.10.11):
+                                                  0  = Files          (PopulateFilesManual)
+                                                  1  = Registry       (PopulateRegistryManual)
+                                                  2  = Shortcuts      (PopulateShortcutsManual)
+                                                  3  = Dependencies   (PopulateDepsManual)
+                                                  4  = Dialogs        (PopulateDialogsManual)
+                                                  5  = Settings       (PopulateSettingsManual)
+                                                  8  = Scripts        (PopulateScriptsManual)
+                                                  9  = Components     (PopulateComponentsManual)
+                                                  10 = File Types     (PopulateFileTypesManual)
+                                                Pages 6 (Build) and 7 (Test) show placeholder.
+                                                Toolbar ? button: flat SS_NOTIFY static control
+                                                in CreateToolbar(), S(5) px left of the About icon.
+                                                ManualIcon_SubclassProc: WM_PAINT (DrawIconEx +
+                                                COLOR_BTNFACE fill), WM_ERASEBKGND (return 1),
+                                                WM_MOUSEMOVE/LEAVE (tooltip), WM_NCDESTROY
+                                                (DestroyIcon + free prop). WM_COMMAND handler:
+                                                ShowPageManual(hwnd, s_currentPageIndex, s_locale)
+                                                — opens the correct manual for the active page.
+                                                Locale key pattern: man_<subsystem>_window_title,
+                                                man_<subsystem>_h1/h2/h3, man_<subsystem>_p1/p2/p3,
+                                                man_<subsystem>_l<n><letter>, man_<subsystem>_next.
+                                                Tip callout pattern (amber warning, grey info):
+                                                  RegisterShell32Icon(hEdit, pd, iconIdx);
+                                                  AM(L" " + ML(...), false, RGB(160,80,0), 11);
+                                                  AM(ML(...) + L"\r\n\r\n", false, RGB(120,60,0));
+
   API_INTERNALS\API\notes_editor_API.txt        Rich-text Notes/Description editor popup —
                                                 OpenNotesEditor() API, NotesEditorData struct,
                                                 RTF stream in/out, 500-char limit, Bold/Italic/

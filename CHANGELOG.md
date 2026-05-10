@@ -2,6 +2,19 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.05.10.11] - 2026-05-10
+
+### Manual system — populated pages for Registry, Shortcuts, File Types, and Scripts
+- **`PopulateRegistryManual` (page index 1)**: Full manual for the Registry page — intro paragraph, Add/Remove Programs section (Register toggle, Display Name, Version, Publisher, App Icon, Show Regkey), and Custom Registry Entries section (Add Key, Add Value, Edit/Delete, Create Restore Point). **Amber ⚠ restore-point callout** inserted before the editing controls (shell32 #84 warning icon, amber text): tells the user to create a restore point *before* touching any custom entries. `man_reg_*` locale keys added to both `locale/en_GB.txt` copies.
+- **`PopulateShortcutsManual` (page index 2)**: Full manual for the Shortcuts page — intro, Shortcut locations section (Desktop, Start Menu folder tree, Pin to Start/Taskbar), Configuring a shortcut section (Name, Executable, Working Directory, Arguments, Comment, Hotkey, Icon, Run as administrator). `man_sc_*` locale keys added to both locale files.
+- **`PopulateFileTypesManual` (page index 10)**: Full manual for the File Types page — intro, Managing associations section (Enabled column, Add/Edit/Remove), File association fields section (Extension, Description, ProgID, Icon path, Icon index, Open command, Edit/Print commands, MIME type). `man_fa_*` locale keys (manual) added to both locale files.
+- **`PopulateScriptsManual` (page index 8)**: Full manual for the Scripts page — intro, When to run section (Before Files, After Files, On Finish optional, On Uninstall), Script types section (.bat/.cmd, PowerShell .ps1), Managing scripts section. **Grey F5 test tip** added before Next step: informs the developer that Test (F5) is available for a dry run before committing to Build. `man_scr_*` locale keys added to both locale files.
+- **`PopulateSettingsManual` next step fixed**: C++ fallback and `man_sett_next` locale key both updated to point to Registry (was Build). Shell32 icon changed from #80 (build) to #166 (registry).
+- **Title lookup + dispatch extended**: `ShowPageManual` now dispatches to all 9 implemented pages (0, 1, 2, 3, 4, 5, 8, 9, 10) and looks up per-page window title keys for all of them.
+- **All 41 horizontal dividers centered**: every `AppendManualHRule` call in `page_manual.cpp` now passes `0, true` — dividers draw centered. Previously the dividers in older populate functions were left-aligned.
+- **`page_manual.h` comment updated**: lists all 9 implemented pages.
+- **Toolbar ROW 2 rearrangement**: File Types button moved from the end of ROW 1 to the beginning of ROW 2. ROW 1 now ends after Shortcuts; ROW 2 is: File Types → Scripts → Test (F5) → Build (F7) → Save → Close Project → Exit.
+
 ## [2026.05.10.10] - 2026-05-10
 
 ### Manual system — Components page manual popup

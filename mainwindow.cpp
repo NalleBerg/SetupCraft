@@ -973,20 +973,6 @@ void MainWindow::CreateToolbar(HWND hwnd, HINSTANCE hInst) {
     EnableWindow(GetDlgItem(hwnd, IDC_TB_COMPONENTS), s_filesPageHasContent ? TRUE : FALSE);
     x += wComp + gap;
 
-    auto itAddReg = s_locale.find(L"tb_add_registry");
-    std::wstring addRegText = (itAddReg != s_locale.end()) ? itAddReg->second : L"Registry";
-    int wReg = MeasureTBWidth(addRegText);
-    CreateCustomButtonWithIcon(hwnd, IDC_TB_ADD_REGISTRY, addRegText, ButtonColor::Blue,
-        L"shell32.dll", 166, x, row1Y, wReg, btnH, hInst);
-    x += wReg + gap;
-
-    auto itAddShortcut = s_locale.find(L"tb_add_shortcut");
-    std::wstring addShortcutText = (itAddShortcut != s_locale.end()) ? itAddShortcut->second : L"Shortcuts";
-    int wShortcut = MeasureTBWidth(addShortcutText);
-    CreateCustomButtonWithCompositeIcon(hwnd, IDC_TB_ADD_SHORTCUT, addShortcutText, ButtonColor::Blue,
-        L"shell32.dll", 257, L"shell32.dll", 29, x, row1Y, wShortcut, btnH, hInst);
-    x += wShortcut + gap;
-
     auto itAddDep = s_locale.find(L"tb_add_dependency");
     std::wstring addDepText = (itAddDep != s_locale.end()) ? itAddDep->second : L"Dependencies";
     int wDep = MeasureTBWidth(addDepText);
@@ -1001,22 +987,37 @@ void MainWindow::CreateToolbar(HWND hwnd, HINSTANCE hInst) {
         L"shell32.dll", 23, x, row1Y, wDialogs, btnH, hInst);
     x += wDialogs + gap;
 
-    auto itFa = s_locale.find(L"tb_file_assoc");
-    std::wstring faText = (itFa != s_locale.end()) ? itFa->second : L"File Types";
-    int wFa = MeasureTBWidth(faText);
-    CreateCustomButtonWithIcon(hwnd, IDC_TB_FILE_ASSOC, faText, ButtonColor::Blue,
-        L"shell32.dll", 152, x, row1Y, wFa, btnH, hInst);
-    int row1EndX = x + wFa;
-
-    // --- ROW 2: action pages ---
-    x = S(10);
-
     auto itSettings = s_locale.find(L"tb_settings");
     std::wstring settingsText = (itSettings != s_locale.end()) ? itSettings->second : L"Settings";
     int wSettings = MeasureTBWidth(settingsText);
     CreateCustomButtonWithIcon(hwnd, IDC_TB_SETTINGS, settingsText, ButtonColor::Blue,
-        L"shell32.dll", 314, x, row2Y, wSettings, btnH, hInst);
+        L"shell32.dll", 314, x, row1Y, wSettings, btnH, hInst);
     x += wSettings + gap;
+
+    auto itAddReg = s_locale.find(L"tb_add_registry");
+    std::wstring addRegText = (itAddReg != s_locale.end()) ? itAddReg->second : L"Registry";
+    int wReg = MeasureTBWidth(addRegText);
+    CreateCustomButtonWithIcon(hwnd, IDC_TB_ADD_REGISTRY, addRegText, ButtonColor::Blue,
+        L"shell32.dll", 166, x, row1Y, wReg, btnH, hInst);
+    x += wReg + gap;
+
+    auto itAddShortcut = s_locale.find(L"tb_add_shortcut");
+    std::wstring addShortcutText = (itAddShortcut != s_locale.end()) ? itAddShortcut->second : L"Shortcuts";
+    int wShortcut = MeasureTBWidth(addShortcutText);
+    CreateCustomButtonWithCompositeIcon(hwnd, IDC_TB_ADD_SHORTCUT, addShortcutText, ButtonColor::Blue,
+        L"shell32.dll", 257, L"shell32.dll", 29, x, row1Y, wShortcut, btnH, hInst);
+    x += wShortcut + gap;
+    int row1EndX = x - gap; // end of ROW 1 (after Shortcuts)
+
+    // --- ROW 2: action pages ---
+    x = S(10);
+
+    auto itFa = s_locale.find(L"tb_file_assoc");
+    std::wstring faText = (itFa != s_locale.end()) ? itFa->second : L"File Types";
+    int wFa = MeasureTBWidth(faText);
+    CreateCustomButtonWithIcon(hwnd, IDC_TB_FILE_ASSOC, faText, ButtonColor::Blue,
+        L"shell32.dll", 152, x, row2Y, wFa, btnH, hInst);
+    x += wFa + gap;
 
     auto itScripts = s_locale.find(L"tb_scripts");
     std::wstring scriptsText = (itScripts != s_locale.end()) ? itScripts->second : L"Scripts";

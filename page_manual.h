@@ -21,9 +21,8 @@
 //   9  Components
 //  10  File Associations
 //
-// Implemented so far: 0 (Files), 9 (Components).  Other indices show a
-// placeholder.  Add a new PopulateXxxManual() case in page_manual.cpp as each
-// page is written.
+// Implemented so far: 0 (Files), 1 (Registry), 2 (Shortcuts), 3 (Dependencies), 4 (Dialogs),
+// 5 (Settings), 8 (Scripts), 9 (Components), 10 (File Associations).
 
 void ShowPageManual(HWND parent, int pageIndex,
                     const std::map<std::wstring, std::wstring>& locale);
