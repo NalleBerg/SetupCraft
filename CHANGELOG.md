@@ -2,6 +2,14 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.05.10.10] - 2026-05-10
+
+### Manual system — Components page manual popup
+- **`PopulateComponentsManual` — new per-page manual for the Components page (index 9)**: 7 sections with color shell32 icon overlays — overview (shell32 #221 info i), enable-checkbox explanation (shell32 #258 badge), left-pane folder tree (shell32 #3 yellow folder), right-pane component list with all 6 columns explained (shell32 #1 document), Edit dialog field guide (shell32 #221), component flags reference (shell32 #294 green checkmark), Manage Install Types explanation (shell32 #258), dependency-save warning (IDI_WARNING), and a next-step pointer to the Dependencies page.
+- **`ShowPageManual` — dispatch extended**: `else if (pageIndex == 9) PopulateComponentsManual(hEdit, pd)`. Window title lookup now uses a per-page key: `man_files_window_title` for page 0, `man_comp_window_title` for page 9, falls back to `"Page Manual"` for unimplemented pages.
+- **`page_manual.h`**: Comment updated — pages 0 and 9 are now implemented.
+- **`locale/en_GB.txt`** (both copies): `man_comp_window_title=Components Page — How to Use`.
+
 ## [2026.05.10.09] - 2026-05-10
 
 ### Manual system — per-page contextual manual popup + toolbar ? button

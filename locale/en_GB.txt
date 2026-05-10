@@ -340,6 +340,7 @@ comp_types_manage=Manage Install Types
 comp_col_install_types=Install Types
 comp_types_all=(all)
 comp_group_label=Group:
+man_comp_window_title=Components Page — How to Use
 
 # Entry page button tooltips
 new_project_hint=Create a new installer project

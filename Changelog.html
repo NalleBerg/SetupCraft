@@ -1,6 +1,15 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 10 May 2026 &mdash; v2026.05.10.09 (09:53)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 10 May 2026 &mdash; v2026.05.10.10 (10:08)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.05.10.10</span></h3>
+<p><strong>Manual system &mdash; Components page manual popup (<code>PopulateComponentsManual</code>) (10.05.2026, 10:08):</strong></p>
+<ul>
+<li><strong><code>PopulateComponentsManual</code> &mdash; new per-page manual for the Components page (page&thinsp;index&thinsp;9):</strong> Fully populated with 7&thinsp;sections and full color shell32 icon overlays: overview (shell32&thinsp;#221 info&thinsp;i), enable-checkbox explanation (shell32&thinsp;#258 badge), left-pane folder tree (shell32&thinsp;#3 yellow folder), right-pane component list with all 6&thinsp;columns explained (shell32&thinsp;#1 document), Edit dialog field guide (shell32&thinsp;#221), component flags reference (shell32&thinsp;#294 green checkmark), Manage Install Types explanation (shell32&thinsp;#258), dependency-save warning (<code>IDI_WARNING</code>), and a next-step pointer to the Dependencies page.</li>
+<li><strong><code>ShowPageManual</code> &mdash; dispatch extended:</strong> <code>else if (pageIndex == 9) PopulateComponentsManual(hEdit, pd)</code> added. Window title lookup now uses a per-page key: <code>man_files_window_title</code> for page&thinsp;0, <code>man_comp_window_title</code> for page&thinsp;9, falls back to <code>L"Page Manual"</code> for unimplemented pages.</li>
+<li><strong><code>page_manual.h</code>:</strong> Comment updated to reflect that pages&thinsp;0 and&thinsp;9 are now implemented.</li>
+<li><strong><code>locale/en_GB.txt</code></strong> (both copies): <code>man_comp_window_title=Components Page &mdash; How to Use</code>.</li>
+</ul>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.05.10.09</span></h3>
 <p><strong>Manual system &mdash; per-page contextual manual popup + toolbar ? button (10.05.2026, 09:53):</strong></p>

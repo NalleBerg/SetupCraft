@@ -355,6 +355,242 @@ static void PopulateFilesManual(HWND hEdit, ManualWndData* pd)
        false, RGB(0,80,0));
 }
 
+// ─── Components page content ─────────────────────────────────────────────────
+
+static void PopulateComponentsManual(HWND hEdit, ManualWndData* pd)
+{
+    // Reserve blank lines at the top for the logo (same as Files page).
+    int logoH = pd->pLogo ? (int)(pd->pLogo->GetHeight() * 0.75) : 0;
+    int lines  = (logoH + S(10)) / S(15);
+    for (int i = 0; i < lines; i++)
+        AM(L"\r\n", false, RGB(0,0,0));
+
+    // ── Page title ──────────────────────────────────────────────────────────
+    // shell32 #221 = information / about (i) icon.
+    RegisterShell32Icon(hEdit, pd, 221);
+    AM(ML(pd, L"man_comp_h1",
+          L"\u2139  Components Page \u2014 What does it do?") + L"\r\n\r\n",
+       true, RGB(0,70,140), 14, true);
+
+    AM(ML(pd, L"man_comp_p1",
+          L"The Components page lets you split your installer into optional pieces "
+          L"that the end user can tick or untick during setup. For example a developer "
+          L"might offer a core application, an optional documentation pack, and an "
+          L"optional SDK \u2014 each as a separate component. Inno Setup emits a "
+          L"component-selection wizard page so the user controls exactly what gets "
+          L"installed.") + L"\r\n\r\n",
+       false, RGB(40,40,40));
+
+    AM(ML(pd, L"man_comp_p1b",
+          L"If you do not need per-component selection, leave the "
+          L"\u201cUse component-based installation\u201d checkbox unticked and all "
+          L"files are packaged as one complete bundle \u2014 the installer skips the "
+          L"component-selection wizard page entirely.") + L"\r\n\r\n",
+       false, RGB(40,40,40));
+
+    AM(L"\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\r\n\r\n", false, RGB(100,140,180));
+
+    // ── Enable toggle ────────────────────────────────────────────────────────
+    // shell32 #258 = shield / info badge.
+    RegisterShell32Icon(hEdit, pd, 258);
+    AM(ML(pd, L"man_comp_h2",
+          L"\U0001F4CB  Use component-based installation") + L"\r\n",
+       true, RGB(0,70,140), 12);
+    AM(ML(pd, L"man_comp_p2",
+          L"This checkbox at the top of the page activates the whole component system. "
+          L"When it is ticked, Inno Setup generates a [Components] section and the "
+          L"selection wizard page is shown to the user. When it is unticked, no "
+          L"[Components] section is emitted and all files install unconditionally.") + L"\r\n\r\n",
+       false, RGB(40,40,40));
+
+    AM(L"\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\r\n\r\n", false, RGB(100,140,180));
+
+    // ── Left pane: folder tree ───────────────────────────────────────────────
+    // shell32 #3 = closed yellow folder.
+    RegisterShell32Icon(hEdit, pd, 3);
+    AM(ML(pd, L"man_comp_h3",
+          L"\U0001F4C1  Left pane \u2014 Folder tree") + L"\r\n",
+       true, RGB(0,70,140), 12);
+    AM(ML(pd, L"man_comp_p3",
+          L"The tree mirrors the virtual file system you built on the Files page. "
+          L"It shows the same four install roots \u2014 Program Files, ProgramData, "
+          L"AppData (Roaming), and AskAtInstall \u2014 and their subfolder structure. "
+          L"Click any folder to see the components belonging to it in the right pane.") + L"\r\n\r\n",
+       false, RGB(40,40,40));
+    AM(ML(pd, L"man_comp_p3b",
+          L"Folders that contain at least one Required component are marked with a "
+          L"special icon (folder with a blue checkmark badge). This makes it easy "
+          L"to see at a glance which parts of the tree will always be installed "
+          L"regardless of what the user selects.") + L"\r\n\r\n",
+       false, RGB(40,40,40));
+
+    AM(L"\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\r\n\r\n", false, RGB(100,140,180));
+
+    // ── Right pane: component list ───────────────────────────────────────────
+    // shell32 #1 = generic file / document icon.
+    RegisterShell32Icon(hEdit, pd, 1);
+    AM(ML(pd, L"man_comp_h4",
+          L"\U0001F4C4  Right pane \u2014 Component list") + L"\r\n",
+       true, RGB(0,70,140), 12);
+    AM(ML(pd, L"man_comp_p4",
+          L"Shows all components belonging to the selected folder. Columns:") + L"\r\n",
+       false, RGB(40,40,40));
+
+    auto bullet = [&](const wchar_t* key, const wchar_t* fb) {
+        AM(L"  \u2022  ", true, RGB(0,70,140));
+        AM(ML(pd, key, fb) + L"\r\n", false, RGB(60,60,60));
+    };
+    bullet(L"man_comp_r4a",
+           L"Name \u2014 the display name shown to the user in the installer wizard.");
+    bullet(L"man_comp_r4b",
+           L"Description \u2014 optional subtitle shown below the name in the wizard.");
+    bullet(L"man_comp_r4c",
+           L"Required \u2014 whether this component is always installed silently.");
+    bullet(L"man_comp_r4d",
+           L"Type \u2014 Folder (covers all files in that folder) or File (single file).");
+    bullet(L"man_comp_r4e",
+           L"Install Types \u2014 which preset install types include this component.");
+    bullet(L"man_comp_r4f",
+           L"Source Path \u2014 the disk path of the file or folder this component covers.");
+    AM(L"\r\n", false, RGB(0,0,0));
+
+    AM(L"\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\r\n\r\n", false, RGB(100,140,180));
+
+    // ── Edit dialog ──────────────────────────────────────────────────────────
+    // shell32 #221 = information (i) icon, used as a proxy for "controls / settings".
+    RegisterShell32Icon(hEdit, pd, 221);
+    AM(ML(pd, L"man_comp_h5",
+          L"\u2699  Edit button \u2014 component properties") + L"\r\n",
+       true, RGB(0,70,140), 12);
+    AM(ML(pd, L"man_comp_p5",
+          L"Select a component in the list and click Edit (or double-click) to open "
+          L"the component properties dialog. Fields:") + L"\r\n",
+       false, RGB(40,40,40));
+
+    auto ctrl = [&](const wchar_t* lblKey, const wchar_t* lblFb,
+                    const wchar_t* txtKey, const wchar_t* txtFb) {
+        AM(L"  ", false, RGB(0,0,0));
+        AM(ML(pd, lblKey, lblFb) + L" \u2014 ", true, RGB(0,0,0));
+        AM(ML(pd, txtKey, txtFb) + L"\r\n\r\n", false, RGB(60,60,60));
+    };
+    ctrl(L"man_comp_l5a", L"Display Name",
+         L"man_comp_p5a",
+         L"The name shown in the wizard\u2019s component list. Keep it short and descriptive.");
+    ctrl(L"man_comp_l5b", L"Description",
+         L"man_comp_p5b",
+         L"Optional subtitle that appears under the name. Useful for explaining what "
+         L"the component contains or why the user might want it.");
+    ctrl(L"man_comp_l5c", L"Source Path",
+         L"man_comp_p5c",
+         L"The disk path of the file or folder this component covers. For folder "
+         L"components all files in that folder and its subfolders are included.");
+    ctrl(L"man_comp_l5d", L"Destination Path",
+         L"man_comp_p5d",
+         L"The install root this component belongs to (Program Files, ProgramData, etc.). "
+         L"Inherited from the VFS tree; edit only if you need to override it.");
+    ctrl(L"man_comp_l5e", L"Dependencies",
+         L"man_comp_p5e",
+         L"Other components that must be selected whenever this one is selected. "
+         L"Inno Setup enforces mutual-selection rules via generated [Code] Pascal. "
+         L"The project must be saved at least once before dependencies can be assigned.");
+    ctrl(L"man_comp_l5f", L"Install Types",
+         L"man_comp_p5f",
+         L"Space-separated list of install-type internal names this component belongs to "
+         L"(e.g. \u201cfull compact\u201d). Leave empty to include in all types.");
+
+    AM(L"\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\r\n\r\n", false, RGB(100,140,180));
+
+    // ── Component flags ──────────────────────────────────────────────────────
+    // shell32 #294 = green checkmark — represents tick-boxes / flags.
+    RegisterShell32Icon(hEdit, pd, 294);
+    AM(ML(pd, L"man_comp_h6",
+          L"\u2714  Component flags") + L"\r\n",
+       true, RGB(0,70,140), 12);
+    AM(ML(pd, L"man_comp_p6",
+          L"Five checkboxes in the edit dialog control how Inno Setup treats the "
+          L"component. Only tick the flags that apply \u2014 most optional components "
+          L"need none of them:") + L"\r\n\r\n",
+       false, RGB(40,40,40));
+
+    auto flag = [&](const wchar_t* nameKey, const wchar_t* nameFb,
+                    const wchar_t* descKey, const wchar_t* descFb) {
+        AM(L"  ", false, RGB(0,0,0));
+        AM(ML(pd, nameKey, nameFb), true, RGB(0,70,140));
+        AM(L" \u2014 " + ML(pd, descKey, descFb) + L"\r\n", false, RGB(60,60,60));
+    };
+    flag(L"man_comp_f_required",   L"Required",
+         L"man_comp_f_required_d",
+         L"Always installed silently. Hidden from the wizard component list. "
+         L"Use for mandatory runtime files the user must not be able to skip.");
+    flag(L"man_comp_f_preselected", L"Pre-selected",
+         L"man_comp_f_preselected_d",
+         L"Ticked by default in the wizard. The user can still untick it. "
+         L"Implied automatically when Required is set.");
+    flag(L"man_comp_f_fixed",      L"Fixed",
+         L"man_comp_f_fixed_d",
+         L"Visible in the wizard but greyed-out so it cannot be deselected. "
+         L"Inno emits Flags: fixed. Different from Required \u2014 the user can still see it.");
+    flag(L"man_comp_f_exclusive",  L"Exclusive",
+         L"man_comp_f_exclusive_d",
+         L"Radio-button behaviour: selecting this component deselects all other exclusive "
+         L"components in the same group. Inno emits Flags: exclusive. "
+         L"Useful for mutually-exclusive options such as 32-bit vs 64-bit.");
+    flag(L"man_comp_f_restart",    L"Restart required",
+         L"man_comp_f_restart_d",
+         L"Inno emits Flags: restart \u2014 if this component is installed, the setup "
+         L"wizard offers a reboot at the end. Use for drivers or shell-extension DLLs "
+         L"that cannot replace locked system files without a reboot.");
+    AM(L"\r\n", false, RGB(0,0,0));
+
+    AM(L"\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\r\n\r\n", false, RGB(100,140,180));
+
+    // ── Install Types ────────────────────────────────────────────────────────
+    // shell32 #258 = shield / info badge, reused for the Manage Install Types topic.
+    RegisterShell32Icon(hEdit, pd, 258);
+    AM(ML(pd, L"man_comp_h7",
+          L"\U0001F4CB  Manage Install Types") + L"\r\n",
+       true, RGB(0,70,140), 12);
+    AM(ML(pd, L"man_comp_p7",
+          L"Install types are preset bundles of components \u2014 for example "
+          L"\u201cFull\u201d, \u201cCompact\u201d, and \u201cCustom\u201d. The user "
+          L"picks one from a dropdown at the start of the wizard and Inno pre-selects "
+          L"the matching set of components. Click Manage Install Types at the bottom "
+          L"of the page to add, edit, or remove types.") + L"\r\n\r\n",
+       false, RGB(40,40,40));
+    AM(ML(pd, L"man_comp_p7b",
+          L"Each type has an internal name (no spaces, e.g. \u201cfull\u201d), a "
+          L"display description shown in the wizard dropdown (e.g. \u201cFull "
+          L"installation\u201d), and an optional Custom flag. A Custom type lets the "
+          L"user manually adjust which components are selected after choosing a preset "
+          L"\u2014 Inno emits Flags: iscustom for it. Assign a component to one or "
+          L"more types via the Install Types field in the component edit dialog.") + L"\r\n\r\n",
+       false, RGB(40,40,40));
+
+    AM(L"\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\r\n\r\n", false, RGB(100,140,180));
+
+    // ── Warning: save before assigning dependencies ──────────────────────────
+    RegisterSystemIcon(hEdit, pd, IDI_WARNING);
+    AM(L"\u26A0  ", true, RGB(160,80,0), 11);
+    AM(ML(pd, L"man_comp_warn",
+          L"Save the project before assigning dependencies. Components receive a "
+          L"permanent database ID only after the first Save. The dependency picker "
+          L"will not list components that have never been saved. After saving, "
+          L"press Choose again in the edit dialog to assign dependencies.") + L"\r\n\r\n",
+       false, RGB(120,50,0));
+
+    AM(L"\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\r\n\r\n", false, RGB(100,140,180));
+
+    // ── Next step ────────────────────────────────────────────────────────────
+    // shell32 #294 = green checkmark.
+    RegisterShell32Icon(hEdit, pd, 294);
+    AM(L"\u25B6  ", true, RGB(0,120,0), 11);
+    AM(ML(pd, L"man_comp_next",
+          L"Next step: go to the Dependencies page to define external prerequisites "
+          L"(redistributables, runtimes) that your installer will check for and "
+          L"optionally download before setup begins.") + L"\r\n",
+       false, RGB(0,80,0));
+}
+
 #undef AM
 
 // ─── Window procedure ─────────────────────────────────────────────────────────
@@ -510,10 +746,11 @@ void ShowPageManual(HWND parent, int pageIndex,
     }
 
     // ── Window title from locale ─────────────────────────────────────────────
-    auto itTitle = locale.find(L"man_files_window_title");
-    std::wstring title = (pageIndex == 0 && itTitle != locale.end())
-                             ? itTitle->second
-                             : L"Page Manual";
+    const wchar_t* titleKey =
+        (pageIndex == 0) ? L"man_files_window_title" :
+        (pageIndex == 9) ? L"man_comp_window_title"  : nullptr;
+    auto itTitle = titleKey ? locale.find(titleKey) : locale.end();
+    std::wstring title = (itTitle != locale.end()) ? itTitle->second : L"Page Manual";
 
     // ── Create the window ────────────────────────────────────────────────────
     // WS_THICKFRAME = resizable border; WS_MAXIMIZEBOX = the native full-screen
@@ -597,6 +834,8 @@ void ShowPageManual(HWND parent, int pageIndex,
     // ── Populate content ──────────────────────────────────────────────────────
     if (pageIndex == 0)
         PopulateFilesManual(hEdit, pd);
+    else if (pageIndex == 9)
+        PopulateComponentsManual(hEdit, pd);
     // (other pages: add else-if branches here as they are written)
 
     // Scroll to top.

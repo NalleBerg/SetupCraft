@@ -21,7 +21,7 @@
 //   9  Components
 //  10  File Associations
 //
-// Only pageIndex == 0 (Files) is implemented for now; other indices show a
+// Implemented so far: 0 (Files), 9 (Components).  Other indices show a
 // placeholder.  Add a new PopulateXxxManual() case in page_manual.cpp as each
 // page is written.
 
