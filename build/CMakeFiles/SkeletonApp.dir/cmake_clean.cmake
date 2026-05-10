@@ -40,6 +40,8 @@ file(REMOVE_RECURSE
   "CMakeFiles/SkeletonApp.dir/my_scrollbar_vscroll.cpp.obj.d"
   "CMakeFiles/SkeletonApp.dir/notes_editor.cpp.obj"
   "CMakeFiles/SkeletonApp.dir/notes_editor.cpp.obj.d"
+  "CMakeFiles/SkeletonApp.dir/page_manual.cpp.obj"
+  "CMakeFiles/SkeletonApp.dir/page_manual.cpp.obj.d"
   "CMakeFiles/SkeletonApp.dir/sc_shortcut_dialog.cpp.obj"
   "CMakeFiles/SkeletonApp.dir/sc_shortcut_dialog.cpp.obj.d"
   "CMakeFiles/SkeletonApp.dir/script_edit_dialog.cpp.obj"

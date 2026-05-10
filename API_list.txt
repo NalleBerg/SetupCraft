@@ -958,6 +958,61 @@
                                                 Cancel-guard snapshot (openLogW/H/openUserSized)
                                                 must be taken AFTER AutoFitPreview — not before.
 
+  API_INTERNALS\INTERNALS\manual_INTERNALS.txt  Per-page manual system — architecture
+                                                overview, RICHEDIT50W vs RichEdit20W
+                                                (font-linking, emoji), CHARFORMAT2W
+                                                DEFAULT_CHARSET, body twips formula,
+                                                color icon overlay system
+                                                (RegisterShell32Icon / RegisterSystemIcon /
+                                                ManualEditSubclassProc WM_PAINT pattern),
+                                                logo painting (GDI+, blank-line reserve,
+                                                scroll offset), window layout + live resize,
+                                                modality (EnableWindow + PostQuitMessage),
+                                                toolbar ? button internals (SS_NOTIFY rule,
+                                                ManualIcon_SubclassProc message handling,
+                                                s_prevManualProc / s_manualIconTracking
+                                                statics, forward declaration requirement),
+                                                step-by-step guide for adding a new page
+                                                manual (PopulateXxxManual, locale keys,
+                                                pageIndex dispatch), and shell32 icon
+                                                index reference table.
+
+  page_manual.h / page_manual.cpp               Per-page contextual manual popup —
+                                                ShowPageManual(hwndParent, pageIndex, locale)
+                                                entry point; dispatches to PopulateXxxManual()
+                                                per page index (PopulateFilesManual for 0;
+                                                stub for all other pages).
+                                                Window: WS_POPUP | WS_CAPTION | WS_SYSMENU |
+                                                WS_THICKFRAME | WS_MAXIMIZEBOX | WS_VISIBLE.
+                                                RichEdit: loads Msftedit.dll → RICHEDIT50W
+                                                (v4.1, full Unicode font-linking, emoji-capable);
+                                                falls back to RichEdit20W. CHARFORMAT2W with
+                                                CFM_CHARSET | DEFAULT_CHARSET enables Segoe UI
+                                                Emoji font substitution. EM_SETTARGETDEVICE(NULL,0)
+                                                locks word-wrap to control width (no H-scroll).
+                                                Color icon overlays (GDI ≠ COLR color emoji):
+                                                RegisterShell32Icon(hEdit, pd, iconIdx) — records
+                                                current char position + loads shell32 icon via
+                                                ExtractIconExW (large). RegisterSystemIcon variant
+                                                for IDI_WARNING etc. ManualEditSubclassProc
+                                                WM_PAINT: after original proc draws text, calls
+                                                EM_POSFROMCHAR for each recorded IconEntry and
+                                                draws the full-color icon via DrawIconEx at the
+                                                scroll-adjusted client coordinates. Icons freed in
+                                                WM_DESTROY. SC logo drawn via GDI+ at top.
+                                                Toolbar ? button (IDC_FILES_MANUAL_BTN=5029):
+                                                flat SS_NOTIFY (no SS_ICON) static control in
+                                                CreateToolbar(), S(5) px left of About icon, same
+                                                size (S(36)×S(36)). ManualIcon_SubclassProc:
+                                                WM_PAINT (DrawIconEx + COLOR_BTNFACE fill),
+                                                WM_ERASEBKGND (return 1), WM_MOUSEMOVE/MOUSELEAVE
+                                                (tooltip via ShowMultilingualTooltip/HideTooltip,
+                                                TooltipText prop set by SetButtonTooltip),
+                                                WM_NCDESTROY (DestroyIcon + free prop).
+                                                WM_COMMAND calls ShowPageManual(hwnd,
+                                                s_currentPageIndex, s_locale) — page-aware.
+                                                Locale key: man_files_btn_hint.
+
   file_assoc.h / file_assoc.cpp                 File Associations page module (toolbar index 10,
                                                 IDC_TB_FILE_ASSOC=5084). FA_BuildPage /
                                                 FA_Reset / FA_TearDown / FA_OnCommand /

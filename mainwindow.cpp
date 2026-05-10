@@ -30,6 +30,7 @@
 #include "scripts.h"
 #include "settings.h"
 #include "issgen.h"
+#include "page_manual.h"
 #include "my_scrollbar_vscroll.h"
 #include "my_scrollbar_hscroll.h"
 #include <richedit.h>
@@ -108,6 +109,7 @@ static bool s_updatingProjectNameProgrammatically = false; // Prevent EN_CHANGE 
 static bool s_installPathUserEdited = false; // Once user manually picks a path, stop auto-updating it
 static std::wstring s_currentInstallPath;    // Persists the install path across page switches
 static HWND s_hAboutButton = NULL; // Track About button for tooltip
+static WNDPROC s_prevManualProc = NULL; // Prev wndproc for the toolbar manual-? icon
 static bool s_aboutMouseTracking = false; // Track mouse for About button tooltip
 static HFONT s_hGuiFont = NULL; // Scaled GUI font for labels/edits/checkboxes
 // Mirror entry-screen tooltip tracking state
@@ -409,6 +411,8 @@ static bool s_filesPageHasContent = false; // tracks whether Files page has any 
 #define IDC_ASK_AT_INSTALL  5027
 // Remove-hint label (below Remove button, above split pane)
 #define IDC_FILES_HINT      5028
+// Page-manual ℹ button (top-right of the Files page title)
+#define IDC_FILES_MANUAL_BTN 5029
 
 // Context menu IDs
 #define IDM_TREEVIEW_ADD_FOLDER 5030
@@ -918,6 +922,9 @@ void MainWindow::CreateMenuBar(HWND hwnd) {
     SetMenu(hwnd, hMenuBar);
 }
 
+// Forward declaration — defined just before SwitchPage, after other file-scope statics.
+static LRESULT CALLBACK ManualIcon_SubclassProc(HWND, UINT, WPARAM, LPARAM);
+
 void MainWindow::CreateToolbar(HWND hwnd, HINSTANCE hInst) {
     // Two-row layout: row1 = navigation pages, row2 = action pages
     const int btnH   = S(31);  // button height for each row
@@ -1061,6 +1068,37 @@ void MainWindow::CreateToolbar(HWND hwnd, HINSTANCE hInst) {
     const int aboutIconX = rcToolbar.right - aboutIconSize - S(10);
     const int aboutIconY = (s_toolbarHeight - aboutIconSize) / 2;
     s_hAboutButton = CreateAboutIconControl(hwnd, hInst, aboutIconX, aboutIconY, aboutIconSize, IDC_TB_ABOUT, s_locale);
+
+    // Manual ? icon — flat, no grey background, 5 px to the left of the About icon.
+    // Same size as About icon so they form a visual pair.
+    // Uses SS_NOTIFY (no SS_ICON) + GWLP_USERDATA to avoid SS_ICON's auto-resize quirk.
+    // Clicks arrive as STN_CLICKED via WM_COMMAND → IDC_FILES_MANUAL_BTN handler.
+    {
+        const int manSz = aboutIconSize;
+        const int manX  = aboutIconX - S(5) - manSz;
+        const int manY  = aboutIconY;
+        HWND hManIco = CreateWindowExW(
+            0, L"STATIC", NULL,
+            WS_CHILD | WS_VISIBLE | SS_NOTIFY,
+            manX, manY, manSz, manSz,
+            hwnd, (HMENU)IDC_FILES_MANUAL_BTN, hInst, NULL);
+        // Load shell32 #23 (blue question mark) at exactly the needed pixel size.
+        // ExtractIconExW only gives 32×32; use the large variant and let DrawIconEx scale.
+        wchar_t sysDir[MAX_PATH]; GetSystemDirectoryW(sysDir, MAX_PATH);
+        wchar_t s32Path[MAX_PATH]; wcscpy_s(s32Path, sysDir); wcscat_s(s32Path, L"\\shell32.dll");
+        HICON hManIcoImg = NULL;
+        ExtractIconExW(s32Path, 23, &hManIcoImg, NULL, 1); // large (32×32)
+        if (!hManIcoImg) ExtractIconExW(s32Path, 23, NULL, &hManIcoImg, 1); // fallback small
+        // Store icon in GWLP_USERDATA; subclass proc paints it with DrawIconEx.
+        SetWindowLongPtrW(hManIco, GWLP_USERDATA, (LONG_PTR)hManIcoImg);
+        // Subclass for custom paint (no grey background, full-color icon).
+        s_prevManualProc = (WNDPROC)SetWindowLongPtrW(hManIco, GWLP_WNDPROC,
+            (LONG_PTR)ManualIcon_SubclassProc);
+        // Tooltip
+        auto itManTip = s_locale.find(L"man_files_btn_hint");
+        std::wstring manTip = (itManTip != s_locale.end()) ? itManTip->second : L"How to use this page — Manual";
+        SetButtonTooltip(hManIco, manTip.c_str());
+    }
 }
 
 // Helper function to clean up registry TreeView items (free lParam memory)
@@ -1850,8 +1888,53 @@ static void UpdateCompTreeRequiredIcons(HWND hTree, HTREEITEM hItem,
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Subclass proc for the flat manual-? icon in the toolbar.
+// Mirrors the About icon pattern: no ButtonColor background, just the icon drawn by STATIC.
+static bool s_manualIconTracking = false;
+static LRESULT CALLBACK ManualIcon_SubclassProc(HWND hwnd, UINT msg, WPARAM wP, LPARAM lP)
+{
+    if (msg == WM_PAINT) {
+        HICON hIco = (HICON)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+        PAINTSTRUCT ps; HDC hdc = BeginPaint(hwnd, &ps);
+        RECT rc; GetClientRect(hwnd, &rc);
+        FillRect(hdc, &rc, (HBRUSH)(COLOR_BTNFACE + 1));
+        if (hIco) DrawIconEx(hdc, 0, 0, hIco, rc.right, rc.bottom, 0, NULL, DI_NORMAL);
+        EndPaint(hwnd, &ps); return 0;
+    }
+    if (msg == WM_ERASEBKGND) return 1;
+    if (msg == WM_MOUSEMOVE) {
+        if (!s_manualIconTracking) {
+            s_manualIconTracking = true;
+            TRACKMOUSEEVENT tme = {};
+            tme.cbSize    = sizeof(tme);
+            tme.dwFlags   = TME_LEAVE;
+            tme.hwndTrack = hwnd;
+            TrackMouseEvent(&tme);
+            wchar_t* tipText = (wchar_t*)GetPropW(hwnd, L"TooltipText");
+            if (tipText && !IsTooltipVisible()) {
+                RECT rc; GetWindowRect(hwnd, &rc);
+                std::vector<TooltipEntry> entries = {{ L"", std::wstring(tipText) }};
+                ShowMultilingualTooltip(entries, rc.left, rc.bottom + 4, GetParent(hwnd), rc.top);
+            }
+        }
+        return 0;
+    }
+    if (msg == WM_MOUSELEAVE) {
+        s_manualIconTracking = false;
+        HideTooltip();
+        return 0;
+    }
+    if (msg == WM_NCDESTROY) {
+        HICON hIco = (HICON)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+        if (hIco) { DestroyIcon(hIco); SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0); }
+        wchar_t* tipText = (wchar_t*)GetPropW(hwnd, L"TooltipText");
+        if (tipText) { free(tipText); RemovePropW(hwnd, L"TooltipText"); }
+    }
+    return s_prevManualProc ? CallWindowProcW(s_prevManualProc, hwnd, msg, wP, lP)
+                            : DefWindowProcW(hwnd, msg, wP, lP);
+}
+
 void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
-    { wchar_t buf[80]; swprintf_s(buf, L"SwitchPage(%d) START", pageIndex); SCLog(buf); }
     // Snapshot Files page tree before tearing it down so we can restore it
     // (including virtual folders and full hierarchy) when we return.
     if (s_currentPageIndex == 0 && s_hTreeView && IsWindow(s_hTreeView)) {
@@ -10502,6 +10585,10 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             return 0;
             
         // Files page buttons
+        case IDC_FILES_MANUAL_BTN:
+            ShowPageManual(hwnd, s_currentPageIndex, s_locale);
+            return 0;
+
         case IDC_FILES_ADD_DIR: {
             // Load last-used folder from DB for this project
             std::wstring pickerInitDir;

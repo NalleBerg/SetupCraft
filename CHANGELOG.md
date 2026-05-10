@@ -2,6 +2,17 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.05.10.09] - 2026-05-10
+
+### Manual system — per-page contextual manual popup + toolbar ? button
+- **`page_manual.h` / `page_manual.cpp` — new module**: Resizable RTF manual popup (`WS_THICKFRAME | WS_MAXIMIZEBOX`) with one entry point: `ShowPageManual(hwndParent, pageIndex, locale)`. Dispatches to a per-page populate function (`PopulateFilesManual` for page 0; stub for all other pages). Loads `Msftedit.dll` → `RICHEDIT50W` (v4.1) for full Unicode font-linking — required for emoji to render as glyphs rather than squares. `CHARFORMAT2W` with `CFM_CHARSET | DEFAULT_CHARSET` enables automatic font substitution (Segoe UI Emoji). Falls back to `RichEdit20W` if Msftedit.dll unavailable. Word-wrap via `EM_SETTARGETDEVICE(NULL,0)`.
+- **Color shell32 icon overlays — `RegisterShell32Icon` / `ManualEditSubclassProc`**: GDI cannot render OpenType COLR color tables (emoji appear monochrome). Fix: `RegisterShell32Icon(hEdit, pd, iconIdx)` records the char position before each heading and loads the shell32 icon via `ExtractIconExW`. `ManualEditSubclassProc` WM_PAINT calls `EM_POSFROMCHAR` for each recorded position after the original proc renders text, then draws the full-color icon via `DrawIconEx` at those coordinates. Icons freed in WM_DESTROY. `RegisterSystemIcon` variant handles `IDI_WARNING` etc.
+- **`PopulateFilesManual` — Files page manual**: 7 sections with color icon overlays: *Program Files* (shell32 #3 yellow folder), *Open Folder* (shell32 #5), *Files* (shell32 #1 document), *Settings* (shell32 #221 info i), *Clipboard* (shell32 #258), *Help* (shell32 #23 question mark), plus inline IDI_WARNING and shell32 #294 green check. SC logo drawn via GDI+ at top.
+- **`IDC_FILES_MANUAL_BTN = 5029` moved from Files page to toolbar — `mainwindow.cpp`**: Created in `CreateToolbar()` as a flat `SS_NOTIFY`-only static control `S(5)` px to the left of the About icon, same size and vertical centre. `SS_NOTIFY` (no `SS_ICON`) avoids the ExtractIconExW auto-resize quirk (§3b rule). `ManualIcon_SubclassProc` handles WM_PAINT (DrawIconEx + COLOR_BTNFACE fill), WM_ERASEBKGND (return 1), WM_MOUSEMOVE/WM_MOUSELEAVE (tooltip via `ShowMultilingualTooltip`/`HideTooltip`), WM_NCDESTROY (DestroyIcon + free TooltipText prop). WM_COMMAND handler calls `ShowPageManual(hwnd, s_currentPageIndex, s_locale)` — page-aware: opens the correct manual for whichever page is currently active.
+- **Files page title restored to full width**: heading STATIC now spans `rc.right - S(40)`. `IDC_FILES_MANUAL_BTN` removed from the `controlIds[]` teardown array (toolbar controls persist) and from the `WM_DRAWITEM` guard (flat SS_NOTIFY requires no WM_DRAWITEM).
+- **`locale/en_GB.txt`** (both copies): `man_files_btn_hint=How to use this page — Manual`.
+- **`CMakeLists.txt`**: `page_manual.cpp` added to source list.
+
 ## [2026.05.10.08] - 2026-05-10
 
 ### Components — Restart flag (reboot required after installing a component, Inno Flags: restart)

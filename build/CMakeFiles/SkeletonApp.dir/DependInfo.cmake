@@ -44,6 +44,7 @@ set(CMAKE_DEPENDS_DEPENDENCY_FILES
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/mainwindow.cpp" "CMakeFiles/SkeletonApp.dir/mainwindow.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/mainwindow.cpp.obj.d"
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/my_scrollbar_vscroll.cpp" "CMakeFiles/SkeletonApp.dir/my_scrollbar_vscroll.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/my_scrollbar_vscroll.cpp.obj.d"
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/notes_editor.cpp" "CMakeFiles/SkeletonApp.dir/notes_editor.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/notes_editor.cpp.obj.d"
+  "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/page_manual.cpp" "CMakeFiles/SkeletonApp.dir/page_manual.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/page_manual.cpp.obj.d"
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/sc_shortcut_dialog.cpp" "CMakeFiles/SkeletonApp.dir/sc_shortcut_dialog.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/sc_shortcut_dialog.cpp.obj.d"
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/script_edit_dialog.cpp" "CMakeFiles/SkeletonApp.dir/script_edit_dialog.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/script_edit_dialog.cpp.obj.d"
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/scripts.cpp" "CMakeFiles/SkeletonApp.dir/scripts.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/scripts.cpp.obj.d"

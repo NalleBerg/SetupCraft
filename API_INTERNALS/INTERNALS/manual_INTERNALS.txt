@@ -1,0 +1,310 @@
+================================================================================
+  SetupCraft — Per-Page Manual System Internals
+================================================================================
+
+FILES:
+  page_manual.h       Public entry point: ShowPageManual()
+  page_manual.cpp     Implementation — window, RichEdit, color icon overlays,
+                      per-page populate functions
+  mainwindow.cpp      CreateToolbar() — flat ? toolbar button + subclass proc
+
+================================================================================
+1. ARCHITECTURE OVERVIEW
+================================================================================
+
+  ShowPageManual(hwndParent, pageIndex, locale)
+    │
+    ├─ loads Msftedit.dll → RICHEDIT50W (falls back to RichEdit20W)
+    ├─ loads SC logo PNG via GDI+
+    ├─ registers "SetupCraftManualClass" window (once per process lifetime)
+    ├─ creates WS_POPUP | WS_THICKFRAME | WS_MAXIMIZEBOX window
+    ├─ creates RICHEDIT50W child control (word-wrap, read-only, no H-scroll)
+    ├─ subclasses RichEdit → ManualEditSubclassProc (logo + color icons)
+    ├─ attaches custom vertical scrollbar (msb_attach)
+    ├─ dispatches to PopulateXxxManual(hEdit, pd) by pageIndex
+    └─ runs a modal message loop; re-enables parent on exit
+
+  ManualWndData (per-window):
+    pageIndex, pLocale, pLogo (GDI+ Image*), hScrollbar (HMSB),
+    origEditProc (WNDPROC), hEdit, hCloseBtn, closeW,
+    PAD (=S(10)), BTN_H (=S(34)), richFontDirty,
+    sectionIcons (std::vector<IconEntry>)
+
+  IconEntry (color icon overlay record):
+    charPos  — char index in RichEdit where the emoji heading starts
+    hIcon    — HICON loaded via ExtractIconExW or LoadIconW
+    size     — drawn square in px (S(18))
+
+================================================================================
+2. RICHEDIT VERSION — WHY RICHEDIT50W?
+================================================================================
+
+  RichEdit v2.0 (Riched20.dll → "RichEdit20W") has NO font linking.
+  Emoji codepoints render as empty boxes because the primary message font
+  (e.g. Segoe UI) does not contain them and the control makes no attempt to
+  substitute a font that does.
+
+  RichEdit v4.1 (Msftedit.dll → "RICHEDIT50W") has FULL Unicode font
+  linking. When it encounters a codepoint the primary face cannot render it
+  automatically substitutes a capable system font (Segoe UI Emoji, Segoe UI
+  Symbol, etc.) — no application code required.
+
+  Loading sequence (once per process, cached in s_hRe):
+    s_hRe = LoadLibraryW(L"Msftedit.dll");
+    if (!s_hRe) s_hRe = LoadLibraryW(L"Riched20.dll");
+
+  Class selection (verified at runtime so it works on Wine / older systems):
+    WNDCLASSEXW wce = {}; wce.cbSize = sizeof(wce);
+    const wchar_t* reClass =
+        (s_hRe && GetClassInfoExW(s_hRe, L"RICHEDIT50W", &wce))
+        ? L"RICHEDIT50W" : L"RichEdit20W";
+
+================================================================================
+3. CHARFORMAT2W — DEFAULT_CHARSET FOR FONT SUBSTITUTION
+================================================================================
+
+  AppendManual() sets CHARFORMAT2W on every text run:
+
+    cf.dwMask   = CFM_COLOR | CFM_BOLD | CFM_SIZE | CFM_FACE | CFM_CHARSET;
+    cf.bCharSet = DEFAULT_CHARSET;  // ← enables automatic font linking
+
+  Without CFM_CHARSET | DEFAULT_CHARSET, RICHEDIT50W only searches the
+  nominated face (e.g. "Segoe UI") and still shows blank squares for emoji.
+  DEFAULT_CHARSET tells the control's font-linker to scan all installed fonts.
+
+  EM_SETTARGETDEVICE(NULL, 0):
+    Forces word-wrap to the control's own DC width.
+    Text reflows automatically when WM_SIZE resizes the RichEdit.
+    Prevents any horizontal scrollbar appearing regardless of content width.
+
+================================================================================
+4. RICHEDIT BODY FONT SIZING (twips)
+================================================================================
+
+  The body font size is measured once per dialog open (richFontDirty flag)
+  using the RichEdit's own DC to respect its internal DPI reference:
+
+    NONCLIENTMETRICSW ncm → lfMessageFont (face + height)
+    HDC hdcEdit → GetDeviceCaps(LOGPIXELSY) = dpiY
+    s_baseTwips = MulDiv(abs(lfHeight) × 1.2, 1440, dpiY)
+
+  × 1.2 matches the body-font scale used everywhere else in SetupCraft.
+  The twips value is passed as cf.yHeight; fontSize=0 in AM() uses this base.
+  fontSize > 0 in AM() overrides: cf.yHeight = fontSize * 20 (points → twips).
+
+================================================================================
+5. COLOR ICON OVERLAY SYSTEM
+================================================================================
+
+  Problem: GDI does not process OpenType COLR tables.
+  Even with RICHEDIT50W, shell32 emoji rendered by GDI appear as black-and-
+  white outlines only (monochrome path data, no color fill).
+
+  Solution: record the char position of each emoji heading BEFORE inserting
+  its text; in WM_PAINT, draw the full-color shell32 icon on top.
+
+  ── RegisterShell32Icon(hEdit, pd, iconIdx) ──────────────────────────────────
+    1. Read current char count: EM_GETTEXTLENGTHEX → charPos.
+    2. Build shell32.dll path from GetSystemDirectoryW().
+    3. ExtractIconExW(path, iconIdx, &hIco, NULL, 1) — large icon (32×32).
+       If that fails, retry for the small icon:
+         ExtractIconExW(path, iconIdx, NULL, &hIco, 1)
+    4. Push { charPos, hIco, S(18) } into pd->sectionIcons.
+
+    Call IMMEDIATELY before the AM() that outputs the emoji character.
+    charPos must point to the emoji itself, not to preceding text.
+
+  ── RegisterSystemIcon(hEdit, pd, sysIconId) ─────────────────────────────────
+    Same logic; loads via LoadIconW(NULL, sysIconId) instead.
+    Used for IDI_WARNING (system yellow triangle, always full-color).
+
+  ── ManualEditSubclassProc — WM_PAINT ────────────────────────────────────────
+    1. CallWindowProcW(origEditProc, …) — RichEdit draws text + scroll position.
+    2. HDC hdc = GetDC(hwnd)
+    3. Draw logo (GDI+ Image::DrawImage, offset by EM_GETSCROLLPOS.y).
+    4. For each IconEntry e in pd->sectionIcons:
+         POINT ipt = {};
+         SendMessageW(hwnd, EM_POSFROMCHAR, (WPARAM)&ipt, e.charPos);
+         // EM_POSFROMCHAR returns scroll-adjusted client coordinates —
+         // no manual offset needed.
+         DrawIconEx(hdc, ipt.x, ipt.y + 1, e.hIcon,
+                    e.size, e.size, 0, NULL, DI_NORMAL);
+    5. ReleaseDC(hwnd, hdc); return 0.
+
+  ── Icon lifetime ─────────────────────────────────────────────────────────────
+    Icons are owned by ManualWndData::sectionIcons.
+    WM_DESTROY: for each entry, DestroyIcon(entry.hIcon); then .clear().
+
+  ── Vertical alignment tweak ──────────────────────────────────────────────────
+    DrawIconEx y offset: ipt.y + 1.  The +1 px nudge aligns the icon baseline
+    with the text cap-height at the body font size used for headings.
+
+================================================================================
+6. LOGO PAINTING IN THE RICHTEXT AREA
+================================================================================
+
+  Same technique as about.cpp (mirrors ShowAboutDialog):
+    - SC logo is loaded as GDI+ Image* from SetupCraft.png (next to exe).
+    - Blank lines are prepended to the RichEdit content in PopulateXxxManual
+      so the text starts below the logo area:
+        int lines = (logoH + S(10)) / S(15);
+        for (int i = 0; i < lines; i++) AM(L"\r\n", false, RGB(0,0,0));
+    - Logo is drawn in WM_PAINT at (centred x, S(10) - scrollY).
+    - Graphics.SetInterpolationMode(HighQualityBicubic) for clean downscale.
+    - Drawn at 75 % of original pixel dimensions:
+        logoW = (int)(pLogo->GetWidth()  * 0.75);
+        logoH = (int)(pLogo->GetHeight() * 0.75);
+
+================================================================================
+7. WINDOW LAYOUT & RESIZE
+================================================================================
+
+  Initial size: S(650) × S(560) (same as About dialog).
+  Centred over the parent window (parent GetWindowRect mid-point).
+
+  WM_SIZE:
+    editH = cH - 3 × PAD - BTN_H   (minimum = BTN_H)
+    SetWindowPos(hEdit,    PAD, PAD, cW - 2×PAD, editH)
+    SetWindowPos(hCloseBtn, (cW-closeW)/2, cH-PAD-BTN_H, closeW, BTN_H)
+    msb_notify_content_changed(pd->hScrollbar)
+
+  WM_GETMINMAXINFO:
+    ptMinTrackSize = (S(420), S(320))
+    ptMaxSize / ptMaxPosition = work area (MonitorFromWindow / GetMonitorInfoW)
+    → maximise fills the screen minus the taskbar.
+
+  EM_SETTARGETDEVICE(NULL,0) + WM_SIZE together: text reflows to the new
+  RichEdit width without any extra messaging; word-wrap is fully live.
+
+================================================================================
+8. MODALITY
+================================================================================
+
+  ShowPageManual() disables the parent window on entry:
+    EnableWindow(parent, FALSE);
+  And re-enables + activates it after the modal loop exits:
+    EnableWindow(parent, TRUE);
+    SetForegroundWindow(parent); BringWindowToTop(parent);
+
+  WM_DESTROY posts WM_QUIT (PostQuitMessage(0)) which terminates the loop.
+  WM_CLOSE → DestroyWindow(hwnd).
+  IDOK / IDCANCEL (Close button / Escape) → DestroyWindow(hwnd).
+
+================================================================================
+9. TOOLBAR ? BUTTON (mainwindow.cpp)
+================================================================================
+
+  IDC_FILES_MANUAL_BTN = 5029
+
+  Created in CreateToolbar() immediately after the About icon block:
+    manX = aboutIconX - S(5) - aboutIconSize
+    manY = (s_toolbarHeight - S(36)) / 2
+    size = S(36) × S(36)
+
+  Control style: WS_CHILD | WS_VISIBLE | SS_NOTIFY   (no SS_ICON!)
+    SS_ICON causes the system to auto-resize the static to the icon's logical
+    size when SetWindowLong is used — this ruins the layout.  SS_NOTIFY (§3b
+    rule) avoids this: we store the HICON ourselves in GWLP_USERDATA and draw
+    it manually in WM_PAINT.
+
+  Icon loading:
+    wchar_t shell32Path[MAX_PATH]; // build path via GetSystemDirectoryW
+    HICON hManualIco = NULL;
+    ExtractIconExW(shell32Path, 23, &hManualIco, NULL, 1); // shell32 #23 = ?
+    SetWindowLongPtrW(hwndManual, GWLP_USERDATA, (LONG_PTR)hManualIco);
+
+  Subclassing:
+    s_prevManualProc = (WNDPROC)SetWindowLongPtrW(
+        hwndManual, GWLP_WNDPROC, (LONG_PTR)ManualIcon_SubclassProc);
+
+  File-scope statics (declared near other statics ~line 111 of mainwindow.cpp,
+  before CreateToolbar to resolve forward reference):
+    static WNDPROC s_prevManualProc     = NULL;
+    static bool    s_manualIconTracking = false;
+  Forward declaration required before CreateToolbar definition:
+    static LRESULT CALLBACK ManualIcon_SubclassProc(HWND, UINT, WPARAM, LPARAM);
+
+  ManualIcon_SubclassProc messages:
+    WM_PAINT:
+      PAINTSTRUCT ps; HDC hdc = BeginPaint(hwnd, &ps);
+      RECT rc; GetClientRect(hwnd, &rc);
+      FillRect(hdc, &rc, (HBRUSH)(COLOR_BTNFACE + 1));  // flat background
+      HICON hIco = (HICON)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+      if (hIco) DrawIconEx(hdc, 0, 0, hIco, rc.right, rc.bottom, 0, NULL, DI_NORMAL);
+      EndPaint(hwnd, &ps); return 0;
+
+    WM_ERASEBKGND:
+      return 1;  // suppress default erase to avoid flicker
+
+    WM_MOUSEMOVE:
+      if (!s_manualIconTracking) {
+          s_manualIconTracking = true;
+          TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, hwnd, 0 };
+          TrackMouseEvent(&tme);
+          LPCWSTR tip = (LPCWSTR)GetPropW(hwnd, L"TooltipText");
+          if (tip) ShowMultilingualTooltip(hwnd, tip);
+      }
+
+    WM_MOUSELEAVE:
+      HideTooltip(); s_manualIconTracking = false;
+
+    WM_NCDESTROY:
+      HICON h = (HICON)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+      if (h) DestroyIcon(h);
+      LPCWSTR tip = (LPCWSTR)GetPropW(hwnd, L"TooltipText");
+      if (tip) { free((void*)tip); RemovePropW(hwnd, L"TooltipText"); }
+
+  Tooltip:
+    SetButtonTooltip(hwndManual, s_locale, L"man_files_btn_hint");
+    Locale key: man_files_btn_hint = "How to use this page — Manual"
+    SetButtonTooltip stores the text in the "TooltipText" window property;
+    WM_MOUSEMOVE reads it back and calls ShowMultilingualTooltip.
+
+  WM_COMMAND handler (MainWndProc):
+    case IDC_FILES_MANUAL_BTN:
+        ShowPageManual(hwnd, s_currentPageIndex, s_locale);
+    — page-aware: s_currentPageIndex tracks the active toolbar page, so the
+    correct manual is shown regardless of which page the user is on.
+
+================================================================================
+10. HOW TO ADD A NEW PAGE MANUAL
+================================================================================
+
+  1. Write PopulateXxxManual(HWND hEdit, ManualWndData* pd) in page_manual.cpp.
+       Pattern: blank lines for logo, then sections using AM() + RegisterShell32Icon().
+       AM macro: AppendManual(hEdit, pd, text, bold, color [, fontSize [, centered]])
+
+  2. Add an else-if branch in ShowPageManual():
+       else if (pageIndex == N) PopulateXxxManual(hEdit, pd);
+
+  3. Update page_manual.h comment block (pageIndex table).
+
+  4. Add a locale key for the window title:
+       man_xxx_window_title=Xxx Page — Manual
+     in locale/en_GB.txt AND SetupCraft/locale/en_GB.txt.
+     Update ShowPageManual() title-lookup logic if a per-page title is needed.
+
+  5. Add locale keys for section headings and body paragraphs:
+       man_xxx_h1, man_xxx_p1, man_xxx_h2, … (follow the files-page naming).
+
+  6. Update API_list.txt: add PopulateXxxManual to the page_manual entry.
+
+================================================================================
+11. SHELL32 ICON INDEX REFERENCE (verified)
+================================================================================
+
+  Index   Icon                   Used for
+  ─────   ────────────────────   ─────────────────────────────────────────────
+    1     Generic file/document  File list section
+    3     Closed yellow folder   Program Files / folder headings
+    4     Open yellow folder     (alternate for opened folder)
+    5     Open yellow folder     Open-folder / browse headings
+   23     Question mark / help   Help section; toolbar ? button
+  131     X / close / remove     Custom button Close icon (page_manual.cpp)
+  221     Information (i)        Settings / info sections
+  258     Shield / info          Clipboard / project-info sections
+  294     Green checkmark        Next-step / success indicators
+
+  IDI_WARNING (LoadIconW NULL) = system yellow warning triangle; always color.
+
+================================================================================

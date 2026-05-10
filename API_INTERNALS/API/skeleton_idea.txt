@@ -307,6 +307,32 @@
     CreateDeviceResources / DiscardDeviceResources pattern and handle
     D2DERR_RECREATE_TARGET in EndDraw.  On WM_SIZE call RT->Resize(SizeU(w,h)).
 
+  - Color emoji in RichEdit (RICHEDIT50W + icon overlay alternative to D2D):
+    When you need color emoji inside a RichEdit (RTF manual, notes, rich help
+    text), the D2D approach above is impractical.  Use this two-part solution:
+    1. Use Msftedit.dll / RICHEDIT50W (v4.1): LoadLibraryW(L"Msftedit.dll");
+       CreateWindowExW(... L"RICHEDIT50W" ...); RICHEDIT50W has full Unicode
+       font-linking (v2.0 "RichEdit20W" does NOT — shows blank squares).
+       CHARFORMAT2W with CFM_CHARSET | DEFAULT_CHARSET in cfm.dwMask enables
+       automatic font substitution — the OS selects Segoe UI Emoji when it
+       encounters emoji codepoints. EM_SETTARGETDEVICE(NULL,0) for word-wrap.
+    2. Shell32 icon overlay for color (emoji still render monochrome in GDI):
+       Before inserting an emoji heading, record the char position:
+         LRESULT len = SendMessageW(hEdit, WM_GETTEXTLENGTH, 0, 0);
+         HICON hIco = NULL; ExtractIconExW(shell32Path, iconIdx, &hIco, NULL, 1);
+         pd->sectionIcons.push_back({ (LONG)len, hIco, size });
+       Subclass the RichEdit; in WM_PAINT:
+         CallWindowProcW(orig, hwnd, WM_PAINT, 0, 0); // draw text first
+         for each IconEntry e:
+           POINTL pt; SendMessageW(hwnd, EM_POSFROMCHAR, (WPARAM)&pt, e.charPos);
+           DrawIconEx(hdc, pt.x, pt.y, e.hIcon, e.size, e.size, 0, NULL, DI_NORMAL);
+       Free icons in WM_DESTROY.  EM_POSFROMCHAR accounts for scrolling so icons
+       follow the text even when the user scrolls.
+    Fallback: if Msftedit.dll is unavailable, fall back to RichEdit20W — text
+    works, emoji show monochrome placeholder glyphs.
+    See page_manual.cpp (RegisterShell32Icon / ManualEditSubclassProc) for the
+    full reference implementation.
+
   - UpDown spinner (UDM_SETPOS32) dirty-flag trap: UDM_SETPOS32 triggers
     EN_CHANGE on the buddy edit.  If programmatic updates happen during window
     creation (e.g. populating spinners from saved values), the EN_CHANGE handler

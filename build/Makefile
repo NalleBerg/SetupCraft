@@ -616,6 +616,30 @@ notes_editor.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/notes_editor.cpp.s
 .PHONY : notes_editor.cpp.s
 
+page_manual.obj: page_manual.cpp.obj
+.PHONY : page_manual.obj
+
+# target to build an object file
+page_manual.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/page_manual.cpp.obj
+.PHONY : page_manual.cpp.obj
+
+page_manual.i: page_manual.cpp.i
+.PHONY : page_manual.i
+
+# target to preprocess a source file
+page_manual.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/page_manual.cpp.i
+.PHONY : page_manual.cpp.i
+
+page_manual.s: page_manual.cpp.s
+.PHONY : page_manual.s
+
+# target to generate assembly for a file
+page_manual.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/page_manual.cpp.s
+.PHONY : page_manual.cpp.s
+
 sc_shortcut_dialog.obj: sc_shortcut_dialog.cpp.obj
 .PHONY : sc_shortcut_dialog.obj
 
@@ -902,6 +926,9 @@ help:
 	@echo ... notes_editor.obj
 	@echo ... notes_editor.i
 	@echo ... notes_editor.s
+	@echo ... page_manual.obj
+	@echo ... page_manual.i
+	@echo ... page_manual.s
 	@echo ... sc_shortcut_dialog.obj
 	@echo ... sc_shortcut_dialog.i
 	@echo ... sc_shortcut_dialog.s
