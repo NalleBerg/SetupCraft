@@ -271,6 +271,7 @@ comp_confirm_remove=Remove selected component?
 comp_folder_edit_title=Edit Folder
 comp_folder_cascade_hint=Applies to all files and subfolders. You can still override individual subfolders afterwards.
 comp_deps_label=Dependencies:
+comp_deps_hint=Selecting this component auto-selects its required components, and deselecting a required component also deselects this one. Enforced via generated [Code] Pascal logic in the installer.
 comp_choose_deps=Choose...
 comp_select_deps_title=Select Dependencies
 comp_deps_unsaved_title=Save First

@@ -11,6 +11,11 @@ All notable changes to SetupCraft will be documented in this file.
 - **`issgen.cpp` — `Flags:` combined string**: `restart` appended to the shared `; Flags: …` token after `exclusive` — all three flags (`fixed`, `exclusive`, `restart`) share one token as Inno requires.
 - **`locale/en_GB.txt`** (both copies): `comp_restart_label=Restart required (reboot after installing this component)`.
 
+### Components — Dependencies ℹ info hint button
+- **`IDC_COMPDLG_DEPS_HINT = 316` / `IDC_FOLDER_DLG_DEPS_HINT = 331` — `mainwindow.cpp`**: Blue ℹ icon-only button (`shell32.dll` index 23) added immediately to the right of the «Requires:» label in `CompEditDlgProc` and the «Dependencies:» label in `CompFolderEditDlgProc`. Hovering shows a tooltip (locale key `comp_deps_hint`) explaining that selecting the component auto-selects its required components, deselecting a required component also deselects this one, and that enforcement is via generated Pascal `[Code]` logic in the installer.
+- **`WM_DRAWITEM` routing**: Both dialog procs' `WM_DRAWITEM` guards extended to route `IDC_COMPDLG_DEPS_HINT` / `IDC_FOLDER_DLG_DEPS_HINT` to `DrawCustomButton` (previously unrouted → grey rectangle).
+- **`locale/en_GB.txt`** (both copies): `comp_deps_hint` key added after `comp_deps_label`.
+
 ## [2026.05.09.12] - 2026-05-09
 
 ### Dialogs — Select Installation Folder page + Ready to Install disk-space display

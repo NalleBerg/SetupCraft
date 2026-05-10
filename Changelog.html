@@ -12,6 +12,13 @@
 <li><strong><code>locale/en_GB.txt</code></strong> (both copies): <code>comp_restart_label=Restart required (reboot after installing this component)</code>.</li>
 </ul>
 
+<p><strong>Components &mdash; Dependencies ℹ info hint button (10.05.2026, 08:56):</strong></p>
+<ul>
+<li><strong><code>IDC_COMPDLG_DEPS_HINT&thinsp;=&thinsp;316</code> / <code>IDC_FOLDER_DLG_DEPS_HINT&thinsp;=&thinsp;331</code> &mdash; <code>mainwindow.cpp</code>:</strong> Blue ℹ icon-only button (<code>shell32.dll</code> index&thinsp;23) added immediately to the right of the &laquo;Requires:&raquo; label in <code>CompEditDlgProc</code> and the &laquo;Dependencies:&raquo; label in <code>CompFolderEditDlgProc</code>. Hovering shows a tooltip (locale key <code>comp_deps_hint</code>) explaining that selecting the component auto-selects its required components, deselecting a required component also deselects this one, and that enforcement is via generated Pascal <code>[Code]</code> logic in the installer.</li>
+<li><strong><code>WM_DRAWITEM</code> routing:</strong> Both dialog procs' <code>WM_DRAWITEM</code> guards extended to route <code>IDC_COMPDLG_DEPS_HINT</code>&thinsp;/&thinsp;<code>IDC_FOLDER_DLG_DEPS_HINT</code> to <code>DrawCustomButton</code> (previously unrouted &rarr; grey rectangle).</li>
+<li><strong><code>locale/en_GB.txt</code></strong> (both copies): <code>comp_deps_hint</code> key added after <code>comp_deps_label</code>.</li>
+</ul>
+
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.05.09.12</span></h3>
 <p><strong>Dialogs &mdash; Select Installation Folder page + Ready to Install disk-space display (09.05.2026, 12:17):</strong></p>
 <ul>

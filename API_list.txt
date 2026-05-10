@@ -275,6 +275,21 @@
                                                 Init fallback: if no folder row found, reads
                                                 install_types/group_name from first matching
                                                 file-component row.
+                                                Dependencies (ComponentRow.dependencies —
+                                                vector<int> of dep component IDs, persisted in
+                                                component_dependencies table): shown in a ListView
+                                                (IDC_COMPDLG_DEPS_LIST=309 / IDC_FOLDER_DLG_DEPS_LIST
+                                                =321) with Choose (IDC_COMPDLG_CHOOSE_DEPS=310 /
+                                                IDC_FOLDER_DLG_CHOOSE_DEPS=322) and Remove buttons.
+                                                A blue ℹ button (IDC_COMPDLG_DEPS_HINT=316 /
+                                                IDC_FOLDER_DLG_DEPS_HINT=331, shell32.dll index 23)
+                                                sits next to each Requires:/Dependencies: label;
+                                                its tooltip (locale key comp_deps_hint) explains
+                                                that deps are enforced at install time via generated
+                                                [Code] Pascal: selecting A auto-selects B; deselecting
+                                                B auto-deselects A. Pascal code emitted by
+                                                BuildDepEnforceCode() in issgen.cpp into the
+                                                ; <<DEP_ENFORCE_CODE>> marker in template.iss.
                                                 SBuildConfig struct + SETT_GetBuildConfig()
                                                 in settings.h/.cpp provide the build settings
                                                 snapshot consumed by the generator.

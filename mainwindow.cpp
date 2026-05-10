@@ -317,6 +317,7 @@ static bool s_filesPageHasContent = false; // tracks whether Files page has any 
 #define IDC_COMPDLG_FIXED       313   // Fixed (visible but locked) custom checkbox
 #define IDC_COMPDLG_EXCLUSIVE   314   // Exclusive (radio-button style) custom checkbox
 #define IDC_COMPDLG_RESTART     315   // Restart required (reboot after this component) custom checkbox
+#define IDC_COMPDLG_DEPS_HINT   316   // ℹ info button next to Requires: label (tooltip: dep enforcement explanation)
 
 // VFS Picker dialog control IDs (scoped to VFSPickerDlg window)
 #define IDC_VFSPICKER_TREE   6100
@@ -340,6 +341,7 @@ static bool s_filesPageHasContent = false; // tracks whether Files page has any 
 #define IDC_FOLDER_DLG_FIXED        328  // Fixed (visible but locked) custom checkbox
 #define IDC_FOLDER_DLG_EXCLUSIVE    329  // Exclusive (radio-button style) custom checkbox
 #define IDC_FOLDER_DLG_RESTART      330  // Restart required (reboot after this component) custom checkbox
+#define IDC_FOLDER_DLG_DEPS_HINT   331  // ℹ info button next to Dependencies: label (tooltip: dep enforcement explanation)
 #define IDM_DEPS_CTX_REMOVE         6210 // dep-list context menu: Remove
 #define IDM_DEPS_CTX_SHOWFILES      6211 // dep-list context menu: Show files…
 #define IDM_FILES_FLAGS             6220 // files context menu: File Flags…
@@ -8047,12 +8049,23 @@ LRESULT CALLBACK CompFolderEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
             S(CFE_PAD_H), y, contW, hintH, hwnd, NULL, hInst, NULL);
         y += hintH + S(CFE_GAP_CD);
 
-        // Dependencies section: label only (Choose + Remove buttons are below the list)
+        // Dependencies section: label + ℹ info button explaining runtime dep enforcement.
         {
             std::wstring depsLbl = pData->depsLabel.empty() ? L"Dependencies:" : pData->depsLabel;
+            int depsInfoSz = S(CFE_DEPS_ROW_H);  // info button: square, same height as the label row
             CreateWindowExW(0, L"STATIC", depsLbl.c_str(),
                 WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
-                S(CFE_PAD_H), y, contW, S(CFE_DEPS_ROW_H), hwnd, NULL, hInst, NULL);
+                S(CFE_PAD_H), y, contW - depsInfoSz - S(4), S(CFE_DEPS_ROW_H), hwnd, NULL, hInst, NULL);
+            const auto& locD = MainWindow::GetLocale();
+            auto itH = locD.find(L"comp_deps_hint");
+            std::wstring hint = (itH != locD.end()) ? itH->second
+                : L"Selecting this component auto-selects its required components, "
+                  L"and deselecting a required component also deselects this one. "
+                  L"Enforced via generated [Code] Pascal logic in the installer.";
+            HWND hHint = CreateCustomButtonWithIcon(hwnd, IDC_FOLDER_DLG_DEPS_HINT,
+                L"", ButtonColor::Blue, L"shell32.dll", 23,
+                S(CFE_PAD_H) + contW - depsInfoSz, y, depsInfoSz, depsInfoSz, hInst);
+            SetButtonTooltip(hHint, hint.c_str());
         }
         y += S(CFE_DEPS_ROW_H) + S(CFE_GAP_LD);
 
@@ -8409,7 +8422,8 @@ LRESULT CALLBACK CompFolderEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
         if (DrawCustomCheckbox(dis)) return TRUE;
         if (dis->CtlID == IDC_COMPDLG_OK     || dis->CtlID == IDC_COMPDLG_CANCEL ||
             dis->CtlID == IDC_FOLDER_DLG_CHOOSE_DEPS ||
-            dis->CtlID == IDC_FOLDER_DLG_REMOVE_DEPS) {
+            dis->CtlID == IDC_FOLDER_DLG_REMOVE_DEPS ||
+            dis->CtlID == IDC_FOLDER_DLG_DEPS_HINT) {
             ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
             NONCLIENTMETRICSW ncm = {}; ncm.cbSize = sizeof(ncm);
             SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
@@ -9190,11 +9204,24 @@ LRESULT CALLBACK CompEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
 
         // Dependencies panel (only when there are other components to pick from)
         if (!pData->otherComponents.empty()) {
-            // Label
+            // Label + ℹ info button: explains that dep enforcement is via generated [Code] Pascal.
             std::wstring depsLbl = pData->depsLabel.empty() ? L"Requires:" : pData->depsLabel;
+            int depsInfoSz = S(20);  // info button: square, same height as the label row
             CreateWindowExW(0, L"STATIC", depsLbl.c_str(),
                 WS_CHILD | WS_VISIBLE | SS_LEFT,
-                padL, y, contW, S(20), hwnd, NULL, hInst, NULL);
+                padL, y, contW - depsInfoSz - S(4), S(20), hwnd, NULL, hInst, NULL);
+            {
+                const auto& locD = MainWindow::GetLocale();
+                auto itH = locD.find(L"comp_deps_hint");
+                std::wstring hint = (itH != locD.end()) ? itH->second
+                    : L"Selecting this component auto-selects its required components, "
+                      L"and deselecting a required component also deselects this one. "
+                      L"Enforced via generated [Code] Pascal logic in the installer.";
+                HWND hHint = CreateCustomButtonWithIcon(hwnd, IDC_COMPDLG_DEPS_HINT,
+                    L"", ButtonColor::Blue, L"shell32.dll", 23,
+                    padL + contW - depsInfoSz, y, depsInfoSz, depsInfoSz, hInst);
+                SetButtonTooltip(hHint, hint.c_str());
+            }
             y += S(20) + S(4);
 
             // ListView — Name | Type columns
@@ -9494,7 +9521,8 @@ LRESULT CALLBACK CompEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
         // Let custom checkbox handle its own drawing first
         if (DrawCustomCheckbox(dis)) return TRUE;
         if (dis->CtlID == IDC_COMPDLG_OK     || dis->CtlID == IDC_COMPDLG_CANCEL ||
-            dis->CtlID == IDC_COMPDLG_CHOOSE_DEPS || dis->CtlID == IDC_COMPDLG_REMOVE_DEPS) {
+            dis->CtlID == IDC_COMPDLG_CHOOSE_DEPS || dis->CtlID == IDC_COMPDLG_REMOVE_DEPS ||
+            dis->CtlID == IDC_COMPDLG_DEPS_HINT) {
             ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
             NONCLIENTMETRICSW ncm = {};
             ncm.cbSize = sizeof(ncm);

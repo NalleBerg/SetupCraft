@@ -153,6 +153,7 @@ begin
 end;
 
 ; <<DISK_SPACE_CODE>>
+; <<DEP_ENFORCE_CODE>>
 ; <<SETUP_LOG_PROC>>
 procedure DeinitializeSetup();
 begin
