@@ -2,7 +2,7 @@
 setlocal
 
 REM ── Self-logging wrapper ──────────────────────────────────────────────────────
-REM First invocation truncates makeit.log to signal a new run to follow.ps1,
+REM First invocation truncates makeit.log to signal a new run to _follow.ps1,
 REM then re-calls this script with ALL stdout+stderr redirected into that file.
 REM The _SC_LOGGED flag tells the recursive call to skip this block.
 if not "%_SC_LOGGED%"=="1" (

@@ -34,7 +34,7 @@
   Build system
     [ ] makeit.bat          — one-shot build script (CMake + MinGW/GCC).
                               Self-logging wrapper: first invocation truncates
-                              makeit.log (signals new run to follow.ps1), then
+                              makeit.log (signals new run to _follow.ps1), then
                               re-calls itself with all stdout+stderr redirected:
                                 @echo off
                                 setlocal
@@ -60,12 +60,12 @@
                               removed — every copy/xcopy/taskkill is visible.
                               Section labels [PRE] [CONFIGURE] [BUILD]
                               [COPY-BUILD] [PACKAGE] [DONE] are picked up by
-                              follow.ps1 for phase-transition banners.
-    [ ] follow.bat          — one-liner launcher: starts follow.ps1 in the
+                              _follow.ps1 for phase-transition banners.
+    [ ] follow.bat          — one-liner launcher: starts _follow.ps1 in the
                               current PowerShell host without a new window.
                                 @echo off
-                                pwsh -NoProfile -File "%~dp0follow.ps1"
-    [ ] follow.ps1          — live colour log viewer for makeit.log.
+                                pwsh -NoProfile -File "%~dp0_follow.ps1"
+    [ ] _follow.ps1         — live colour log viewer for makeit.log.
                               Polls the file every 150 ms by byte position.
                               Run counter: RESETS TO 0 on each follow.bat
                               launch (writes 0 to makeit_count.txt at startup);
@@ -94,7 +94,7 @@
                                 Magenta   — phase-transition banners
     [ ] makeit_count.txt    — per-session build run counter. Plain text file
                               containing a single integer (e.g. "3").
-                              follow.ps1 writes 0 at startup and increments
+                              _follow.ps1 writes 0 at startup and increments
                               once per detected build. Never commit this file
                               (add to .gitignore) — it is ephemeral local state.
     [ ] CMakeLists.txt      — CMake alternative, already battle-tested here

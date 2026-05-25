@@ -1,2 +1,2 @@
 @echo off
-pwsh -NoProfile -File "%~dp0follow.ps1"
+pwsh -NoProfile -File "%~dp0_follow.ps1"

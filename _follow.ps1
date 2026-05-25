@@ -1,10 +1,10 @@
-# follow.ps1 — live-tail makeit.log for SetupCraft builds.
+# _follow.ps1 — live-tail makeit.log for SetupCraft builds.
 #
 # Run this in a separate terminal before (or during) makeit.bat.
 # Each time makeit.bat starts it truncates makeit.log; this script
 # detects that, prints a RUN banner, and streams every line with colour
 # and phase annotations.  The run counter is a per-session counter:
-# it resets to 0 whenever you start follow.ps1 and increments once
+# it resets to 0 whenever you start _follow.ps1 and increments once
 # per build.  Ctrl+C to stop.
 
 $log       = Join-Path $PSScriptRoot 'makeit.log'
@@ -142,7 +142,7 @@ function Write-ColoredLine($line) {
 # ── Startup banner ────────────────────────────────────────────────────────────
 Write-Host ''
 Write-Host ('═' * 62) -ForegroundColor DarkCyan
-Write-Host '  follow.ps1  —  SetupCraft build watcher' -ForegroundColor Cyan
+Write-Host '  _follow.ps1  —  SetupCraft build watcher' -ForegroundColor Cyan
 Write-Host "  Log : $log" -ForegroundColor DarkCyan
 Write-Host '  Run counter reset to 0.  Ctrl+C to stop.' -ForegroundColor DarkCyan
 Write-Host ('═' * 62) -ForegroundColor DarkCyan
