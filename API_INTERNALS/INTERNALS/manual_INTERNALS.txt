@@ -1,5 +1,5 @@
 ================================================================================
-  SetupCraft — Per-Page Manual System Internals
+  NSBEdit — Per-Page Manual System Internals
 ================================================================================
 
 FILES:
@@ -16,7 +16,7 @@ FILES:
     │
     ├─ loads Msftedit.dll → RICHEDIT50W (falls back to RichEdit20W)
     ├─ loads SC logo PNG via GDI+
-    ├─ registers "SetupCraftManualClass" window (once per process lifetime)
+    ├─ registers "NSBEditManualClass" window (once per process lifetime)
     ├─ creates WS_POPUP | WS_THICKFRAME | WS_MAXIMIZEBOX window
     ├─ creates RICHEDIT50W child control (word-wrap, read-only, no H-scroll)
     ├─ subclasses RichEdit → ManualEditSubclassProc (logo + color icons)
@@ -88,7 +88,7 @@ FILES:
     HDC hdcEdit → GetDeviceCaps(LOGPIXELSY) = dpiY
     s_baseTwips = MulDiv(abs(lfHeight) × 1.2, 1440, dpiY)
 
-  × 1.2 matches the body-font scale used everywhere else in SetupCraft.
+  × 1.2 matches the body-font scale used everywhere else in NSBEdit.
   The twips value is passed as cf.yHeight; fontSize=0 in AM() uses this base.
   fontSize > 0 in AM() overrides: cf.yHeight = fontSize * 20 (points → twips).
 
@@ -144,7 +144,7 @@ FILES:
 ================================================================================
 
   Same technique as about.cpp (mirrors ShowAboutDialog):
-    - SC logo is loaded as GDI+ Image* from SetupCraft.png (next to exe).
+    - SC logo is loaded as GDI+ Image* from NSBEdit.png (next to exe).
     - Blank lines are prepended to the RichEdit content in PopulateXxxManual
       so the text starts below the logo area:
         int lines = (logoH + S(10)) / S(15);
@@ -281,7 +281,7 @@ FILES:
 
   4. Add a locale key for the window title:
        man_xxx_window_title=Xxx Page — Manual
-     in locale/en_GB.txt AND SetupCraft/locale/en_GB.txt.
+     in locale/en_GB.txt AND NSBEdit/locale/en_GB.txt.
      Update ShowPageManual() title-lookup logic if a per-page title is needed.
 
   5. Add locale keys for section headings and body paragraphs:

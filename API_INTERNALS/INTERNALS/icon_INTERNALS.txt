@@ -1,12 +1,12 @@
 ================================================================================
-  SetupCraft — App Icon System Internals
+  NSBEdit — App Icon System Internals
 ================================================================================
 
 FILES:
   SCLogo.svg          Master source — the SC balloon-letter logo (SVG)
-  SetupCraft.ico      Multi-size ICO file embedded in the exe via RC
-  SetupCraft.rc       Resource script: `1 ICON "SetupCraft.ico"`
-  SetupCraft\SetupCraft.png   256×256 PNG placed next to the exe (About dialog)
+  NSBEdit.ico      Multi-size ICO file embedded in the exe via RC
+  NSBEdit.rc       Resource script: `1 ICON "NSBEdit.ico"`
+  NSBEdit\NSBEdit.png   256×256 PNG placed next to the exe (About dialog)
   make_ico.ps1        PowerShell helper — repacks any .ico into multi-frame
   about.cpp           Loads PNG (GDI+) + draws in RichEdit; sets dialog icons
   about_icon.cpp      Entry-screen About button — loads resource icon, subclass
@@ -64,20 +64,20 @@ FILES:
   Generation command (run from workspace root):
     magick SCLogo.svg -background none `
         -define icon:auto-resize=256,128,64,48,32,16 `
-        SetupCraft.ico
+        NSBEdit.ico
 
   Or via make_ico.ps1 (repacks an existing ICO into multi-frame):
-    .\make_ico.ps1 -Source SetupCraft.ico
+    .\make_ico.ps1 -Source NSBEdit.ico
 
   make_ico.ps1 sizes: 16, 24, 32, 40, 48, 64, 96, 128 px.
   Direct SVG → ICO generation uses sizes: 16, 32, 48, 64, 128, 256 px.
 
   Deployment:
-    SetupCraft.ico must exist in both locations before building:
-      <workspace root>\SetupCraft.ico    — referenced by SetupCraft.rc
-      <workspace root>\SetupCraft\SetupCraft.ico   — packaged with the exe
+    NSBEdit.ico must exist in both locations before building:
+      <workspace root>\NSBEdit.ico    — referenced by NSBEdit.rc
+      <workspace root>\NSBEdit\NSBEdit.ico   — packaged with the exe
     Copy with:
-      Copy-Item SetupCraft.ico SetupCraft\SetupCraft.ico
+      Copy-Item NSBEdit.ico NSBEdit\NSBEdit.ico
 
   Icon cache gotcha:
     Windows caches thumbnail icons in %LOCALAPPDATA%\IconCache.db and
@@ -90,15 +90,15 @@ FILES:
     After cache deletion the new icon appears immediately.
 
 ================================================================================
-3. RESOURCE SCRIPT (SetupCraft.rc)
+3. RESOURCE SCRIPT (NSBEdit.rc)
 ================================================================================
 
-  Line 1:  1 ICON "SetupCraft.ico"      ← app icon, resource ID 1
+  Line 1:  1 ICON "NSBEdit.ico"      ← app icon, resource ID 1
   Line 2:  2 ICON "icons/trashcan_empty.ico"  ← trash icon, resource ID 2 (IDI_TRASHCAN)
 
   The RC is compiled by windres (MinGW) into the object file linked into the exe.
   Rebuilding the RC (without a full CMake rebuild):
-    windres SetupCraft.rc -O coff -o build\SetupCraft.rc.obj
+    windres NSBEdit.rc -O coff -o build\NSBEdit.rc.obj
   Then re-link.  Normally makeit.bat handles this end-to-end.
 
 ================================================================================
@@ -149,11 +149,11 @@ FILES:
   rendered via GDI+ for transparency support.
 
   Load path:
-    GetModuleFileNameW → strip filename → append "SetupCraft.png"
+    GetModuleFileNameW → strip filename → append "NSBEdit.png"
     g_logoImage = Image::FromFile(logoPath);   // GDI+ Gdiplus::Image
 
   The PNG must live next to the exe.  In the packaged release this is
-  SetupCraft\SetupCraft.png.
+  NSBEdit\NSBEdit.png.
 
   Draw path (EditSubclassProc, WM_PAINT):
     The RichEdit is subclassed with EditSubclassProc.
@@ -176,8 +176,8 @@ FILES:
     scaled to DPI.
 
   PNG generation (when updating the logo):
-    magick SCLogo.svg -background none -resize 256x256 SetupCraft\SetupCraft.png
-    Copy-Item SetupCraft\SetupCraft.png SetupCraft.png
+    magick SCLogo.svg -background none -resize 256x256 NSBEdit\NSBEdit.png
+    Copy-Item NSBEdit\NSBEdit.png NSBEdit.png
 
   GDI+ initialisation:
     GdiplusStartupInput gdiplusStartupInput;
@@ -207,7 +207,7 @@ FILES:
     Resource ID 1 is always the app icon — no shell32.dll extraction needed.
 
   Subclass behavior (AboutIcon_SubclassProc):
-    WM_MOUSEMOVE  → ShowMultilingualTooltip ("About SetupCraft") + TrackMouseEvent
+    WM_MOUSEMOVE  → ShowMultilingualTooltip ("About NSBEdit") + TrackMouseEvent
     WM_MOUSELEAVE → HideTooltip(), clear tracking state
     WM_LBUTTONDOWN → HideTooltip() first (§9 of tooltip API — hide before
                      EnableWindow(parent, FALSE) in ShowAboutDialog's modal loop)
@@ -222,14 +222,14 @@ FILES:
 
   1. Regenerate ICO:
        magick SCLogo.svg -background none `
-           -define icon:auto-resize=256,128,64,48,32,16 SetupCraft.ico
-       Copy-Item SetupCraft.ico SetupCraft\SetupCraft.ico
+           -define icon:auto-resize=256,128,64,48,32,16 NSBEdit.ico
+       Copy-Item NSBEdit.ico NSBEdit\NSBEdit.ico
 
   2. Regenerate PNG (About dialog center image):
-       magick SCLogo.svg -background none -resize 256x256 SetupCraft\SetupCraft.png
-       Copy-Item SetupCraft\SetupCraft.png SetupCraft.png
+       magick SCLogo.svg -background none -resize 256x256 NSBEdit\NSBEdit.png
+       Copy-Item NSBEdit\NSBEdit.png NSBEdit.png
 
-  3. Rebuild the exe (recompiles SetupCraft.rc → links new ICO):
+  3. Rebuild the exe (recompiles NSBEdit.rc → links new ICO):
        .\makeit.bat
 
   4. Clear Windows icon cache if the taskbar still shows the old icon:

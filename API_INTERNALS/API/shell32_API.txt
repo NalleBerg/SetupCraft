@@ -1,9 +1,9 @@
 ================================================================================
-  SetupCraft — Shell Icon Loading Reference
+  NSBEdit — Shell Icon Loading Reference
 ================================================================================
 
   This file documents how icons are loaded from Windows system DLLs throughout
-  SetupCraft, and which icon indices correspond to which images.
+  NSBEdit, and which icon indices correspond to which images.
 
   KEY RULE: Use ExtractIconExW (documented, shellapi.h) for loading icons from
   system DLLs into ImageLists.  PrivateExtractIconsW is an undocumented
@@ -61,7 +61,7 @@
 ================================================================================
 
   These are confirmed working with ExtractIconExW / PrivateExtractIconsW and
-  are used throughout SetupCraft:
+  are used throughout NSBEdit:
 
   Index   Description                          Where used
   ──────────────────────────────────────────────────────────────────────────────
@@ -136,7 +136,7 @@
   §5  Loading icons into a TreeView ImageList
 ================================================================================
 
-  Standard pattern used in SetupCraft (from comp page TreeView setup):
+  Standard pattern used in NSBEdit (from comp page TreeView setup):
 
     HIMAGELIST hIL = ImageList_Create(32, 32, ILC_COLOR32 | ILC_MASK, 4, 0);
 
@@ -309,7 +309,7 @@
 ================================================================================
 
   This file documents how icons are loaded from Windows system DLLs throughout
-  SetupCraft, and which icon indices correspond to which images.
+  NSBEdit, and which icon indices correspond to which images.
 
   KEY RULE: Always use PrivateExtractIconsW (or ExtractIconExW) for loading
   icons from system DLLs.  Do NOT use LoadLibraryW + LoadImageW(MAKEINTRESOURCE)
@@ -368,7 +368,7 @@
 ================================================================================
 
   These are confirmed working with PrivateExtractIconsW and are used throughout
-  SetupCraft:
+  NSBEdit:
 
   Index   Description                          Where used
   ──────────────────────────────────────────────────────────────────────────────
@@ -404,7 +404,7 @@
   §5  Loading icons into a TreeView ImageList
 ================================================================================
 
-  Standard pattern used in SetupCraft:
+  Standard pattern used in NSBEdit:
 
     HIMAGELIST hIL = ImageList_Create(32, 32, ILC_COLOR32 | ILC_MASK, 4, 0);
 

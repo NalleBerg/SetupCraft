@@ -1,5 +1,5 @@
 ================================================================================
-  SetupCraft — Files Page: Save / Load Architecture
+  NSBEdit — Files Page: Save / Load Architecture
   (Internal reference for diagnosing and extending persistence)
 ================================================================================
 

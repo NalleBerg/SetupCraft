@@ -1,0 +1,215 @@
+================================================================================
+  line_number_INTERNALS.txt
+  Line-number display — architecture, dual-editor design, toggle flow, and
+  bug history
+================================================================================
+
+1. OVERVIEW
+───────────
+NSBEdit hosts two completely different editor controls per tab:
+
+  • RichEdit (HWND hEdit)   — used for .rtf files and plain-text "Untitled" tabs.
+  • Scintilla (HWND hSci)   — used for all code files (detected by extension via
+                              Ne_LangFromExt, or forced via the Language menu).
+
+Only one of the two is visible at any time.  Line numbers are implemented
+differently for each, but are controlled by the single global flag:
+
+  static bool s_lineNumsOn;   // default = false (numbers off at startup)
+
+The toggle is initiated by clicking the ▸/◂ glyph in the gutter strip.
+
+
+2. SCINTILLA LINE NUMBERS
+─────────────────────────
+Scintilla has a built-in margin system.  Margin 0 is configured as a number
+margin in Ne_SetupScintillaStyle():
+
+  sci(SCI_SETMARGINTYPEN,  0, SC_MARGIN_NUMBER);
+  sci(SCI_SETMARGINWIDTHN, 0, s_lineNumsOn ? S(44) : 0);
+  sci(SCI_STYLESETBACK, STYLE_LINENUMBER, RGB(240,240,240));
+  sci(SCI_STYLESETFORE, STYLE_LINENUMBER, RGB(100,100,100));
+  sci(SCI_STYLESETSIZE, STYLE_LINENUMBER, 8);
+  sci(SCI_STYLESETFONT, STYLE_LINENUMBER, (LPARAM)"Consolas");
+
+When s_lineNumsOn is toggled, Ne_SyncLineNumBtn() iterates all Scintilla tabs
+and sends SCI_SETMARGINWIDTHN again.
+
+  Width on  = S(44) pixels
+  Width off = 0 (no margin at all; the ▸ gutter strip is on the RichEdit side
+              and does NOT appear next to Scintilla tabs)
+
+
+3. RICHEDIT LINE NUMBERS — NsbLineGutter
+─────────────────────────────────────────
+RichEdit has no built-in line-number margin.  A separate child window of class
+"NsbLineGutter" is painted alongside each RichEdit tab.
+
+3a. Window class registration
+  Registered once in WM_CREATE, immediately after NeState is created:
+
+    wc.lpfnWndProc   = NsbLineGutterProc;
+    wc.hInstance     = hInst;
+    wc.lpszClassName = L"NsbLineGutter";
+    wc.style         = CS_HREDRAW | CS_VREDRAW;
+
+3b. Per-tab HWND — lazy creation
+  NeTabDoc holds:  HWND hLineGutter = NULL;
+
+  Ne_EnsureLineGutter(hwndParent, d) creates the window the first time it is
+  needed.  It also attaches a TOOLTIPS_CLASS tooltip with the current tip text
+  ("Show line numbers" / "Hide line numbers") and stores the tip HWND as a
+  window property:
+
+    SetPropW(d->hLineGutter, L"hTip", (HANDLE)hTip);
+
+  The associated RichEdit HWND is stored in GWLP_USERDATA so the WndProc can
+  query scroll position and line metrics without needing a back-pointer to
+  NeTabDoc.
+
+3c. Positioning — Ne_SyncRichGutters(HWND hwnd)
+  Called after every layout change: WM_SIZE, tab switch (TCN_SELCHANGE),
+  new tab (Ne_New / NE_WM_TABNEW), and file load (Ne_LoadPathIntoEditor).
+
+  The base editor rectangle is stored in NeState fields:
+    int editX, editY, editW, editH
+
+  The gutter sits to the LEFT of the RichEdit:
+
+    gutW    = s_lineNumsOn ? S(44) : S(20)   // S(20) = thin ▸ strip
+    gutter  → (editX,        editY, gutW,        editH)
+    hEdit   → (editX + gutW, editY, editW - gutW, editH)
+
+  Visibility: the gutter is shown only when its paired RichEdit is visible.
+  When a Scintilla tab is active, IsWindowVisible(hEdit) == FALSE and the
+  gutter is hidden.  This is how Scintilla tabs get no gutter at all.
+
+3d. NsbLineGutterProc — message handling
+  WM_ERASEBKGND  → return 1 (suppress flicker; WM_PAINT fills the background).
+
+  WM_MOUSEWHEEL / WM_MOUSEHWHEEL
+    Forwarded to the associated RichEdit so the gutter doesn't swallow
+    wheel events.
+
+  WM_SETCURSOR
+    Shows IDC_HAND when the cursor is over the ▸/◂ button area; IDC_ARROW
+    elsewhere.
+
+  WM_MOUSEMOVE / WM_MOUSELEAVE
+    Track hover state (window property "hover") for button highlight.
+    Relay mouse events to the tooltip so TTF_SUBCLASS can position it.
+    TrackMouseEvent(TME_LEAVE) ensures WM_MOUSELEAVE fires.
+
+  WM_LBUTTONDOWN
+    When numbers are OFF: the entire strip is the ▸ button — any click
+    posts WM_COMMAND IDC_BTN_LINENUM to the parent.
+    When numbers are ON:  only the top-left ◂ rect triggers the toggle.
+
+  WM_PAINT (numbers OFF)
+    Fills with RGB(240,240,240).
+    Draws ▸ (U+25B8) centred in the strip using g_hMenuFont (Segoe UI).
+    Highlights in RGB(210,230,245) when hovered.
+
+  WM_PAINT (numbers ON)
+    Fills with RGB(240,240,240).
+    Draws right-edge separator line RGB(200,200,200).
+    Iterates visible lines from EM_GETFIRSTVISIBLELINE to EM_GETLINECOUNT:
+      charIdx = EM_LINEINDEX(ln)
+      pt      = EM_POSFROMCHAR(charIdx)   → y coordinate relative to RichEdit
+      Draws right-aligned number in rcNum = { 0, y, rc.right-S(4), y+S(20) }
+    Draws ◂ (U+25C2) LAST (on top of any numbers) at top-left rect
+      { S(1), 0, S(1)+S(18), S(18) } in RGB(60,100,140).
+    Highlights ◂ rect in RGB(210,230,245) when hovered over it.
+
+  IMPORTANT: ◂ is drawn AFTER the line numbers so that line "1" at y=0
+  cannot paint over it.  Earlier versions drew ◂ first and line 1
+  overwrote it — symptom: ◂ invisible.
+
+3e. Scroll synchronisation
+  ENM_SCROLL is included in all EM_SETEVENTMASK calls.
+  EN_VSCROLL and EN_CHANGE both call InvalidateRect(doc->hLineGutter).
+  This keeps the numbers in sync as the user scrolls or types.
+
+
+4. TOGGLE FLOW
+──────────────
+User clicks ▸ or ◂ in the gutter:
+  WM_LBUTTONDOWN → PostMessageW(parent, WM_COMMAND, IDC_BTN_LINENUM, ...)
+  ↓
+  WM_COMMAND IDC_BTN_LINENUM handler:
+    s_lineNumsOn = !s_lineNumsOn;
+    Ne_SyncLineNumBtn(hwnd);
+  ↓
+  Ne_SyncLineNumBtn():
+    For each Scintilla tab:  SCI_SETMARGINWIDTHN 0 width
+    For each RichEdit tab:   update tooltip text; InvalidateRect(hLineGutter)
+    Ne_SyncRichGutters(hwnd)  ← repositions all gutters + RichEdits
+  ↓
+  Ne_SyncRichGutters():
+    gutW = s_lineNumsOn ? S(44) : S(20)
+    For each tab with hEdit:
+      Ne_EnsureLineGutter(hwnd, d)  ← lazy-create if needed
+      SetWindowPos gutter  to (editX, editY, gutW, editH)
+      SetWindowPos hEdit   to (editX+gutW, editY, editW-gutW, editH)
+      ShowWindow gutter    based on IsWindowVisible(hEdit)
+      InvalidateRect gutter
+
+
+5. FILE-LOAD SYNCHRONISATION
+─────────────────────────────
+When a file is loaded via Ne_LoadPathIntoEditor():
+
+  Non-RTF (→ Scintilla):
+    ShowWindow(hEdit, SW_HIDE)     ← RichEdit hidden
+    ShowWindow(hSci,  SW_SHOW)     ← Scintilla shown
+    Ne_SyncRichGutters(hwnd)       ← hides the gutter (hEdit invisible)
+
+  RTF (→ RichEdit):
+    Ne_StreamIn(hEdit, bytes, true)
+    Ne_RebuildHRList(hEdit)
+    InvalidateRect(hEdit, ...)
+    Ne_SyncRichGutters(hwnd)       ← ensures gutter exists, positioned, repainted
+
+  Without the Ne_SyncRichGutters call after each path, the gutter can remain
+  stale — visible but blank after an RTF load, or still visible (with old
+  numbers) after switching to a Scintilla tab.
+
+
+6. KEY GLOBALS / FUNCTIONS
+───────────────────────────
+  static bool s_lineNumsOn               Toggle state (all tabs share one flag).
+  static HFONT g_hMenuFont               Segoe UI 12pt, used for gutter text.
+  #define IDC_BTN_LINENUM  262           Command ID posted by gutter click.
+  Ne_EnsureLineGutter(parent, doc)       Lazy-create gutter + tooltip for a tab.
+  Ne_SyncRichGutters(hwnd)              Reposition all gutters; show/hide each.
+  Ne_SyncLineNumBtn(hwnd)               Update Scintilla margins, tooltips, gutters.
+  NsbLineGutterProc                     Gutter WndProc (paint, hit-test, forward scroll).
+
+
+7. BUG HISTORY
+──────────────
+2026-05-16  ◂ button not visible
+            Root cause: ◂ was drawn before the line numbers. Line 1 at y=0
+            painted over it with DrawTextW. Fix: draw ◂ last so it is always
+            on top.  Earlier attempt (clip number rows when y < btnSz) was
+            wrong — it clipped the number rect top to btnSz, making the rect
+            zero-height and suppressing all numbers.
+
+2026-05-16  Numbers not appearing when RTF file opened
+            Root cause: InvalidateRect on hLineGutter was called before
+            Ne_EnsureLineGutter, so hLineGutter was still NULL and the
+            invalidation was a no-op. Fix: replaced InvalidateRect with
+            Ne_SyncRichGutters which calls Ne_EnsureLineGutter first.
+
+2026-05-16  Gutter remains visible (blank) after .cpp file opened
+            Root cause: Scintilla path in Ne_LoadPathIntoEditor called
+            ShowWindow(hEdit, SW_HIDE) but never called Ne_SyncRichGutters,
+            so the gutter was not hidden. Fix: call Ne_SyncRichGutters
+            immediately after ShowWindow(hEdit, SW_HIDE).
+
+2026-05-16  Numbers only show line 1 on initial load
+            Root cause: the loop used  if (y > rcEdit.bottom) break
+            where rcEdit was from GetClientRect(hEdit) — which is the
+            RichEdit's rect, not the gutter's rect.  At paint time the
+            RichEdit may report a stale or zero client rect.  Fix: compare
+            against rc.bottom (the gutter's own client rect).

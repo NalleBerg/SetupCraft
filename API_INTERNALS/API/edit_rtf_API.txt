@@ -1,5 +1,5 @@
 ================================================================================
-  SetupCraft — Full-Featured RTF Editor  (edit_rtf.h / edit_rtf.cpp)
+  NSBEdit — Full-Featured RTF Editor  (edit_rtf.h / edit_rtf.cpp)
 ================================================================================
 
   Supersedes: notes_editor — which is kept for the 500-char component-notes
@@ -403,7 +403,7 @@
   IDM_RTFE_TABLE_PROPS  5001    "Table properties…" (right-click inside table)
 
   Range 4500–4530 (toolbar/editor) + 4540–4551 (table dialog) +
-  5001 (menu cmd) do not overlap any other module in SetupCraft.
+  5001 (menu cmd) do not overlap any other module in NSBEdit.
 
 ================================================================================
 11. FONT MANAGEMENT

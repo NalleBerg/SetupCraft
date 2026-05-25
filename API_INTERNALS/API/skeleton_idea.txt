@@ -2,7 +2,7 @@
   Project Skeleton — Idea & Checklist
 ================================================================================
 
-  Goal: when SetupCraft is published, extract a reusable Win32/C++ project
+  Goal: when NSBEdit is published, extract a reusable Win32/C++ project
   skeleton so future projects start with a solid, proven foundation rather
   than from scratch.
 
@@ -11,11 +11,92 @@
   this project is published, API_list.txt will be a complete, accurate index
   of every reusable tool and architectural pattern, ready to seed the skeleton.
 
+  ── Publication trigger ───────────────────────────────────────────────────────
+
+  When both NSBEdit and SetupCraft reach published Edition 1, this file drives
+  two deliverables:
+
+    1. The skeleton repo — a stripped copy of the proven source tree with all
+       project-specific code removed (see "What to include" checklist below).
+
+    2. new_project.ps1 (or similar) — an interactive script that:
+         • asks for a project name, root folder, and app-icon slot
+         • copies the skeleton into a new directory
+         • renames files, replaces placeholder strings (APPNAME, APPGUID, etc.)
+         • initialises a git repo and makes the first commit
+       This file (skeleton_idea.txt) is the specification for that script — every
+       checked item in the checklist below is something the script must copy or
+       patch; every note in the "Notes & decisions" section is knowledge the
+       script author (or a future AI assistant) will need.
+
   ── What to include ──────────────────────────────────────────────────────────
 
   Build system
-    [ ] makeit.bat          — one-shot build script (MinGW/GCC, resource
-                              compilation, manifest embedding, strip)
+    [ ] makeit.bat          — one-shot build script (CMake + MinGW/GCC).
+                              Self-logging wrapper: first invocation truncates
+                              makeit.log (signals new run to follow.ps1), then
+                              re-calls itself with all stdout+stderr redirected:
+                                @echo off
+                                setlocal
+                                if defined _SC_LOGGED goto :build
+                                echo. > makeit.log
+                                set _SC_LOGGED=1
+                                call "%~f0" >> makeit.log 2>&1
+                                exit /b %ERRORLEVEL%
+                                :build
+                                echo [PRE]
+                                taskkill /f /im SkeletonApp.exe ...
+                                echo [CONFIGURE]
+                                cmake -B build -G "MinGW Makefiles" ...
+                                echo [BUILD]
+                                cmake --build build --config %CONFIG% --verbose
+                                echo [COPY-BUILD]
+                                copy / xcopy to gather assets
+                                echo [PACKAGE]
+                                assemble output folder
+                                echo [DONE]
+                              --verbose on cmake --build exposes full g++.exe
+                              command lines in the log. All >nul suppressions
+                              removed — every copy/xcopy/taskkill is visible.
+                              Section labels [PRE] [CONFIGURE] [BUILD]
+                              [COPY-BUILD] [PACKAGE] [DONE] are picked up by
+                              follow.ps1 for phase-transition banners.
+    [ ] follow.bat          — one-liner launcher: starts follow.ps1 in the
+                              current PowerShell host without a new window.
+                                @echo off
+                                pwsh -NoProfile -File "%~dp0follow.ps1"
+    [ ] follow.ps1          — live colour log viewer for makeit.log.
+                              Polls the file every 150 ms by byte position.
+                              Run counter: RESETS TO 0 on each follow.bat
+                              launch (writes 0 to makeit_count.txt at startup);
+                              first build of the session = Run #1.
+                              New-run detection: file size < last read pos
+                              (truncated by makeit.bat) or first-ever content
+                              ($run == 0 && $size > 0).
+                              On new run: Clear-Host + banner:
+                                  BUILD RUN #N  yyyy-MM-dd  HH:mm:ss
+                              Progress bars: "[ X%] Building CXX object …"
+                              lines → "[████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░]
+                                32%  » Compiling  scripts.cpp"
+                              using 38-char █/░ Unicode block characters.
+                              Phase-transition banners: ┌─── Phase name
+                              printed once per phase transition using
+                              $script:phase variable; phases detected by
+                              section labels from makeit.bat.
+                              Line colouring:
+                                Red       — "error:" or "FAILED"  (✖ prefix)
+                                Yellow    — "warning:"             (⚠ prefix)
+                                DarkCyan  — "-- " CMake messages
+                                Green     — "Built target" / success (✔ prefix)
+                                White     — compile progress-bar lines
+                                Cyan      — linker + packaging steps
+                                DarkGray  — verbose g++.exe command lines
+                                Magenta   — phase-transition banners
+    [ ] makeit_count.txt    — per-session build run counter. Plain text file
+                              containing a single integer (e.g. "3").
+                              follow.ps1 writes 0 at startup and increments
+                              once per detected build. Never commit this file
+                              (add to .gitignore) — it is ephemeral local state.
     [ ] CMakeLists.txt      — CMake alternative, already battle-tested here
     [ ] app.manifest        — DPI awareness, ComCtl v6, UAC level
 
@@ -121,6 +202,16 @@
       ReleaseCapture();              // WM_CAPTURECHANGED fires here; now harmless
       if (dropIdx >= 0 && dropIdx != srcIdx && dropIdx != srcIdx+1)
           MoveItem(srcIdx, dropIdx); // use the saved locals, not the reset statics
+
+  Auto-dismissing notification dialog pattern
+    Ne_ShowChoiceDialog has an optional autoCloseMs parameter (default 0).
+    When > 0, WM_CREATE calls SetTimer(hwnd, 1, autoCloseMs, NULL).
+    The dialog proc handles WM_TIMER id 1: KillTimer then PostMessage WM_CLOSE.
+    WM_CLOSE already sets dd->result = dd->closeResult and calls DestroyWindow.
+    The message loop exits when IsWindow(dlg) returns false (unchanged).
+    Result: a timed notification that the user can still dismiss early by
+    clicking OK — no busy-wait, no thread, no extra state.
+    Useful for: FTP upload success, auto-save confirmations, brief info toasts.
 
   Localisation stub
     [ ] languages.h / languages.cpp  — locale loading, key lookup, ExpandEscapes
@@ -259,7 +350,7 @@
   ── Notes & decisions to make ────────────────────────────────────────────────
 
   - Decide on a skeleton repo name (e.g. "win32-cpp-skeleton" or "WinBase").
-  - Strip all SetupCraft-specific IDs, DB schema, and page logic — skeleton
+  - Strip all NSBEdit-specific IDs, DB schema, and page logic — skeleton
     should compile to a blank main window + toolbar stub + status bar only.
   - Keep mingw_dlls\README.md so the DLL bundling convention is documented.
   - Consider a fix_locales.ps1 stub for future locale sync automation.
@@ -287,7 +378,7 @@
     SetScrollInfo(nPos=lvHPos, FALSE) immediately before LVM_SCROLL so any
     internal ShowScrollBar(TRUE) within LVM_SCROLL re-seeds from the correct
     baseline.  Both left and right tilt-wheel work reliably.
-  - sqlite3 amalgamation version: pin to the version used in SetupCraft
+  - sqlite3 amalgamation version: pin to the version used in NSBEdit
     at publish time and note it here.
   - IsDialogMessageW gotcha: ONLY call IsDialogMessageW on windows that were
     actually created via DialogBox/CreateDialog.  On WS_POPUP windows built
@@ -418,7 +509,7 @@
     3. In WM_MOUSELEAVE: HideTooltip(); trackingFlag=false;
     4. In WM_NCDESTROY: restore the original proc.
     This is identical to the pattern used for shell icon tooltips (WarningIcon,
-    CompInfoIcon, RegenBtn) throughout SetupCraft.
+    CompInfoIcon, RegenBtn) throughout NSBEdit.
 
   - TTF_SUBCLASS teardown rule — CRITICAL:
     When a tooltip is created with TTF_IDISHWND | TTF_SUBCLASS, Win32 subclasses
@@ -431,7 +522,7 @@
     Rule: In any teardown / page-switch sequence, call DestroyWindow(hTooltip) or
     TTM_DELTOOL for every TTF_SUBCLASS tooltip BEFORE running the loop that calls
     DestroyWindow on the subclassed target controls.
-    In SetupCraft: SETT_TearDown (which destroys s_hPathTooltip) must be called
+    In NSBEdit: SETT_TearDown (which destroys s_hPathTooltip) must be called
     before the controlIds[] destroy loop in SwitchPage, not after it.
     (Bug found: crash on second Settings-page visit, v2026.05.07.09.)
 

@@ -2,7 +2,7 @@
 
 An installer creation tool for making your developed packages distributable. Designed to be simple to use with a clean, native Windows interface.
 
-**Current Release:** Version 2026.05.10.11 (Published: 10.05.2026 11:38)
+**Current Release:** Version 2026.05.25.10 (Published: 25.05.2026 10:36)
 
 > Note: This project is in active development. Entry screen, Files management, Shortcuts, Dependencies, Dialogs, Scripts, Registry, Settings, and File Associations pages are complete. A contextual Manual popup (`ShowPageManual`) is fully populated for 9 pages: Files, Registry, Shortcuts, Dependencies, Dialogs, Settings, Scripts, Components, and File Types. Build and Test pages show a placeholder.
 
@@ -60,8 +60,9 @@ An app-launching stopwatch. Screen 1 lets you optionally pick an executable to l
 - **License Dialog**: Enhanced GPL v2 license display with GnuLogo.bmp, formatted sections, colored headers (blue/red), and proper parsing
 - **Multi-Size ICO Generation**: `make_ico.ps1` PowerShell script uses ImageMagick to repack any source `.ico` into a multi-frame icon (16, 24, 32, 40, 48, 64, 96, 128 px). `icons/trashcan_empty.ico` embedded as resource ID 2 (`IDI_TRASHCAN`)  
 - **Custom App Icon (SCLogo.svg)**: Balloon-letter SC monogram designed in pure SVG — red S and blue C braided (C behind S at top crossing; C in front at bottom crossing), specular balloon shines, gradient border on a dark background. Multi-frame ICO (16/32/48/64/128/256 px) generated from the SVG via ImageMagick and embedded as resource ID 1. The same icon is used everywhere: main window title bar, taskbar, About/License/Credits dialog title bars, entry-screen About button, and the large center image in the About dialog (256×256 PNG via GDI+)
-- **Version Management**: Centralized version control via curver.txt file and NewVersion.ps1 PowerShell script for automated version updates
-- **Dynamic Version Loading**: About dialog reads Published timestamp and Version from curver.txt at runtime (no recompile needed for version changes)
+- **Version Management**: Centralized version control via `curver.txt` and `NewVersion.ps1` PowerShell script for automated version updates
+- **Build monitoring (`follow.bat` / `follow.ps1`)**: Run `follow.bat` in a second terminal while `makeit.bat` builds. `makeit.bat` self-logs to `makeit.log` (truncates on each run, then redirects all stdout+stderr via `call "%~f0" >> makeit.log 2>&1`; `cmake --build --verbose` exposes full `g++.exe` lines). `follow.ps1` tails the log at 150 ms with live `█░` progress bars from CMake `[ X%]` output, phase-transition banners (`┌─── Configure`, `┌─── Compiler`, …), and colour-coded output (red errors, yellow warnings, green success). Run counter resets to 0 on each `follow.bat` launch — first build of the session is always Run #1.
+- **Dynamic Version Loading**: About dialog reads Published timestamp and Version from `curver.txt` at runtime (no recompile needed for version changes)
 - **Take Me There Navigation**: Navigate to registry key in TreeView and automatically populate ListView with uninstall values (DisplayName, DisplayVersion, Publisher, etc.)
 - **Spinner Dialog System**: Modal loading dialog with animated multi-line text display for long-running operations
 - **Virtual Folder Support**: Create custom folder structures without physical disk paths - files and full hierarchy persist when navigating between pages

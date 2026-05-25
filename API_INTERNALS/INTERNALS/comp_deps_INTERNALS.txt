@@ -1,5 +1,5 @@
 ================================================================================
-  SetupCraft — Component Dependencies Internals
+  NSBEdit — Component Dependencies Internals
 ================================================================================
 
   Describes the dependency-summary panel inside CompFolderEditDlgProc (the

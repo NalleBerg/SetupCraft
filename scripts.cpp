@@ -23,6 +23,7 @@
 #include "button.h"             // CreateCustomButtonWithIcon(), MeasureButtonWidth()
 #include "checkbox.h"           // CreateCustomCheckbox()
 #include "tooltip.h"             // ShowMultilingualTooltip() / HideTooltip()
+#include "ctrlw.h"               // ShowConfirmDeleteDialog()
 #include <algorithm>            // std::sort, std::unique
 #include <windowsx.h>           // GET_X_LPARAM / GET_Y_LPARAM
 #include <shellapi.h>           // ShellExecuteW()
@@ -706,8 +707,7 @@ bool SCR_OnCommand(HWND hwnd, int wmId, int wmEvent, HWND /*hCtrl*/)
         int sel = ListView_GetNextItem(s_hScrList, -1, LVNI_SELECTED);
         if (sel < 0 || sel >= (int)s_scripts.size()) return true;
 
-        // Confirmation
-        wchar_t fmt[256];
+        // Confirmation — styled owner-draw Yes/No dialog (respects i18n)
         std::wstring msg;
         {
             std::wstring tmpl = loc(L"scr_delete_confirm",
@@ -715,11 +715,14 @@ bool SCR_OnCommand(HWND hwnd, int wmId, int wmEvent, HWND /*hCtrl*/)
             msg.resize(tmpl.size() + s_scripts[sel].name.size() + 4);
             _snwprintf_s(&msg[0], msg.size(), _TRUNCATE,
                          tmpl.c_str(), s_scripts[sel].name.c_str());
+            msg.resize(wcslen(msg.c_str()));   // trim null padding left by resize()
         }
-        int r = MessageBoxW(hwnd, msg.c_str(),
-                            loc(L"scr_delete_title", L"Remove Script").c_str(),
-                            MB_YESNO | MB_ICONQUESTION);
-        if (r == IDYES) {
+        static const std::map<std::wstring, std::wstring> s_emptyLocale;
+        const std::map<std::wstring, std::wstring>& locRef =
+            s_pLocale ? *s_pLocale : s_emptyLocale;
+        bool confirmed = ShowConfirmDeleteDialog(
+            hwnd, loc(L"scr_delete_title", L"Remove Script"), msg, locRef);
+        if (confirmed) {
             s_scripts.erase(s_scripts.begin() + sel);
             // Recalculate sort_order
             for (int i = 0; i < (int)s_scripts.size(); i++)

@@ -1,5 +1,5 @@
 ================================================================================
-  SetupCraft — Dependencies Page Architecture (deps_INTERNALS.txt)
+  NSBEdit — Dependencies Page Architecture (deps_INTERNALS.txt)
 ================================================================================
 
 FILES
@@ -41,7 +41,7 @@ ExternalDep (declared in deps.h)
                                visible only for DD_AUTO_DOWNLOAD; IDC_DEPDLG_TIMEOUT=422
   extra_exit_codes wstring     space-separated exit codes treated as success in addition to 0
                                e.g. "3010 1641" (3010=ERROR_SUCCESS_REBOOT_REQUIRED,
-                               1641=ERROR_SUCCESS_REBOOT_INITIATED); SetupCraft detects
+                               1641=ERROR_SUCCESS_REBOOT_INITIATED); NSBEdit detects
                                reboot codes at install-time and prompts before rebooting.
                                Visible for DD_BUNDLED + DD_AUTO_DOWNLOAD; IDC_DEPDLG_EXIT_CODES=423
                                Help button IDC_DEPDLG_EXIT_CODES_HELP=425 (shell32 #23) opens

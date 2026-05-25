@@ -1,5 +1,5 @@
 ================================================================================
-  SetupCraft — Button + Right-Click Combo Pattern Internals
+  NSBEdit — Button + Right-Click Combo Pattern Internals
 ================================================================================
 
   This file documents the recurring pattern used whenever a panel has both
@@ -132,7 +132,7 @@
         hDL, GWLP_WNDPROC, (LONG_PTR)DepListSubclassProc);
 
   NOTE: SetWindowLongPtrW is used rather than the safer SetWindowSubclass
-  (commctrl SetWindowSubclass is not used anywhere in SetupCraft at present;
+  (commctrl SetWindowSubclass is not used anywhere in NSBEdit at present;
   keep this consistent).
 
   Restored and cleaned up in WM_NCDESTROY:

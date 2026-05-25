@@ -1,0 +1,185 @@
+================================================================================
+  ne_autocomplete_API.txt
+  NsbAutoComplete — custom owner-draw phrase/keyword completion popup
+================================================================================
+
+FILES
+─────
+  ne_autocomplete/ne_autocomplete.h    Public API header
+  ne_autocomplete/ne_autocomplete.cpp  Implementation
+  Add ne_autocomplete\ne_autocomplete.cpp to the g++ compile line in makeit.bat.
+
+================================================================================
+OVERVIEW
+================================================================================
+
+NsbAutoComplete is a custom WS_POPUP window that replaces Scintilla's built-in
+SCI_AUTOCSHOW for the phrase-completion mode.  Scintilla's built-in autocomplete
+cancels itself when the "entered" text contains non-word characters such as
+spaces, '=', '$', etc.  The custom popup has no such restriction.
+
+Appearance matches the NSBEdit tooltip style:
+  • Background : COLOR_INFOBK  (system tooltip yellow)
+  • Border     : dark amber  RGB(120, 100, 20)
+  • Body text  : near-black  RGB(20, 20, 20)
+  • Selected   : deep forest green RGB(30, 110, 55) + white text
+  • Font       : 12pt Segoe UI, CLEARTYPE, DPI-aware (GetDpiForWindow)
+  • Drop shadow: CS_DROPSHADOW on window class
+
+The popup has WS_EX_NOACTIVATE so focus never leaves the Scintilla window.
+Keyboard is intercepted by subclassing the Scintilla HWND while the popup is
+visible.
+
+================================================================================
+API REFERENCE
+================================================================================
+
+  void NeAutoComplete_Register(HINSTANCE hInst)
+  ──────────────────────────────────────────────
+  Register the "NsbAutoComplete" window class.  Call once in WM_CREATE of the
+  main window.  Safe to call more than once (RegisterClassExW is idempotent).
+
+  ─────────────────────────────────────────────────────────────────────────────
+
+  void NeAutoComplete_Show(HWND hSci,
+                           const std::vector<std::string>& items,
+                           int prefixLen,
+                           NeAcAcceptFn onAccept)
+  ──────────────────────────────────────────────────────────────────────────────
+  Show (or replace) the autocomplete popup.
+
+    hSci       Scintilla HWND.  Used for:
+               • caret position via SCI_GETCURRENTPOS / SCI_POINTX/YFROMPOSITION
+               • row height via SCI_TEXTHEIGHT
+               • keyboard subclassing while popup is visible
+    items      Sorted list of completion candidates in document byte encoding
+               (UTF-8 or ANSI).  Must be non-empty; pass empty to hide instead.
+    prefixLen  Number of bytes before the current caret that will be replaced
+               when the user accepts an item.  For phrase mode this is the
+               length of the trimmed line-prefix (excluding leading whitespace).
+    onAccept   std::function<void(const std::string& item, int prefixLen)>
+               Called after the popup is dismissed when user accepts.
+               Typical implementation:
+                 Sci_Position p = SCI_GETCURRENTPOS;
+                 SendMessage(hSci, SCI_SETSEL, p - prefixLen, p);
+                 SendMessage(hSci, SCI_REPLACESEL, 0, item.c_str());
+
+  Notes:
+  • If a popup is already visible it is dismissed synchronously before the new
+    one is created (no flicker: old window is hidden immediately, destroyed via
+    PostMessage WM_CLOSE so DestroyWindow runs from the message loop).
+  • The Scintilla HWND is subclassed with AcSciSubclassProc on every Show and
+    unsubclassed in Ac_Dismiss.  Do not call SetWindowLongPtr on the Scintilla
+    HWND while the popup is visible.
+  • Popup is positioned below the caret line; flips above if it would extend
+    past the bottom of the monitor work area.
+
+  ─────────────────────────────────────────────────────────────────────────────
+
+  void NeAutoComplete_Hide()
+  ──────────────────────────
+  Dismiss the popup unconditionally.  No-op if not visible.  Call this on:
+    • Tab change  (TCN_SELCHANGE)
+    • File open / close
+    • Any other action that invalidates the current completion context
+
+  ─────────────────────────────────────────────────────────────────────────────
+
+  bool NeAutoComplete_IsVisible()
+  ────────────────────────────────
+  Returns true if the popup window exists (visible or being dismissed).
+
+  ─────────────────────────────────────────────────────────────────────────────
+
+  bool NeAutoComplete_HandleKey(WPARAM vk)
+  ─────────────────────────────────────────
+  Forward a WM_KEYDOWN wParam.  Returns true if the key was consumed.
+  Called automatically by AcSciSubclassProc; callers outside the subclass do
+  not normally need to call this directly.
+
+  Consumed keys:
+    VK_UP      Move selection up; scroll if needed
+    VK_DOWN    Move selection down; scroll if needed
+    VK_RETURN  Accept selected item → Ac_Accept → onAccept callback
+    VK_TAB     Same as VK_RETURN
+    VK_ESCAPE  Dismiss without accepting
+
+  Not consumed (passed to Scintilla):
+    VK_BACK    Dismiss then pass to Scintilla (popup will reappear on next char)
+    VK_DELETE  Same as VK_BACK
+    Everything else
+
+================================================================================
+CALLBACK TYPE
+================================================================================
+
+  using NeAcAcceptFn = std::function<void(const std::string& item, int prefixLen)>
+
+  The callback is called after Ac_Dismiss() has completed (Scintilla is
+  unsubclassed before the callback fires).  It is safe to send any Scintilla
+  messages from within the callback.
+
+================================================================================
+INTEGRATION IN NSBEdit.cpp
+================================================================================
+
+1. Include header:
+     #include "ne_autocomplete/ne_autocomplete.h"
+
+2. WM_CREATE (main window):
+     NeAutoComplete_Register(hInst);
+
+3. TCN_SELCHANGE handler:
+     NeAutoComplete_Hide();
+
+4. Ne_SciAutoComplete — phrase mode (when phrasePrefix contains a space):
+     SendMessageW(hSci, SCI_AUTOCCANCEL, 0, 0);   // cancel built-in if open
+     NeAutoComplete_Show(hSci, matches, (int)phrasePrefix.size(),
+         [hSci](const std::string& item, int plen) {
+             Sci_Position p = (Sci_Position)SendMessageW(hSci, SCI_GETCURRENTPOS, 0, 0);
+             SendMessageW(hSci, SCI_SETSEL, (WPARAM)(p - plen), (LPARAM)p);
+             SendMessageW(hSci, SCI_REPLACESEL, 0, (LPARAM)item.c_str());
+         });
+     return;
+
+5. Guard against autocomplete re-triggering during SCI_REPLACESEL insertion:
+     static bool g_acInserting = false;
+     // at top of Ne_SciAutoComplete: if (g_acInserting) return;
+     // around SCI_REPLACESEL:  g_acInserting = true; ... g_acInserting = false;
+
+================================================================================
+WINDOW CLASS DETAILS
+================================================================================
+
+  Name        : L"NsbAutoComplete"
+  Style       : CS_DROPSHADOW
+  ExStyle     : WS_EX_TOPMOST | WS_EX_NOACTIVATE
+  Window style: WS_POPUP  (no title bar, no border — border painted in WM_PAINT)
+  WndProc     : AcWndProc  (file-scope, ne_autocomplete.cpp)
+
+  WM_LBUTTONDOWN  → PostMessage WM_AC_ACCEPT (deferred to avoid DestroyWindow
+                    being called from within a nested WndProc)
+  WM_MOUSEMOVE    → hover highlight
+  WM_MOUSEWHEEL   → scroll list
+  WM_AC_ACCEPT    → Ac_Accept(selIdx)
+  WM_AC_DISMISS   → Ac_Dismiss()
+  WM_CLOSE        → DestroyWindow (safe; posted from Ac_Dismiss)
+
+================================================================================
+SCROLL INDICATORS
+================================================================================
+
+If items.size() > kAcMaxVisible (9), ▲ and ▼ glyphs are drawn in the top-right
+and bottom-right corners of the visible rows to indicate that more items exist.
+Mouse wheel scrolls the list; arrow-key navigation auto-scrolls via Ac_EnsureVisible.
+
+================================================================================
+COLOUR RATIONALE
+================================================================================
+
+Standard Windows blue (RGB 0,0,255 or the system highlight) is jarring against
+the warm yellow tooltip background.  Forest green (RGB 30,110,55) is:
+  • Complementary to yellow on the colour wheel → pleasant, not harsh
+  • Dark enough for white text to pass WCAG AA contrast ratio
+  • Visually distinct from the black body text so selection is obvious
+  • Consistent with the NSBEdit "no-default-Windows-chrome" aesthetic

@@ -393,6 +393,7 @@ CMakeFiles/SkeletonApp.dir/scripts.cpp.obj: \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\tooltip.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/utility \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_relops.h \
+ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\ctrlw.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/algorithm \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_algo.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/algorithmfwd.h \

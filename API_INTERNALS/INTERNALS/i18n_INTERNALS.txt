@@ -1,10 +1,10 @@
 ================================================================================
-  SetupCraft — Internationalisation (i18n) Reference
+  NSBEdit — Internationalisation (i18n) Reference
 ================================================================================
 
 PURPOSE
 -------
-All user-visible text in SetupCraft must come from the locale map — never from
+All user-visible text in NSBEdit must come from the locale map — never from
 hardcoded string literals in C++ source code.  This rule applies to every dialog
 title, label, button caption, tooltip, status message, and error string.
 

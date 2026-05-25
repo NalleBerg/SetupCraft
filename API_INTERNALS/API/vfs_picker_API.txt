@@ -1,5 +1,5 @@
 ================================================================================
-  vfs_picker_API.txt — SetupCraft VFS File/Folder Picker Component
+  vfs_picker_API.txt — NSBEdit VFS File/Folder Picker Component
 ================================================================================
 
 PURPOSE

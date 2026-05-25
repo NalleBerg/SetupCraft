@@ -1,7 +1,7 @@
 ================================================================================
   my_scrollbar_vscroll_API.txt
   Custom Win32 vertical scrollbar — public API reference
-  my_scrollbar_vscroll.h / my_scrollbar_vscroll.cpp
+  scroll/my_scrollbar_vscroll.h / scroll/my_scrollbar_vscroll.cpp
 ================================================================================
 
 
@@ -27,7 +27,7 @@
     so the last line is always scrollable fully above the H bar, with a
     breathing-room margin (MSB_VERT_MARGIN, 6 logical px) below it.
   • DPI-aware: all pixel values go through S() internally; works at any DPI.
-  • No SetupCraft dependencies — only <windows.h>.
+  • No NSBEdit dependencies — only <windows.h>.
 
   Status (2026-04-19)
   ────────────────────
@@ -443,8 +443,83 @@
   ListView re-enables its native bars every time items are inserted.
   After every PopulateListView / batch InsertItem call:
 
-    if (s_hMsbListV) { ShowScrollBar(s_hList, SB_VERT, FALSE); msb_sync(s_hMsbListV); }
-    if (s_hMsbListH) { ShowScrollBar(s_hList, SB_HORZ, FALSE); msb_sync(s_hMsbListH); }
+    if (hMsbV) { ShowScrollBar(hList, SB_VERT, FALSE); msb_sync(hMsbV); }
+    if (hMsbH) { ShowScrollBar(hList, SB_HORZ, FALSE); msb_sync(hMsbH); }
+
+  V-only attachment (no H MSB, dialog auto-fits to column width):
+  !! DO NOT call ShowScrollBar(hList, SB_HORZ, FALSE) to suppress the H bar !!
+  See §4e below for the correct sizing formula that prevents the H bar from
+  appearing in the first place.  Calling ShowScrollBar(SB_HORZ, FALSE) after
+  rows are inserted corrupts the ListView double-buffer DC and causes all rows
+  that were not yet in the initial viewport to render as dots/dashes when first
+  scrolled into view.  The correct fix is purely in the dialog-width calculation.
+
+  4e. ListView V-only modal dialog (no H-axis MSB, auto-fit to column width)
+  ────────────────────────────────────────────────────────────────────────────
+
+  !! GOLDEN RULE: size using SM_CXVSCROLL, NOT S(MSB_WIDTH_FULL) !!
+
+  When a modal dialog contains a ListView with only a V-axis MSB and must
+  auto-size so all columns are visible without a horizontal scrollbar:
+
+    int totalColW = 0;
+    for (int i = 0; i < nCols; ++i)
+        totalColW += ListView_GetColumnWidth(hLV, i);
+    int lvHBorder = 2 * GetSystemMetrics(SM_CXEDGE);
+    int lvNeededW = totalColW + GetSystemMetrics(SM_CXVSCROLL) + lvHBorder;
+    //                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    //                          Use SM_CXVSCROLL — NOT S(MSB_WIDTH_FULL)
+
+  WHY SM_CXVSCROLL AND NOT S(MSB_WIDTH_FULL):
+
+    Inside the MSB WM_SIZE handler, origProc(WM_SIZE) is called FIRST.
+    The ListView's origProc sees the V content overflows vertically and
+    re-enables the native V bar (ShowScrollBar(SB_VERT, TRUE) internally),
+    which subtracts exactly SM_CXVSCROLL from the client width.  origProc
+    then calculates the H scroll range against this narrower client width.
+
+    MSB_WIDTH_FULL is 12 px at 96 DPI.  SM_CXVSCROLL is typically 17 px.
+    If lvNeededW only adds 12 px, origProc sees columns overflowing by 5 px
+    (17 - 12) and enables the H scrollbar.  Adding SM_CXVSCROLL (17 px)
+    instead means origProc sees columns fitting exactly — H bar stays off.
+
+    After origProc returns, Msb_HideNativeBar re-hides the native V bar,
+    restoring the full client width.  The H bar never appeared, so no
+    re-suppression is needed.
+
+  !! NEVER call ShowScrollBar(SB_HORZ, FALSE) to suppress the H bar !!
+
+  Root cause of the garbling bug:
+    ShowScrollBar(SB_HORZ, FALSE) changes the ListView's NC area (client
+    grows taller).  This fires WM_SIZE on the ListView — which the MSB
+    subclass intercepts — which calls Msb_HideNativeBar(V) — which fires
+    another ShowScrollBar(SB_VERT, FALSE) — all while the dialog is already
+    visible and the ListView's internal double-buffer DC is active.
+    The DC retains state between separate paint operations (NM_CUSTOMDRAW
+    may have left blue text color or a non-default font selected).  Rows that
+    were BELOW the initial viewport had never been painted; on the next scroll
+    they inherit the contaminated DC state and render as dots/dashes.
+
+    Creating the dialog without WS_VISIBLE first does NOT cure it: the DC
+    contamination also occurs during the invisible phase, and the first SW_SHOW
+    paint still starts from a dirty DC for the below-viewport rows.
+
+    The only correct fix is to prevent the H bar from appearing in the first
+    place by using SM_CXVSCROLL in the width calculation, so no
+    ShowScrollBar(SB_HORZ, FALSE) call is ever needed.
+
+  ┌─ LISTVIEW V-ONLY DIALOG CHECKLIST ────────────────────────────────────┐
+  │ □  WS_VSCROLL (+ WS_HSCROLL if LVSCW_AUTOSIZE_USEHEADER will be used) │
+  │    in CreateWindowExW style for hLV                                   │
+  │ □  msb_attach(hLV, MSB_VERTICAL) BEFORE row insertion                │
+  │ □  Insert rows, then LVSCW_AUTOSIZE_USEHEADER for all columns         │
+  │ □  lvNeededW = totalColW + GetSystemMetrics(SM_CXVSCROLL) + lvHBorder │
+  │     — NOT S(MSB_WIDTH_FULL); NOT SM_CXVSCROLL + S(MSB_WIDTH_FULL)    │
+  │ □  Resize dialog and ListView to lvNeededW                            │
+  │ □  Do NOT call ShowScrollBar(SB_HORZ, FALSE) — H bar will not appear  │
+  │    if the width formula above is used correctly                       │
+  │ □  msb_detach in WM_DESTROY (before child windows are destroyed)      │
+  └───────────────────────────────────────────────────────────────────────┘
 
   ── Implementation notes (handled internally — no per-page action needed) ──
   • WM_NCPAINT interception (inNcPaint guard): the TreeView re-enables its

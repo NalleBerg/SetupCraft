@@ -1,10 +1,10 @@
 ================================================================================
-  SetupCraft — Dialog Internals Reference
+  NSBEdit — Dialog Internals Reference
 ================================================================================
 
 PURPOSE
 -------
-All modal yes/no and multi-choice dialogs in SetupCraft are custom Win32 popup
+All modal yes/no and multi-choice dialogs in NSBEdit are custom Win32 popup
 windows (not DialogBoxParam). They use the custom button system (button.h) for
 i18n-correct labels and consistent visual style.
 
@@ -199,11 +199,11 @@ THE BUG
 Many dialogs in the codebase were (or still are) created with WS_EX_TOPMOST.
 That flag makes the window float above every other application globally, which
 is annoying for the developer: switching to a browser, IDE, or file explorer
-while SetupCraft is open leaves the dialog stuck on screen in front of everything.
+while NSBEdit is open leaves the dialog stuck on screen in front of everything.
 
 THE RULE
 --------
-  *** Never use WS_EX_TOPMOST on any SetupCraft dialog or floating panel. ***
+  *** Never use WS_EX_TOPMOST on any NSBEdit dialog or floating panel. ***
 
 The correct way to ensure a dialog stays above its own parent window without
 being globally always-on-top is OWNERSHIP:
@@ -274,7 +274,7 @@ REQUIREMENTS
        200% DPI. Derive the base font from the user's NONCLIENTMETRICS and
        scale it in proportion to the dialog's logical size.
 
-NOTE: The preview window in SetupCraft already respects the developer's DPI via
+NOTE: The preview window in NSBEdit already respects the developer's DPI via
 S() — that is intentional so the author sees the dialog at the correct relative
 size. The concern above is strictly about the generated installer's runtime
 behaviour on the end user's machine.

@@ -1,7 +1,7 @@
 ================================================================================
   my_scrollbar_hscroll_API.txt
   Custom Win32 horizontal scrollbar — implementation notes
-  my_scrollbar_hscroll.h / my_scrollbar_hscroll.cpp
+  scroll/my_scrollbar_hscroll.h / scroll/my_scrollbar_hscroll.cpp
 ================================================================================
 
 

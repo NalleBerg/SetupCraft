@@ -1,0 +1,138 @@
+================================================================================
+  zoom_INTERNALS.txt
+  Editor zoom — architecture, dual-model design, keyboard/scroll triggers,
+  persistence, and bug history
+================================================================================
+
+1. OVERVIEW
+───────────
+NSBEdit supports two completely independent zoom models, one per editor type:
+
+  • RichEdit (hEdit)   — zoom is a percentage ratio, e.g. 100 = 100 %.
+                         Stepped through a fixed preset table.
+  • Scintilla (hSci)   — zoom is a signed point offset, e.g. 0 = default,
+                         +4 = four points larger.
+
+Both models are driven by a single entry point:
+
+  static void Ne_StepZoom(HWND hwnd, int dir)
+      dir = +1  zoom in one step
+      dir = -1  zoom out one step
+      dir =  0  reset to default (100 % / 0 pt)
+
+Globals that hold the current zoom level (persist across tab switches):
+
+  static int g_zoomRtf = 100;   // percentage; range 50–200
+  static int g_zoomSci = 0;     // point offset; range –10..+20 (Scintilla enforces)
+
+
+2. RTF ZOOM
+───────────
+  Preset steps: { 50, 75, 100, 125, 150, 200 }  (s_zoomSteps[], s_zoomStepCount)
+
+  On step up/down Ne_StepZoom finds the current index in the table and
+  increments or decrements it.  Reset forces index = 2 (100 %).
+
+  Applied via:
+    SendMessageW(doc->hEdit, EM_SETZOOM, (WPARAM)g_zoomRtf, 100);
+    // numerator / denominator — 100/100 = 100 %, 150/100 = 150 %, etc.
+
+  After each change the zoom combo-box (IDC_NE_ZOOM, control 229) is synced:
+    Ne_SyncZoomCombo(hwnd, g_zoomRtf);
+    // scans the preset table for the nearest step and calls CB_SETCURSEL.
+
+  Saved to DB:
+    NeProfiles_SetIntSetting("zoom_rtf", g_zoomRtf);
+
+  Loaded on startup (WinMain, before ShowWindow):
+    NeProfiles_GetIntSetting("zoom_rtf", 100, g_zoomRtf);
+    if (g_zoomRtf <  10) g_zoomRtf =  10;
+    if (g_zoomRtf > 500) g_zoomRtf = 500;
+
+
+3. SCINTILLA ZOOM
+─────────────────
+  Scintilla uses its native zoom messages:
+
+    SCI_ZOOMIN   — add 1 pt
+    SCI_ZOOMOUT  — subtract 1 pt
+    SCI_SETZOOM 0 — reset to 0 pt offset
+
+  After each change the actual value is read back and stored:
+    g_zoomSci = (int)SendMessageW(doc->hSci, SCI_GETZOOM, 0, 0);
+    NeProfiles_SetIntSetting("zoom_sci", g_zoomSci);
+
+  Loaded on startup:
+    NeProfiles_GetIntSetting("zoom_sci", 0, g_zoomSci);
+    if (g_zoomSci < -10) g_zoomSci = -10;
+    if (g_zoomSci >  20) g_zoomSci =  20;
+
+  Note: Scintilla internally clamps to its own range (–10..+20); the startup
+  clamp matches so the stored value is always legal when re-applied.
+
+  New tabs inherit the current g_zoomSci / g_zoomRtf via
+  Ne_SetupScintillaStyle / Ne_LoadPathIntoEditor — they call EM_SETZOOM /
+  SCI_SETZOOM directly with the global value at creation time.
+
+
+4. TRIGGER PATHS
+────────────────
+Both trigger paths live in the WinMain message loop (not in Ne_WndProc) so
+the keyboard/mouse shortcuts work regardless of which child window has focus.
+
+4a. Keyboard — WM_KEYDOWN with MK_CONTROL held (checked by GetKeyState)
+
+  Handled inside the block:
+    if (msg.message == WM_KEYDOWN && (GetKeyState(VK_CONTROL) & 0x8000)) {
+
+  Keys processed:
+    VK_ADD / VK_OEM_PLUS   → Ne_StepZoom(+1)   // numpad + and = key
+    VK_SUBTRACT / VK_OEM_MINUS → Ne_StepZoom(−1) // numpad − and − key
+    '0' / VK_NUMPAD0       → Ne_StepZoom(0)    // reset
+
+  Each match calls `continue` to consume the message before TranslateMessage /
+  DispatchMessageW, so the character never reaches the editor.
+
+  AltGr guard: the outer Ctrl-shortcut block already skips when VK_RMENU is
+  held, so AltGr+0, AltGr+= etc. on non-US keyboards reach the editor normally.
+
+4b. Mouse wheel — WM_MOUSEWHEEL with MK_CONTROL in wParam key-state
+
+  Intercepted after the WM_KEYDOWN block:
+    if (msg.message == WM_MOUSEWHEEL &&
+        (GET_KEYSTATE_WPARAM(msg.wParam) & MK_CONTROL)) {
+        NeTabDoc* wdoc = NeTabs_GetActiveDoc(s_hwndMain);
+        if (wdoc && (wdoc->hSci || wdoc->hEdit)) {
+            int delta = GET_WHEEL_DELTA_WPARAM(msg.wParam);
+            Ne_StepZoom(s_hwndMain, delta > 0 ? +1 : -1);
+            continue;  // consume — do not pass to native handler
+        }
+    }
+
+  The `continue` is critical: without it WM_MOUSEWHEEL would be dispatched to
+  whichever child window the OS delivers it to.  RichEdit has its own Ctrl+Wheel
+  zoom handler (independent of g_zoomRtf) and Scintilla also handles it natively
+  via SCI_ZOOMIN/OUT — both would fire in addition to Ne_StepZoom, resulting in
+  a double-step on every tick.
+
+
+5. BUG HISTORY
+──────────────
+Bug 2026-05-20 — Ctrl+scroll zoom stopped working
+  Symptom: After the zoom subsystem was introduced, Ctrl+[+/-/0] worked but
+           Ctrl+MouseScroll only zoomed RTF tabs and was silently ignored on
+           Scintilla tabs.
+
+  Root cause: The WM_MOUSEWHEEL intercept condition was:
+                if (wdoc && !wdoc->hSci && wdoc->hEdit)
+              — i.e. only entered when the active tab was a RichEdit tab.
+              Scintilla tabs satisfy (wdoc->hSci != NULL), so they fell through
+              to DispatchMessageW and Scintilla's native Ctrl+Wheel handler fired
+              instead, which did update the Scintilla view but did NOT update
+              g_zoomSci or save to the DB, and the RTF branch was never reached.
+
+  Fix: Changed condition to:
+                if (wdoc && (wdoc->hSci || wdoc->hEdit))
+       so both tab types call Ne_StepZoom, which handles each editor type
+       correctly in its own branch.  Both keyboard and mouse-scroll zoom now work
+       identically for both editor types.

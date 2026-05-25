@@ -1,6 +1,23 @@
 ﻿================================================================================
-  SetupCraft — Documentation Index
+  NSBEdit — Documentation Index
 ================================================================================
+
+  IMPORTANT — AI / AGENT NOTE:
+    The files under API_INTERNALS\ document the AUTHOR'S PERSONAL CODING STYLE
+    and patterns that travel with them across all Win32/C++ projects.
+    They are NOT a separate project.  Any code examples, layout constants, or
+    helper names in those files that look "project-specific" (e.g. references
+    to ctrlw.cpp, mainwindow.cpp, ButtonColor::Green, etc.) are illustrative
+    placeholders from older projects.  The PATTERNS they describe — measure-
+    then-create dialogs, owner-draw buttons, DPI-aware S() sizing, i18n via
+    Ls(), AdjustWindowRectEx sizing, modal pump with EnableWindow — are the
+    canonical approach to use in THIS project too, adapted to NSBEdit's own
+    helper names (Ne_MeasureDialogTextHeight, Ne_CreateDialogFont,
+    Ne_DrawDialogButton, Ne_MeasureButtonWidth, Ne_BtnHoverProc, NeBtnTone,
+    Ne_ToneColor, etc.).
+    When the docs say "CreateCustomButtonWithIcon" read "BS_OWNERDRAW +
+    Ne_BtnHoverProc subclass"; when they say "ButtonColor::Blue" read
+    "NeBtnTone::Blue"; and so on.
 
   Location:
     API_INTERNALS\API\         Reusable toolbox modules — public interfaces.
@@ -20,7 +37,519 @@
     _INTERNALS.txt  Architectural / flow reference — how a subsystem works
                     internally, bug history, and fix guidance.
 
-  ── API (reusable toolbox modules) ──────────────────────────────────────────
+  ── NSBEdit core modules ─────────────────────────────────────────────────────
+
+  File                                          Description
+  ──────────────────────────────────────────────────────────────────────────────
+  NSBEdit.cpp                                   Main application — single-file Win32 app.
+                                                WinMain, Ne_WndProc, File menu (New/Open/
+                                                Save/SaveAs/Print/Export as PDF/Exit),
+                                                Edit menu (Undo/Redo/Cut/Copy/Paste/
+                                                Select All, greyed via WM_INITMENUPOPUP),
+                                                right-click context menu (WM_CONTEXTMENU),
+                                                Help menu (Keyboard Shortcuts/About).
+                                                Owner-draw menus at 12pt Segoe UI via
+                                                Ne_AppendMenuOD / WM_MEASUREITEM /
+                                                WM_DRAWITEM — popup bg white, bar items
+                                                bg COLOR_MENUBAR, highlight/grayed
+                                                states, right-aligned accelerators.
+                                                Bar items (File/Edit/Help) also owner-
+                                                drawn (isBar=true, tighter padding).
+                                                All UI fonts: 12pt Segoe UI DPI-aware
+                                                (GetDpiForWindow / GetDpiForSystem).
+                                                17-control RTF toolbar (Bold/Italic/
+                                                Underline/Strike/Subscript/Superscript/
+                                                FontFace/FontSize/Color/Highlight/Align
+                                                L/C/R/J/Bullet/Numbered/Image), status
+                                                bar, About dialog (GDI+ logo + RCDATA 12
+                                                nsb_256.png, NE_PUBLISHED/NE_VERSION from
+                                                ne_version.h generated at build time by
+                                                makeit.bat [pre] step), License dialog
+                                                (GNU logo + RCDATA 13 GnuLogo.bmp loaded
+                                                via CreateDIBitmap; GPLv2.md stream).
+                                                Ne_ExportPdf — MS Print to PDF via
+                                                OpenPrinterW/DocumentPropertiesW/CreateDCW
+                                                + DOCINFO.lpszOutput + EM_FORMATRANGE.
+                                                Ne_ShowShortcuts — modal ListView dialog,
+                                                40 rows, NM_CUSTOMDRAW bold col 0 /
+                                                royal-blue col 2.
+                                                Ne_ShowChoiceDialog — custom modal
+                                                white-background question dialog with
+                                                owner-draw icon buttons (Save/Don't
+                                                Save/Cancel and Reload/Keep flows),
+                                                locale-driven labels, dynamic
+                                                text/button sizing, optional hMsgIcon
+                                                (renders 32×32 icon left of message
+                                                text; dialog font is 12pt Segoe UI
+                                                via Ne_CreateDialogFont, freed on
+                                                WM_NCDESTROY).
+                                                Ne_ShowLinkDialog — Insert Hyperlink
+                                                modal: URL + display-text fields, Tab
+                                                navigation, Save (blue) / Cancel (red)
+                                                owner-draw buttons. Validates URL with
+                                                std::wregex (scheme://host.TLD, mailto,
+                                                file, www.). Bad URL shows warning
+                                                dialog (IDI_WARNING + shell32-294 OK).
+                                                Inserts RTF \field HYPERLINK at caret.
+                                                Ne_ExtractLinkUrlAt — streams RTF
+                                                around charIdx via SFF_SELECTION,
+                                                parses HYPERLINK "url" from \fldinst.
+                                                Ne_EditCaretProc — RichEdit subclass:
+                                                WM_MOUSEMOVE IDC_HAND detection shows
+                                                two-line tooltip (URL + Ctrl+Click
+                                                hint); WM_LBUTTONDOWN+Ctrl opens URL
+                                                with ShellExecuteW.
+                                                ENM_LINK on all EM_SETEVENTMASK calls;
+                                                EN_LINK fallback handler in WM_NOTIFY.
+                                                WM_KEYDOWN VK_DELETE/VK_BACK: detects
+                                                adjacent HR paragraph and calls
+                                                Ne_DeleteHRule instead of default edit.
+                                                WM_CHAR '\r': sets g_hrPendingCleanup
+                                                flag, calls through, posts
+                                                NE_WM_HR_CLEANUP (WM_APP+1) with
+                                                enterPos in wParam.
+                                                NE_WM_HR_CLEANUP: strips inherited HR
+                                                format from paragraph at enterPos (if
+                                                any), then calls Ne_RebuildHRList.
+                                                Horizontal Rule (HR): Ne_InsertHRule /
+                                                Ne_PaintHRules / Ne_RebuildHRList /
+                                                Ne_DeleteHRule / Ne_ShowHRulePropsDialog.
+                                                g_hrMap (HWND → vector<NeHRuleEntry>)
+                                                caches charIdx + style/colour per HR.
+                                                g_hrPendingCleanup (HWND → set<LONG>)
+                                                used as re-entrancy flag during '\r'.
+                                                EN_CHANGE always calls Ne_RebuildHRList
+                                                (unless g_hrPendingCleanup flag set).
+                                                See hrule_INTERNALS.txt for full detail.
+                                                External file-change detection on
+                                                editor focus: compares current file's
+                                                last-write time + size against the
+                                                stamp captured when focus was last lost,
+                                                then asks Reload-from-disk or Keep.
+                                                RichEdit50W via Msftedit.dll, fallback
+                                                RichEdit20W. Ne_LayoutToolbar — greedy
+                                                one-by-one reflow, minClientW in NeState.
+                                                WM_GETMINMAXINFO enforces min width.
+                                                i18n: Ls()/Ne_Filter()/Ne_Unescape()/
+                                                Ne_LoadLocale(). Tooltip subclass:
+                                                Ne_SetTip/Ne_TipSubclassProc.
+                                                Control ID range: 201–230.
+                                                IDM range: 101–136 (core), 600+ (langs), 700+ (FTP profiles).
+                                                Ne_ApplyLang(hSci, langIdx) — sends
+                                                SCI_SETKEYWORDS from s_langKws[] and
+                                                applies per-lexer style overrides.
+                                                PHP uses the hypertext lexer; keywords
+                                                go in slot 4 (not 0). HTML tokens
+                                                (SCE_H_* 1–10) styled for both HTML
+                                                and PHP. PHP tokens (SCE_HPHP_* 118–127)
+                                                styled only when the language is PHP.
+                                                Ne_GetLineComment uses language name
+                                                check for PHP (//); returns nullptr for
+                                                hypertext lexer (HTML/PHP handled by
+                                                Ne_SciToggleHtmlComment instead).
+                                                Ne_PosIsHtml(hSci, pos) — returns true
+                                                if SCI_GETSTYLEAT(pos) < 118
+                                                (SCE_HPHP_DEFAULT); false = PHP region.
+                                                Ne_SciToggleHtmlComment(hSci) — three-
+                                                case toggle: (1) exact <!--/-->
+                                                wrapper lines → delete them; (2) inside
+                                                outer block → split block to exclude
+                                                selection; (3) else → wrap in new block.
+                                                IDC_NE_COMMENT (266) WM_COMMAND: when
+                                                lexer = "hypertext" AND Ne_PosIsHtml at
+                                                selection start, calls
+                                                Ne_SciToggleHtmlComment; otherwise
+                                                Ne_SciToggleComment. Button label
+                                                updated live in SCN_UPDATEUI: "<!--"
+                                                when cursor in HTML region, "//" in PHP
+                                                region or all other languages.
+                                                Language menu on RichEdit tab converts
+                                                tab to Scintilla on demand (plain text
+                                                extracted, Scintilla created, RichEdit
+                                                hidden). AltGr fix: Ctrl-shortcut loop
+                                                skips when VK_RMENU held so AltGr+0/7
+                                                etc. reach the editor.
+                                                Zoom: Ne_StepZoom(hwnd, dir) — dir
+                                                +1 in / -1 out / 0 reset. Two models:
+                                                RTF uses EM_SETZOOM with a fixed
+                                                preset table {50,75,100,125,150,200}%;
+                                                Scintilla uses SCI_ZOOMIN/OUT/SETZOOM
+                                                (signed pt offset). Globals: g_zoomRtf
+                                                (pct, default 100), g_zoomSci (pt
+                                                offset, default 0). Both persisted via
+                                                NeProfiles_SetIntSetting("zoom_rtf"/
+                                                "zoom_sci"). Keyboard: Ctrl+VK_ADD/
+                                                OEM_PLUS, VK_SUBTRACT/OEM_MINUS,
+                                                '0'/VK_NUMPAD0 — WinMain loop, before
+                                                Dispatch (continue consumes message).
+                                                Mouse: WM_MOUSEWHEEL + MK_CONTROL
+                                                also intercepted in loop (continue
+                                                prevents native double-step). Combo
+                                                IDC_NE_ZOOM (229) synced via
+                                                Ne_SyncZoomCombo after RTF steps.
+                                                See zoom_INTERNALS.txt.
+                                                IDM_SAVE_TO_FTP (133): File > Save to
+                                                FTP... — Ne_ShowFtpSelectDialog shows
+                                                all connected profiles as a vertical
+                                                owner-draw button list (Ne_FtpSelectDlgProc,
+                                                no 3-server cap). Chosen profile passed to
+                                                Ne_ShowFtpBrowserSave, uploads via
+                                                NeFtp_Upload, marks tab FTP-linked,
+                                                keeps connection open.
+                                                IDM_FTP_CLOSE_CONN (136): FTP menu >
+                                                Close connection — grayed when no
+                                                profile is connected; calls
+                                                Ne_ShowFtpCloseConnDialog which
+                                                collects connected profiles and forwards
+                                                to Ne_ShowFtpSelectDialog(title, prompt).
+                                                Ne_ShowFtpSelectDialog is generic:
+                                                accepts title+message wstrings from
+                                                caller (not hardcoded locale keys).
+                                                MSB custom scrollbars on Scintilla:
+                                                s_sciSbV / s_sciSbH maps; Ne_AttachSci-
+                                                Scrollbars / Ne_DetachSciScrollbars;
+                                                SCN_UPDATEUI -> msb_sync keeps thumb in
+                                                sync. Ne_AttachScrollbars also called in
+                                                RTF branch of Ne_LoadPathIntoEditor.
+                                                Word wrap indicator: Ne_DrawSciWrapIndicators
+                                                draws a teal-green ↵ glyph to the left of
+                                                the MSB scrollbar for every wrapped visual
+                                                sub-line; called from WM_NOTIFY →
+                                                SCN_PAINTED (fires after each Scintilla
+                                                paint). Right boundary queried via
+                                                msb_get_bar_hwnd to avoid WS_CLIPSIBLINGS
+                                                clipping. Ne_SciWrapSubclassProc handles
+                                                only WM_NCDESTROY (cleanup).
+                                                Auto-close bracket/quote pairs:
+                                                Ne_SciAutoPair (called from SCN_CHARADDED)
+                                                — opener {[("« inserts closer, caret
+                                                between; closer typed when same char
+                                                follows caret jumps over it. (Single
+                                                quote ' excluded — breaks contractions.)
+                                                Ne_SciAutoIndent (called from SCN_CHARADDED)
+                                                — on '\n', copies leading whitespace (tabs
+                                                or spaces) from the previous line to the
+                                                new line. SCI_SETBACKSPACEUNINDENTS TRUE
+                                                set in Ne_SetupScintillaStyle: Backspace
+                                                in leading whitespace removes one indent
+                                                level.
+                                                WM_CHAR in Ne_EditCaretProc (RichEdit) —
+                                                same logic; non-empty selection wraps
+                                                selected text in the pair.
+                                                IDM_CONV_TO_HTML5 (127): Convert > Export
+                                                as HTML 5... — Ne_ExportHtml5 converts
+                                                the active RTF document to a self-contained
+                                                HTML5 file via rtf2html/ne_rtf2html_lib.
+                                                Images (pngblip/jpegblip) embedded as
+                                                base64 data URIs; CP1252 chars encoded
+                                                as UTF-8. Menu item greyed for non-RTF
+                                                tabs (Ne_DocIsRtf check in WM_INITMENUPOPUP).
+                                                Ne_DocIsRtf — returns true for .rtf paths
+                                                and also for untitled tabs that have a
+                                                RichEdit but no Scintilla window, so the
+                                                RTF toolbar and Convert menu are active
+                                                from startup before any file is opened.
+                                                Ne_UpdateToolbarMode uses Ne_DocIsRtf
+                                                instead of checking encoding directly.
+                                                Ne_Open — reuses the active tab if it is
+                                                an untouched untitled RichEdit tab (path
+                                                empty, not modified, no Scintilla) instead
+                                                of creating a new blank tab first.
+                                                Ne_ShowFtpBrowser — same reuse logic
+                                                applied before NeTabs_AddUntitled so
+                                                opening a file from the FTP browser also
+                                                reuses an untouched untitled tab rather
+                                                than creating an extra blank one.
+                                                Ne_ShowChoiceDialog — optional
+                                                autoCloseMs parameter (default 0 = no
+                                                auto-close); if > 0 a WM_TIMER (id 1) is
+                                                set in WM_CREATE and Ne_DialogWndProc
+                                                posts WM_CLOSE on expiry. NeDialogData
+                                                gains int autoCloseMs = 0.
+                                                FTP Preview Online: IDM_PREVIEW_FTP
+                                                (134) / IDC_NE_PREVIEW (265, violet).
+                                                Button shown only when active tab is
+                                                FTP-linked and not Rich mode.
+                                                Ne_PreviewDlgProc / NePreviewDlgData —
+                                                upload buffer to remote, show URL edit,
+                                                Open in browser via ShellExecuteW;
+                                                Revert & close re-uploads backup to
+                                                restore original remote file.
+                                                FTP profile editor: webUrl field
+                                                (FTP_WEB_URL locale key); used to
+                                                construct the public preview URL from
+                                                the file's remote path.
+                                                FTP profile editor: ? help button (id
+                                                1032) opens Ne_ShowFtpProfileHelp —
+                                                rich-text guide for every field incl.
+                                                Web URL root and Preview URL formula.
+                                                Locale key: FTP_HELP_TITLE.
+                                                Preview dialog extra buttons:
+                                                BTN_SAVE_BACKUP (save local copy) and
+                                                BTN_CLOSE_ANYWAY (skip revert).
+                                                FTP keepalive: Nf_ApplyCommonOpts sets
+                                                CURLOPT_TCP_KEEPALIVE/IDLE(60)/INTVL(30).
+                                                NeFtp_Keepalive() in ne_ftp.h/cpp —
+                                                sends NOOP (FTP) or no-op (SFTP) to
+                                                prevent idle-timeout during long Preview
+                                                sessions.
+                                                Dark mode: g_darkMode (bool, DB key
+                                                "dark_mode") / g_darkEditor (bool, DB
+                                                key "dark_editor"). Ne_ApplyDarkFrame —
+                                                DwmSetWindowAttribute(DWMWA_USE_IMMERSIVE
+                                                _DARK_MODE) on hWnd; links -ldwmapi.
+                                                Ne_DlgBgBrush() — returns cached HBRUSH
+                                                for RGB(25,26,27) dialog background.
+                                                Ne_DlgCtlColor(hdc) — sets bg/text for
+                                                WM_CTLCOLORSTATIC/EDIT/LISTBOX in dark
+                                                mode dialogs. Ne_RethemeAll(hWnd) —
+                                                re-applies full theme (DWM frame,
+                                                toolbar/dialog redraws, Scintilla style,
+                                                status bar) when mode changes live.
+                                                Ne_PrefsDlgProc / Ne_ShowPrefsDialog —
+                                                Preferences modal dialog: Appearance
+                                                section (IDC_PREFS_DARK 263,
+                                                IDC_PREFS_LIGHT 267); Editor background
+                                                sub-section visible in light mode only
+                                                (IDC_PREFS_SEC_EDITOR 1001,
+                                                IDC_PREFS_EDITOR_LIGHT 1002,
+                                                IDC_PREFS_EDITOR_DARK 1003); show/hide
+                                                + dialog resize via SetWindowPos;
+                                                WM_DESTROY no PostQuitMessage (inner
+                                                loop exits via IsWindow sentinel).
+                                                Ne_SetupScintillaStyle: bool darkEd =
+                                                g_darkMode || g_darkEditor — all palette
+                                                decisions use darkEd so g_darkEditor
+                                                applies dark Scintilla colors in light UI.
+                                                RichEdit bg/text colour driven by
+                                                g_darkMode only (NOT g_darkEditor) —
+                                                RTF documents always display on a white
+                                                background in light-UI mode regardless of
+                                                the dark-editor preference. IDM_CONV_TO_RTF
+                                                handler resets EM_SETBKGNDCOLOR + CHARFORMAT
+                                                to white/auto-colour on conversion.
+                                                WM_ERASEBKGND: g_darkMode → fill entire
+                                                client RGB(25,26,27); g_darkEditor &&
+                                                !g_darkMode → ExcludeClipRect(edit rect),
+                                                DefWindowProcW (paints chrome normally),
+                                                restore clip, FillRect edit rect
+                                                RGB(30,30,30), return 1. Returning 1
+                                                prevents outer DefWindowProc from
+                                                overwriting the dark fill with white —
+                                                eliminates blink on any line-count change
+                                                (Enter, Backspace, paste, etc.).
+                                                Ne_CloseTabAt: calls Ne_UpdateToolbarMode
+                                                after NeTabs_CloseTab so the toolbar
+                                                always shows the correct mode (Rich/Txt/
+                                                Prog) for the newly-active tab.
+                                                Ne_New: calls Ne_UpdateToolbarMode at end
+                                                so opening a new untitled tab (Ctrl+N /
+                                                File > New) immediately shows the Rich
+                                                button row regardless of the previous
+                                                tab's mode. Ne_UpdateToolbarMode forward-
+                                                declared before Ne_New to allow the call.
+                                                i18n live-switch: Ne_BuildMainMenu(HWND) —
+                                                destroys the old HMENU, rebuilds from Ls()
+                                                strings, calls SetMenu + DrawMenuBar +
+                                                Ne_RebuildLocaleMenu. Ne_RefreshTooltips(HWND)
+                                                — calls Ne_SetTip(GetDlgItem(hwnd,IDC_*))
+                                                for all ~35 toolbar controls. Ne_RefreshLocale
+                                                (HWND) — calls Ne_LoadLocale, Ne_BuildMainMenu,
+                                                Ne_RefreshTooltips, NeTabs_UpdateAllTitles,
+                                                Ne_UpdateStatusText; invoked from the GUI
+                                                Language WM_COMMAND handler so locale
+                                                switches instantly with no restart.
+                                                Fifteen locale files embedded as RCDATA:
+                                                en_GB(10), no_nb(11), is_IS(14), sv_SE(15),
+                                                da_DK(16), fi_FI(17), de_DE(18), fr_FR(19),
+                                                es_ES(20), uk_UA(21), el_GR(22), pt_PT(23),
+                                                nl_NL(24), nl_BE(25), se_NO(26). LANG_UI_*
+                                                keys present in every file (documentation
+                                                only — Ne_RebuildLocaleMenu uses hardcoded
+                                                native name strings).
+                                                Ne_RebuildLocaleMenu forward-declared before
+                                                Ne_BuildMainMenu (which calls it).
+                                                See add_ui_language_INTERNALS.txt for the
+                                                full step-by-step checklist and RC ID table.
+
+  ne_tabs.h / ne_tabs.cpp                       Tabbed editor module — SysTabControl32
+                                                strip + per-tab RichEdit HWND ownership.
+                                                Each tab stores its own path/modified/
+                                                suppress-change/disk-stamp state.
+                                                Switching tabs shows/hides editor HWNDs
+                                                (no content swapping). Tab captions show
+                                                filename with owner-drawn × close glyph
+                                                (hover = red circle). [+] button opens
+                                                new tab; WM_PAINT calls RedrawWindow on
+                                                hBtnNew after tab strip is drawn to prevent
+                                                theming overdraw from permanently erasing
+                                                it. Right-click tab strip shows
+                                                New Tab / Close Tab context menu.
+                                                NE_WM_TABCLOSE / NE_WM_TABNEW posted to
+                                                parent. Keyboard: Ctrl+Tab cycle, Ctrl+W
+                                                close active tab (through main-window
+                                                save-prompt flow).
+
+  ne_statusbar.h / ne_statusbar.cpp             Custom owner-drawn status bar module.
+                                                Left: Words: N  Chars: N in bold 12pt.
+                                                Right: shell32 icon + Saved (index 294,
+                                                green checkmark) or Unsaved (index 131,
+                                                red X). Updates via NeStatusBar_Update().
+                                                Height: S(22). Registered as window class
+                                                "NSBEditStatusBar". Labels fully localized
+                                                via NeStatusBar_SetLabels().
+                                                NeStatusBar_SetDarkMode(hBar, bool dark)
+                                                — switches status bar between light
+                                                (system colors) and dark (RGB(25,26,27)
+                                                bg, RGB(210,210,215) text) and triggers
+                                                an InvalidateRect/UpdateWindow redraw.
+
+  dpi.h / dpi.cpp                               DPI scaling utility — g_dpiScale (float,
+                                                initialised from GetDpiForSystem()/96.0f),
+                                                S(px) inline scaler. Include dpi.h and
+                                                wrap every hardcoded pixel value in S().
+
+  tooltip/tooltip.h / tooltip/tooltip.cpp      Multilingual tooltip system — see
+                                                API_INTERNALS\API\tooltip_API.txt for
+                                                full documentation.
+
+  ne_autocomplete/ne_autocomplete.h /           Custom owner-draw autocomplete popup —
+  ne_autocomplete/ne_autocomplete.cpp           see API_INTERNALS\API\ne_autocomplete_API.txt
+                                                for full documentation. Replaces
+                                                SCI_AUTOCSHOW for both keyword and
+                                                phrase-completion modes. Appearance:
+                                                system tooltip yellow background, dark
+                                                amber border, sage green selection.
+                                                WS_EX_NOACTIVATE popup; Scintilla HWND
+                                                subclassed while visible. pendingAccept
+                                                flag swallows stray WM_CHAR after Tab/
+                                                Enter. g_acInserting flag prevents re-
+                                                entry during SCI_REPLACESEL insertion.
+                                                Mouse click acceptance guarded by
+                                                WM_MOUSEACTIVATE + WM_KILLFOCUS check.
+
+  locale\en_GB.txt                              Embedded locale (RCDATA 10). All user-
+                                                visible strings. Format: KEY = value,
+                                                # comments, \n CRLF \t tab \\ backslash.
+                                                Loaded by Ne_LoadLocale() at startup.
+                                                Never read from disk at runtime.
+                                                Contains LANG_UI_* keys (documentation
+                                                only — language menu uses hardcoded
+                                                native names).
+
+  locale\no_nb.txt                              Norwegian Bokmål translation (RCDATA 11,
+                                                IDR_LOCALE_NO_NB). Full ~200-key
+                                                translation. g_localeId = 1.
+
+  locale\is_IS.txt                              Icelandic (Íslenska) translation (RCDATA 14,
+                                                IDR_LOCALE_IS_IS). Full ~200-key
+                                                translation. g_localeId = 2.
+
+  locale\sv_SE.txt                              Swedish (Svenska) translation (RCDATA 15,
+                                                IDR_LOCALE_SV_SE). Full ~200-key
+                                                translation. g_localeId = 3.
+
+  locale\da_DK.txt                              Danish (Dansk) translation (RCDATA 16,
+                                                IDR_LOCALE_DA_DK). Full ~200-key
+                                                translation. g_localeId = 4.
+
+  locale\fi_FI.txt                              Finnish (Suomi) translation (RCDATA 17,
+                                                IDR_LOCALE_FI_FI). Full ~200-key
+                                                translation. g_localeId = 5.
+
+  locale\de_DE.txt                              German (Deutsch) translation (RCDATA 18,
+                                                IDR_LOCALE_DE_DE). Full ~200-key
+                                                translation. g_localeId = 6.
+
+  locale\fr_FR.txt                              French (Français) translation (RCDATA 19,
+                                                IDR_LOCALE_FR_FR). Full ~200-key
+                                                translation. g_localeId = 7.
+
+  locale\es_ES.txt                              Spanish (Español) translation (RCDATA 20,
+                                                IDR_LOCALE_ES_ES). Full ~200-key
+                                                translation. g_localeId = 8.
+
+  locale\uk_UA.txt                              Ukrainian (Українська) translation (RCDATA 21,
+                                                IDR_LOCALE_UK_UA). Full ~200-key
+                                                translation. g_localeId = 9.
+
+  locale\el_GR.txt                              Greek (Ελληνικά) translation (RCDATA 22,
+                                                IDR_LOCALE_EL_GR). Full ~200-key
+                                                translation. g_localeId = 10.
+
+  locale\pt_PT.txt                              Portuguese (Português) translation (RCDATA 23,
+                                                IDR_LOCALE_PT_PT). Full ~200-key
+                                                translation. g_localeId = 11.
+
+  locale\nl_NL.txt                              Dutch (Nederlands) translation (RCDATA 24,
+                                                IDR_LOCALE_NL_NL). Full ~200-key
+                                                translation. g_localeId = 12.
+
+  locale\nl_BE.txt                              Flemish (Vlaams) translation (RCDATA 25,
+                                                IDR_LOCALE_NL_BE). Full ~200-key
+                                                translation. Uses "bewaren" (save/keep)
+                                                instead of "opslaan". g_localeId = 13.
+
+  locale\se_NO.txt                              North Sami (Davvisámegiella) translation
+                                                (RCDATA 26, IDR_LOCALE_SE_NO). Full ~200-key
+                                                translation. Uses established Sámi IT
+                                                terminology (Sámediggi vocabulary).
+                                                g_localeId = 14.
+
+  ne_profiles.h / ne_profiles.cpp               FTP/SFTP connection profile persistence via
+                                                SQLite3 (statically linked). DB lookup order
+                                                at init: (1) %APPDATA%\NSBEdit\nsbedit.db —
+                                                installed mode, file must pre-exist, directory
+                                                never auto-created; (2) .\nsbedit.db next to
+                                                the exe — portable mode, stub shipped in ZIP;
+                                                (3) :memory: — fallback with MessageBoxW
+                                                warning, all data lost on exit.
+                                                NeProfiles_Init() / NeProfiles_Close().
+                                                NeProfiles_IsMemory() — true when running on
+                                                an in-memory DB.
+                                                NeProfiles_Add/Update/Delete/List/GetById —
+                                                CRUD for NeProfile structs. Delete shows
+                                                MSG_PROFILE_DELETE_CONFIRM (MB_YESNO,
+                                                default No) before removing a profile.
+                                                NeProfiles_GetIntSetting / SetIntSetting —
+                                                key/value store in settings table.
+                                                NeProfiles_GetStrSetting / SetStrSetting —
+                                                string key/value store in same settings
+                                                table (values already stored as TEXT).
+                                                Used for per-profile last-visited FTP
+                                                folder (key ftp_lastdir_<id>).
+                                                Passwords encrypted at rest via NeCrypto
+                                                (ne_crypto.h); remember_pwd flag controls
+                                                whether password is persisted.
+                                                nsbedit.db: shipped as a 0-byte stub in
+                                                the ZIP; SQLite3 writes the schema on
+                                                first use. A 0-byte stub is skipped in
+                                                the portable path — AppData DB wins.
+
+  ne_crypto.h / ne_crypto.cpp                   Lightweight password encryption helper.
+                                                NeCrypto_Init() / NeCrypto_Encrypt() /
+                                                NeCrypto_Decrypt() — used by ne_profiles
+                                                to encrypt FTP passwords stored in the DB.
+
+  rtf2html\ne_rtf2html_lib.h /                  RTF-to-HTML5 conversion wrapper around
+  rtf2html\ne_rtf2html_lib.cpp                  the rtf2html library (LGPL-2.1, Valentin
+                                                Lavrinenko). Single-TU: includes all
+                                                rtf2html source files directly. Public
+                                                function: Ne_ConvertRtfToHtml5(rtfBytes,
+                                                htmlOut) — converts RTF bytes to a
+                                                self-contained UTF-8 HTML5 string with
+                                                inline CSS and base64-embedded images.
+                                                ne_parse_pict(): collects \pict hex data
+                                                and emits <img src="data:image/png;base64,...">
+                                                or image/jpeg; skips \*-marked groups
+                                                (e.g. \picprop) so shape property names
+                                                containing hex-like letters cannot corrupt
+                                                image data. char_by_code() in rtf_tools.h
+                                                patched to emit proper UTF-8 (CP1252 →
+                                                Unicode → UTF-8 2/3-byte sequences) for
+                                                code points ≥ 0x80.
+
+  ── Reference material (API_INTERNALS — carried over from toolbox) ───────────
 
   File                                          Description
   ──────────────────────────────────────────────────────────────────────────────
@@ -39,12 +568,58 @@
                                                 SetPropW(L"avTip") and read in one shared proc;
                                                 Win32 TOOLTIPS_CLASS unreliable for these controls.
 
+  API_INTERNALS\INTERNALS\add_ui_language_INTERNALS.txt
+                                                Step-by-step checklist for adding a new UI
+                                                language. Covers all 8 touch-points: locale
+                                                file creation, RC resource ID assignment
+                                                (with ID layout table and next-free pointer),
+                                                #define, Ne_LoadLocale case, menu item order,
+                                                LANG_UI_* keys in all existing files, and
+                                                build+test. Pitfalls: duplicate RCDATA ID
+                                                (windres silent), missing LANG_UI_* key,
+                                                locale integer ID vs RCDATA ID confusion.
+
+  API_INTERNALS\INTERNALS\hrule_INTERNALS.txt  Horizontal Rule implementation internals —
+                                                NeHRuleEntry struct, g_hrMap / g_hrPendingCleanup,
+                                                Ne_RebuildHRList algorithm, Ne_PaintHRules
+                                                (EM_POSFROMCHAR overlay), Ne_InsertHRule
+                                                (pfClean pattern), NE_WM_HR_CLEANUP
+                                                (enterPos-based approach), and full bug
+                                                history: stale-charIdx strike-through fix;
+                                                Enter-erases-HR fix (re-entrant EM_EXSETSEL
+                                                during mid-split); Ctrl+Z restore fix.
+
+  API_INTERNALS\INTERNALS\tab_editor_INTERNALS.txt
+                                                Tabbed-editor architecture reference for
+                                                ne_tabs.h/.cpp integration, close-zone
+                                                behavior, per-tab editor state, and
+                                                toolbar/status synchronization semantics.
+
+  API_INTERNALS\INTERNALS\line_number_INTERNALS.txt
+                                                Line-number display architecture — dual-editor
+                                                design (Scintilla built-in margin vs RichEdit
+                                                NsbLineGutter custom child window), toggle flow
+                                                (s_lineNumsOn → Ne_SyncLineNumBtn →
+                                                Ne_SyncRichGutters), gutter WndProc paint rules
+                                                (◂ drawn last to stay on top of numbers),
+                                                file-load synchronisation (Ne_SyncRichGutters
+                                                must be called after both RTF and non-RTF load
+                                                paths), and bug history.
+
   API_INTERNALS\API\spinner_dialog_API.txt      Modal progress/spinner dialog component — API,
                                                 thread usage, and progress callback protocol.
 
   API_INTERNALS\API\dragdrop_API.txt            Generic Win32 TreeView/ListView drag-and-drop
                                                 module — subclass-based detection, callbacks,
                                                 parent hooks, and utility functions.
+
+  API_INTERNALS\INTERNALS\zoom_INTERNALS.txt    Editor zoom architecture — dual model (RTF
+                                                percentage preset table vs Scintilla signed
+                                                point offset), Ne_StepZoom flow, keyboard and
+                                                mouse-wheel trigger paths in the WinMain loop,
+                                                DB persistence (zoom_rtf / zoom_sci settings),
+                                                startup clamping, and bug history (Ctrl+scroll
+                                                silently skipping Scintilla tabs).
 
   API_INTERNALS\API\shell32_API.txt             Shell icon loading reference — PrivateExtractIconsW
                                                 vs LoadImageW(MAKEINTRESOURCE), verified
@@ -732,6 +1307,19 @@
                                                 _dlg_ qualifier), runtime lookup pattern with
                                                 fallback, ExpandEscapes usage, and step-by-step
                                                 guide for adding a new locale key.
+
+  API_INTERNALS\INTERNALS\add_ui_language_INTERNALS.txt
+                                                Step-by-step checklist for adding a new GUI
+                                                language (locale file) to the Language menu.
+                                                Covers all 8 touch-points: locale/xx_YY.txt,
+                                                NSBEdit.rc RCDATA entry, IDR_LOCALE_* define,
+                                                Ne_LoadLocale case, Ne_RebuildLocaleMenu entry,
+                                                and LANG_UI_* keys in every existing locale.
+                                                Includes RCDATA resource ID layout table (IDs
+                                                1–14, next free = 15), locale integer ID vs
+                                                RCDATA ID distinction, and three documented
+                                                pitfalls (duplicate RC ID, missing LANG_UI_*,
+                                                ID confusion).
 
   API_INTERNALS\INTERNALS\dialogs_INTERNALS.txt Dialogs page module (toolbar index 4) —
                                                 InstallerDialogType enum (0–9) and row

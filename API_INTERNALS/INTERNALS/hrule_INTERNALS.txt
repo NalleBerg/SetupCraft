@@ -1,0 +1,332 @@
+hrule_INTERNALS.txt
+═══════════════════════════════════════════════════════════════════════════════
+  Horizontal Rule (HR) — Implementation Internals
+═══════════════════════════════════════════════════════════════════════════════
+
+All code lives in NSBEdit.cpp unless otherwise noted.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. CORE DATA STRUCTURES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+struct NeHRuleEntry
+  Cached description of one HR paragraph:
+    charIdx          — absolute character offset of the paragraph's first char
+    color            — solid or gradient start colour  (COLORREF)
+    colorEnd         — gradient end colour (same as color for solid)
+    widthPercent     — width as % of editor client width  (1–100)
+    leftIndentTwips  — left margin in twips
+    rightIndentTwips — right margin in twips
+    styleIdx         — line style: 0=single, 1=thick, 2=double, 3=dotted,
+                                   4=dashed, 5=hairline
+
+static std::map<HWND, std::vector<NeHRuleEntry>> g_hrMap
+  One entry per editor HWND.  Always reflects the current paragraph layout;
+  rebuilt by Ne_RebuildHRList whenever the document structure changes.
+
+static std::map<HWND, std::set<LONG>> g_hrPendingCleanup
+  Short-lived snapshot used by the Enter key path (see §6).
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. HR MARKERS IN RICH EDIT PARAGRAPH FORMAT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+A paragraph is an HR if either of:
+  pf.sStyle  == 42              — primary marker (PARAFORMAT2.sStyle)
+  pf.wBorders != 0              — secondary marker (legacy / belt-and-suspenders)
+
+The style index is encoded in wBorders:
+  pf.wBorders = (WORD)((styleIdx + 1) << 8)
+  Low byte is intentionally 0 so RichEdit draws no native borders.
+  High byte is (styleIdx + 1), allowing styleIdx 0–254.
+
+sStyle = 42 is the authoritative test; wBorders acts as a fallback.
+Both are set together and cleared together by Ne_InsertHRule / NE_WM_HR_CLEANUP.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. Ne_RebuildHRList  (HWND hEdit)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Scans every paragraph of hEdit and rebuilds g_hrMap[hEdit] from scratch.
+
+  Algorithm:
+    1. Save current selection (EM_EXGETSEL).
+    2. Set event mask to 0 (EM_SETEVENTMASK) — prevents EN_CHANGE re-entrancy
+       while we move the selection for EM_GETPARAFORMAT calls.
+    3. For each line index ln (EM_GETLINECOUNT):
+         idx = EM_LINEINDEX(ln)
+         EM_EXSETSEL(idx, idx)  → selects paragraph
+         EM_GETPARAFORMAT       → check sStyle/wBorders
+         If HR: build NeHRuleEntry; preserve any existing colorEnd (gradient
+                end colour is stored in NeHRuleEntry but not in PARAFORMAT2,
+                so it would be lost on a blind rebuild).
+    4. Restore selection.  Restore event mask.
+    5. Replace g_hrMap[hEdit].
+
+  Must be called after any operation that changes the paragraph layout:
+    • Ne_InsertHRule (insert)
+    • Ne_EditHRuleProps (style/colour change)
+    • Ne_DeleteHRule (delete)
+    • File load (RTF stream-in)
+    • EN_CHANGE  ← added to fix the "typing before HR" bug (see §6)
+
+  Performance note: Ne_RebuildHRList is O(n) in paragraph count. It is called
+  unconditionally on every EN_CHANGE (except during the Enter-key path when
+  g_hrPendingCleanup is set — see §6).  Documents with no HRs pay a small but
+  non-zero scan cost; this is acceptable given typical document sizes.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. Ne_PaintHRules  (HWND hEdit, HDC hdc, RECT clientRect)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Called from WM_PAINT of the editor's owner-drawn overlay.
+  For each NeHRuleEntry e in g_hrMap[hEdit]:
+    - EM_POSFROMCHAR(e.charIdx) → screen coordinates of the paragraph's first char
+    - Computes the line rect from widthPercent / leftIndentTwips / rightIndentTwips
+    - Draws the appropriate line style (single / thick / double / dotted / dashed /
+      hairline) using the stored colour or gradient
+
+  CRITICAL: EM_POSFROMCHAR uses e.charIdx as an absolute document offset.
+  If charIdx is stale (e.g. text was inserted before the HR paragraph, shifting
+  the paragraph to a higher offset) EM_POSFROMCHAR returns a position inside the
+  now-shifted text, causing the HR to be drawn through the wrong content.
+  → See "Bug B" in §6 for the fix.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5. Ne_InsertHRule  (HWND hwnd, HWND hEdit)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  1. Shows Ne_ShowHRulePropsDialog to collect NeHRuleProps from the user.
+  2. Inserts a '\r' to split the current paragraph, creating the HR paragraph.
+  3. Applies PARAFORMAT2 with sStyle=42 and wBorders=(styleIdx+1)<<8.
+  4. Inserts another '\r' below the HR and applies pfClean (see §7) so the
+     paragraph after the HR does not inherit its format.
+  5. Calls Ne_RebuildHRList to update g_hrMap.
+  6. InvalidateRect to repaint.
+
+  pfClean — the "blank PARAFORMAT2" that clears all HR marks:
+    PFM_BORDER | PFM_STYLE | PFM_SPACEBEFORE | PFM_SPACEAFTER
+    | PFM_STARTINDENT | PFM_RIGHTINDENT | PFM_ALIGNMENT
+    with sStyle=0, wBorders=0, all spacings=0, alignment=PFA_LEFT.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+6. GOTCHAS AND BUG HISTORY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+─────────────────────────────────────────────────────────────────────────────
+Bug A: Enter near an HR creates an inherited second HR ("double HR")
+─────────────────────────────────────────────────────────────────────────────
+
+SYMPTOM
+  Pressing Enter on a line immediately before, on, or after an HR causes the
+  newly created paragraph to inherit the HR paragraph format (sStyle=42,
+  wBorders != 0).  A second HR line appears.
+
+ROOT CAUSE
+  RichEdit paragraph splitting (WM_CHAR '\r') copies the source paragraph's
+  PARAFORMAT2 — including sStyle and wBorders — to the new paragraph.
+  Ne_InsertHRule applies pfClean to the paragraph after the HR at insert time,
+  but that clean paragraph is not the paragraph the user lands on when pressing
+  Enter; if the caret is on or adjacent to the HR itself the new paragraph
+  inherits the HR format directly.
+
+WHY SYNC FIXES DON'T WORK
+  Calling EM_SETPARAFORMAT immediately inside the WM_CHAR handler (before
+  returning) silently fails: RichEdit has an internal state machine for
+  paragraph-format propagation that runs AFTER WM_CHAR returns.  It overwrites
+  any EM_SETPARAFORMAT applied synchronously during character processing.
+  Confirmed by experiment; no workaround via message ordering inside WM_CHAR.
+
+THE FIX — simplified enterPos approach in Ne_EditCaretProc
+  Phase 1 (inside WM_CHAR '\r', before CallWindowProc):
+    - Read enterPos = current caret position.
+    - Insert a sentinel into g_hrPendingCleanup[hwnd] (non-empty = "in progress").
+    - CallWindowProc (paragraph split; EN_CHANGE fires, guard skips rebuild).
+    - PostMessageW(hwnd, NE_WM_HR_CLEANUP, (WPARAM)enterPos, 0).
+
+  Phase 2 (NE_WM_HR_CLEANUP):
+    - Fires after WM_CHAR has fully returned and RichEdit's internal state has settled.
+    - Clears g_hrPendingCleanup[hwnd].
+    - Reads enterPos from wParam.
+    - EM_EXSETSEL(enterPos, enterPos) + EM_GETPARAFORMAT: if the paragraph at
+      enterPos has sStyle==42 or wBorders!=0 it inherited HR format from the split.
+      Strips it with pfClean.  For Enter on a plain line above the HR this
+      check is a cheap no-op (paragraph is plain).
+    - Always calls Ne_RebuildHRList + InvalidateRect.
+
+  Why the earlier "legitimate-set" approach failed:
+    The previous design built a set of expected post-Enter charIdx values from
+    g_hrMap BEFORE the split, then used that set in NE_WM_HR_CLEANUP to decide
+    which paragraphs to strip.  This was fragile: if g_hrMap was stale (e.g.
+    from a prior Enter that hadn't settled yet) the expected positions were wrong
+    and NE_WM_HR_CLEANUP would strip the real HR, erasing it from view.
+    The enterPos approach avoids any reliance on g_hrMap state.
+
+─────────────────────────────────────────────────────────────────────────────
+Bug B: Typing on the line above an HR makes the HR draw through the text
+       ("strike-through" effect)
+─────────────────────────────────────────────────────────────────────────────
+
+SYMPTOM
+  1. Create a new document.
+  2. Press Enter several times.
+  3. Insert an HR on the last line.
+  4. Click the mouse on an empty line above the HR.
+  5. Start typing.
+  → The HR line is drawn through the typed text instead of staying below it.
+
+ROOT CAUSE
+  g_hrMap stores e.charIdx as the absolute character offset of the HR paragraph.
+  At the time of insertion it is correct (e.g. charIdx = 2 for a doc with just
+  two newlines before the HR).
+  When the user types on a line ABOVE the HR, each character shifts all following
+  text — including the HR paragraph — to higher offsets.  But Ne_RebuildHRList
+  was only called on explicit HR operations (insert / edit / delete / load), NOT
+  on every edit.  So g_hrMap retained the stale charIdx = 2, and
+  Ne_PaintHRules called EM_POSFROMCHAR(2) which now points inside the typed text.
+
+THE FIX
+  In the EN_CHANGE handler (main window WM_COMMAND, IDC_NE_EDIT):
+
+    if (!g_hrMap[hSrcEdit].empty()) {
+        Ne_RebuildHRList(hSrcEdit);
+        InvalidateRect(hSrcEdit, NULL, FALSE);
+    }
+
+  This keeps g_hrMap always accurate.  The empty() guard avoids the O(n)
+  paragraph scan on documents with no HRs.
+
+─────────────────────────────────────────────────────────────────────────────
+Interaction between Bug A fix and Bug B fix  —  the re-entrancy problem
+─────────────────────────────────────────────────────────────────────────────
+
+FIRST ATTEMPT (broke Enter):
+  Adding Ne_RebuildHRList to EN_CHANGE with no guard caused it to be called
+  SYNCHRONOUSLY while RichEdit was still on the call stack processing
+  WM_CHAR '\r' (EN_CHANGE is sent to the parent window synchronously from
+  within RichEdit's own WndProc — it has not returned yet).
+
+  At that point RichEdit's paragraph-split is only partially committed.
+  Ne_RebuildHRList calls EM_EXSETSEL + EM_GETPARAFORMAT to scan paragraphs;
+  in this inconsistent internal state RichEdit returns wrong PARAFORMAT2 data
+  (sStyle / wBorders not yet propagated to the new paragraph, or the moved HR
+  paragraph not yet indexed correctly).  Result: g_hrMap ends up empty or with
+  a stale charIdx.  Ne_PaintHRules then draws no HR at all — the HR appears
+  "erased".  Ctrl+Z also triggers EN_CHANGE → same bad call → HR stays missing.
+
+CORRECT DESIGN — two distinct rebuild paths:
+
+  Path A — Normal typing (non-Enter):
+    EN_CHANGE checks g_hrPendingCleanup.count(hSrcEdit) == 0.
+    This is always true for non-Enter changes (g_hrPendingCleanup is only
+    populated by the '\r' handler).  So Ne_RebuildHRList runs synchronously,
+    g_hrMap stays current, Bug B is fixed.
+
+  Path B — Enter keystroke:
+    '\r' handler sets g_hrPendingCleanup[hwnd] (non-empty sentinel) BEFORE
+    CallWindowProc.  EN_CHANGE fires during CallWindowProc; the guard sees
+    the pending-cleanup entry and skips the synchronous rebuild (avoiding
+    the re-entrancy).  After CallWindowProc returns, NE_WM_HR_CLEANUP is
+    posted with enterPos in wParam.
+    NE_WM_HR_CLEANUP:
+      - clears g_hrPendingCleanup[hwnd]
+      - runs with a stable RichEdit state (fully settled after WM_CHAR)
+      - checks only the paragraph at enterPos for inherited HR format
+      - ALWAYS calls Ne_RebuildHRList at the end
+
+───────────────────────────────────────────────────────────────────────────
+Bug C: Ctrl+Z after deleting an HR does not restore it
+───────────────────────────────────────────────────────────────────────────
+
+SYMPTOM
+  Delete the HR (Delete at end of line above or Backspace at start of line
+  below).  Press Ctrl+Z to undo.  The document text is restored but the HR
+  line is not drawn.
+
+ROOT CAUSE
+  After the HR paragraph is deleted via EM_REPLACESEL, EN_CHANGE fires and
+  Ne_RebuildHRList scans the now-HR-free document → g_hrMap[hEdit] becomes
+  empty.  Later, Ctrl+Z triggers EM_UNDO, which restores the HR paragraph
+  text and format.  EN_CHANGE fires again, but the old EN_CHANGE guard:
+
+    if (!g_hrMap[hSrcEdit].empty() && g_hrPendingCleanup.count(hSrcEdit)==0)
+
+  short-circuits because g_hrMap is already empty.  Ne_RebuildHRList is
+  never called, g_hrMap stays empty, and Ne_PaintHRules draws nothing.
+
+THE FIX
+  Remove the !g_hrMap[hSrcEdit].empty() condition.  EN_CHANGE always calls
+  Ne_RebuildHRList (unless the pending-cleanup flag is set).  The only
+  necessary guard is the re-entrancy flag for the Enter-key path.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+7. Ne_EditCaretProc — HR-related message handling summary
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  WM_KEYDOWN VK_DELETE / VK_BACK
+    Ne_CaretOnHRule() detects if caret is on (or adjacent to) an HR and calls
+    Ne_DeleteHRule, which removes the HR paragraph and calls Ne_RebuildHRList.
+
+  WM_CHAR '\r'  (Enter key)
+    Implements the two-phase Bug-A fix described above.
+    Fast path: if g_hrMap[hwnd].empty() → pass through with no overhead.
+
+  NE_WM_HR_CLEANUP  (WM_APP+1, posted by the '\r' handler)
+    Strips inherited HR format from the paragraph at enterPos (wParam), if any.
+    Clears g_hrPendingCleanup[hwnd]; always calls Ne_RebuildHRList.
+    Falls through silently if g_hrPendingCleanup has no entry for hwnd.
+
+  WM_CHAR (non-Enter, non-readonly)
+    Ne_CaretOnHRule() blocks typing directly inside an HR paragraph (caret is
+    moved past the HR before the character is processed).
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+8. GENERAL RICHEDIT GOTCHAS (RTF / WM_CHAR / PARAFORMAT)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+• EM_SETPARAFORMAT called synchronously inside WM_CHAR is silently discarded.
+  RichEdit completes its internal paragraph-format propagation after the handler
+  returns.  Always defer paragraph-format changes to a posted message (PostMessageW)
+  if they must override RichEdit's own propagation.
+
+• EN_CHANGE fires synchronously INSIDE CallWindowProc (the parent window's
+  WM_COMMAND handler is dispatched from within the RichEdit WndProc, not after
+  it returns).  Any state written before CallWindowProc is accessible during
+  EN_CHANGE processing.
+  HOWEVER: do not call EM_EXSETSEL / EM_GETPARAFORMAT (or any function that
+  issues those messages, like Ne_RebuildHRList) from EN_CHANGE when EN_CHANGE
+  was triggered by WM_CHAR '\r'.  RichEdit's paragraph-split is only partially
+  committed at EN_CHANGE time; querying paragraph format re-entrantly returns
+  wrong data and corrupts any cache you are trying to maintain.  Defer such
+  work to a posted message so it runs after WM_CHAR has fully returned.
+
+• EM_SETPARAFORMAT / EM_GETPARAFORMAT move the selection.  Always save/restore
+  with EM_EXGETSEL / EM_EXSETSEL and suppress EN_CHANGE with EM_SETEVENTMASK
+  while scanning paragraphs, or you will fire spurious EN_CHANGE notifications
+  (and potentially trigger Ne_RebuildHRList recursively — prevented because
+  EM_SETEVENTMASK is set to 0 inside Ne_RebuildHRList).
+
+• PARAFORMAT2.sStyle survives RTF round-trip (stream-out / stream-in) only if
+  RichEdit 4.1 (Msftedit.dll, RICHEDIT50W) is loaded.  wBorders also survives
+  as \brdrl etc. control words.  Always re-check both after loading an RTF file.
+
+• EM_LINEINDEX returns -1 for line numbers that do not exist; always guard with
+  `if (idx < 0) break;` in line-scanning loops.
+
+• Absolute character offsets (charIdx) become stale the moment any text is
+  inserted or deleted BEFORE the tracked position.  Never cache absolute offsets
+  across EN_CHANGE boundaries unless you actively update them.
+  (g_hrMap violated this rule until Bug B was fixed.)
+
+• The NE_WM_HR_CLEANUP message ID is  WM_APP + 1  (static const UINT, declared
+  just before Ne_EditCaretProc).  If new WM_APP messages are added to the edit
+  subclass they must use WM_APP + 2, WM_APP + 3, etc.
+═══════════════════════════════════════════════════════════════════════════════

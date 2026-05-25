@@ -1,0 +1,57 @@
+================================================================================
+  NSBEdit — Tab Editor Internals
+================================================================================
+
+Module files:
+  ne_tabs.h / ne_tabs.cpp
+
+Purpose:
+  Provide a modular tab strip and per-tab RichEdit ownership model for NSBEdit.
+  Each tab has its own editor HWND and state, so switching tabs is show/hide only.
+
+Core model:
+  - Control class: SysTabControl32
+  - One NeTabDoc per tab:
+      HWND hEdit
+      std::wstring path
+      bool modified
+      bool suppressChange
+      bool hasDiskStamp
+      FILETIME diskWriteTime
+      ULONGLONG diskFileSize
+  - Active tab index tracked inside module state.
+
+Key behaviors:
+  - NeTabs_Create: creates tab strip and one initial untitled tab/editor.
+  - NeTabs_AddUntitled: adds a new blank tab with new RichEdit HWND.
+  - NeTabs_CloseTab: destroys tab editor HWND and removes tab item.
+    If last tab is closed, a fresh untitled tab is created so tab strip is
+    always visible.
+  - NeTabs_SetActive / NeTabs_Cycle: switches visible editor.
+  - NeTabs_UpdateTabTitle: renders tab text as
+      "* <filename>  x" for modified tabs,
+      "<filename>  x" for clean tabs.
+
+Close zone:
+  - Tab close uses a right-edge hit zone in each tab item ("x" text zone).
+  - Tab subclass handles WM_LBUTTONUP and posts NE_WM_TABCLOSE to parent.
+  - Parent owns save-prompt flow and close decision.
+
+Tooltip behavior:
+  - Tab control is subclassed.
+  - On WM_MOUSEMOVE, hovered tab index is hit-tested.
+  - Tooltip text = full path (or Untitled label if no path).
+  - Tooltip works over active and inactive tabs.
+  - WM_MOUSELEAVE hides tooltip.
+
+Integration points in NSBEdit.cpp:
+  - WM_CREATE: creates tabs module and initial editor.
+  - WM_SIZE: resizes tab strip and all tab editors.
+  - WM_NOTIFY (TCN_SELCHANGE): sync toolbar/title/status to active tab.
+  - NE_WM_TABCLOSE: close active/inactive tab via app prompt flow.
+  - Ctrl+Tab cycles tabs; Ctrl+W closes active tab.
+
+Notes:
+  - Toolbar and status bar always operate on NeTabs_GetActiveEdit / active doc.
+  - External file-change detection uses per-tab disk stamps.
+================================================================================

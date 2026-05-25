@@ -1,0 +1,176 @@
+ 
+================================================================
+  SetupCraft Build  --  25.05.2026  10:39:33,60
+================================================================
+
+[PRE] Stopping any running SetupCraft.exe instances...
+ERROR: The process "SetupCraft.exe" not found.
+[PRE] Ready.
+
+  Generator : MinGW Makefiles
+  Config    : Release
+================================================================
+
+[CONFIGURE] Running cmake -S . -B build ...
+-- Configuring done (0.0s)
+-- Generating done (0.0s)
+-- Build files have been written to: C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build
+
+[BUILD] Compiling — cmake --build build --verbose ...
+
+Change Dir: 'C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build'
+
+Run Build Command(s): "C:/Program Files/CMake/bin/cmake.exe" -E env VERBOSE=1 C:/mingw64/bin/mingw32-make.exe -f Makefile
+"C:\Program Files\CMake\bin\cmake.exe" -SC:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft -BC:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\build --check-build-system CMakeFiles\Makefile.cmake 0
+"C:\Program Files\CMake\bin\cmake.exe" -E cmake_progress_start C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\build\CMakeFiles C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\build\\CMakeFiles\progress.marks
+C:/mingw64/bin/mingw32-make.exe  -f CMakeFiles\Makefile2 all
+mingw32-make[1]: Entering directory 'C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build'
+C:/mingw64/bin/mingw32-make.exe  -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/depend
+mingw32-make[2]: Entering directory 'C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build'
+"C:\Program Files\CMake\bin\cmake.exe" -E cmake_depends "MinGW Makefiles" C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\build C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\build C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\build\CMakeFiles\SkeletonApp.dir\DependInfo.cmake "--color=" SkeletonApp
+Dependee "C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\build\CMakeFiles\SkeletonApp.dir\DependInfo.cmake" is newer than depender "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/depend.internal".
+Dependee "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/CMakeDirectoryInformation.cmake" is newer than depender "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/depend.internal".
+Scanning dependencies of target SkeletonApp
+Dependencies file "CMakeFiles/SkeletonApp.dir/about.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
+Dependencies file "CMakeFiles/SkeletonApp.dir/about_icon.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
+Dependencies file "CMakeFiles/SkeletonApp.dir/button.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
+Dependencies file "CMakeFiles/SkeletonApp.dir/checkbox.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
+Dependencies file "CMakeFiles/SkeletonApp.dir/ctrlw.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
+Dependencies file "CMakeFiles/SkeletonApp.dir/db.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
+Dependencies file "CMakeFiles/SkeletonApp.dir/dep_edit_dialog.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
+Dependencies file "CMakeFiles/SkeletonApp.dir/deps.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
+Dependencies file "CMakeFiles/SkeletonApp.dir/dialogs.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
+Dependencies file "CMakeFiles/SkeletonApp.dir/dpi.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
+Dependencies file "CMakeFiles/SkeletonApp.dir/dragdrop.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
+Dependencies file "CMakeFiles/SkeletonApp.dir/edit_rtf.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
+Dependencies file "CMakeFiles/SkeletonApp.dir/file_assoc.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
+Dependencies file "CMakeFiles/SkeletonApp.dir/file_assoc_dialog.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
+Dependencies file "CMakeFiles/SkeletonApp.dir/issgen.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
+Dependencies file "CMakeFiles/SkeletonApp.dir/languages.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
+Dependencies file "CMakeFiles/SkeletonApp.dir/main.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
+Dependencies file "CMakeFiles/SkeletonApp.dir/mainwindow.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
+Dependencies file "CMakeFiles/SkeletonApp.dir/my_scrollbar_vscroll.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
+Dependencies file "CMakeFiles/SkeletonApp.dir/notes_editor.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
+Dependencies file "CMakeFiles/SkeletonApp.dir/page_manual.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
+Dependencies file "CMakeFiles/SkeletonApp.dir/sc_shortcut_dialog.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
+Dependencies file "CMakeFiles/SkeletonApp.dir/script_edit_dialog.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
+Dependencies file "CMakeFiles/SkeletonApp.dir/scripts.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
+Dependencies file "CMakeFiles/SkeletonApp.dir/scrollbar.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
+Dependencies file "CMakeFiles/SkeletonApp.dir/settings.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
+Dependencies file "CMakeFiles/SkeletonApp.dir/shortcuts.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
+Dependencies file "CMakeFiles/SkeletonApp.dir/spinner_dialog.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
+Dependencies file "CMakeFiles/SkeletonApp.dir/tooltip.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
+Dependencies file "CMakeFiles/SkeletonApp.dir/vfs_picker.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
+Consolidate compiler generated dependencies of target SkeletonApp
+mingw32-make[2]: Leaving directory 'C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build'
+C:/mingw64/bin/mingw32-make.exe  -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/build
+mingw32-make[2]: Entering directory 'C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build'
+mingw32-make[2]: Nothing to be done for 'CMakeFiles/SkeletonApp.dir/build'.
+mingw32-make[2]: Leaving directory 'C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build'
+[100%] Built target SkeletonApp
+mingw32-make[1]: Leaving directory 'C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build'
+"C:\Program Files\CMake\bin\cmake.exe" -E cmake_progress_start C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\build\CMakeFiles 0
+
+
+[BUILD] Build complete.
+
+[COPY-BUILD] Copying runtime assets to build\ ...
+        1 file(s) copied.
+        1 file(s) copied.
+        1 file(s) copied.
+        1 file(s) copied.
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\LicenseImg\apache.png
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\LicenseImg\ApacheNew-asf_logo_wide.svg
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\LicenseImg\BSD.png
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\LicenseImg\BSL-1.0 (Boost).png
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\LicenseImg\CC-BY-4.0.png
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\LicenseImg\CC-BY-SA-4.0.png
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\LicenseImg\CC0-1.0.png
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\LicenseImg\GnuLogo.bmp
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\LicenseImg\GnuLogo.png
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\LicenseImg\Logo_EUPL.svg.png
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\LicenseImg\Mozilla.png
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\LicenseImg\OpeenSourceInitiative.png
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\LicenseImg\public-domain-logo-cut.png
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\LicenseImg\public-domain-logo-streamlined.png
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\LicenseImg\wtfpl-badge-1.png
+15 File(s) copied
+        1 file(s) copied.
+        1 file(s) copied.
+
+[PACKAGE] Assembling output package ...
+[PACKAGE] Removing old package folder...
+Copying executable: C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\build\SetupCraft.exe
+        1 file(s) copied.
+Copying DLLs from build folder
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\build\Lexilla.dll
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\build\Scintilla.dll
+2 File(s) copied
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\mingw_dlls\libgcc_s_seh-1.dll
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\mingw_dlls\libmcfgthread-2.dll
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\mingw_dlls\libstdc++-6.dll
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\mingw_dlls\README.md
+4 File(s) copied
+Copying locale files...
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\locale\da_DK.txt
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\locale\de_CH.txt
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\locale\de_DE.txt
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\locale\el_GR.txt
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\locale\en_GB.txt
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\locale\es_ES.txt
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\locale\fr_CH.txt
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\locale\fr_FR.txt
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\locale\is_IS.txt
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\locale\it_CH.txt
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\locale\it_IT.txt
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\locale\nl_BE.txt
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\locale\nl_NL.txt
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\locale\no_NB.txt
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\locale\no_NN.txt
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\locale\pl_PL.txt
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\locale\pt_PT.txt
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\locale\rm_CH.txt
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\locale\ro_RO.txt
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\locale\uk_UA.txt
+20 File(s) copied
+Copying sqlite3...
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\sqlite3\README.md
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\sqlite3\sqlite3.dll
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\sqlite3\sqlite3.exe
+3 File(s) copied
+Copying inno templates...
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\compile_inno.bat
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\LICENSE.txt
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Swedish.isl
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\template.iss
+4 File(s) copied
+        1 file(s) copied.
+        1 file(s) copied.
+        1 file(s) copied.
+        1 file(s) copied.
+        1 file(s) copied.
+        1 file(s) copied.
+        1 file(s) copied.
+        1 file(s) copied.
+        1 file(s) copied.
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\LicenseImg\apache.png
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\LicenseImg\ApacheNew-asf_logo_wide.svg
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\LicenseImg\BSD.png
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\LicenseImg\BSL-1.0 (Boost).png
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\LicenseImg\CC-BY-4.0.png
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\LicenseImg\CC-BY-SA-4.0.png
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\LicenseImg\CC0-1.0.png
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\LicenseImg\GnuLogo.bmp
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\LicenseImg\GnuLogo.png
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\LicenseImg\Logo_EUPL.svg.png
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\LicenseImg\Mozilla.png
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\LicenseImg\OpeenSourceInitiative.png
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\LicenseImg\public-domain-logo-cut.png
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\LicenseImg\public-domain-logo-streamlined.png
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\LicenseImg\wtfpl-badge-1.png
+15 File(s) copied
+
+Package created at C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\SetupCraft
+SetupCraft.exe: 25.05.2026 10:33
+
+[DONE] All steps completed successfully.
