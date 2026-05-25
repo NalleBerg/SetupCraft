@@ -1,6 +1,6 @@
  
 ================================================================
-  SetupCraft Build  --  25.05.2026  10:39:33,60
+  SetupCraft Build  --  25.05.2026  13:05:20,60
 ================================================================
 
 [PRE] Stopping any running SetupCraft.exe instances...
@@ -12,13 +12,22 @@ ERROR: The process "SetupCraft.exe" not found.
 ================================================================
 
 [CONFIGURE] Running cmake -S . -B build ...
--- Configuring done (0.0s)
--- Generating done (0.0s)
+-- Configuring done (0.1s)
+-- Generating done (0.1s)
 -- Build files have been written to: C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build
 
-[BUILD] Compiling — cmake --build build --verbose ...
+[BUILD] Compiling — cmake --build build --clean-first --verbose ...
 
 Change Dir: 'C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build'
+
+Run Clean Command: "C:/Program Files/CMake/bin/cmake.exe" -E env VERBOSE=1 C:/mingw64/bin/mingw32-make.exe -f Makefile clean
+C:/mingw64/bin/mingw32-make.exe  -f CMakeFiles\Makefile2 clean
+mingw32-make[1]: Entering directory 'C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build'
+C:/mingw64/bin/mingw32-make.exe  -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/clean
+mingw32-make[2]: Entering directory 'C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build'
+"C:\Program Files\CMake\bin\cmake.exe" -P CMakeFiles\SkeletonApp.dir\cmake_clean.cmake
+mingw32-make[2]: Leaving directory 'C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build'
+mingw32-make[1]: Leaving directory 'C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build'
 
 Run Build Command(s): "C:/Program Files/CMake/bin/cmake.exe" -E env VERBOSE=1 C:/mingw64/bin/mingw32-make.exe -f Makefile
 "C:\Program Files\CMake\bin\cmake.exe" -SC:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft -BC:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\build --check-build-system CMakeFiles\Makefile.cmake 0
@@ -31,41 +40,78 @@ mingw32-make[2]: Entering directory 'C:/Users/NalleBerg/Documents/C++/Workspace/
 Dependee "C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\build\CMakeFiles\SkeletonApp.dir\DependInfo.cmake" is newer than depender "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/depend.internal".
 Dependee "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/CMakeDirectoryInformation.cmake" is newer than depender "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/depend.internal".
 Scanning dependencies of target SkeletonApp
-Dependencies file "CMakeFiles/SkeletonApp.dir/about.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
-Dependencies file "CMakeFiles/SkeletonApp.dir/about_icon.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
-Dependencies file "CMakeFiles/SkeletonApp.dir/button.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
-Dependencies file "CMakeFiles/SkeletonApp.dir/checkbox.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
-Dependencies file "CMakeFiles/SkeletonApp.dir/ctrlw.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
-Dependencies file "CMakeFiles/SkeletonApp.dir/db.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
-Dependencies file "CMakeFiles/SkeletonApp.dir/dep_edit_dialog.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
-Dependencies file "CMakeFiles/SkeletonApp.dir/deps.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
-Dependencies file "CMakeFiles/SkeletonApp.dir/dialogs.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
-Dependencies file "CMakeFiles/SkeletonApp.dir/dpi.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
-Dependencies file "CMakeFiles/SkeletonApp.dir/dragdrop.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
-Dependencies file "CMakeFiles/SkeletonApp.dir/edit_rtf.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
-Dependencies file "CMakeFiles/SkeletonApp.dir/file_assoc.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
-Dependencies file "CMakeFiles/SkeletonApp.dir/file_assoc_dialog.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
-Dependencies file "CMakeFiles/SkeletonApp.dir/issgen.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
-Dependencies file "CMakeFiles/SkeletonApp.dir/languages.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
-Dependencies file "CMakeFiles/SkeletonApp.dir/main.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
-Dependencies file "CMakeFiles/SkeletonApp.dir/mainwindow.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
-Dependencies file "CMakeFiles/SkeletonApp.dir/my_scrollbar_vscroll.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
-Dependencies file "CMakeFiles/SkeletonApp.dir/notes_editor.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
-Dependencies file "CMakeFiles/SkeletonApp.dir/page_manual.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
-Dependencies file "CMakeFiles/SkeletonApp.dir/sc_shortcut_dialog.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
-Dependencies file "CMakeFiles/SkeletonApp.dir/script_edit_dialog.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
-Dependencies file "CMakeFiles/SkeletonApp.dir/scripts.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
-Dependencies file "CMakeFiles/SkeletonApp.dir/scrollbar.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
-Dependencies file "CMakeFiles/SkeletonApp.dir/settings.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
-Dependencies file "CMakeFiles/SkeletonApp.dir/shortcuts.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
-Dependencies file "CMakeFiles/SkeletonApp.dir/spinner_dialog.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
-Dependencies file "CMakeFiles/SkeletonApp.dir/tooltip.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
-Dependencies file "CMakeFiles/SkeletonApp.dir/vfs_picker.cpp.obj.d" is newer than depends file "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build/CMakeFiles/SkeletonApp.dir/compiler_depend.internal".
-Consolidate compiler generated dependencies of target SkeletonApp
 mingw32-make[2]: Leaving directory 'C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build'
 C:/mingw64/bin/mingw32-make.exe  -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/build
 mingw32-make[2]: Entering directory 'C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build'
-mingw32-make[2]: Nothing to be done for 'CMakeFiles/SkeletonApp.dir/build'.
+[  3%] Building CXX object CMakeFiles/SkeletonApp.dir/main.cpp.obj
+C:\mingw64\bin\c++.exe -DUNICODE -D_UNICODE @CMakeFiles/SkeletonApp.dir/includes_CXX.rsp -O3 -DNDEBUG -std=gnu++17 -MD -MT CMakeFiles/SkeletonApp.dir/main.cpp.obj -MF CMakeFiles\SkeletonApp.dir\main.cpp.obj.d -o CMakeFiles\SkeletonApp.dir\main.cpp.obj -c C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\main.cpp
+[  6%] Building CXX object CMakeFiles/SkeletonApp.dir/languages.cpp.obj
+C:\mingw64\bin\c++.exe -DUNICODE -D_UNICODE @CMakeFiles/SkeletonApp.dir/includes_CXX.rsp -O3 -DNDEBUG -std=gnu++17 -MD -MT CMakeFiles/SkeletonApp.dir/languages.cpp.obj -MF CMakeFiles\SkeletonApp.dir\languages.cpp.obj.d -o CMakeFiles\SkeletonApp.dir\languages.cpp.obj -c C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\languages.cpp
+[  9%] Building CXX object CMakeFiles/SkeletonApp.dir/db.cpp.obj
+C:\mingw64\bin\c++.exe -DUNICODE -D_UNICODE @CMakeFiles/SkeletonApp.dir/includes_CXX.rsp -O3 -DNDEBUG -std=gnu++17 -MD -MT CMakeFiles/SkeletonApp.dir/db.cpp.obj -MF CMakeFiles\SkeletonApp.dir\db.cpp.obj.d -o CMakeFiles\SkeletonApp.dir\db.cpp.obj -c C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\db.cpp
+[ 12%] Building CXX object CMakeFiles/SkeletonApp.dir/button.cpp.obj
+C:\mingw64\bin\c++.exe -DUNICODE -D_UNICODE @CMakeFiles/SkeletonApp.dir/includes_CXX.rsp -O3 -DNDEBUG -std=gnu++17 -MD -MT CMakeFiles/SkeletonApp.dir/button.cpp.obj -MF CMakeFiles\SkeletonApp.dir\button.cpp.obj.d -o CMakeFiles\SkeletonApp.dir\button.cpp.obj -c C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\button.cpp
+[ 15%] Building CXX object CMakeFiles/SkeletonApp.dir/checkbox.cpp.obj
+C:\mingw64\bin\c++.exe -DUNICODE -D_UNICODE @CMakeFiles/SkeletonApp.dir/includes_CXX.rsp -O3 -DNDEBUG -std=gnu++17 -MD -MT CMakeFiles/SkeletonApp.dir/checkbox.cpp.obj -MF CMakeFiles\SkeletonApp.dir\checkbox.cpp.obj.d -o CMakeFiles\SkeletonApp.dir\checkbox.cpp.obj -c C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\checkbox.cpp
+[ 18%] Building CXX object CMakeFiles/SkeletonApp.dir/ctrlw.cpp.obj
+C:\mingw64\bin\c++.exe -DUNICODE -D_UNICODE @CMakeFiles/SkeletonApp.dir/includes_CXX.rsp -O3 -DNDEBUG -std=gnu++17 -MD -MT CMakeFiles/SkeletonApp.dir/ctrlw.cpp.obj -MF CMakeFiles\SkeletonApp.dir\ctrlw.cpp.obj.d -o CMakeFiles\SkeletonApp.dir\ctrlw.cpp.obj -c C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\ctrlw.cpp
+[ 21%] Building CXX object CMakeFiles/SkeletonApp.dir/mainwindow.cpp.obj
+C:\mingw64\bin\c++.exe -DUNICODE -D_UNICODE @CMakeFiles/SkeletonApp.dir/includes_CXX.rsp -O3 -DNDEBUG -std=gnu++17 -MD -MT CMakeFiles/SkeletonApp.dir/mainwindow.cpp.obj -MF CMakeFiles\SkeletonApp.dir\mainwindow.cpp.obj.d -o CMakeFiles\SkeletonApp.dir\mainwindow.cpp.obj -c C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\mainwindow.cpp
+[ 24%] Building CXX object CMakeFiles/SkeletonApp.dir/spinner_dialog.cpp.obj
+C:\mingw64\bin\c++.exe -DUNICODE -D_UNICODE @CMakeFiles/SkeletonApp.dir/includes_CXX.rsp -O3 -DNDEBUG -std=gnu++17 -MD -MT CMakeFiles/SkeletonApp.dir/spinner_dialog.cpp.obj -MF CMakeFiles\SkeletonApp.dir\spinner_dialog.cpp.obj.d -o CMakeFiles\SkeletonApp.dir\spinner_dialog.cpp.obj -c C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\spinner_dialog.cpp
+[ 27%] Building CXX object CMakeFiles/SkeletonApp.dir/about.cpp.obj
+C:\mingw64\bin\c++.exe -DUNICODE -D_UNICODE @CMakeFiles/SkeletonApp.dir/includes_CXX.rsp -O3 -DNDEBUG -std=gnu++17 -MD -MT CMakeFiles/SkeletonApp.dir/about.cpp.obj -MF CMakeFiles\SkeletonApp.dir\about.cpp.obj.d -o CMakeFiles\SkeletonApp.dir\about.cpp.obj -c C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\about.cpp
+[ 30%] Building CXX object CMakeFiles/SkeletonApp.dir/about_icon.cpp.obj
+C:\mingw64\bin\c++.exe -DUNICODE -D_UNICODE @CMakeFiles/SkeletonApp.dir/includes_CXX.rsp -O3 -DNDEBUG -std=gnu++17 -MD -MT CMakeFiles/SkeletonApp.dir/about_icon.cpp.obj -MF CMakeFiles\SkeletonApp.dir\about_icon.cpp.obj.d -o CMakeFiles\SkeletonApp.dir\about_icon.cpp.obj -c C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\about_icon.cpp
+[ 33%] Building CXX object CMakeFiles/SkeletonApp.dir/tooltip.cpp.obj
+C:\mingw64\bin\c++.exe -DUNICODE -D_UNICODE @CMakeFiles/SkeletonApp.dir/includes_CXX.rsp -O3 -DNDEBUG -std=gnu++17 -MD -MT CMakeFiles/SkeletonApp.dir/tooltip.cpp.obj -MF CMakeFiles\SkeletonApp.dir\tooltip.cpp.obj.d -o CMakeFiles\SkeletonApp.dir\tooltip.cpp.obj -c C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\tooltip.cpp
+[ 36%] Building CXX object CMakeFiles/SkeletonApp.dir/dragdrop.cpp.obj
+C:\mingw64\bin\c++.exe -DUNICODE -D_UNICODE @CMakeFiles/SkeletonApp.dir/includes_CXX.rsp -O3 -DNDEBUG -std=gnu++17 -MD -MT CMakeFiles/SkeletonApp.dir/dragdrop.cpp.obj -MF CMakeFiles\SkeletonApp.dir\dragdrop.cpp.obj.d -o CMakeFiles\SkeletonApp.dir\dragdrop.cpp.obj -c C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\dragdrop.cpp
+[ 39%] Building CXX object CMakeFiles/SkeletonApp.dir/dpi.cpp.obj
+C:\mingw64\bin\c++.exe -DUNICODE -D_UNICODE @CMakeFiles/SkeletonApp.dir/includes_CXX.rsp -O3 -DNDEBUG -std=gnu++17 -MD -MT CMakeFiles/SkeletonApp.dir/dpi.cpp.obj -MF CMakeFiles\SkeletonApp.dir\dpi.cpp.obj.d -o CMakeFiles\SkeletonApp.dir\dpi.cpp.obj -c C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\dpi.cpp
+[ 42%] Building CXX object CMakeFiles/SkeletonApp.dir/notes_editor.cpp.obj
+C:\mingw64\bin\c++.exe -DUNICODE -D_UNICODE @CMakeFiles/SkeletonApp.dir/includes_CXX.rsp -O3 -DNDEBUG -std=gnu++17 -MD -MT CMakeFiles/SkeletonApp.dir/notes_editor.cpp.obj -MF CMakeFiles\SkeletonApp.dir\notes_editor.cpp.obj.d -o CMakeFiles\SkeletonApp.dir\notes_editor.cpp.obj -c C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\notes_editor.cpp
+[ 45%] Building CXX object CMakeFiles/SkeletonApp.dir/edit_rtf.cpp.obj
+C:\mingw64\bin\c++.exe -DUNICODE -D_UNICODE @CMakeFiles/SkeletonApp.dir/includes_CXX.rsp -O3 -DNDEBUG -std=gnu++17 -MD -MT CMakeFiles/SkeletonApp.dir/edit_rtf.cpp.obj -MF CMakeFiles\SkeletonApp.dir\edit_rtf.cpp.obj.d -o CMakeFiles\SkeletonApp.dir\edit_rtf.cpp.obj -c C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\edit_rtf.cpp
+[ 48%] Building CXX object CMakeFiles/SkeletonApp.dir/shortcuts.cpp.obj
+C:\mingw64\bin\c++.exe -DUNICODE -D_UNICODE @CMakeFiles/SkeletonApp.dir/includes_CXX.rsp -O3 -DNDEBUG -std=gnu++17 -MD -MT CMakeFiles/SkeletonApp.dir/shortcuts.cpp.obj -MF CMakeFiles\SkeletonApp.dir\shortcuts.cpp.obj.d -o CMakeFiles\SkeletonApp.dir\shortcuts.cpp.obj -c C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\shortcuts.cpp
+[ 51%] Building CXX object CMakeFiles/SkeletonApp.dir/sc_shortcut_dialog.cpp.obj
+C:\mingw64\bin\c++.exe -DUNICODE -D_UNICODE @CMakeFiles/SkeletonApp.dir/includes_CXX.rsp -O3 -DNDEBUG -std=gnu++17 -MD -MT CMakeFiles/SkeletonApp.dir/sc_shortcut_dialog.cpp.obj -MF CMakeFiles\SkeletonApp.dir\sc_shortcut_dialog.cpp.obj.d -o CMakeFiles\SkeletonApp.dir\sc_shortcut_dialog.cpp.obj -c C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\sc_shortcut_dialog.cpp
+[ 54%] Building CXX object CMakeFiles/SkeletonApp.dir/deps.cpp.obj
+C:\mingw64\bin\c++.exe -DUNICODE -D_UNICODE @CMakeFiles/SkeletonApp.dir/includes_CXX.rsp -O3 -DNDEBUG -std=gnu++17 -MD -MT CMakeFiles/SkeletonApp.dir/deps.cpp.obj -MF CMakeFiles\SkeletonApp.dir\deps.cpp.obj.d -o CMakeFiles\SkeletonApp.dir\deps.cpp.obj -c C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\deps.cpp
+[ 57%] Building CXX object CMakeFiles/SkeletonApp.dir/dep_edit_dialog.cpp.obj
+C:\mingw64\bin\c++.exe -DUNICODE -D_UNICODE @CMakeFiles/SkeletonApp.dir/includes_CXX.rsp -O3 -DNDEBUG -std=gnu++17 -MD -MT CMakeFiles/SkeletonApp.dir/dep_edit_dialog.cpp.obj -MF CMakeFiles\SkeletonApp.dir\dep_edit_dialog.cpp.obj.d -o CMakeFiles\SkeletonApp.dir\dep_edit_dialog.cpp.obj -c C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\dep_edit_dialog.cpp
+[ 60%] Building CXX object CMakeFiles/SkeletonApp.dir/file_assoc.cpp.obj
+C:\mingw64\bin\c++.exe -DUNICODE -D_UNICODE @CMakeFiles/SkeletonApp.dir/includes_CXX.rsp -O3 -DNDEBUG -std=gnu++17 -MD -MT CMakeFiles/SkeletonApp.dir/file_assoc.cpp.obj -MF CMakeFiles\SkeletonApp.dir\file_assoc.cpp.obj.d -o CMakeFiles\SkeletonApp.dir\file_assoc.cpp.obj -c C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\file_assoc.cpp
+[ 63%] Building CXX object CMakeFiles/SkeletonApp.dir/file_assoc_dialog.cpp.obj
+C:\mingw64\bin\c++.exe -DUNICODE -D_UNICODE @CMakeFiles/SkeletonApp.dir/includes_CXX.rsp -O3 -DNDEBUG -std=gnu++17 -MD -MT CMakeFiles/SkeletonApp.dir/file_assoc_dialog.cpp.obj -MF CMakeFiles\SkeletonApp.dir\file_assoc_dialog.cpp.obj.d -o CMakeFiles\SkeletonApp.dir\file_assoc_dialog.cpp.obj -c C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\file_assoc_dialog.cpp
+[ 66%] Building CXX object CMakeFiles/SkeletonApp.dir/scripts.cpp.obj
+C:\mingw64\bin\c++.exe -DUNICODE -D_UNICODE @CMakeFiles/SkeletonApp.dir/includes_CXX.rsp -O3 -DNDEBUG -std=gnu++17 -MD -MT CMakeFiles/SkeletonApp.dir/scripts.cpp.obj -MF CMakeFiles\SkeletonApp.dir\scripts.cpp.obj.d -o CMakeFiles\SkeletonApp.dir\scripts.cpp.obj -c C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\scripts.cpp
+[ 69%] Building CXX object CMakeFiles/SkeletonApp.dir/script_edit_dialog.cpp.obj
+C:\mingw64\bin\c++.exe -DUNICODE -D_UNICODE @CMakeFiles/SkeletonApp.dir/includes_CXX.rsp -O3 -DNDEBUG -std=gnu++17 -MD -MT CMakeFiles/SkeletonApp.dir/script_edit_dialog.cpp.obj -MF CMakeFiles\SkeletonApp.dir\script_edit_dialog.cpp.obj.d -o CMakeFiles\SkeletonApp.dir\script_edit_dialog.cpp.obj -c C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\script_edit_dialog.cpp
+[ 72%] Building CXX object CMakeFiles/SkeletonApp.dir/settings.cpp.obj
+C:\mingw64\bin\c++.exe -DUNICODE -D_UNICODE @CMakeFiles/SkeletonApp.dir/includes_CXX.rsp -O3 -DNDEBUG -std=gnu++17 -MD -MT CMakeFiles/SkeletonApp.dir/settings.cpp.obj -MF CMakeFiles\SkeletonApp.dir\settings.cpp.obj.d -o CMakeFiles\SkeletonApp.dir\settings.cpp.obj -c C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\settings.cpp
+[ 75%] Building CXX object CMakeFiles/SkeletonApp.dir/issgen.cpp.obj
+C:\mingw64\bin\c++.exe -DUNICODE -D_UNICODE @CMakeFiles/SkeletonApp.dir/includes_CXX.rsp -O3 -DNDEBUG -std=gnu++17 -MD -MT CMakeFiles/SkeletonApp.dir/issgen.cpp.obj -MF CMakeFiles\SkeletonApp.dir\issgen.cpp.obj.d -o CMakeFiles\SkeletonApp.dir\issgen.cpp.obj -c C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\issgen.cpp
+[ 78%] Building CXX object CMakeFiles/SkeletonApp.dir/test_page.cpp.obj
+C:\mingw64\bin\c++.exe -DUNICODE -D_UNICODE @CMakeFiles/SkeletonApp.dir/includes_CXX.rsp -O3 -DNDEBUG -std=gnu++17 -MD -MT CMakeFiles/SkeletonApp.dir/test_page.cpp.obj -MF CMakeFiles\SkeletonApp.dir\test_page.cpp.obj.d -o CMakeFiles\SkeletonApp.dir\test_page.cpp.obj -c C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\test_page.cpp
+[ 81%] Building CXX object CMakeFiles/SkeletonApp.dir/dialogs.cpp.obj
+C:\mingw64\bin\c++.exe -DUNICODE -D_UNICODE @CMakeFiles/SkeletonApp.dir/includes_CXX.rsp -O3 -DNDEBUG -std=gnu++17 -MD -MT CMakeFiles/SkeletonApp.dir/dialogs.cpp.obj -MF CMakeFiles\SkeletonApp.dir\dialogs.cpp.obj.d -o CMakeFiles\SkeletonApp.dir\dialogs.cpp.obj -c C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\dialogs.cpp
+[ 84%] Building CXX object CMakeFiles/SkeletonApp.dir/scrollbar.cpp.obj
+C:\mingw64\bin\c++.exe -DUNICODE -D_UNICODE @CMakeFiles/SkeletonApp.dir/includes_CXX.rsp -O3 -DNDEBUG -std=gnu++17 -MD -MT CMakeFiles/SkeletonApp.dir/scrollbar.cpp.obj -MF CMakeFiles\SkeletonApp.dir\scrollbar.cpp.obj.d -o CMakeFiles\SkeletonApp.dir\scrollbar.cpp.obj -c C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\scrollbar.cpp
+[ 87%] Building CXX object CMakeFiles/SkeletonApp.dir/my_scrollbar_vscroll.cpp.obj
+C:\mingw64\bin\c++.exe -DUNICODE -D_UNICODE @CMakeFiles/SkeletonApp.dir/includes_CXX.rsp -O3 -DNDEBUG -std=gnu++17 -MD -MT CMakeFiles/SkeletonApp.dir/my_scrollbar_vscroll.cpp.obj -MF CMakeFiles\SkeletonApp.dir\my_scrollbar_vscroll.cpp.obj.d -o CMakeFiles\SkeletonApp.dir\my_scrollbar_vscroll.cpp.obj -c C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\my_scrollbar_vscroll.cpp
+[ 90%] Building CXX object CMakeFiles/SkeletonApp.dir/vfs_picker.cpp.obj
+C:\mingw64\bin\c++.exe -DUNICODE -D_UNICODE @CMakeFiles/SkeletonApp.dir/includes_CXX.rsp -O3 -DNDEBUG -std=gnu++17 -MD -MT CMakeFiles/SkeletonApp.dir/vfs_picker.cpp.obj -MF CMakeFiles\SkeletonApp.dir\vfs_picker.cpp.obj.d -o CMakeFiles\SkeletonApp.dir\vfs_picker.cpp.obj -c C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\vfs_picker.cpp
+[ 93%] Building CXX object CMakeFiles/SkeletonApp.dir/page_manual.cpp.obj
+C:\mingw64\bin\c++.exe -DUNICODE -D_UNICODE @CMakeFiles/SkeletonApp.dir/includes_CXX.rsp -O3 -DNDEBUG -std=gnu++17 -MD -MT CMakeFiles/SkeletonApp.dir/page_manual.cpp.obj -MF CMakeFiles\SkeletonApp.dir\page_manual.cpp.obj.d -o CMakeFiles\SkeletonApp.dir\page_manual.cpp.obj -c C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\page_manual.cpp
+[ 96%] Building RC object CMakeFiles/SkeletonApp.dir/SetupCraft.rc.obj
+C:\mingw64\bin\windres.exe -O coff -DUNICODE -D_UNICODE -I C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\scintilla  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\SetupCraft.rc CMakeFiles\SkeletonApp.dir\SetupCraft.rc.obj
+[100%] Linking CXX executable SetupCraft.exe
+"C:\Program Files\CMake\bin\cmake.exe" -E cmake_link_script CMakeFiles\SkeletonApp.dir\link.txt --verbose=1
+"C:\Program Files\CMake\bin\cmake.exe" -E rm -f CMakeFiles\SkeletonApp.dir/objects.a
+C:\mingw64\bin\ar.exe qc CMakeFiles\SkeletonApp.dir/objects.a @CMakeFiles\SkeletonApp.dir\objects1.rsp
+C:\mingw64\bin\c++.exe -O3 -DNDEBUG -mwindows -municode -mwindows -Wl,--whole-archive CMakeFiles\SkeletonApp.dir/objects.a -Wl,--no-whole-archive -o SetupCraft.exe -Wl,--out-implib,libSetupCraft.dll.a -Wl,--major-image-version,0,--minor-image-version,0 @CMakeFiles\SkeletonApp.dir\linkLibs.rsp
 mingw32-make[2]: Leaving directory 'C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build'
 [100%] Built target SkeletonApp
 mingw32-make[1]: Leaving directory 'C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build'
@@ -171,6 +217,6 @@ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\LicenseImg\wtfpl-badge-1.p
 15 File(s) copied
 
 Package created at C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\SetupCraft
-SetupCraft.exe: 25.05.2026 10:33
+SetupCraft.exe: 25.05.2026 13:06
 
 [DONE] All steps completed successfully.

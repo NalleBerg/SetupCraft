@@ -21,7 +21,7 @@ static const int VAL_CONT_W  = 260;  // narrower width for validation/info dialo
 
 // Convert literal \n / \r\n escape sequences (as stored in locale files)
 // into real newline characters so STATIC controls and DrawText display them.
-static std::wstring ExpandEscapes(std::wstring s) {
+std::wstring ExpandEscapes(std::wstring s) {
     for (size_t p; (p = s.find(L"\\r\\n")) != std::wstring::npos; )
         s.replace(p, 4, L"\n");
     for (size_t p; (p = s.find(L"\\n"))   != std::wstring::npos; )

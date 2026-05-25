@@ -56,6 +56,8 @@ file(REMOVE_RECURSE
   "CMakeFiles/SkeletonApp.dir/shortcuts.cpp.obj.d"
   "CMakeFiles/SkeletonApp.dir/spinner_dialog.cpp.obj"
   "CMakeFiles/SkeletonApp.dir/spinner_dialog.cpp.obj.d"
+  "CMakeFiles/SkeletonApp.dir/test_page.cpp.obj"
+  "CMakeFiles/SkeletonApp.dir/test_page.cpp.obj.d"
   "CMakeFiles/SkeletonApp.dir/tooltip.cpp.obj"
   "CMakeFiles/SkeletonApp.dir/tooltip.cpp.obj.d"
   "CMakeFiles/SkeletonApp.dir/vfs_picker.cpp.obj"

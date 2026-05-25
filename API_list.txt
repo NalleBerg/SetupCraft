@@ -621,6 +621,23 @@
                                                 startup clamping, and bug history (Ctrl+scroll
                                                 silently skipping Scintilla tabs).
 
+  API_INTERNALS\INTERNALS\focus_restore_INTERNALS.txt
+                                                How to restore keyboard focus to the active
+                                                child editor when the app is re-activated
+                                                (Alt+Tab / taskbar click) so that the text
+                                                selection is immediately live (blue, not grey).
+                                                Key pitfall: SetFocus in WM_ACTIVATE does NOT
+                                                stick — DefWindowProcW overrides it.
+                                                Correct pattern: handle WM_SETFOCUS on the
+                                                top-level frame window and redirect to the
+                                                currently visible child editor.
+                                                Second pitfall: in a multi-editor-type tab
+                                                system (e.g. RichEdit + Scintilla tabs) always
+                                                target the VISIBLE editor (doc->hSci if non-NULL,
+                                                else doc->hEdit) — calling SetFocus on a hidden
+                                                RichEdit while a Scintilla tab is active leaves
+                                                the selection grey and silent.
+
   API_INTERNALS\API\shell32_API.txt             Shell icon loading reference — PrivateExtractIconsW
                                                 vs LoadImageW(MAKEINTRESOURCE), verified
                                                 sequential icon indices for shell32.dll and
@@ -924,6 +941,42 @@
                                                 mainwindow.cpp which then launches
                                                 compile_inno.bat <generated.iss> via
                                                 ShellExecuteW in a visible cmd window.
+                                                Default output filename (OutputBase token):
+                                                cfg.outputFilename if set; else strips
+                                                whitespace from proj.name and forms
+                                                "<NameNoSpaces>_<version>_Setup" (e.g.
+                                                "SetupCraft_1.0.0_Setup"); pure fallback
+                                                "Setup" when both name and filename empty.
+
+  test_page.h / test_page.cpp                   Test Installer page — page index 7, IDC range
+                                                8300–8315. Controls go directly on the main
+                                                hwnd (same pattern as scripts.cpp / settings.cpp).
+                                                Public API:
+                                                  TEST_BuildPage(hwnd, hInst, pageY,
+                                                    clientWidth, hPageTitleFont,
+                                                    hGuiFont, locale)
+                                                  TEST_TearDown()          — null HWND statics
+                                                  TEST_OnCommand(hwnd, id, event) → bool
+                                                  TEST_RunTest(hwnd)       — resolve path,
+                                                    persist, update status (stub; Inno
+                                                    compile + launch is next round)
+                                                State persisted via SETT_SetTestOutputFolder /
+                                                SETT_SetTestOutputFilename (settings.cpp) into
+                                                DB keys "test_output_folder" /
+                                                "test_output_filename" scoped to project.
+                                                ComputeDefaultTestFolder(): cfg.outputFolder +
+                                                \test_output; or %USERPROFILE%\Documents\
+                                                SetupCraft\<ProjectName>-Setupfiles\test_output.
+                                                ComputeDefaultTestFilename(): cfg.outputFilename
+                                                + _test; or <NameNoSpaces>_<ver>_Setup_test.
+                                                UniqueFilename(folder, baseName): checks if
+                                                baseName.exe exists in folder, tries
+                                                baseName(1).exe … baseName(999).exe to avoid
+                                                overwriting existing files.
+                                                SBuildConfig gains two new fields:
+                                                testOutputFolder and testOutputFilename.
+                                                IDM_BUILD_TEST (F5) calls TEST_RunTest from
+                                                any page (routed by mainwindow.cpp WM_COMMAND).
 
   API_INTERNALS\API\my_scrollbar_vscroll_API.txt  Custom Win32 vertical scrollbar — full public API.
                                                 msb_attach / msb_detach / msb_sync /

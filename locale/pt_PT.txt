@@ -1,4 +1,4 @@
-app_name=SetupCraft
+﻿app_name=SetupCraft
 search_btn=🔍 Pesquisar
 select_language=Selecione o idioma para o seu projeto
 about_setupcraft=Acerca do SetupCraft
@@ -38,6 +38,18 @@ tt_add_dependency=Add runtime dependencies
 tt_settings=Configure installer settings
 tt_build=Compile the installer package
 tt_test=Test the compiled installer
+# Test page (page index 7)
+test_page_title=Test Installer
+test_page_desc=Generate and run a test build of the installer.\nOutput goes to the test folder and never overwrites your production build.
+test_run_btn=Run Test  (F5)
+test_open_folder_btn=Open test folder
+test_status_idle=Ready — press «Run Test» or F5 to generate and launch the test installer.
+test_status_no_project=No project open. Create or open a project first.
+test_output_folder_lbl=Output folder:
+test_output_file_lbl=Output file:
+test_status_output_lbl=Output:
+test_status_configured=Test configured.
+test_output_folder_picker_title=Select test output folder
 tt_scripts=Configurar scripts para executar antes/depois da instalação
 tt_save=Guardar alterações do projeto
 

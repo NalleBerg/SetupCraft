@@ -52,6 +52,7 @@ set(CMAKE_DEPENDS_DEPENDENCY_FILES
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/settings.cpp" "CMakeFiles/SkeletonApp.dir/settings.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/settings.cpp.obj.d"
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/shortcuts.cpp" "CMakeFiles/SkeletonApp.dir/shortcuts.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/shortcuts.cpp.obj.d"
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/spinner_dialog.cpp" "CMakeFiles/SkeletonApp.dir/spinner_dialog.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/spinner_dialog.cpp.obj.d"
+  "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/test_page.cpp" "CMakeFiles/SkeletonApp.dir/test_page.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/test_page.cpp.obj.d"
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/tooltip.cpp" "CMakeFiles/SkeletonApp.dir/tooltip.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/tooltip.cpp.obj.d"
   "C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/vfs_picker.cpp" "CMakeFiles/SkeletonApp.dir/vfs_picker.cpp.obj" "gcc" "CMakeFiles/SkeletonApp.dir/vfs_picker.cpp.obj.d"
   )

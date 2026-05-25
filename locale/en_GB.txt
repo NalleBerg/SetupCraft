@@ -1,4 +1,4 @@
-# NOTE: This is the reference (English) locale. Translations for all other locales
+﻿# NOTE: This is the reference (English) locale. Translations for all other locales
 # will be added once the app is stable and feature-complete.
 app_name=SetupCraft
 search_btn=🔍 Search
@@ -74,6 +74,22 @@ tt_test=Test the compiled installer
 tt_scripts=Configure scripts to run before/after installation
 tt_save=Save project changes
 tt_exit=Exit SetupCraft
+
+# Test page (page index 7)
+test_page_title=Test Installer
+test_page_desc=Generate and run a test build of the installer.\nOutput goes to the test folder and never overwrites your production build.
+test_run_btn=Run Test  (F5)
+test_open_folder_btn=Open test folder
+test_status_idle=Ready — press «Run Test» or F5 to generate and launch the test installer.
+test_status_no_project=No project open. Create or open a project first.
+test_output_folder_lbl=Output folder:
+test_output_file_lbl=Output file:
+test_status_output_lbl=Output:
+test_status_configured=Test configured.
+test_output_folder_picker_title=Select test output folder
+test_status_running=Build in progress…
+test_details_btn=Details…
+test_details_title=ISCC Output — Test Build
 
 # Ask-at-install tooltip
 ask_at_install_tooltip=Installer will ask the end user whether to install for current user or all users; files will go to AppData or ProgramData accordingly.
@@ -936,7 +952,7 @@ idlg_license_src_label=License source:
 idlg_license_src_builtin=Built-in RTF editor
 idlg_license_src_external=External file (.rtf or .txt)
 idlg_license_file_label=File path:
-idlg_license_file_browse=Browse\u2026
+idlg_license_file_browse=Browse…
 idlg_license_template_label=License template:
 idlg_license_must_accept=Require license acceptance (end user must choose "I accept" before proceeding)
 idlg_ready_show_dir=Always show destination directory in the Ready page summary

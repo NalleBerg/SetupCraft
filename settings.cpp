@@ -36,6 +36,8 @@ static std::wstring s_publisherUrl;
 static std::wstring s_supportUrl;
 static std::wstring s_outputFolder;
 static std::wstring s_outputFilename;
+static std::wstring s_testOutputFolder;
+static std::wstring s_testOutputFilename;
 static int          s_compressionType  = 2;    // 0=store, 1=zip, 2=lzma, 3=lzma2
 static int          s_compressionLevel = 7;    // 0–9
 static bool         s_solidCompression = true;
@@ -260,6 +262,8 @@ void SETT_Reset()
     s_supportUrl       = L"";
     s_outputFolder     = L"";
     s_outputFilename   = L"";
+    s_testOutputFolder   = L"";
+    s_testOutputFilename = L"";
     s_compressionType  = 2;
     s_compressionLevel = 7;
     s_solidCompression = true;
@@ -1617,6 +1621,8 @@ void SETT_SaveToDb(int projectId)
     DB::SetSetting(K(L"support_url"),       s_supportUrl);
     DB::SetSetting(K(L"output_folder"),     s_outputFolder);
     DB::SetSetting(K(L"output_filename"),   s_outputFilename);
+    DB::SetSetting(K(L"test_output_folder"),   s_testOutputFolder);
+    DB::SetSetting(K(L"test_output_filename"), s_testOutputFilename);
     DB::SetSetting(K(L"compression_type"),  std::to_wstring(s_compressionType));
     DB::SetSetting(K(L"compression_level"), std::to_wstring(s_compressionLevel));
     DB::SetSetting(K(L"solid"),             s_solidCompression ? L"1" : L"0");
@@ -1680,6 +1686,8 @@ void SETT_LoadFromDb(int projectId)
     if (DB::GetSetting(K(L"support_url"),       val)) s_supportUrl       = val;
     if (DB::GetSetting(K(L"output_folder"),     val)) s_outputFolder     = val;
     if (DB::GetSetting(K(L"output_filename"),   val)) s_outputFilename   = val;
+    if (DB::GetSetting(K(L"test_output_folder"),   val)) s_testOutputFolder   = val;
+    if (DB::GetSetting(K(L"test_output_filename"), val)) s_testOutputFilename = val;
     if (DB::GetSetting(K(L"compression_type"),  val)) s_compressionType  = _wtoi(val.c_str());
     if (DB::GetSetting(K(L"compression_level"), val)) s_compressionLevel = _wtoi(val.c_str());
     if (DB::GetSetting(K(L"solid"),             val)) s_solidCompression = (val == L"1");
@@ -1786,6 +1794,8 @@ SBuildConfig SETT_GetBuildConfig()
     cfg.supportUrl        = s_supportUrl;
     cfg.outputFolder      = s_outputFolder;
     cfg.outputFilename    = s_outputFilename;
+    cfg.testOutputFolder    = s_testOutputFolder;
+    cfg.testOutputFilename  = s_testOutputFilename;
     cfg.compressionType   = s_compressionType;
     cfg.compressionLevel  = s_compressionLevel;
     cfg.solidCompression  = s_solidCompression;
@@ -1819,5 +1829,21 @@ SBuildConfig SETT_GetBuildConfig()
     cfg.setupLogMode        = s_setupLogMode;
     cfg.langDetectionMethod = s_langDetectionMethod;
     cfg.showLanguageDialog  = s_showLanguageDialog;
+    cfg.testOutputFolder    = s_testOutputFolder;
+    cfg.testOutputFilename  = s_testOutputFilename;
     return cfg;
+}
+
+// ── SETT_SetTestOutputFolder / SETT_SetTestOutputFilename ─────────────────────
+// Called by test_page.cpp when the user edits the test-output fields.
+void SETT_SetTestOutputFolder(const std::wstring& v)
+{
+    s_testOutputFolder = v;
+    MainWindow::MarkAsModified();
+}
+
+void SETT_SetTestOutputFilename(const std::wstring& v)
+{
+    s_testOutputFilename = v;
+    MainWindow::MarkAsModified();
 }

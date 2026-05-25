@@ -808,6 +808,30 @@ spinner_dialog.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/spinner_dialog.cpp.s
 .PHONY : spinner_dialog.cpp.s
 
+test_page.obj: test_page.cpp.obj
+.PHONY : test_page.obj
+
+# target to build an object file
+test_page.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/test_page.cpp.obj
+.PHONY : test_page.cpp.obj
+
+test_page.i: test_page.cpp.i
+.PHONY : test_page.i
+
+# target to preprocess a source file
+test_page.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/test_page.cpp.i
+.PHONY : test_page.cpp.i
+
+test_page.s: test_page.cpp.s
+.PHONY : test_page.s
+
+# target to generate assembly for a file
+test_page.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\SkeletonApp.dir\build.make CMakeFiles/SkeletonApp.dir/test_page.cpp.s
+.PHONY : test_page.cpp.s
+
 tooltip.obj: tooltip.cpp.obj
 .PHONY : tooltip.obj
 
@@ -950,6 +974,9 @@ help:
 	@echo ... spinner_dialog.obj
 	@echo ... spinner_dialog.i
 	@echo ... spinner_dialog.s
+	@echo ... test_page.obj
+	@echo ... test_page.i
+	@echo ... test_page.s
 	@echo ... tooltip.obj
 	@echo ... tooltip.i
 	@echo ... tooltip.s

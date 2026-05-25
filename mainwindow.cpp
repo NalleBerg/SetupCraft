@@ -29,6 +29,7 @@
 #include "dialogs.h"
 #include "scripts.h"
 #include "settings.h"
+#include "test_page.h"
 #include "issgen.h"
 #include "page_manual.h"
 #include "my_scrollbar_vscroll.h"
@@ -1999,6 +2000,8 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
     DEP_TearDown(hwnd);
     // Same rule applies for the File Associations page ListView.
     FA_TearDown(hwnd);
+    // Test page HWND statics must be nulled before the child-window loop runs.
+    TEST_TearDown();
     // SETT_TearDown must run here, BEFORE the controlIds[] loop destroys
     // IDC_SETT_PATH_DISPLAY.  The PATH listbox is subclassed via
     // SetWindowLongPtrW; SETT_TearDown nulls s_pathListOrigProc so the
@@ -2040,6 +2043,9 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
         IDC_SETT_SEC_APPLICATION, IDC_SETT_SEC_BUILD, IDC_SETT_SEC_INSTALL, IDC_SETT_SEC_LANGUAGES,
         IDC_SETT_SEC_SYS_INT, IDC_SETT_SEC_UNINSTALL, IDC_SETT_SEC_SETUP_LOG, IDC_SETT_SEC_SIGNING,
         IDC_FA_LIST, IDC_FA_ADD, IDC_FA_EDIT, IDC_FA_REMOVE, IDC_FA_PAGE_TITLE,
+        IDC_TEST_PAGE_TITLE, IDC_TEST_OUTPUT_FOLDER, IDC_TEST_OUTPUT_FOLDER_BTN,
+        IDC_TEST_OUTPUT_FILE, IDC_TEST_RUN_BTN, IDC_TEST_STATUS, IDC_TEST_OPEN_FOLDER_BTN,
+        IDC_TEST_PROGRESS, IDC_TEST_STEP_LBL, IDC_TEST_DETAILS_BTN,
     };
     
     for (int id : controlIds) {
@@ -3308,23 +3314,8 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
     }
     case 7: // Test page
     {
-        // Create container for page content
-        s_hCurrentPage = CreateWindowExW(
-            0, L"STATIC", L"",
-            WS_CHILD | WS_VISIBLE,
-            0, pageY, rc.right, pageHeight,
-            hwnd, NULL, hInst, NULL);
-        
-        HWND hTitle = CreateWindowExW(0, L"STATIC", L"Test Installer",
-            WS_CHILD | WS_VISIBLE | SS_LEFT,
-            S(20), S(20), rc.right - S(40), S(38),
-            s_hCurrentPage, NULL, hInst, NULL);
-        if (s_hPageTitleFont) SendMessageW(hTitle, WM_SETFONT, (WPARAM)s_hPageTitleFont, TRUE);
-        
-        CreateWindowExW(0, L"STATIC", L"Test functionality to be implemented",
-            WS_CHILD | WS_VISIBLE | SS_LEFT,
-            S(20), S(60), rc.right - S(40), S(20),
-            s_hCurrentPage, NULL, hInst, NULL);
+        TEST_BuildPage(hwnd, hInst, pageY, rc.right,
+                       s_hPageTitleFont, s_hGuiFont, s_locale);
         break;
     }
     case 8: // Scripts page
@@ -10408,6 +10399,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         if (DEP_OnCommand(hwnd, wmId, wmEvent, (HWND)lParam)) return 0;
         if (FA_OnCommand(hwnd, wmId, wmEvent)) return 0;
         if (SCR_OnCommand(hwnd, wmId, wmEvent, (HWND)lParam)) return 0;
+        if (TEST_OnCommand(hwnd, wmId, wmEvent)) return 0;
         if (IDLG_OnCommand(hwnd, wmId, wmEvent, (HWND)lParam)) return 0;
         if (SETT_OnCommand(hwnd, wmId, wmEvent, (HWND)lParam)) return 0;
 
@@ -13827,7 +13819,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         }
             
         case IDM_BUILD_TEST:
-            MessageBoxW(hwnd, L"Test functionality to be implemented", L"Test", MB_OK | MB_ICONINFORMATION);
+            TEST_RunTest(hwnd);
             return 0;
             
         case IDM_HELP_ABOUT:
@@ -14289,7 +14281,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             SetBkMode(hdc, TRANSPARENT);
             return (LRESULT)GetSysColorBrush(COLOR_WINDOW);
         }
-        if (ctrlId == 5100 || ctrlId == 5300 || ctrlId == 5301 || ctrlId == 5302 || ctrlId == 5303 || ctrlId == 5304 || ctrlId == IDC_DEP_PAGE_TITLE || ctrlId == IDC_IDLG_PAGE_TITLE || ctrlId == IDC_FA_PAGE_TITLE) {  // page title statics (Files + Shortcuts + SC column headings + Dependencies + Dialogs + FileAssoc)
+        if (ctrlId == 5100 || ctrlId == 5300 || ctrlId == 5301 || ctrlId == 5302 || ctrlId == 5303 || ctrlId == 5304 || ctrlId == IDC_DEP_PAGE_TITLE || ctrlId == IDC_IDLG_PAGE_TITLE || ctrlId == IDC_FA_PAGE_TITLE || ctrlId == IDC_SCR_PAGE_TITLE || ctrlId == IDC_TEST_PAGE_TITLE) {  // page title statics (Files + Shortcuts + SC column headings + Dependencies + Dialogs + FileAssoc + Scripts + Test)
             if (s_hPageTitleFont) SelectObject(hdc, s_hPageTitleFont);
         } else {
             if (s_hGuiFont) SelectObject(hdc, s_hGuiFont);
@@ -14409,7 +14401,11 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
              dis->CtlID == IDC_SETT_SETUP_LOG_FOLDER_BTN ||
              dis->CtlID == IDC_SETT_PATH_ADD_BTN ||
              dis->CtlID == IDC_SETT_PATH_REMOVE_BTN ||
-             dis->CtlID == IDC_SETT_UNINSTALL_FILES_DIR_BTN) {
+             dis->CtlID == IDC_SETT_UNINSTALL_FILES_DIR_BTN ||
+             dis->CtlID == IDC_TEST_RUN_BTN ||
+             dis->CtlID == IDC_TEST_OUTPUT_FOLDER_BTN ||
+             dis->CtlID == IDC_TEST_OPEN_FOLDER_BTN ||
+             dis->CtlID == IDC_TEST_DETAILS_BTN) {
             ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
             // Create bold font for buttons (scaled for DPI)
             HFONT hFont = CreateFontW(-S(12), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,

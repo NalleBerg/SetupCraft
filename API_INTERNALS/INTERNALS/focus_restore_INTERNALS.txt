@@ -1,0 +1,93 @@
+================================================================================
+  Focus Restore on App Activation  —  INTERNALS Reference
+================================================================================
+
+PURPOSE
+-------
+When the user Alt+Tabs back to the app (or clicks it on the taskbar), the active
+text selection should immediately be live (shown in the system highlight colour)
+so the user can press Ctrl+C / Ctrl+X without first clicking inside the editor.
+
+Without a fix, Windows gives keyboard focus to the top-level frame window, not
+to any child editor, so the selection appears greyed out and unusable until the
+user clicks.
+
+================================================================================
+THE PROBLEM WITH WM_ACTIVATE
+================================================================================
+
+A naive first attempt handles WM_ACTIVATE:
+
+    case WM_ACTIVATE:
+        if (LOWORD(wParam) != WA_INACTIVE)
+            SetFocus(hChildEditor);          // ← does NOT stick
+        return DefWindowProcW(hwnd, msg, wParam, lParam);
+
+This does not work.  DefWindowProcW's handling of WM_ACTIVATE internally calls
+SetFocus on the top-level window itself, which runs AFTER our SetFocus call and
+silently overrides it.  The child editor never actually receives focus.
+
+Reversing the order (call DefWindowProcW first, then SetFocus) is also fragile
+because Windows can still redirect focus during the activation sequence.
+
+================================================================================
+THE CORRECT PATTERN: WM_SETFOCUS on the top-level window
+================================================================================
+
+Handle WM_SETFOCUS on the main frame window and redirect to the active editor:
+
+    case WM_SETFOCUS: {
+        // Redirect focus from the frame to whichever child editor is active.
+        NeTabDoc* doc = NeTabs_GetActiveDoc(hwnd);
+        if (doc) {
+            HWND hTarget = doc->hSci ? doc->hSci : doc->hEdit;
+            if (hTarget) SetFocus(hTarget);
+        }
+        return 0;
+    }
+
+Why this works
+--------------
+The activation sequence for a top-level window is:
+
+  1. WM_NCACTIVATE     — non-client area redraws (title bar colour change)
+  2. WM_ACTIVATE       — DefWindowProcW calls SetFocus(hwnd) here
+  3. WM_SETFOCUS       — delivered to hwnd because step 2 gave it focus
+
+By the time WM_SETFOCUS arrives, all of Windows' internal activation machinery
+is done.  Calling SetFocus(childEditor) from here is the last word; nothing
+overrides it.  The child editor receives WM_SETFOCUS and the selection turns
+blue immediately.
+
+IMPORTANT — multi-editor-type tabs
+------------------------------------
+If the app has tabs that use different child editor controls (e.g. RichEdit for
+RTF documents and Scintilla for plain text / code), you MUST redirect to the
+correct one.  A helper like NeTabs_GetActiveEdit() that always returns the
+RichEdit handle will silently set focus to an invisible window when a Scintilla
+tab is active, leaving the selection grey.
+
+Always inspect the active doc and branch on which control is visible:
+
+    HWND hTarget = doc->hSci ? doc->hSci   // Scintilla tab is active
+                             : doc->hEdit;  // RichEdit  tab is active
+
+Side effects to be aware of
+----------------------------
+* Every time the frame window receives WM_SETFOCUS (not just on Alt+Tab), this
+  code runs.  That is intentional and harmless: focus clicking on an empty part
+  of the toolbar or a disabled area will correctly redirect to the editor.
+* The handler returns 0 without calling DefWindowProcW.  That is correct;
+  DefWindowProcW does nothing useful for WM_SETFOCUS on an overlapped window.
+* Do NOT call this from WM_ACTIVATE.  WM_SETFOCUS fires at exactly the right
+  moment; WM_ACTIVATE fires too early.
+
+================================================================================
+SUMMARY
+================================================================================
+
+  Wrong: SetFocus in WM_ACTIVATE   → overridden by DefWindowProcW
+  Wrong: SetFocus to stale/hidden child window (e.g. RichEdit when Scintilla
+         tab is active)            → focus goes nowhere visible
+  Right: WM_SETFOCUS on the top-level frame → redirect to the currently visible
+         child editor (hSci or hEdit depending on the active tab)

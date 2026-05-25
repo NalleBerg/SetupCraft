@@ -183,6 +183,10 @@ std::wstring SETT_GetInstallBasePath();
 // local=true entries have their .isl file in inno\ next to template.iss.
 std::vector<InnoLangEntry> SETT_GetInstallerLanguages();
 
+// Persist the test-specific output location (called by test_page.cpp on EN_CHANGE).
+void SETT_SetTestOutputFolder(const std::wstring& v);
+void SETT_SetTestOutputFilename(const std::wstring& v);
+
 // Snapshot of all build-output and install settings, used by the .iss generator.
 struct SBuildConfig {
     std::wstring publisherUrl;
@@ -226,6 +230,9 @@ struct SBuildConfig {
     std::wstring setupLogFolder;      // destination folder (empty = %TEMP% only)
     std::wstring setupLogFilename;    // destination filename (empty = setup.log default)
     int  setupLogMode       = 0;      // 0=overwrite 1=append
+    // Test build output (separate from production Build output)
+    std::wstring testOutputFolder;    // empty = outputFolder + \test_output (or %USERPROFILE% default)
+    std::wstring testOutputFilename;  // empty = outputFilename + _test (or <NameNoSpaces>_<ver>_Setup_test)
 };
 
 // Returns a snapshot of the current build settings for use by the .iss generator.

@@ -1,0 +1,125 @@
+test_page_INTERNALS.txt — Implementation notes for test_page.h / test_page.cpp
+═══════════════════════════════════════════════════════════════════════════════
+
+OVERVIEW
+────────
+Page index 7.  Lets the user configure a separate test-output location and
+trigger a test build of the installer without touching the production output.
+
+Controls are created as direct children of the main window hwnd, at absolute
+Y coordinates starting from pageY — identical to the scripts.cpp / settings.cpp
+pattern.  No container STATIC is used.
+
+CONTROL IDs  (range 8300–8315)
+──────────────────────────────
+  IDC_TEST_PAGE_TITLE        8300   Static  — page title (hPageTitleFont)
+  IDC_TEST_OUTPUT_FOLDER     8301   Edit    — test output folder path
+  IDC_TEST_OUTPUT_FOLDER_BTN 8302   Button  — browse, shell32.dll icon 3, Blue
+  IDC_TEST_OUTPUT_FILE       8303   Edit    — test output filename (no .exe)
+  IDC_TEST_RUN_BTN           8304   Button  — Run Test (F5), shell32.dll 137, Green
+  IDC_TEST_STATUS            8305   Static  — status / resolved output path
+  IDC_TEST_OPEN_FOLDER_BTN   8306   Button  — Open test folder, Blue, initially disabled
+
+  Reserved (unused): 8307–8315
+
+
+LAYOUT
+──────
+  pageY + S(20)  — page title (hPageTitleFont, S(38) high)
+  + S(38) + S(8) — description (hGuiFont, S(36) high, wraps via SS_LEFT)
+  + S(36) + S(20)
+  Row 1: "Output folder:" label (SS_RIGHT|SS_CENTERIMAGE, S(120) wide)
+         + folder edit (WS_EX_CLIENTEDGE)
+         + browse button (square S(28)×S(28))
+  + S(32)  (rowStep)
+  Row 2: "Output file:" label
+         + file edit (narrower, leaves room for ".exe" suffix)
+         + ".exe" static (S(36) wide)
+  + S(32) + S(20)
+  Run Test button — Green, MeasureButtonWidth, left-aligned at fldX
+  + btnH + S(16)
+  "Output:" label + status static (S(50) high, multi-line)
+  + S(50) + S(8)
+  Open test folder button — Blue, MeasureButtonWidth
+
+
+DEFAULT PATH LOGIC
+──────────────────
+ComputeDefaultTestFolder():
+  1. If cfg.outputFolder not empty → cfg.outputFolder + "\test_output"
+  2. Else → %USERPROFILE%\Documents\SetupCraft\<ProjectName>-Setupfiles\test_output
+
+ComputeDefaultTestFilename():
+  1. If cfg.outputFilename not empty → cfg.outputFilename + "_test"
+  2. Else → strip whitespace from GetProjectName() → "<NameNoSpaces>_<ver>_Setup_test"
+     e.g. "SetupCraft Suite" v1.2.0 → "SetupCraftSuite_1.2.0_Setup_test"
+     Fallback "Setup_test" when name is blank.
+
+
+UNIQUENESS CHECK
+────────────────
+UniqueFilename(folder, baseName):
+  Checks GetFileAttributesW(folder\baseName.exe).
+  If not found → returns baseName unchanged.
+  Else iterates baseName(1), baseName(2), … up to (999) until a free slot is found.
+  Ensures each test run gets a distinct filename when repeated without cleanup.
+
+
+SETTINGS PERSISTENCE
+────────────────────
+Two new fields in SBuildConfig (settings.h):
+  testOutputFolder    — DB key "test_output_folder"
+  testOutputFilename  — DB key "test_output_filename"
+
+Setters (settings.cpp) call MainWindow::MarkAsModified().
+EN_CHANGE on both edits persists immediately via the setters.
+TEST_RunTest resolves defaults and persists them before the uniqueness check.
+
+
+INNO INTEGRATION — NEXT ROUND
+──────────────────────────────
+TEST_RunTest() currently:
+  • resolves folder + filename
+  • applies UniqueFilename to avoid overwriting
+  • updates IDC_TEST_STATUS to show the resolved output path
+  • enables IDC_TEST_OPEN_FOLDER_BTN if the folder already exists
+  • does NOT yet compile or launch anything
+
+Next round:
+  • Call ISS_GenerateIss() with a test-specific output dir and filename.
+  • Launch compile_inno.bat <generated.iss> via ShellExecuteW.
+  • On success, optionally launch the resulting .exe.
+
+
+TEARDOWN
+────────
+TEST_TearDown() nulls all HWND statics.  Called from SwitchPage before the
+controlIds[] DestroyWindow loop.  The controls themselves are destroyed by
+the loop (IDC_TEST_* are listed in the controlIds[] array in mainwindow.cpp)
+and by the page-area child-window enumeration fallback.
+
+
+MAINWINDOW.CPP WIRING
+─────────────────────
+  #include "test_page.h"
+  case 7: TEST_BuildPage(hwnd, hInst, pageY, rc.right,
+                         s_hPageTitleFont, s_hGuiFont, s_locale);
+  TearDown block: TEST_TearDown() called before SETT_TearDown()
+  controlIds[]: IDC_TEST_PAGE_TITLE … IDC_TEST_OPEN_FOLDER_BTN
+  WM_COMMAND dispatch: if (TEST_OnCommand(hwnd, wmId, wmEvent)) return 0;
+  IDM_BUILD_TEST: TEST_RunTest(hwnd);  (replaces old MessageBox stub)
+
+
+LOCALE KEYS  (en_GB reference; same English text used as fallback in all locales)
+───────────────────────────────────────────────────────────────────────────────────
+  test_page_title               Test Installer
+  test_page_desc                Generate and run a test build of the installer.\n...
+  test_run_btn                  Run Test  (F5)
+  test_open_folder_btn          Open test folder
+  test_status_idle              Ready — press «Run Test» or F5 to generate...
+  test_status_no_project        No project open. Create or open a project first.
+  test_output_folder_lbl        Output folder:
+  test_output_file_lbl          Output file:
+  test_status_output_lbl        Output:
+  test_status_configured        Test configured.
+  test_output_folder_picker_title  Select test output folder

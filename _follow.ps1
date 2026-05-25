@@ -16,7 +16,8 @@ Set-Content $countFile 0
 $run = 0
 
 # ── Phase tracking ────────────────────────────────────────────────────────────
-$script:phase = ''
+$script:phase      = ''
+$script:buildStart = $null
 
 function Enter-Phase($id, $label) {
     if ($script:phase -ne $id) {
@@ -133,7 +134,12 @@ function Write-ColoredLine($line) {
         Write-Host ("  ✔  Timestamp: " + ($line -replace '^SetupCraft\.exe:\s*', '')) `
             -ForegroundColor Green; return }
     if ($line -match '^\[DONE\]') {
-        Write-Host "  ✔  $line" -ForegroundColor Green; return }
+        Write-Host "  ✔  $line" -ForegroundColor Green
+        if ($script:buildStart) {
+            $elapsed = [DateTime]::Now - $script:buildStart
+            Write-Host ("  ⏱  Build time: {0}" -f $elapsed.ToString('mm\:ss\.f')) -ForegroundColor Cyan
+        }
+        return }
 
     # ── Fallback ──────────────────────────────────────────────────────────────
     Write-Host "  $line"
@@ -162,7 +168,8 @@ while ($true) {
             $run++
             Set-Content $countFile $run
             $pos          = 0
-            $script:phase = ''          # reset phase tracker for each run
+            $script:phase      = ''     # reset phase tracker for each run
+            $script:buildStart = [DateTime]::Now
             Clear-Host
             Write-Host ''
             Write-Host ('═' * 62) -ForegroundColor Cyan

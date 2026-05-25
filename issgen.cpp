@@ -485,9 +485,18 @@ std::wstring ISS_GenerateIss(
     }
 
     // Effective output base filename.
+    // Default: strip whitespace from project name, then "<Name>_<Version>_Setup".
+    // e.g. "SetupCraft Suite" 1.2.0  →  "SetupCraftSuite_1.2.0_Setup"
     std::wstring outBase = cfg.outputFilename;
-    if (outBase.empty())
-        outBase = proj.name.empty() ? L"Setup" : proj.name + L"_Setup";
+    if (outBase.empty()) {
+        std::wstring safeName = proj.name;
+        safeName.erase(std::remove_if(safeName.begin(), safeName.end(), ::iswspace), safeName.end());
+        if (safeName.empty()) {
+            outBase = L"Setup";
+        } else {
+            outBase = safeName + (proj.version.empty() ? L"" : L"_" + proj.version) + L"_Setup";
+        }
+    }
 
     // AppId: stored as "{GUID}", needs Inno escaping → "{{GUID}}"
     std::wstring appId = EscapeBraces(proj.app_id);

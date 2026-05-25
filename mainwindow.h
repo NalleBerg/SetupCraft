@@ -49,6 +49,9 @@ public:
     static const std::wstring& GetProjectDirectory() { return s_currentProject.directory; }
     static const std::vector<ComponentRow>& GetComponents();
     static bool AskAtInstallEnabled() { return s_askAtInstallEnabled; }
+    static const std::wstring& GetProjectName()    { return s_currentProject.name; }
+    static const std::wstring& GetProjectVersion() { return s_currentProject.version; }
+    static const ProjectRow&   GetCurrentProject() { return s_currentProject; }
     static HTREEITEM AddTreeNode(HWND hTree, HTREEITEM hParent, const std::wstring &text, const std::wstring &fullPath);
     static void EnsureTreeSnapshotsFromDb();
     static const std::vector<TreeNodeSnapshot>& TreeSnapshot_ProgramFiles();

@@ -38,6 +38,7 @@ add_executable(SkeletonApp WIN32
     script_edit_dialog.cpp
     settings.cpp
     issgen.cpp
+    test_page.cpp
     dialogs.cpp
     scrollbar.cpp
     my_scrollbar_vscroll.cpp

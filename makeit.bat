@@ -56,9 +56,9 @@ if errorlevel 1 (
 
 REM ── [BUILD] Compile and link ───────────────────────────────────────────────────
 echo.
-echo [BUILD] Compiling — cmake --build build --verbose ...
+echo [BUILD] Compiling — cmake --build build --clean-first --verbose ...
 echo.
-cmake --build build --config %CONFIG% --verbose
+cmake --build build --config %CONFIG% --clean-first --verbose
 
 if errorlevel 1 (
     echo.

@@ -42,4 +42,9 @@ bool ShowMutexRunningDialog(HWND hwndParent, const std::map<std::wstring, std::w
 // Check if Ctrl+W is pressed in the current message
 bool IsCtrlWPressed(UINT msg, WPARAM wParam);
 
+// Expand literal \n / \r\n escape sequences (as stored in locale files) into
+// real newline characters.  Must be called before passing locale strings to
+// STATIC controls or DrawText.
+std::wstring ExpandEscapes(std::wstring s);
+
 #endif // CTRLW_H

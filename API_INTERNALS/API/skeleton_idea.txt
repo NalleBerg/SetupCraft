@@ -92,6 +92,9 @@
                                 Cyan      — linker + packaging steps
                                 DarkGray  — verbose g++.exe command lines
                                 Magenta   — phase-transition banners
+                              Build timer: $script:buildStart = [DateTime]::Now
+                              at run-start; at [DONE] line prints:
+                                ⏱  Build time: mm:ss.f  (Cyan)
     [ ] makeit_count.txt    — per-session build run counter. Plain text file
                               containing a single integer (e.g. "3").
                               _follow.ps1 writes 0 at startup and increments
@@ -137,7 +140,12 @@
                               Blue IDNO "Close this installer",
                               Red IDCANCEL "Cancel"; returns true on IDYES
                               so caller can close the running instance and
-                              retry the mutex)
+                              retry the mutex).
+                              ExpandEscapes(std::wstring) — public utility:
+                              converts literal \n/\r\n escape sequences (as
+                              stored in locale .txt files) to real newline
+                              characters; call before passing locale strings
+                              to STATIC controls or DrawText.
     [ ] page_manual         — contextual per-page manual popup. ShowPageManual
                               (hwndParent, pageIndex, locale) dispatches to a
                               per-page populate function. RICHEDIT50W for full
@@ -202,6 +210,22 @@
       ReleaseCapture();              // WM_CAPTURECHANGED fires here; now harmless
       if (dropIdx >= 0 && dropIdx != srcIdx && dropIdx != srcIdx+1)
           MoveItem(srcIdx, dropIdx); // use the saved locals, not the reset statics
+
+  Focus restore on app re-activation (Alt+Tab / taskbar click)
+    Problem: after Alt+Tab back to the app, the text selection in the active
+    editor appears grey (inactive) — the editor does not receive keyboard focus.
+    Pitfall 1: SetFocus in WM_ACTIVATE does NOT stick — DefWindowProcW
+    overrides it.  WM_ACTIVATE is the wrong hook.
+    Correct hook: WM_SETFOCUS on the top-level frame window.
+      case WM_SETFOCUS:
+          if (activeEditor != NULL)
+              SetFocus(activeEditor);
+          break;
+    Pitfall 2 (multi-editor-type tabs, e.g. RichEdit + Scintilla per tab):
+    always target the VISIBLE editor — doc->hSci if non-NULL and visible,
+    else doc->hEdit.  Calling SetFocus on a hidden RichEdit while a Scintilla
+    tab is active leaves the selection grey and no keyboard input reaches it.
+    Full reference: API_INTERNALS\INTERNALS\focus_restore_INTERNALS.txt
 
   Auto-dismissing notification dialog pattern
     Ne_ShowChoiceDialog has an optional autoCloseMs parameter (default 0).
