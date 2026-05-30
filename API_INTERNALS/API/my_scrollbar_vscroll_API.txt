@@ -8,9 +8,9 @@
 1. PURPOSE
 ──────────
   Drop-in custom scrollbar for any SCROLLINFO-based Win32 window, with full
-  support for RichEdit controls.  Replace the native bar by calling
-  msb_attach(); everything else — sizing, painting, interaction, DPI scaling —
-  is handled internally.
+  support for RichEdit and Scintilla controls.  Replace the native bar by
+  calling msb_attach(); everything else — sizing, painting, interaction, DPI
+  scaling — is handled internally.
 
   Features
   ─────────
@@ -109,6 +109,16 @@
                              InvalidateRect + UpdateWindow before returning, even
                              via the early-return path — otherwise the thumb never
                              moves visually even though the content scrolled.
+    Scintilla V+H      ✓  Show/hide, scrollwheel, thumb drag all working.
+                          V-axis overflow: SCI_LINESONSCREEN / SCI_GETLINECOUNT
+                          (wrap-aware via SCI_VISIBLEFROMDOCLINE). H-axis:
+                          SCI_GETSCROLLWIDTH vs client width. Native V bar
+                          suppressed via SCI_SETVSCROLLBAR(FALSE); native H bar
+                          via ShowScrollBar(SB_HORZ, FALSE). UpdateWindow must
+                          be called on the Scintilla HWND before the first
+                          overflow check so vs.lineHeight is initialised from
+                          the constructor default of 1 px to the real font
+                          height (see §7 for root cause detail).
     TreeView V+H       ✓  Show/hide, scrollwheel, thumb drag all working.
                           V-axis overflow detected via TVGN_NEXTVISIBLE tree-walk
                           (SCROLLINFO unreliable after ShowScrollBar(FALSE) zeroes
@@ -256,6 +266,32 @@
       msb_set_edge_gap(s_hMsbIdlg, 4);  // 4 px inward on Dialogs page
 
     Triggers an immediate reposition and repaint.
+
+  ── msb_hide ────────────────────────────────────────────────────────────────
+  void msb_hide(HMSB h);
+
+    Forcibly hide the bar window and reset the internal fade state to
+    FADE_INVISIBLE so the next msb_reposition or msb_sync call will correctly
+    re-show the bar when the target becomes visible again.
+
+    Do NOT call ShowWindow(msb_get_bar_hwnd(h), SW_HIDE) directly.  That
+    hides the window but leaves fadeState at FADE_HIDDEN / FADE_VISIBLE, so
+    Msb_UpdateVisibility never issues SW_SHOWNOACTIVATE on the next
+    msb_reposition, and the bar stays hidden permanently.
+
+    Typical use: tab-switch hide/show cycle (NSBEdit Ne_SyncScrollbarVisibility):
+
+      // Tab became inactive:
+      msb_hide(s_sbV[hEdit]);
+      msb_hide(s_sbH[hEdit]);
+
+      // Tab became active:
+      msb_reposition(s_sbV[hEdit]);
+      msb_sync(s_sbV[hEdit]);
+      msb_reposition(s_sbH[hEdit]);
+      msb_sync(s_sbH[hEdit]);
+
+    Safe to call with NULL.
 
 
 4. TYPICAL WIRING
@@ -454,7 +490,56 @@
   that were not yet in the initial viewport to render as dots/dashes when first
   scrolled into view.  The correct fix is purely in the dialog-width calculation.
 
-  4e. ListView V-only modal dialog (no H-axis MSB, auto-fit to column width)
+  4e. Scintilla with V + H bars (hidden/fade mode)
+  ──────────────────────────────────────────────────
+  Scintilla does NOT maintain SCROLLINFO (no WS_VSCROLL / WS_HSCROLL in
+  the creation style; SCI_SETVSCROLLBAR(FALSE) suppresses the built-in V bar).
+  The library reads scroll state directly via SCI_ messages.
+
+  !! MUST call UpdateWindow(hSci) BEFORE msb_sync / Ne_SyncScrollbarVisibility !!
+
+  Scintilla sets vs.lineHeight = 1 in its constructor (ViewStyle.cxx).
+  The real font height is only initialised during the first WM_PAINT →
+  RefreshStyleData() → vs.Refresh() call.  SCI_LINESONSCREEN = clientH /
+  vs.lineHeight, so before the first paint it returns clientH (e.g. 600
+  instead of ~33).  With lineHeight = 1: lineCount(200) > linesOnScreen(600)
+  = FALSE → Msb_ContentOverflows returns FALSE → V bar stays FADE_INVISIBLE.
+  Calling UpdateWindow(hSci) after ShowWindow(SW_SHOW) forces a synchronous
+  WM_PAINT that sets vs.lineHeight to the real value before any overflow check.
+
+  // After ShowWindow(hSci, SW_SHOW):
+  UpdateWindow(hSci);  // force first paint → vs.lineHeight initialised
+
+  // Attach bars (after UpdateWindow — so initial overflow is evaluated correctly):
+  s_sciSbV[hSci] = msb_attach(hSci, MSB_VERTICAL);
+  s_sciSbH[hSci] = msb_attach(hSci, MSB_HORIZONTAL);
+
+  // In SCN_UPDATEUI (Scintilla notification — content or scroll changed):
+  msb_sync(s_sciSbV[hSci]);
+  msb_sync(s_sciSbH[hSci]);
+
+  // In WM_SIZE / reposition:
+  msb_reposition(s_sciSbV[hSci]);
+  msb_reposition(s_sciSbH[hSci]);
+
+  // In WM_DESTROY (tab close):
+  msb_detach(s_sciSbV[hSci]);  s_sciSbV.erase(hSci);
+  msb_detach(s_sciSbH[hSci]);  s_sciSbH.erase(hSci);
+
+  ┌─ SCINTILLA CHECKLIST ─────────────────────────────────────────────────┐
+  │ □  Create Scintilla with WS_CHILD | WS_CLIPSIBLINGS | WS_CLIPCHILDREN │
+  │     — NO WS_VSCROLL / WS_HSCROLL                                     │
+  │ □  ShowWindow(hSci, SW_SHOW)                                         │
+  │ □  UpdateWindow(hSci)   ← MANDATORY before first overflow check      │
+  │ □  msb_attach for V and H axes                                       │
+  │ □  SCN_UPDATEUI → msb_sync(V) + msb_sync(H) to keep thumb in sync   │
+  │ □  WM_SIZE → msb_reposition(V) + msb_reposition(H)                  │
+  │ □  Tab close → msb_detach(V) + msb_detach(H) + erase from map       │
+  │ □  Do NOT use SCI_SETHSCROLLBAR(FALSE) for H — breaks H scrolling    │
+  │     Use ShowScrollBar(hSci, SB_HORZ, FALSE) instead                 │
+  └───────────────────────────────────────────────────────────────────────┘
+
+  4f. ListView V-only modal dialog (no H-axis MSB, auto-fit to column width)
   ────────────────────────────────────────────────────────────────────────────
 
   !! GOLDEN RULE: size using SM_CXVSCROLL, NOT S(MSB_WIDTH_FULL) !!
@@ -617,3 +702,47 @@
   Native bar      Suppressed with EM_SHOWSCROLLBAR (not ShowScrollBar —
   suppression     the latter does not stick on RichEdit).  Re-suppressed
                   after every WM_SIZE, WM_VSCROLL, and WM_HSCROLL.
+
+
+7. SCINTILLA SPECIFICS
+───────────────────────
+  Scintilla does NOT maintain Windows SCROLLINFO.  It uses no WS_VSCROLL /
+  WS_HSCROLL style bits and manages its built-in bar via SCI_SETVSCROLLBAR /
+  SCI_SETHSCROLLBAR independently of the style.  All scroll state is read
+  directly via SCI_ messages.
+
+  Vertical nMax   SCI_GETLINECOUNT − 1 (or SCI_VISIBLEFROMDOCLINE(lineCount-1)
+                  in wrap mode for the display-line count).
+
+  Vertical nPage  SCI_LINESONSCREEN (lines visible in the client area).
+
+  Vertical nPos   SCI_GETFIRSTVISIBLELINE.
+
+  Horiz nMax      SCI_GETSCROLLWIDTH (longest line width in pixels).
+
+  Horiz nPage     GetClientRect(hTarget).right.
+
+  Horiz nPos      SCI_GETXOFFSET.
+
+  Native V bar    SCI_SETVSCROLLBAR(FALSE) — suppresses Scintilla's built-in
+  suppression     V bar without affecting SCROLLINFO (Scintilla maintains
+                  none anyway).  Safe to call; does not break V scrolling.
+
+  Native H bar    ShowScrollBar(hTarget, SB_HORZ, FALSE).  Do NOT use
+  suppression     SCI_SETHSCROLLBAR(FALSE) — that sets
+                  horizontalScrollBarVisible = false inside Scintilla and
+                  disables all H scroll input regardless of bar visibility.
+                  Re-suppress after WM_SIZE (the native NC area may re-appear).
+
+  vs.lineHeight   Set to 1 in Scintilla's ViewStyle constructor; updated to
+  root cause      the real font height only on the first WM_PAINT →
+                  RefreshStyleData() → vs.Refresh() call.
+                  SCI_LINESONSCREEN = clientHeight / vs.lineHeight, so before
+                  the first paint it returns clientHeight (e.g. 600) instead
+                  of the realistic ~33.  For a 200-line file:
+                    200 > 600 = FALSE → V bar stays FADE_INVISIBLE forever.
+                  Fix: call UpdateWindow(hSci) after ShowWindow(SW_SHOW) and
+                  before any msb_attach / msb_sync / overflow check.  This
+                  forces a synchronous WM_PAINT that sets vs.lineHeight to the
+                  real value (e.g. 18 px).  Then SCI_LINESONSCREEN = 600/18 = 33
+                  and 200 > 33 = TRUE → V bar correctly starts FADE_HIDDEN.

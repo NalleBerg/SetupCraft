@@ -32,74 +32,58 @@
   ── What to include ──────────────────────────────────────────────────────────
 
   Build system
-    [ ] makeit.bat          — one-shot build script (CMake + MinGW/GCC).
-                              Self-logging wrapper: first invocation truncates
-                              makeit.log (signals new run to _follow.ps1), then
-                              re-calls itself with all stdout+stderr redirected:
+    [ ] makeit.bat          — one-shot build script (MinGW/GCC, resource
+                              compilation, manifest embedding, strip).
+                              Verbose-log trick: the script re-invokes itself
+                              with a sentinel argument (__logged__); the inner
+                              run uses "echo on" and pipes all stdout+stderr
+                              through GnuWin32 tee to makeit.log (overwrites
+                              each run).  Compiler command lines are prefixed
+                              with @ so "echo on" echoes the descriptive label
+                              above each step but not the 200-char g++ line.
+                              Flags: -v -Wall on all gcc/g++ calls so every
+                              driver search-path and every warning is captured.
+                              Skeleton structure:
                                 @echo off
-                                setlocal
-                                if defined _SC_LOGGED goto :build
-                                echo. > makeit.log
-                                set _SC_LOGGED=1
-                                call "%~f0" >> makeit.log 2>&1
-                                exit /b %ERRORLEVEL%
-                                :build
-                                echo [PRE]
-                                taskkill /f /im SkeletonApp.exe ...
-                                echo [CONFIGURE]
-                                cmake -B build -G "MinGW Makefiles" ...
-                                echo [BUILD]
-                                cmake --build build --config %CONFIG% --verbose
-                                echo [COPY-BUILD]
-                                copy / xcopy to gather assets
-                                echo [PACKAGE]
-                                assemble output folder
-                                echo [DONE]
-                              --verbose on cmake --build exposes full g++.exe
-                              command lines in the log. All >nul suppressions
-                              removed — every copy/xcopy/taskkill is visible.
-                              Section labels [PRE] [CONFIGURE] [BUILD]
-                              [COPY-BUILD] [PACKAGE] [DONE] are picked up by
-                              _follow.ps1 for phase-transition banners.
-    [ ] follow.bat          — one-liner launcher: starts _follow.ps1 in the
+                                if "%1" neq "__logged__" (
+                                    call "%~f0" __logged__ 2>&1 | tee makeit.log
+                                    exit /b !ERRORLEVEL!
+                                )
+                                echo on
+                                :: [1/N] label
+                                @windres ...
+                                :: [2/N] label
+                                @gcc -v -O2 ...
+                                :: [N/N] label
+                                @g++ -v -std=c++17 -O2 -Wall -mwindows ...
+    [ ] follow.bat          — one-liner launcher: starts follow.ps1 in the
                               current PowerShell host without a new window.
                                 @echo off
-                                pwsh -NoProfile -File "%~dp0_follow.ps1"
-    [ ] _follow.ps1         — live colour log viewer for makeit.log.
+                                pwsh -NoProfile -File "%~dp0follow.ps1"
+    [ ] follow.ps1          — live colour log viewer for makeit.log.
                               Polls the file every 150 ms by byte position.
-                              Run counter: RESETS TO 0 on each follow.bat
-                              launch (writes 0 to makeit_count.txt at startup);
-                              first build of the session = Run #1.
-                              New-run detection: file size < last read pos
-                              (truncated by makeit.bat) or first-ever content
-                              ($run == 0 && $size > 0).
-                              On new run: Clear-Host + banner:
-                                  BUILD RUN #N  yyyy-MM-dd  HH:mm:ss
-                              Progress bars: "[ X%] Building CXX object …"
-                              lines → "[████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░]
-                                32%  » Compiling  scripts.cpp"
-                              using 38-char █/░ Unicode block characters.
-                              Phase-transition banners: ┌─── Phase name
-                              printed once per phase transition using
-                              $script:phase variable; phases detected by
-                              section labels from makeit.bat.
+                              New-run detection: if current file size < last
+                              read position, the file was truncated (new build
+                              started) → Clear-Host + print a coloured header
+                                  === RUN #N  «yyyy-MM-dd HH:mm:ss» ===
+                              RUN counter is PERSISTENT across sessions via
+                              makeit_count.txt (see below). Loaded at startup,
+                              incremented and saved on every new run. To reset,
+                              set makeit_count.txt to 0 (or delete it).
                               Line colouring:
-                                Red       — "error:" or "FAILED"  (✖ prefix)
-                                Yellow    — "warning:"             (⚠ prefix)
-                                DarkCyan  — "-- " CMake messages
-                                Green     — "Built target" / success (✔ prefix)
-                                White     — compile progress-bar lines
-                                Cyan      — linker + packaging steps
-                                DarkGray  — verbose g++.exe command lines
-                                Magenta   — phase-transition banners
-                              Build timer: $script:buildStart = [DateTime]::Now
-                              at run-start; at [DONE] line prints:
-                                ⏱  Build time: mm:ss.f  (Cyan)
-    [ ] makeit_count.txt    — per-session build run counter. Plain text file
-                              containing a single integer (e.g. "3").
-                              _follow.ps1 writes 0 at startup and increments
-                              once per detected build. Never commit this file
-                              (add to .gitignore) — it is ephemeral local state.
+                                Red       — "error:" or "FAILED"
+                                Yellow    — "warning:"
+                                DarkCyan  — "note:"
+                                Green     — "Done." or "BUILD SUCCEEDED"
+                                White     — "[N/N]" step headers
+                                DarkGray  — prompt lines (^[A-Z]:\\.*>)
+                                default   — everything else
+    [ ] makeit_count.txt    — persistent build run counter. Plain text file
+                              containing a single integer (e.g. "42").
+                              follow.ps1 reads it at startup and writes it
+                              after every new run. Start new projects at 0;
+                              first build will be RUN #1. Never commit this
+                              file (add to .gitignore) — it is local state.
     [ ] CMakeLists.txt      — CMake alternative, already battle-tested here
     [ ] app.manifest        — DPI awareness, ComCtl v6, UAC level
 
@@ -140,12 +124,7 @@
                               Blue IDNO "Close this installer",
                               Red IDCANCEL "Cancel"; returns true on IDYES
                               so caller can close the running instance and
-                              retry the mutex).
-                              ExpandEscapes(std::wstring) — public utility:
-                              converts literal \n/\r\n escape sequences (as
-                              stored in locale .txt files) to real newline
-                              characters; call before passing locale strings
-                              to STATIC controls or DrawText.
+                              retry the mutex)
     [ ] page_manual         — contextual per-page manual popup. ShowPageManual
                               (hwndParent, pageIndex, locale) dispatches to a
                               per-page populate function. RICHEDIT50W for full
@@ -211,22 +190,6 @@
       if (dropIdx >= 0 && dropIdx != srcIdx && dropIdx != srcIdx+1)
           MoveItem(srcIdx, dropIdx); // use the saved locals, not the reset statics
 
-  Focus restore on app re-activation (Alt+Tab / taskbar click)
-    Problem: after Alt+Tab back to the app, the text selection in the active
-    editor appears grey (inactive) — the editor does not receive keyboard focus.
-    Pitfall 1: SetFocus in WM_ACTIVATE does NOT stick — DefWindowProcW
-    overrides it.  WM_ACTIVATE is the wrong hook.
-    Correct hook: WM_SETFOCUS on the top-level frame window.
-      case WM_SETFOCUS:
-          if (activeEditor != NULL)
-              SetFocus(activeEditor);
-          break;
-    Pitfall 2 (multi-editor-type tabs, e.g. RichEdit + Scintilla per tab):
-    always target the VISIBLE editor — doc->hSci if non-NULL and visible,
-    else doc->hEdit.  Calling SetFocus on a hidden RichEdit while a Scintilla
-    tab is active leaves the selection grey and no keyboard input reaches it.
-    Full reference: API_INTERNALS\INTERNALS\focus_restore_INTERNALS.txt
-
   Auto-dismissing notification dialog pattern
     Ne_ShowChoiceDialog has an optional autoCloseMs parameter (default 0).
     When > 0, WM_CREATE calls SetTimer(hwnd, 1, autoCloseMs, NULL).
@@ -236,6 +199,27 @@
     Result: a timed notification that the user can still dismiss early by
     clicking OK — no busy-wait, no thread, no extra state.
     Useful for: FTP upload success, auto-save confirmations, brief info toasts.
+
+  Session restore pattern (crash-safe, installed-only)
+    ne_session.h / ne_session.cpp implement atomic session persistence via the
+    shared SQLite handle from ne_profiles.cpp.
+    Key design decisions:
+      • Gate on NeProfiles_IsInstalled() — portable mode keeps no session so
+        the DB stub on a USB drive is never written unexpectedly.
+      • Bypass when a file is passed on the command line — the user explicitly
+        asked for a specific file; don't override it with last session.
+      • Single atomic transaction (BEGIN / DELETE / INSERT... / COMMIT):
+        a crash mid-write leaves the PREVIOUS session intact, not a partial one.
+      • Content stored as BLOB in the DB row (not a sidecar temp file):
+        simpler, atomic, and survives TEMP folder clears.
+      • diskTimeLo/diskTimeHi store FILETIME components so remote-file change
+        detection works without a separate hash.
+      • 60-second SetTimer autosave (NE_TIMER_SESSION id 10) + explicit save
+        at WM_CLOSE — covers both graceful exit and background crashes.
+    Locale keys needed per dialog: DLG_SESSION_RESTORE, MSG_SESSION_FILE_MISSING,
+    BTN_OPEN_CACHED, BTN_SKIP, MSG_SESSION_FILE_GONE, MSG_SESSION_FTP_FAIL,
+    MSG_SESSION_FTP_FAIL_NC, MSG_SESSION_REMOTE_CHANGED, BTN_RELOAD_REMOTE,
+    BTN_KEEP_LOCAL.
 
   Localisation stub
     [ ] languages.h / languages.cpp  — locale loading, key lookup, ExpandEscapes
@@ -549,6 +533,33 @@
     In NSBEdit: SETT_TearDown (which destroys s_hPathTooltip) must be called
     before the controlIds[] destroy loop in SwitchPage, not after it.
     (Bug found: crash on second Settings-page visit, v2026.05.07.09.)
+
+  - GetDlgItem / WM_COMMAND hCtrl stale-HWND trap after page teardown:
+    In a multi-page UI where SwitchPage destroys and recreates all child controls
+    on each page visit, WM_COMMAND handlers must use the hCtrl parameter (lParam)
+    directly rather than re-querying via GetDlgItem(hwnd, controlId).
+    Root cause: after SwitchPage, the old child HWNDs are destroyed and new ones
+    are created.  The OS HWND allocator can reuse a previously-destroyed value.
+    When two page visits both create a control with the same ID, two children with
+    that same control ID may coexist briefly as siblings if the old HWND was
+    recycled into a different control before the first one was fully cleaned up.
+    GetDlgItem performs a breadth-first search of the parent's children and returns
+    the first match — which may be the old, now-stale HWND, not the current one.
+    Consequence: CBN_SELCHANGE fired by the live combo is processed by reading
+    CB_GETCURSEL from the stale combo, which still holds the old selection (e.g.
+    index 0), so every dropdown change silently reverts to the initial value.
+    Confirmed via runtime logging: hCtrl ≠ GetDlgItem() (match=0).
+    Fix: in WM_COMMAND handlers, use (HWND)lParam directly — it is always the
+    exact window that posted the notification:
+        case IDC_MY_COMBO:
+            if (HIWORD(wParam) == CBN_SELCHANGE) {
+                HWND hCmb = hCtrl ? hCtrl : GetDlgItem(hwnd, IDC_MY_COMBO);
+                int sel = (int)SendMessageW(hCmb, CB_GETCURSEL, 0, 0);
+                ...
+            }
+    The fallback to GetDlgItem is a defensive safety net only; hCtrl is always
+    non-null for control notifications in a standard message loop.
+    (Bug found and fixed in dialogs.cpp IDLG_OnCommand, v2026.05.30.09.)
 
   - Shared subclass proc for many dialog controls via window property (avTip pattern):
     When a dialog has many checkboxes/radios that each need their own tooltip text,

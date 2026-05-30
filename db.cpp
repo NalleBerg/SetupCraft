@@ -3,6 +3,7 @@
 #include <objbase.h>   // CoCreateGuid, StringFromGUID2
 #include <string>
 #include <vector>
+#include <map>
 #include <sstream>
 #include <ctime>
 #include <cstdio>
@@ -42,6 +43,11 @@ static sqlite3_last_insert_rowid_t p_last_insert = NULL;
 static sqlite3_errmsg_t p_errmsg = NULL;
 static sqlite3_column_text_t p_col_text = NULL;
 static sqlite3_column_int64_t p_col_int64 = NULL;
+
+// In-memory cache of license template RTF content, keyed by template id.
+// Populated once in InitDb from the kLT[] array so that GetLicenseTemplateRtf
+// can serve content directly from memory without a DB round-trip.
+static std::map<int, std::wstring> g_ltRtfCache;
 
 static std::string WToUtf8(const std::wstring &w) {
     if (w.empty()) return {};
@@ -555,10 +561,10 @@ bool DB::InitDb() {
         };
 
         // Helper: wrap static body text into a full RTF document with optional logo image at top.
-        // NOTE: body must end with LT_CREDIT which already provides the closing "}" for the RTF group.
+        // LT_CREDIT (the closing "}" of the RTF group) is appended automatically.
         auto LtMake = [&](const char* img, const std::string& body) -> std::string {
             std::string pict = LtBuildPict(img);
-            return std::string(LT_HEAD) + pict + body;
+            return std::string(LT_HEAD) + pict + body + LT_CREDIT;
         };
 
         LtEntry kLT[] = {
@@ -1482,7 +1488,14 @@ bool DB::InitDb() {
             "ON CONFLICT(id) DO UPDATE SET "
             "  name=excluded.name, spdx_id=excluded.spdx_id, "
             "  img_file=excluded.img_file, content_rtf=excluded.content_rtf;";
+        // Populate the in-memory cache and persist each entry to the DB.
+        // The cache lets GetLicenseTemplateRtf serve content without a DB
+        // round-trip, avoiding any potential query failure at selection time.
+        g_ltRtfCache.clear();
         for (int i = 0; i < kLTCount; i++) {
+            if (!kLT[i].rtf.empty())
+                g_ltRtfCache[kLT[i].id] = Utf8ToW(kLT[i].rtf);
+
             void* s2 = NULL;
             if (p_prepare(db, upsertLTSql, -1, &s2, NULL) == 0) {
                 std::string sId = std::to_string(kLT[i].id);
@@ -2792,6 +2805,12 @@ std::vector<DB::LicenseTemplateInfo> DB::GetAllLicenseTemplates()
 // Returns the RTF content of the given template id, or empty string if not found.
 std::wstring DB::GetLicenseTemplateRtf(int id)
 {
+    // Prefer the in-memory cache built at startup — avoids a DB round-trip and
+    // is guaranteed to match what was inserted into the DB.
+    auto it = g_ltRtfCache.find(id);
+    if (it != g_ltRtfCache.end()) return it->second;
+
+    // Fallback: query the DB (e.g. if called before InitDb populates the cache).
     std::wstring out;
     std::wstring dbPath = GetAppDataDbPath();
     std::string dbPathUtf8 = WToUtf8(dbPath);
@@ -3085,4 +3104,88 @@ std::vector<FileAssocRow> DB::GetFileAssocsForProject(int projectId)
     if (p_finalize) p_finalize(stmt);
     p_close(db);
     return out;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  DB::DeleteProject
+//  Remove a project and every child row that references it.
+//
+//  Deletion order matters: child tables that have no FK cascade must be cleared
+//  before their parents, and the projects row itself is deleted last.
+//
+//  Tables handled (in safe order):
+//    dep_instructions            – project_id  (parent: external_deps)
+//    component_dependencies      – via sub-select on components.project_id
+//                                  (no FK cascade enforced by SQLite pragma)
+//    file_associations           – project_id
+//    scripts                     – project_id
+//    installer_dialogs           – project_id
+//    sc_shortcuts                – project_id
+//    sc_menu_nodes               – project_id
+//    install_types               – project_id
+//    components                  – project_id
+//    external_deps               – project_id
+//    registry_entries            – project_id
+//    files                       – project_id
+//    projects                    – id  (the record itself)
+// ─────────────────────────────────────────────────────────────────────────────
+bool DB::DeleteProject(int id)
+{
+    std::wstring dbPath = GetAppDataDbPath();
+    std::string  dbPathUtf8 = WToUtf8(dbPath);
+    void *db = NULL;
+    int flags = 0x00000002 /*SQLITE_OPEN_READWRITE*/ | 0x00000004 /*SQLITE_OPEN_CREATE*/;
+    if (p_open(dbPathUtf8.c_str(), &db, flags, NULL) != 0) return false;
+
+    std::string sPid = std::to_string(id);
+
+    // Helper: run a single DELETE with one bound integer parameter.
+    auto runDelete = [&](const char* sql) {
+        void* stmt = NULL;
+        if (p_prepare(db, sql, -1, &stmt, NULL) != 0) return;
+        p_bind_text(stmt, 1, sPid.c_str(), -1, NULL);
+        p_step(stmt);
+        if (p_finalize) p_finalize(stmt);
+    };
+
+    // Sub-table that references external_deps, no FK cascade.
+    runDelete("DELETE FROM dep_instructions WHERE project_id=?;");
+
+    // component_dependencies references components, no FK cascade enforced.
+    {
+        const char* sql =
+            "DELETE FROM component_dependencies "
+            "WHERE component_id IN (SELECT id FROM components WHERE project_id=?);";
+        void* stmt = NULL;
+        if (p_prepare(db, sql, -1, &stmt, NULL) == 0) {
+            p_bind_text(stmt, 1, sPid.c_str(), -1, NULL);
+            p_step(stmt);
+            if (p_finalize) p_finalize(stmt);
+        }
+    }
+
+    // All remaining project-scoped tables.
+    runDelete("DELETE FROM file_associations WHERE project_id=?;");
+    runDelete("DELETE FROM scripts WHERE project_id=?;");
+    runDelete("DELETE FROM installer_dialogs WHERE project_id=?;");
+    runDelete("DELETE FROM sc_shortcuts WHERE project_id=?;");
+    runDelete("DELETE FROM sc_menu_nodes WHERE project_id=?;");
+    runDelete("DELETE FROM install_types WHERE project_id=?;");
+    runDelete("DELETE FROM components WHERE project_id=?;");
+    runDelete("DELETE FROM external_deps WHERE project_id=?;");
+    runDelete("DELETE FROM registry_entries WHERE project_id=?;");
+    runDelete("DELETE FROM files WHERE project_id=?;");
+
+    // Finally remove the project record itself (WHERE id=? not project_id).
+    {
+        const char* sql = "DELETE FROM projects WHERE id=?;";
+        void* stmt = NULL;
+        if (p_prepare(db, sql, -1, &stmt, NULL) != 0) { p_close(db); return false; }
+        p_bind_text(stmt, 1, sPid.c_str(), -1, NULL);
+        p_step(stmt);
+        if (p_finalize) p_finalize(stmt);
+    }
+
+    p_close(db);
+    return true;
 }

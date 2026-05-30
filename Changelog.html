@@ -1,6 +1,12 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 25 May 2026 &mdash; v2026.05.25.12 (12:53)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 30 May 2026 &mdash; v2026.05.30.09 (09:06)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.05.30.09</span></h3>
+<p><strong>Dialogs page &mdash; license template dropdown now correctly updates editor content (30.05.2026, 09:06):</strong></p>
+<ul>
+<li><strong><code>dialogs.cpp</code> &mdash; <code>IDLG_OnCommand</code>: use <code>hCtrl</code> (lParam) directly in <code>CBN_SELCHANGE</code>:</strong> The license template combo box handler was calling <code>GetDlgItem(hwnd, IDC_IDLG_LICENSE_TEMPLATE)</code> to get the combo HWND, but <code>GetDlgItem</code> was returning a <em>stale HWND</em> from a previous page build rather than the live combo. The root cause is that <code>SwitchPage</code> tears down and rebuilds all page controls on each visit; if the old HWND value happened to be recycled by the OS, <code>GetDlgItem</code> could resolve to a sibling window with the same control ID. The fix: use the <code>hCtrl</code> parameter (<code>lParam</code> from <code>WM_COMMAND</code>) directly, which is always the exact window that fired the notification. A safe fallback to <code>GetDlgItem</code> is kept in case <code>hCtrl</code> is null (never happens in practice). The previously ignored fourth parameter of <code>IDLG_OnCommand(HWND hwnd, int wmId, int wmEvent, HWND hCtrl)</code> is now named and used. Root cause confirmed by runtime logging: <code>hCtrl</code> and <code>GetDlgItem</code> returned different HWNDs (<code>match=0</code>), causing <code>CB_GETCURSEL</code> to always report index&thinsp;0 (The Unlicense) regardless of what the user selected visually.</li>
+</ul>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.05.25.12</span></h3>
 <p><strong>Test Installer page &mdash; full implementation + issgen output filename improvement (25.05.2026, 12:53):</strong></p>

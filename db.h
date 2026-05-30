@@ -193,4 +193,7 @@ namespace DB {
     int  InsertFileAssoc(int projectId, const FileAssocRow& row);
     bool DeleteFileAssocsForProject(int projectId);
     std::vector<FileAssocRow> GetFileAssocsForProject(int projectId);
+    // Whole-project deletion — removes all child rows then the project record itself.
+    // Returns true on success (or if the project did not exist).
+    bool DeleteProject(int id);
 }

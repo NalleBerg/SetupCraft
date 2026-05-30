@@ -532,60 +532,78 @@ LRESULT CALLBACK DeleteProjectDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM
     switch (msg) {
     case WM_CREATE: {
         HINSTANCE hInst = (HINSTANCE)GetWindowLongPtr(hDlg, GWLP_HINSTANCE);
-        
-        // Create a ListView to show projects as a table
+
+        // ── Layout constants (all DPI-scaled) ────────────────────────────────
+        const int pad   = S(10);
+        const int btnH  = S(28);
+        const int gap   = S(8);
+        const int listH = S(260);
+
+        // ── Translated strings ────────────────────────────────────────────────
+        auto getL = [&](const wchar_t* key, const wchar_t* fb) -> std::wstring {
+            auto it = g_locale.find(key);
+            return (it != g_locale.end()) ? it->second : fb;
+        };
+        std::wstring colIdText      = getL(L"col_id",           L"ID");
+        std::wstring colNameText    = getL(L"col_name",         L"Name");
+        std::wstring colVersionText = getL(L"col_version",      L"Version");
+        std::wstring colDateText    = getL(L"col_last_updated", L"Last Updated");
+        std::wstring delText        = getL(L"delete_project",   L"Delete project");
+        std::wstring cancelText     = getL(L"cancel",           L"Cancel");
+
+        // ── Measure buttons so the dialog is always wide enough ───────────────
+        int wDel    = MeasureButtonWidth(delText,    true);
+        int wCancel = MeasureButtonWidth(cancelText, true);
+
+        // ── Compute client dimensions ─────────────────────────────────────────
+        // Fixed column widths for ID / Version / Date; Name fills the remainder.
+        const int colId   = S(40);
+        const int colVer  = S(110);
+        const int colDate = S(140);
+        // Minimum list width: fixed columns + a reasonable Name column + scrollbar gap
+        const int listMinW = colId + S(200) + colVer + colDate + S(4);
+        // Dialog must be at least wide enough for both buttons + padding
+        const int btnRowW  = pad + wCancel + gap + wDel + pad;
+        const int clientW  = std::max(btnRowW, listMinW + 2 * pad);
+        const int listW    = clientW - 2 * pad;
+        const int colName  = std::max(S(60), listW - colId - colVer - colDate - S(4));
+
+        const int listY  = pad;
+        const int btnY   = listY + listH + pad;
+        const int clientH = btnY + btnH + pad;
+
+        // ── ListView ──────────────────────────────────────────────────────────
         HWND hList = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEW, NULL,
             WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_SINGLESEL | WS_BORDER,
-            10, 10, 560, 300,
+            pad, listY, listW, listH,
             hDlg, (HMENU)IDC_PROJECT_LIST, hInst, NULL);
-        
+
         ListView_SetExtendedListViewStyle(hList, LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
         if (g_guiFont) SendMessageW(hList, WM_SETFONT, (WPARAM)g_guiFont, TRUE);
-        
-        // Add columns with i18n
-        auto itColId = g_locale.find(L"col_id");
-        std::wstring colIdText = (itColId != g_locale.end()) ? itColId->second : L"ID";
-        
-        auto itColName = g_locale.find(L"col_name");
-        std::wstring colNameText = (itColName != g_locale.end()) ? itColName->second : L"Name";
-        
-        auto itColVersion = g_locale.find(L"col_version");
-        std::wstring colVersionText = (itColVersion != g_locale.end()) ? itColVersion->second : L"Version";
-        
-        auto itColLastUpdated = g_locale.find(L"col_last_updated");
-        std::wstring colLastUpdatedText = (itColLastUpdated != g_locale.end()) ? itColLastUpdated->second : L"Last Updated";
-        
+
         LVCOLUMNW col = {};
         col.mask = LVCF_TEXT | LVCF_WIDTH;
-        col.cx = 50;
-        col.pszText = (LPWSTR)colIdText.c_str();
+        col.cx = colId;   col.pszText = (LPWSTR)colIdText.c_str();
         ListView_InsertColumn(hList, 0, &col);
-        
-        col.cx = 200;
-        col.pszText = (LPWSTR)colNameText.c_str();
+        col.cx = colName; col.pszText = (LPWSTR)colNameText.c_str();
         ListView_InsertColumn(hList, 1, &col);
-        
-        col.cx = 120;
-        col.pszText = (LPWSTR)colVersionText.c_str();
+        col.cx = colVer;  col.pszText = (LPWSTR)colVersionText.c_str();
         ListView_InsertColumn(hList, 2, &col);
-        
-        col.cx = 140;
-        col.pszText = (LPWSTR)colLastUpdatedText.c_str();
+        col.cx = colDate; col.pszText = (LPWSTR)colDateText.c_str();
         ListView_InsertColumn(hList, 3, &col);
-        
-        // Load projects from database
+
+        // ── Populate from database ────────────────────────────────────────────
         auto projects = DB::ListProjects();
         for (const auto &proj : projects) {
             wchar_t idBuf[32];
             swprintf(idBuf, 32, L"%d", proj.id);
-            
+
             // Convert timestamp to readable format
             time_t t = (time_t)proj.last_updated;
             struct tm *timeinfo = localtime(&t);
             wchar_t timeBuf[64];
             wcsftime(timeBuf, 64, L"%Y-%m-%d %H:%M", timeinfo);
-            
-            // Insert item
+
             LVITEMW item = {};
             item.mask = LVIF_TEXT | LVIF_PARAM;
             item.iItem = ListView_GetItemCount(hList);
@@ -593,24 +611,52 @@ LRESULT CALLBACK DeleteProjectDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM
             item.pszText = idBuf;
             item.lParam = (LPARAM)proj.id;
             int idx = ListView_InsertItem(hList, &item);
-            
-            // Set subitems
+
             ListView_SetItemText(hList, idx, 1, (LPWSTR)proj.name.c_str());
             ListView_SetItemText(hList, idx, 2, (LPWSTR)proj.version.c_str());
             ListView_SetItemText(hList, idx, 3, timeBuf);
         }
-        
-        // Create OK and Cancel buttons
-        auto itOk = g_locale.find(L"ok");
-        std::wstring okText = (itOk != g_locale.end()) ? itOk->second : L"OK";
-        CreateCustomButtonWithIcon(hDlg, IDOK, okText, ButtonColor::Blue,
-            L"imageres.dll", 89, 480, 320, 100, 30, hInst);
-        
-        auto itCancel = g_locale.find(L"cancel");
-        std::wstring cancelText = (itCancel != g_locale.end()) ? itCancel->second : L"Cancel";
-        CreateCustomButtonWithIcon(hDlg, IDCANCEL, cancelText, ButtonColor::Red,
-            L"shell32.dll", 131, 350, 320, 120, 30, hInst);
-        
+
+        // ── Buttons — right-aligned at the bottom ─────────────────────────────
+        // Cancel left of Delete, both flush to the right edge.
+        int xDel    = clientW - pad - wDel;
+        int xCancel = xDel - gap - wCancel;
+        CreateCustomButtonWithIcon(hDlg, IDCANCEL, cancelText, ButtonColor::Blue,
+            L"shell32.dll", 131, xCancel, btnY, wCancel, btnH, hInst);
+        CreateCustomButtonWithIcon(hDlg, IDOK, delText, ButtonColor::Red,
+            L"shell32.dll", 131, xDel, btnY, wDel, btnH, hInst);
+
+        // ── Build and cache fonts ─────────────────────────────────────────────
+        // CtrlFont  — regular weight, applied to all child controls.
+        // BoldFont  — bold variant, used by NM_CUSTOMDRAW to make col 1 stand out.
+        // Both are stored as window properties and freed in WM_DESTROY.
+        NONCLIENTMETRICSW ncm = {};
+        ncm.cbSize = sizeof(ncm);
+        SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+        ncm.lfMessageFont.lfHeight  = (LONG)(ncm.lfMessageFont.lfHeight * 1.2f);
+        ncm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+        HFONT hCtrlFont = CreateFontIndirectW(&ncm.lfMessageFont);
+        SetPropW(hDlg, L"CtrlFont", hCtrlFont);
+        EnumChildWindows(hDlg, [](HWND hChild, LPARAM lp) -> BOOL {
+            SendMessageW(hChild, WM_SETFONT, (WPARAM)(HFONT)lp, TRUE);
+            return TRUE;
+        }, (LPARAM)hCtrlFont);
+        // Push font to ListView header (EnumChildWindows misses it)
+        HWND hHeader = ListView_GetHeader(hList);
+        if (hHeader) SendMessageW(hHeader, WM_SETFONT, (WPARAM)hCtrlFont, TRUE);
+        ncm.lfMessageFont.lfWeight = FW_BOLD;
+        HFONT hBoldFont = CreateFontIndirectW(&ncm.lfMessageFont);
+        SetPropW(hDlg, L"BoldFont", hBoldFont);
+
+        // ── Resize window to computed client size and re-centre on parent ─────
+        RECT adj = { 0, 0, clientW, clientH };
+        AdjustWindowRectEx(&adj, WS_POPUP | WS_CAPTION | WS_SYSMENU, FALSE, WS_EX_DLGMODALFRAME);
+        int wndW = adj.right - adj.left;
+        int wndH = adj.bottom - adj.top;
+        int nx, ny;
+        GetCenteredPosition(GetParent(hDlg), wndW, wndH, nx, ny);
+        SetWindowPos(hDlg, NULL, nx, ny, wndW, wndH, SWP_NOZORDER | SWP_NOACTIVATE);
+
         return 0;
     }
     case WM_COMMAND:
@@ -623,27 +669,39 @@ LRESULT CALLBACK DeleteProjectDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM
                 item.iItem = sel;
                 ListView_GetItem(hList, &item);
                 int projId = (int)item.lParam;
-                
-                // Show confirmation dialog
+
+                // Retrieve the project name for the confirmation message.
+                wchar_t nameBuf[256] = {};
+                ListView_GetItemText(hList, sel, 1, nameBuf, 256);
+
+                // Build the confirmation message — substitute {0} with project name.
                 auto itDelMsg = g_locale.find(L"confirm_delete_project");
-                std::wstring delMsg = (itDelMsg != g_locale.end()) ? itDelMsg->second : L"Are you sure you want to delete this project?";
+                std::wstring delMsg = (itDelMsg != g_locale.end())
+                    ? itDelMsg->second
+                    : L"Are you sure you want to delete \"{0}\"?\n\nThis cannot be undone.";
+                auto pos = delMsg.find(L"{0}");
+                if (pos != std::wstring::npos) delMsg.replace(pos, 3, nameBuf);
+
                 auto itDelCap = g_locale.find(L"confirm_delete_title");
                 std::wstring delCap = (itDelCap != g_locale.end()) ? itDelCap->second : L"Confirm Delete";
-                int result = MessageBoxW(hDlg, delMsg.c_str(), delCap.c_str(), MB_YESNO | MB_ICONWARNING);
-                
-                if (result == IDYES) {
-                    // TODO: Actually delete the project from database
-                    auto itNotImpl = g_locale.find(L"delete_not_implemented");
-                    std::wstring notImpl = (itNotImpl != g_locale.end()) ? itNotImpl->second : L"Project deletion is not yet implemented";
-                    auto itInfoCap = g_locale.find(L"info");
-                    std::wstring infoCap = (itInfoCap != g_locale.end()) ? itInfoCap->second : L"Info";
-                    MessageBoxW(hDlg, notImpl.c_str(), infoCap.c_str(), MB_OK);
+
+                if (ShowConfirmDeleteDialog(hDlg, delCap, delMsg, g_locale)) {
+                    if (DB::DeleteProject(projId)) {
+                        // Success — close the dialog and return to the entry screen.
+                        HWND hParent = GetParent(hDlg);
+                        if (hParent) EnableWindow(hParent, TRUE);
+                        DestroyWindow(hDlg);
+                    } else {
+                        // DB write failed — show a styled error, stay in dialog.
+                        auto itErrCap = g_locale.find(L"error");
+                        std::wstring errCap = (itErrCap != g_locale.end()) ? itErrCap->second : L"Error";
+                        auto itErrMsg = g_locale.find(L"del_proj_error");
+                        std::wstring errMsg = (itErrMsg != g_locale.end())
+                            ? itErrMsg->second
+                            : L"Failed to delete the project from the database.";
+                        ShowValidationDialog(hDlg, errCap, errMsg, g_locale);
+                    }
                 }
-                
-                // Return to main window
-                HWND hParent = GetParent(hDlg);
-                if (hParent) EnableWindow(hParent, TRUE);
-                DestroyWindow(hDlg);
             } else {
                 auto itSelMsg = g_locale.find(L"select_project_first");
                 std::wstring selMsg = (itSelMsg != g_locale.end()) ? itSelMsg->second : L"Please select a project";
@@ -664,7 +722,7 @@ LRESULT CALLBACK DeleteProjectDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM
         NMHDR *nmhdr = (NMHDR*)lParam;
         if (nmhdr->idFrom == IDC_PROJECT_LIST) {
             if (nmhdr->code == NM_DBLCLK) {
-                // Double-click on list item = same as OK
+                // Double-click on list item = same as clicking the Delete button
                 SendMessageW(hDlg, WM_COMMAND, IDOK, 0);
                 return 0;
             }
@@ -677,17 +735,13 @@ LRESULT CALLBACK DeleteProjectDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM
                     return CDRF_NOTIFYSUBITEMDRAW;
                 }
                 else if (cd->nmcd.dwDrawStage == (CDDS_ITEMPREPAINT | CDDS_SUBITEM)) {
-                    // Make column 1 (Name) bold
+                    // Make column 1 (Name) bold using the cached BoldFont property.
+                    // Never create fonts in the draw path — that leaks one HFONT per
+                    // paint cycle.  The font was pre-built in WM_CREATE and stored as
+                    // a window property so we can retrieve it here at zero cost.
                     if (cd->iSubItem == 1) {
-                        if (g_guiFont) {
-                            LOGFONTW lf = {};
-                            GetObjectW(g_guiFont, sizeof(LOGFONTW), &lf);
-                            lf.lfWeight = FW_BOLD;
-                            HFONT hBoldFont = CreateFontIndirectW(&lf);
-                            SelectObject(cd->nmcd.hdc, hBoldFont);
-                            // Note: Font will leak, but for simplicity we'll allow it
-                            // In production, should cache and manage fonts properly
-                        }
+                        HFONT hBold = (HFONT)GetPropW(hDlg, L"BoldFont");
+                        if (hBold) SelectObject(cd->nmcd.hdc, hBold);
                     }
                     return CDRF_NEWFONT;
                 }
@@ -698,9 +752,9 @@ LRESULT CALLBACK DeleteProjectDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM
     case WM_DRAWITEM: {
         LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
         if (dis->CtlID == IDOK || dis->CtlID == IDCANCEL) {
-            // Get stored color from GWLP_USERDATA
             ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
-            return DrawCustomButton(dis, color, g_guiFont);
+            HFONT hBold = (HFONT)GetPropW(hDlg, L"BoldFont");
+            return DrawCustomButton(dis, color, hBold ? hBold : g_guiFont);
         }
         break;
     }
@@ -712,7 +766,12 @@ LRESULT CALLBACK DeleteProjectDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM
         }
         return 0;
     case WM_DESTROY:
-        // Don't call PostQuitMessage - just let the dialog close and return to main window
+        {
+            HFONT hCtrlFont = (HFONT)GetPropW(hDlg, L"CtrlFont");
+            if (hCtrlFont) { RemovePropW(hDlg, L"CtrlFont"); DeleteObject(hCtrlFont); }
+            HFONT hBoldFont = (HFONT)GetPropW(hDlg, L"BoldFont");
+            if (hBoldFont) { RemovePropW(hDlg, L"BoldFont"); DeleteObject(hBoldFont); }
+        }
         return 0;
     }
     return DefWindowProcW(hDlg, msg, wParam, lParam);
@@ -1226,15 +1285,21 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 RegisterClassExW(&wcDlg);
                 deleteDialogClassRegistered = true;
             }
-            
+
+            // Use the locale title for the dialog caption.
+            auto itTitle = g_locale.find(L"delete_project");
+            std::wstring dlgTitle = (itTitle != g_locale.end()) ? itTitle->second : L"Delete Project";
+
             // Calculate centered position
             int x, y;
             GetCenteredPosition(hwnd, 600, 400, x, y);
-            
+
+            // Ownership (hwnd as owner) keeps the dialog above its parent without
+            // the global WS_EX_TOPMOST flag — see dialog_INTERNALS.txt §Z-ORDER.
             HWND hDlg = CreateWindowExW(
-                WS_EX_DLGMODALFRAME | WS_EX_TOPMOST,
+                WS_EX_DLGMODALFRAME,
                 L"DeleteProjectDialogClass",
-                L"Delete Project",
+                dlgTitle.c_str(),
                 WS_POPUP | WS_CAPTION | WS_SYSMENU,
                 x, y, 600, 400,
                 hwnd, NULL, hInst, NULL);
@@ -1242,6 +1307,18 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             if (hDlg) {
                 EnableWindow(hwnd, FALSE);
                 ShowWindow(hDlg, SW_SHOW);
+
+                // Modal message pump — keeps the dialog responsive and blocks the
+                // entry screen until the user closes it (same pattern as Open Project).
+                MSG msg2;
+                while (IsWindow(hDlg) && GetMessageW(&msg2, NULL, 0, 0)) {
+                    TranslateMessage(&msg2);
+                    DispatchMessageW(&msg2);
+                }
+
+                // Re-enable the entry screen after the dialog is gone.
+                EnableWindow(hwnd, TRUE);
+                SetForegroundWindow(hwnd);
             }
             return 0;
         }

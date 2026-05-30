@@ -2,7 +2,7 @@
 
 An installer creation tool for making your developed packages distributable. Designed to be simple to use with a clean, native Windows interface.
 
-**Current Release:** Version 2026.05.25.12 (Published: 25.05.2026 12:53)
+**Current Release:** Version 2026.05.30.09 (Published: 30.05.2026 09:06)
 
 > Note: This project is in active development. Entry screen, Files management, Shortcuts, Dependencies, Dialogs, Scripts, Registry, Settings, File Associations, and Test Installer pages are complete. A contextual Manual popup (`ShowPageManual`) is fully populated for 9 pages: Files, Registry, Shortcuts, Dependencies, Dialogs, Settings, Scripts, Components, and File Types. Build page shows a placeholder.
 

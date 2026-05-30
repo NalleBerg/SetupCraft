@@ -2,6 +2,11 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.05.30.09] - 2026-05-30
+
+### Dialogs page — license template dropdown now correctly updates editor content
+- **`dialogs.cpp` — `IDLG_OnCommand`: use `hCtrl` (lParam) directly in `CBN_SELCHANGE`**: The license template combo handler called `GetDlgItem(hwnd, IDC_IDLG_LICENSE_TEMPLATE)` to obtain the combo HWND, but `GetDlgItem` was returning a stale HWND from a previous page build. `SwitchPage` destroys and recreates all page controls on each visit; if the old HWND was recycled by the OS, `GetDlgItem` resolved to a different sibling with the same control ID. Fix: use the `hCtrl` parameter (`lParam` from `WM_COMMAND`) directly — always the exact window that fired the notification. Safe fallback to `GetDlgItem` kept for the null case. The previously-suppressed fourth parameter `HWND /*hCtrl*/` of `IDLG_OnCommand` is now named and used. Root cause confirmed by runtime logging: `hCtrl ≠ GetDlgItem` (`match=0`), so `CB_GETCURSEL` always reported index 0 (The Unlicense) regardless of actual selection.
+
 ## [2026.05.25.12] - 2026-05-25
 
 ### Test Installer page — full implementation + issgen output filename improvement

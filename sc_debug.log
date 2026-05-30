@@ -9017,3 +9017,421 @@
 [12:58:03.122] IDM_FILE_CLOSE -> DestroyWindow
 [12:58:03.129] WM_DESTROY START
 [12:58:03.130] WM_DESTROY DONE
+[10:40:29.518] MAIN: ENTRY WM_CLOSE -> ShowQuitDialog
+[10:40:30.744] MAIN: ENTRY WM_DESTROY -> PostQuitMessage
+[14:20:05.864] ABOUT: ShowAboutDialog ENTER
+[14:20:05.880] ABOUT: after LoadLibrary
+[14:20:05.885] ABOUT: after LoadVersionInfo
+[14:20:05.885] ABOUT: before Image::FromFile
+[14:20:05.894] ABOUT: after Image::FromFile
+[14:20:05.898] ABOUT: after CreateWindowExW
+[14:20:05.937] ABOUT: entering modal loop
+[14:20:14.766] ABOUT: modal loop exited
+[14:20:14.766] ABOUT: after DestroyWindow
+[14:20:14.766] ABOUT: ShowAboutDialog EXIT
+[14:20:16.173] MAIN: ENTRY WM_CLOSE -> ShowQuitDialog
+[14:20:19.154] MAIN: ENTRY WM_DESTROY -> PostQuitMessage
+[14:48:10.572] Create() ENTRY
+[14:48:10.572] Create() before CreateWindowExW
+[14:48:10.572] WM_CREATE START
+[14:48:10.572] WM_CREATE before CreateMenuBar
+[14:48:10.572] WM_CREATE before CreateToolbar
+[14:48:10.590] WM_CREATE before CreateStatusBar
+[14:48:10.590] WM_CREATE before SwitchPage(0)
+[14:48:10.610] SwitchPage(0) DONE
+[14:48:10.610] WM_CREATE after SwitchPage(0)
+[14:48:10.610] WM_CREATE DONE
+[14:48:10.610] Create() CreateWindowExW OK
+[14:48:10.610] Create() before ShowWindow
+[14:48:10.635] Create() after ShowWindow
+[14:48:10.675] Create() RETURN
+[14:49:27.222] SwitchPage(9) DONE
+[14:49:29.292] SwitchPage(3) DONE
+[14:49:32.329] SwitchPage(4) DONE
+[14:49:41.457] SwitchPage(0) DONE
+[14:49:45.487] SwitchPage(1) DONE
+[14:50:33.378] IDM_FILE_CLOSE ENTRY
+[14:50:34.810] IDM_FILE_CLOSE -> DestroyWindow
+[14:50:34.819] WM_DESTROY START
+[14:50:34.819] WM_DESTROY DONE
+[14:50:38.323] Create() ENTRY
+[14:50:38.374] Create() before CreateWindowExW
+[14:50:38.374] WM_CREATE START
+[14:50:38.374] WM_CREATE before CreateMenuBar
+[14:50:38.380] WM_CREATE before CreateToolbar
+[14:50:38.387] WM_CREATE before CreateStatusBar
+[14:50:38.387] WM_CREATE before SwitchPage(0)
+[14:50:38.411] SwitchPage(0) DONE
+[14:50:38.411] WM_CREATE after SwitchPage(0)
+[14:50:38.411] WM_CREATE DONE
+[14:50:38.411] Create() CreateWindowExW OK
+[14:50:38.411] Create() before ShowWindow
+[14:50:38.438] Create() after ShowWindow
+[14:50:38.459] Create() RETURN
+[14:50:42.529] SwitchPage(9) DONE
+[14:50:45.330] SwitchPage(3) DONE
+[14:50:46.497] SwitchPage(4) DONE
+[16:08:15.100] Create() ENTRY
+[16:08:15.143] Create() before CreateWindowExW
+[16:08:15.149] WM_CREATE START
+[16:08:15.149] WM_CREATE before CreateMenuBar
+[16:08:15.156] WM_CREATE before CreateToolbar
+[16:08:15.167] WM_CREATE before CreateStatusBar
+[16:08:15.168] WM_CREATE before SwitchPage(0)
+[16:08:15.197] SwitchPage(0) DONE
+[16:08:15.198] WM_CREATE after SwitchPage(0)
+[16:08:15.198] WM_CREATE DONE
+[16:08:15.198] Create() CreateWindowExW OK
+[16:08:15.199] Create() before ShowWindow
+[16:08:15.220] Create() after ShowWindow
+[16:08:15.246] Create() RETURN
+[16:08:17.185] SwitchPage(4) DONE
+[16:08:40.957] WM_DESTROY START
+[16:08:40.957] WM_DESTROY DONE
+[16:16:48.687] Create() ENTRY
+[16:16:48.741] Create() before CreateWindowExW
+[16:16:48.741] WM_CREATE START
+[16:16:48.741] WM_CREATE before CreateMenuBar
+[16:16:48.748] WM_CREATE before CreateToolbar
+[16:16:48.759] WM_CREATE before CreateStatusBar
+[16:16:48.759] WM_CREATE before SwitchPage(0)
+[16:16:48.787] SwitchPage(0) DONE
+[16:16:48.787] WM_CREATE after SwitchPage(0)
+[16:16:48.787] WM_CREATE DONE
+[16:16:48.787] Create() CreateWindowExW OK
+[16:16:48.787] Create() before ShowWindow
+[16:16:48.795] Create() after ShowWindow
+[16:16:48.811] Create() RETURN
+[16:16:51.410] SwitchPage(4) DONE
+[16:17:06.360] WM_DESTROY START
+[16:17:06.360] WM_DESTROY DONE
+[16:35:12.935] Create() ENTRY
+[16:35:12.980] Create() before CreateWindowExW
+[16:35:12.980] WM_CREATE START
+[16:35:12.980] WM_CREATE before CreateMenuBar
+[16:35:12.990] WM_CREATE before CreateToolbar
+[16:35:12.997] WM_CREATE before CreateStatusBar
+[16:35:13.006] WM_CREATE before SwitchPage(0)
+[16:35:13.024] SwitchPage(0) DONE
+[16:35:13.024] WM_CREATE after SwitchPage(0)
+[16:35:13.024] WM_CREATE DONE
+[16:35:13.024] Create() CreateWindowExW OK
+[16:35:13.024] Create() before ShowWindow
+[16:35:13.038] Create() after ShowWindow
+[16:35:13.065] Create() RETURN
+[16:35:14.275] SwitchPage(4) DONE
+[16:35:25.373] WM_DESTROY START
+[16:35:25.373] WM_DESTROY DONE
+[16:39:27.387] Create() ENTRY
+[16:39:27.436] Create() before CreateWindowExW
+[16:39:27.436] WM_CREATE START
+[16:39:27.436] WM_CREATE before CreateMenuBar
+[16:39:27.444] WM_CREATE before CreateToolbar
+[16:39:27.461] WM_CREATE before CreateStatusBar
+[16:39:27.463] WM_CREATE before SwitchPage(0)
+[16:39:27.487] SwitchPage(0) DONE
+[16:39:27.487] WM_CREATE after SwitchPage(0)
+[16:39:27.487] WM_CREATE DONE
+[16:39:27.487] Create() CreateWindowExW OK
+[16:39:27.498] Create() before ShowWindow
+[16:39:27.527] Create() after ShowWindow
+[16:39:27.552] Create() RETURN
+[16:39:30.194] SwitchPage(4) DONE
+[17:01:11.850] Create() ENTRY
+[17:01:11.897] Create() before CreateWindowExW
+[17:01:11.897] WM_CREATE START
+[17:01:11.897] WM_CREATE before CreateMenuBar
+[17:01:11.904] WM_CREATE before CreateToolbar
+[17:01:11.916] WM_CREATE before CreateStatusBar
+[17:01:11.916] WM_CREATE before SwitchPage(0)
+[17:01:11.946] SwitchPage(0) DONE
+[17:01:11.952] WM_CREATE after SwitchPage(0)
+[17:01:11.952] WM_CREATE DONE
+[17:01:11.952] Create() CreateWindowExW OK
+[17:01:11.953] Create() before ShowWindow
+[17:01:11.965] Create() after ShowWindow
+[17:01:11.983] Create() RETURN
+[17:01:13.807] SwitchPage(4) DONE
+[17:11:04.251] SwitchPage(6) DONE
+[17:11:06.281] SwitchPage(7) DONE
+[17:11:08.790] SwitchPage(4) DONE
+[17:11:21.451] IDM_FILE_CLOSE ENTRY
+[17:11:24.469] IDM_FILE_CLOSE -> DestroyWindow
+[17:11:24.491] WM_DESTROY START
+[17:11:24.492] WM_DESTROY DONE
+[17:11:37.361] Create() ENTRY
+[17:11:37.428] Create() before CreateWindowExW
+[17:11:37.428] WM_CREATE START
+[17:11:37.434] WM_CREATE before CreateMenuBar
+[17:11:37.438] WM_CREATE before CreateToolbar
+[17:11:37.458] WM_CREATE before CreateStatusBar
+[17:11:37.458] WM_CREATE before SwitchPage(0)
+[17:11:37.498] SwitchPage(0) DONE
+[17:11:37.498] WM_CREATE after SwitchPage(0)
+[17:11:37.498] WM_CREATE DONE
+[17:11:37.498] Create() CreateWindowExW OK
+[17:11:37.498] Create() before ShowWindow
+[17:11:37.534] Create() after ShowWindow
+[17:11:37.554] Create() RETURN
+[17:13:09.574] WM_DESTROY START
+[17:13:09.574] WM_DESTROY DONE
+[17:40:31.956] Create() ENTRY
+[17:40:31.998] Create() before CreateWindowExW
+[17:40:32.000] WM_CREATE START
+[17:40:32.000] WM_CREATE before CreateMenuBar
+[17:40:32.006] WM_CREATE before CreateToolbar
+[17:40:32.016] WM_CREATE before CreateStatusBar
+[17:40:32.017] WM_CREATE before SwitchPage(0)
+[17:40:32.031] SwitchPage(0) DONE
+[17:40:32.031] WM_CREATE after SwitchPage(0)
+[17:40:32.031] WM_CREATE DONE
+[17:40:32.031] Create() CreateWindowExW OK
+[17:40:32.031] Create() before ShowWindow
+[17:40:32.040] Create() after ShowWindow
+[17:40:32.067] Create() RETURN
+[17:40:33.331] SwitchPage(4) DONE
+[17:41:02.945] WM_DESTROY START
+[17:41:02.945] WM_DESTROY DONE
+[17:53:31.004] Create() ENTRY
+[17:53:31.042] Create() before CreateWindowExW
+[17:53:31.044] WM_CREATE START
+[17:53:31.044] WM_CREATE before CreateMenuBar
+[17:53:31.046] WM_CREATE before CreateToolbar
+[17:53:31.057] WM_CREATE before CreateStatusBar
+[17:53:31.058] WM_CREATE before SwitchPage(0)
+[17:53:31.073] SwitchPage(0) DONE
+[17:53:31.073] WM_CREATE after SwitchPage(0)
+[17:53:31.073] WM_CREATE DONE
+[17:53:31.073] Create() CreateWindowExW OK
+[17:53:31.073] Create() before ShowWindow
+[17:53:31.091] Create() after ShowWindow
+[17:53:31.113] Create() RETURN
+[17:53:33.707] SwitchPage(4) DONE
+[17:53:43.952] WM_DESTROY START
+[17:53:43.952] WM_DESTROY DONE
+[17:54:15.301] Create() ENTRY
+[17:54:15.356] Create() before CreateWindowExW
+[17:54:15.361] WM_CREATE START
+[17:54:15.362] WM_CREATE before CreateMenuBar
+[17:54:15.362] WM_CREATE before CreateToolbar
+[17:54:15.380] WM_CREATE before CreateStatusBar
+[17:54:15.380] WM_CREATE before SwitchPage(0)
+[17:54:15.410] SwitchPage(0) DONE
+[17:54:15.410] WM_CREATE after SwitchPage(0)
+[17:54:15.410] WM_CREATE DONE
+[17:54:15.416] Create() CreateWindowExW OK
+[17:54:15.416] Create() before ShowWindow
+[17:54:15.444] Create() after ShowWindow
+[17:54:15.462] Create() RETURN
+[17:54:17.292] SwitchPage(4) DONE
+[18:01:44.986] WM_DESTROY START
+[18:01:44.986] WM_DESTROY DONE
+[18:12:33.346] Create() ENTRY
+[18:12:33.396] Create() before CreateWindowExW
+[18:12:33.396] WM_CREATE START
+[18:12:33.396] WM_CREATE before CreateMenuBar
+[18:12:33.407] WM_CREATE before CreateToolbar
+[18:12:33.412] WM_CREATE before CreateStatusBar
+[18:12:33.412] WM_CREATE before SwitchPage(0)
+[18:12:33.441] SwitchPage(0) DONE
+[18:12:33.441] WM_CREATE after SwitchPage(0)
+[18:12:33.441] WM_CREATE DONE
+[18:12:33.441] Create() CreateWindowExW OK
+[18:12:33.441] Create() before ShowWindow
+[18:12:33.454] Create() after ShowWindow
+[18:12:33.475] Create() RETURN
+[18:12:34.913] SwitchPage(4) DONE
+[18:21:26.518] Create() ENTRY
+[18:21:26.550] Create() before CreateWindowExW
+[18:21:26.566] WM_CREATE START
+[18:21:26.566] WM_CREATE before CreateMenuBar
+[18:21:26.572] WM_CREATE before CreateToolbar
+[18:21:26.572] WM_CREATE before CreateStatusBar
+[18:21:26.583] WM_CREATE before SwitchPage(0)
+[18:21:26.600] SwitchPage(0) DONE
+[18:21:26.600] WM_CREATE after SwitchPage(0)
+[18:21:26.600] WM_CREATE DONE
+[18:21:26.600] Create() CreateWindowExW OK
+[18:21:26.600] Create() before ShowWindow
+[18:21:26.600] Create() after ShowWindow
+[18:21:26.630] Create() RETURN
+[18:21:28.334] SwitchPage(4) DONE
+[18:30:35.116] Create() ENTRY
+[18:30:35.162] Create() before CreateWindowExW
+[18:30:35.162] WM_CREATE START
+[18:30:35.162] WM_CREATE before CreateMenuBar
+[18:30:35.162] WM_CREATE before CreateToolbar
+[18:30:35.178] WM_CREATE before CreateStatusBar
+[18:30:35.178] WM_CREATE before SwitchPage(0)
+[18:30:35.193] SwitchPage(0) DONE
+[18:30:35.193] WM_CREATE after SwitchPage(0)
+[18:30:35.193] WM_CREATE DONE
+[18:30:35.193] Create() CreateWindowExW OK
+[18:30:35.193] Create() before ShowWindow
+[18:30:35.209] Create() after ShowWindow
+[18:30:35.225] Create() RETURN
+[18:30:36.771] SwitchPage(4) DONE
+[18:37:44.094] Create() ENTRY
+[18:37:44.138] Create() before CreateWindowExW
+[18:37:44.141] WM_CREATE START
+[18:37:44.141] WM_CREATE before CreateMenuBar
+[18:37:44.146] WM_CREATE before CreateToolbar
+[18:37:44.156] WM_CREATE before CreateStatusBar
+[18:37:44.157] WM_CREATE before SwitchPage(0)
+[18:37:44.177] SwitchPage(0) DONE
+[18:37:44.177] WM_CREATE after SwitchPage(0)
+[18:37:44.177] WM_CREATE DONE
+[18:37:44.177] Create() CreateWindowExW OK
+[18:37:44.177] Create() before ShowWindow
+[18:37:44.191] Create() after ShowWindow
+[18:37:44.205] Create() RETURN
+[18:37:46.755] SwitchPage(4) DONE
+[18:42:40.207] Create() ENTRY
+[18:42:40.268] Create() before CreateWindowExW
+[18:42:40.272] WM_CREATE START
+[18:42:40.272] WM_CREATE before CreateMenuBar
+[18:42:40.276] WM_CREATE before CreateToolbar
+[18:42:40.292] WM_CREATE before CreateStatusBar
+[18:42:40.292] WM_CREATE before SwitchPage(0)
+[18:42:40.326] SwitchPage(0) DONE
+[18:42:40.326] WM_CREATE after SwitchPage(0)
+[18:42:40.326] WM_CREATE DONE
+[18:42:40.327] Create() CreateWindowExW OK
+[18:42:40.327] Create() before ShowWindow
+[18:42:40.352] Create() after ShowWindow
+[18:42:40.371] Create() RETURN
+[18:42:42.551] SwitchPage(4) DONE
+[08:18:31.211] Create() ENTRY
+[08:18:31.249] Create() before CreateWindowExW
+[08:18:31.262] WM_CREATE START
+[08:18:31.262] WM_CREATE before CreateMenuBar
+[08:18:31.267] WM_CREATE before CreateToolbar
+[08:18:31.276] WM_CREATE before CreateStatusBar
+[08:18:31.276] WM_CREATE before SwitchPage(0)
+[08:18:31.297] SwitchPage(0) DONE
+[08:18:31.297] WM_CREATE after SwitchPage(0)
+[08:18:31.297] WM_CREATE DONE
+[08:18:31.297] Create() CreateWindowExW OK
+[08:18:31.297] Create() before ShowWindow
+[08:18:31.312] Create() after ShowWindow
+[08:18:31.328] Create() RETURN
+[08:18:33.668] SwitchPage(4) DONE
+[08:23:00.588] WM_DESTROY START
+[08:23:00.589] WM_DESTROY DONE
+[08:46:14.639] Create() ENTRY
+[08:46:14.685] IDLG: ApplyDefaults: tmplId=0 edited=0 contentTmpl=0 usesaved=0 contentSz=48295
+[08:46:14.685] IDLG: ApplyDefaults: GetLicenseTemplateRtf(0) returned 48168 chars
+[08:46:14.688] Create() before CreateWindowExW
+[08:46:14.691] WM_CREATE START
+[08:46:14.691] WM_CREATE before CreateMenuBar
+[08:46:14.691] WM_CREATE before CreateToolbar
+[08:46:14.707] WM_CREATE before CreateStatusBar
+[08:46:14.709] WM_CREATE before SwitchPage(0)
+[08:46:14.739] SwitchPage(0) DONE
+[08:46:14.746] WM_CREATE after SwitchPage(0)
+[08:46:14.746] WM_CREATE DONE
+[08:46:14.746] Create() CreateWindowExW OK
+[08:46:14.746] Create() before ShowWindow
+[08:46:14.760] Create() after ShowWindow
+[08:46:14.794] Create() RETURN
+[08:46:15.975] SwitchPage(4) DONE
+[08:46:19.279] IDLG: CBN_SELCHANGE: selIdx=0 tmplId=0 cacheSize=19
+[08:46:19.279] IDLG: CBN_SELCHANGE: cache rtf size=48168
+[08:46:19.279] IDLG: CBN_SELCHANGE: final rtf size=48168
+[08:46:25.924] IDLG: EditContent: typeIdx=1 tmplId=0 edited=0 contentSz=48295 first40={
+[08:47:24.471] WM_DESTROY START
+[08:47:24.471] WM_DESTROY DONE
+[09:03:08.525] Create() ENTRY
+[09:03:08.531] IDLG: LoadFromDb ENTRY: projectId=4 licenseSz=0
+[09:03:08.568] IDLG: ApplyDefaults: tmplId=0 edited=0 contentTmpl=0 usesaved=0 contentSz=48295
+[09:03:08.568] IDLG: ApplyDefaults: GetLicenseTemplateRtf(0) returned 48168 chars
+[09:03:08.568] Create() before CreateWindowExW
+[09:03:08.571] WM_CREATE START
+[09:03:08.571] WM_CREATE before CreateMenuBar
+[09:03:08.579] WM_CREATE before CreateToolbar
+[09:03:08.591] WM_CREATE before CreateStatusBar
+[09:03:08.591] WM_CREATE before SwitchPage(0)
+[09:03:08.621] SwitchPage(0) DONE
+[09:03:08.621] WM_CREATE after SwitchPage(0)
+[09:03:08.621] WM_CREATE DONE
+[09:03:08.621] Create() CreateWindowExW OK
+[09:03:08.621] Create() before ShowWindow
+[09:03:08.632] Create() after ShowWindow
+[09:03:08.664] Create() RETURN
+[09:03:10.903] IDLG: BuildPage ENTRY: tmplId=0 licenseSz=48301
+[09:03:10.981] SwitchPage(4) DONE
+[09:03:14.982] IDLG: CBN_SELCHANGE ENTRY: hCtrl=00000000002306b8 GetDlgItem=0000000000380f96 match=0
+[09:03:14.982] IDLG: CBN_SELCHANGE: selIdx=3 tmplId=3 cacheSize=19
+[09:03:14.982] IDLG: CBN_SELCHANGE: cache rtf size=27318
+[09:03:14.982] IDLG: CBN_SELCHANGE: final rtf size=27318
+[09:03:14.982] IDLG: CBN_SELCHANGE: WROTE contentSz=27445 tmplId=3
+[09:03:16.502] IDLG: EditContent: typeIdx=1 tmplId=3 edited=0 contentSz=27445 first40={
+[09:04:02.563] IDLG: CBN_SELCHANGE ENTRY: hCtrl=00000000002306b8 GetDlgItem=0000000000380f96 match=0
+[09:04:02.563] IDLG: CBN_SELCHANGE: selIdx=11 tmplId=11 cacheSize=19
+[09:04:02.563] IDLG: CBN_SELCHANGE: cache rtf size=15845
+[09:04:02.563] IDLG: CBN_SELCHANGE: final rtf size=15845
+[09:04:02.563] IDLG: CBN_SELCHANGE: WROTE contentSz=15972 tmplId=11
+[09:04:03.769] IDLG: EditContent: typeIdx=1 tmplId=11 edited=0 contentSz=15972 first40={
+[09:05:17.997] IDLG: CBN_SELCHANGE ENTRY: hCtrl=00000000002306b8 GetDlgItem=0000000000380f96 match=0
+[09:05:17.997] IDLG: CBN_SELCHANGE: selIdx=3 tmplId=3 cacheSize=19
+[09:05:17.997] IDLG: CBN_SELCHANGE: cache rtf size=27318
+[09:05:17.997] IDLG: CBN_SELCHANGE: final rtf size=27318
+[09:05:17.997] IDLG: CBN_SELCHANGE: WROTE contentSz=27445 tmplId=3
+[09:05:19.217] IDLG: EditContent: typeIdx=1 tmplId=3 edited=0 contentSz=27445 first40={
+[09:05:29.213] IDLG: LoadFromDb ENTRY: projectId=4 licenseSz=27445
+[09:05:31.016] IDM_FILE_CLOSE ENTRY
+[09:05:32.045] IDM_FILE_CLOSE -> DestroyWindow
+[09:05:32.062] WM_DESTROY START
+[09:05:32.062] WM_DESTROY DONE
+[09:05:34.661] Create() ENTRY
+[09:05:34.664] IDLG: LoadFromDb ENTRY: projectId=4 licenseSz=0
+[09:05:34.712] IDLG: ApplyDefaults: tmplId=3 edited=0 contentTmpl=3 usesaved=0 contentSz=27445
+[09:05:34.712] IDLG: ApplyDefaults: GetLicenseTemplateRtf(3) returned 27318 chars
+[09:05:34.712] Create() before CreateWindowExW
+[09:05:34.719] WM_CREATE START
+[09:05:34.719] WM_CREATE before CreateMenuBar
+[09:05:34.725] WM_CREATE before CreateToolbar
+[09:05:34.736] WM_CREATE before CreateStatusBar
+[09:05:34.736] WM_CREATE before SwitchPage(0)
+[09:05:34.770] SwitchPage(0) DONE
+[09:05:34.770] WM_CREATE after SwitchPage(0)
+[09:05:34.770] WM_CREATE DONE
+[09:05:34.770] Create() CreateWindowExW OK
+[09:05:34.770] Create() before ShowWindow
+[09:05:34.800] Create() after ShowWindow
+[09:05:34.819] Create() RETURN
+[09:05:38.364] IDLG: BuildPage ENTRY: tmplId=3 licenseSz=27451
+[09:05:38.439] SwitchPage(4) DONE
+[09:05:43.639] IDLG: CBN_SELCHANGE ENTRY: hCtrl=0000000000280ff8 GetDlgItem=0000000000e60668 match=0
+[09:05:43.639] IDLG: CBN_SELCHANGE: selIdx=4 tmplId=4 cacheSize=19
+[09:05:43.639] IDLG: CBN_SELCHANGE: cache rtf size=27930
+[09:05:43.639] IDLG: CBN_SELCHANGE: final rtf size=27930
+[09:05:43.639] IDLG: CBN_SELCHANGE: WROTE contentSz=28057 tmplId=4
+[09:05:43.803] IDLG: CBN_SELCHANGE ENTRY: hCtrl=0000000000280ff8 GetDlgItem=0000000000e60668 match=0
+[09:05:43.803] IDLG: CBN_SELCHANGE: selIdx=5 tmplId=5 cacheSize=19
+[09:05:43.809] IDLG: CBN_SELCHANGE: cache rtf size=24989
+[09:05:43.809] IDLG: CBN_SELCHANGE: final rtf size=24989
+[09:05:43.809] IDLG: CBN_SELCHANGE: WROTE contentSz=25116 tmplId=5
+[09:05:44.810] IDLG: CBN_SELCHANGE ENTRY: hCtrl=0000000000280ff8 GetDlgItem=0000000000e60668 match=0
+[09:05:44.810] IDLG: CBN_SELCHANGE: selIdx=6 tmplId=6 cacheSize=19
+[09:05:44.810] IDLG: CBN_SELCHANGE: cache rtf size=25110
+[09:05:44.810] IDLG: CBN_SELCHANGE: final rtf size=25110
+[09:05:44.810] IDLG: CBN_SELCHANGE: WROTE contentSz=25237 tmplId=6
+[09:05:44.961] IDLG: CBN_SELCHANGE ENTRY: hCtrl=0000000000280ff8 GetDlgItem=0000000000e60668 match=0
+[09:05:44.961] IDLG: CBN_SELCHANGE: selIdx=7 tmplId=7 cacheSize=19
+[09:05:44.961] IDLG: CBN_SELCHANGE: cache rtf size=23211
+[09:05:44.973] IDLG: CBN_SELCHANGE: final rtf size=23211
+[09:05:44.973] IDLG: CBN_SELCHANGE: WROTE contentSz=23338 tmplId=7
+[09:06:08.131] IDLG: EditContent: typeIdx=4 tmplId=7 edited=0 contentSz=166 first40={
+[09:06:40.050] IDLG: LoadFromDb ENTRY: projectId=4 licenseSz=23338
+[09:06:51.602] IDLG: LoadFromDb ENTRY: projectId=4 licenseSz=23338
+[09:07:01.244] SwitchPage(9) DONE
+[09:07:02.420] SwitchPage(0) DONE
+[09:07:03.395] IDLG: BuildPage ENTRY: tmplId=7 licenseSz=23338
+[09:07:03.499] SwitchPage(4) DONE
+[09:07:05.161] SwitchPage(0) DONE
+[09:07:08.232] SwitchPage(9) DONE
+[09:07:11.124] SwitchPage(3) DONE
+[09:07:12.529] IDLG: BuildPage ENTRY: tmplId=7 licenseSz=23338
+[09:07:12.611] SwitchPage(4) DONE
+[09:07:16.553] SwitchPage(5) DONE

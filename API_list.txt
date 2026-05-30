@@ -45,7 +45,10 @@
                                                 WinMain, Ne_WndProc, File menu (New/Open/
                                                 Save/SaveAs/Print/Export as PDF/Exit),
                                                 Edit menu (Undo/Redo/Cut/Copy/Paste/
-                                                Select All, greyed via WM_INITMENUPOPUP),
+                                                Select All, Insert Date/Time (F5),
+                                                Go to Line, Toggle Bookmark,
+                                                Go to Bookmark, greyed via
+                                                WM_INITMENUPOPUP),
                                                 right-click context menu (WM_CONTEXTMENU),
                                                 Help menu (Keyboard Shortcuts/About).
                                                 Owner-draw menus at 12pt Segoe UI via
@@ -71,7 +74,7 @@
                                                 OpenPrinterW/DocumentPropertiesW/CreateDCW
                                                 + DOCINFO.lpszOutput + EM_FORMATRANGE.
                                                 Ne_ShowShortcuts — modal ListView dialog,
-                                                40 rows, NM_CUSTOMDRAW bold col 0 /
+                                                44 rows, NM_CUSTOMDRAW bold col 0 /
                                                 royal-blue col 2.
                                                 Ne_ShowChoiceDialog — custom modal
                                                 white-background question dialog with
@@ -135,6 +138,51 @@
                                                 Ne_SetTip/Ne_TipSubclassProc.
                                                 Control ID range: 201–230.
                                                 IDM range: 101–136 (core), 600+ (langs), 700+ (FTP profiles).
+                                                Session restore: Ne_SessionSave(HWND) snapshots
+                                                all tabs (incl. content BLOB for modified/FTP/
+                                                untitled) into session_tabs via NeSession_Save.
+                                                Per-tab state captured: t.isSciTab (hSci &&
+                                                IsWindowVisible), t.wordWrap (SCI_GETWRAPMODE
+                                                or doc->wordWrap for RichEdit), t.caretPos
+                                                (SCI_GETCURRENTPOS / EM_EXGETSEL cpMin),
+                                                t.scrollLine (SCI_GETFIRSTVISIBLELINE /
+                                                EM_GETFIRSTVISIBLELINE). Empty untitled tabs
+                                                are saved (no skip) so blank separators survive.
+                                                Ne_SessionRestore(HWND) reads session_tabs on
+                                                startup (installed, no cmd-line file) and reopens
+                                                every tab silently: FTP unreachable → load from
+                                                BLOB cache; disk-changed → silently keep cache;
+                                                local file missing → load from BLOB; no dialogs.
+                                                Colour fixup for non-.rtf RichEdit tabs on
+                                                restore: EM_SETBKGNDCOLOR + EM_SETCHARFORMAT
+                                                SCF_ALL with mask CFE_AUTOCOLOR only (NOT
+                                                CFM_EFFECTS — that would zero bold/italic/
+                                                underline on every character).
+                                                Caret + scroll restored after content load:
+                                                Scintilla: SCI_SETSEL(caretPos) then
+                                                SCI_SETFIRSTVISIBLELINE(scrollLine).
+                                                RichEdit: EM_LINEINDEX(scrollLine) → EM_SETSEL
+                                                → EM_SCROLLCARET → EM_LINESCROLL(delta) →
+                                                EM_SETSEL(caretPos, caretPos).
+                                                Empty untitled restore: if isSciTab && no hSci,
+                                                creates Scintilla window (Ne_CreateScintilla,
+                                                subclass, attach scrollbars, Ne_ApplyLang(-1),
+                                                SCI_SETZOOM); applies wordWrap; calls
+                                                Ne_UpdateToolbarMode.
+                                                Post-restore: NeTabs_SetActive(savedActiveTabIdx)
+                                                then syncs s_wordWrapOn and BM_SETCHECK on
+                                                IDC_NE_WORDWRAP to active tab's wordWrap.
+                                                doc->wordWrap (NeTabDoc field) tracks per-tab
+                                                wrap state: set in Ne_ToggleWordWrap,
+                                                Ne_LoadPathIntoEditor (false=sci, true=rtf),
+                                                IDM_CONV_TO_PLAIN (false).
+                                                NE_TIMER_SESSION (id 10)
+                                                SetTimer 10 s autosave in WM_CREATE; WM_TIMER
+                                                handler calls Ne_SessionSave. WM_CLOSE also
+                                                calls Ne_SessionSave before Ne_CloseAllTabsForExit.
+                                                wWinMain calls Ne_SessionRestore after
+                                                UpdateWindow when installed + no cmd-line arg +
+                                                NeSession_HasData().
                                                 Ne_ApplyLang(hSci, langIdx) — sends
                                                 SCI_SETKEYWORDS from s_langKws[] and
                                                 applies per-lexer style overrides.
@@ -143,6 +191,24 @@
                                                 (SCE_H_* 1–10) styled for both HTML
                                                 and PHP. PHP tokens (SCE_HPHP_* 118–127)
                                                 styled only when the language is PHP.
+                                                Bash/Shell: "bash" lexer; bash-specific
+                                                style block overrides SCE_SH_NUMBER(3),
+                                                SCE_SH_WORD/keyword(4), SCE_SH_STRING(5),
+                                                SCE_SH_OPERATOR(7), SCE_SH_SCALAR(9),
+                                                SCE_SH_PARAM(10), SCE_SH_BACKTICKS(11),
+                                                SCE_SH_HERE_DELIM(12), SCE_SH_HERE_Q(13).
+                                                Ne_LangFromShebang(utf8) — checks first
+                                                line for #!; extracts interpreter basename
+                                                (handles /usr/bin/env <name> and env -S
+                                                flags); matches bash/sh/dash/zsh/ksh/
+                                                mksh/fish/ash → returns bash lang index.
+                                                Called from Ne_LoadPathIntoEditor (Sci
+                                                path) and Ne_SessionRestore loadContent
+                                                (Sci path) when Ne_LangFromExt returns 0.
+                                                s_langs[]: 26 entries (0=Plain Text,
+                                                1=Bash/Shell, 2=Batch, 3=C/C++, …).
+                                                s_langKws[]: parallel array, 26 entries,
+                                                static_assert enforces match with NE_LANG_COUNT.
                                                 Ne_GetLineComment uses language name
                                                 check for PHP (//); returns nullptr for
                                                 hypertext lexer (HTML/PHP handled by
@@ -195,7 +261,18 @@
                                                 no 3-server cap). Chosen profile passed to
                                                 Ne_ShowFtpBrowserSave, uploads via
                                                 NeFtp_Upload, marks tab FTP-linked,
-                                                keeps connection open.
+                                                keeps connection open. After upload,
+                                                Ne_LangFromExt(remoteDest) is called;
+                                                if the detected language differs from
+                                                doc->langId, Ne_ApplyLang is called
+                                                immediately so the tab's syntax
+                                                highlighting reflects the new remote
+                                                filename extension.
+                                                IDM_CONV_TO_PLAIN: strip-RTF dialog now
+                                                uses Ne_ShowChoiceDialog (green Continue
+                                                + blue Cancel) instead of MessageBoxW.
+                                                Locale keys: DLG_CONV_TO_PLAIN (title),
+                                                BTN_CONTINUE (green button label).
                                                 IDM_FTP_CLOSE_CONN (136): FTP menu >
                                                 Close connection — grayed when no
                                                 profile is connected; calls
@@ -220,6 +297,39 @@
                                                 msb_get_bar_hwnd to avoid WS_CLIPSIBLINGS
                                                 clipping. Ne_SciWrapSubclassProc handles
                                                 only WM_NCDESTROY (cleanup).
+                                                Brace / tag / keyword-pair highlighting:
+                                                Ne_DoBracePairHighlight(hSci, langId) —
+                                                called from SCN_UPDATEUI on every caret
+                                                move. Three stages:
+                                                (1) Brace pairs (){}[]: SCI_BRACEMATCH
+                                                finds partner; SCI_BRACEHIGHLIGHT lights
+                                                both; SCI_BRACEBADLIGHT if unmatched.
+                                                STYLE_BRACELIGHT: dark editor =
+                                                RGB(255,215,100) fg / RGB(50,50,80) bg
+                                                bold; light editor = RGB(0,90,180) fg /
+                                                RGB(200,230,255) bg bold. STYLE_BRACEBAD:
+                                                RGB(210,40,40) fg / dark RGB(70,30,30) /
+                                                light RGB(255,210,210) bg bold. Set once
+                                                in Ne_SetupScintillaStyle.
+                                                (2) HTML tag-pair (hypertext lexer):
+                                                NE_IND_TAGMATCH = indicator 9
+                                                (INDIC_BOX, alpha 60, outline alpha 200).
+                                                Locates enclosing <tag> around caret,
+                                                extracts tag name, scans ±50 000 chars
+                                                for matching close/open tag tracking
+                                                nesting depth. Fills indicator on both
+                                                lt…gt ranges. Skips PHP region (style
+                                                ≥ 118), self-closing tags, and
+                                                comment/DOCTYPE. Indicator cleared at
+                                                start of every SCN_UPDATEUI call.
+                                                (3) Bash keyword-pair (bash lexer):
+                                                triggers only on SCE_SH_WORD (style 4)
+                                                tokens. Pairs: if↔fi, case↔esac,
+                                                for/while/until→done, do→done,
+                                                done←do. Whole-word matching. Nesting
+                                                tracked; for/while/until skip their own
+                                                first "do" before counting. Same
+                                                NE_IND_TAGMATCH indicator used.
                                                 Auto-close bracket/quote pairs:
                                                 Ne_SciAutoPair (called from SCN_CHARADDED)
                                                 — opener {[("« inserts closer, caret
@@ -236,6 +346,34 @@
                                                 WM_CHAR in Ne_EditCaretProc (RichEdit) —
                                                 same logic; non-empty selection wraps
                                                 selected text in the pair.
+                                                Go to Line / Bookmarks:
+                                                IDM_GOTO (118): Edit > Go to Line... /
+                                                Ctrl+G — Ne_GoToLine(HWND parent).
+                                                Ne_ShowInputDialog prompts for a line
+                                                number; _wtoi parses it; clamped to
+                                                SCI_GETLINECOUNT on doc->hSci. Calls
+                                                SCI_ENSUREVISIBLE then SCI_GOTOLINE.
+                                                Ctrl+G intercepted globally in WinMain
+                                                pump (outside GetFocus guard).
+                                                IDM_BOOKMARK (119): Edit > Toggle Bookmark
+                                                / F2 — Ne_ToggleBookmark(HWND hSci).
+                                                SCI_MARKERGET checks marker 0 on current
+                                                line; SCI_MARKERADD or SCI_MARKERDELETE.
+                                                IDM_BOOKMARK_NEXT (200): Edit > Go to
+                                                Bookmark / Ctrl+F2 — Ne_CycleBookmark
+                                                (HWND hSci, bool forward). SCI_MARKERNEXT
+                                                / SCI_MARKERPREVIOUS with wrap-around.
+                                                Bookmark margin: margin 1, SC_MARGIN_SYMBOL,
+                                                mask (1<<0), width S(10), not mouse-
+                                                sensitive. Marker 0 = SC_MARK_CIRCLE,
+                                                fore+back RGB(50,150,255) dark /
+                                                RGB(0,90,200) light.
+                                                F2 pump logic: if line has bookmark →
+                                                cycle forward; else toggle on. Shift+F2 →
+                                                Ne_CycleBookmark(false). Ctrl+F2 →
+                                                IDM_BOOKMARK_NEXT. Greyed in
+                                                WM_INITMENUPOPUP when SCI_MARKERNEXT
+                                                returns < 0 (no bookmarks in document).
                                                 IDM_CONV_TO_HTML5 (127): Convert > Export
                                                 as HTML 5... — Ne_ExportHtml5 converts
                                                 the active RTF document to a self-contained
@@ -376,11 +514,23 @@
                                                 strip + per-tab RichEdit HWND ownership.
                                                 Each tab stores its own path/modified/
                                                 suppress-change/disk-stamp state.
+                                                NeTabDoc::wordWrap (bool, default true) —
+                                                per-tab word-wrap state; set in
+                                                Ne_ToggleWordWrap, Ne_LoadPathIntoEditor,
+                                                IDM_CONV_TO_PLAIN, and Ne_SessionRestore.
+                                                Needed because s_wordWrapOn is global and
+                                                only reflects the active tab; RichEdit tabs
+                                                cannot be queried at restore time.
                                                 Switching tabs shows/hides editor HWNDs
                                                 (no content swapping). Tab captions show
                                                 filename with owner-drawn × close glyph
-                                                (hover = red circle). [+] button opens
-                                                new tab; WM_PAINT calls RedrawWindow on
+                                                (hover = red circle). For FTP-linked tabs
+                                                (isFtpFile=true, ftpRemotePath non-empty)
+                                                NeTabs_TitleFor uses the ftpRemotePath
+                                                basename rather than the local path, so
+                                                the tab always shows the actual remote
+                                                filename after a Save-to-FTP operation.
+                                                [+] button opens new tab; WM_PAINT calls RedrawWindow on
                                                 hBtnNew after tab strip is drawn to prevent
                                                 theming overdraw from permanently erasing
                                                 it. Right-click tab strip shows
@@ -391,7 +541,15 @@
                                                 save-prompt flow).
 
   ne_statusbar.h / ne_statusbar.cpp             Custom owner-drawn status bar module.
-                                                Left: Words: N  Chars: N in bold 12pt.
+                                                Left: Words: N  Chars: N  Lines: N. Section
+                                                width is measured via GetTextExtentPoint32W
+                                                so it always fits regardless of digit count.
+                                                Centre: language name (Ls(L"LANG_PLAIN_TEXT")
+                                                for plain-text files; s_langs[n].name for
+                                                code tabs). Line / column label driven by
+                                                NeStatusBar_SetLineColLabels(hBar, Ls(L"SB_LN"),
+                                                Ls(L"SB_COL")) — called once in WM_CREATE so
+                                                the abbreviations are fully locale-driven.
                                                 Right: shell32 icon + Saved (index 294,
                                                 green checkmark) or Unsaved (index 131,
                                                 red X). Updates via NeStatusBar_Update().
@@ -507,6 +665,13 @@
                                                 NeProfiles_Init() / NeProfiles_Close().
                                                 NeProfiles_IsMemory() — true when running on
                                                 an in-memory DB.
+                                                NeProfiles_IsInstalled() — true when the DB
+                                                path is the AppData installed DB (contains
+                                                "AppData" and ends with "nsbedit.db"); used
+                                                by session restore to gate the feature.
+                                                NeProfiles_GetDb() — returns the raw sqlite3*
+                                                handle; used by ne_session.cpp to share the
+                                                same connection.
                                                 NeProfiles_Add/Update/Delete/List/GetById —
                                                 CRUD for NeProfile structs. Delete shows
                                                 MSG_PROFILE_DELETE_CONFIRM (MB_YESNO,
@@ -525,6 +690,56 @@
                                                 the ZIP; SQLite3 writes the schema on
                                                 first use. A 0-byte stub is skipped in
                                                 the portable path — AppData DB wins.
+                                                Schema includes session_tabs table (17
+                                                columns: id, sort_order, local_path,
+                                                is_ftp, ftp_profile_id, ftp_remote_path,
+                                                ftp_friendly, content BLOB, content_is_rtf,
+                                                is_active, disk_time_lo, disk_time_hi,
+                                                disk_size, was_modified, word_wrap,
+                                                is_sci_tab, caret_pos, scroll_line,
+                                                spell_lang);
+                                                was_modified/word_wrap/is_sci_tab/caret_pos/
+                                                scroll_line/spell_lang added via idempotent
+                                                ALTER TABLE migrations (SQLite ignores error
+                                                if column exists). Migration runs in
+                                                NeProfiles_Init().
+                                                WAL journal mode enabled at DB open:
+                                                sqlite3_exec(s_db, "PRAGMA journal_mode=WAL",
+                                                NULL, NULL, NULL) after sqlite3_open succeeds.
+                                                COMMITs append to WAL file instead of fsyncing
+                                                the main DB — makes 10-second session saves
+                                                imperceptible (sub-millisecond append vs.
+                                                10–50 ms fsync stall).
+
+  ne_session.h / ne_session.cpp                 Session persistence — save and restore the
+                                                full tab list across sessions, crashes, and
+                                                reboots (installed version only).
+                                                NeSessionTab struct: sortOrder, localPath,
+                                                isFtp, ftpProfileId, ftpRemotePath,
+                                                ftpFriendly, content (vector<uint8_t> BLOB),
+                                                contentIsRtf, isActive, diskTimeLo/Hi,
+                                                diskSize, wasModified,
+                                                wordWrap (bool, default true),
+                                                isSciTab (bool — true=Scintilla, false=RichEdit),
+                                                caretPos (int — char offset),
+                                                scrollLine (int — first visible line),
+                                                spellLang (wstring BCP-47, empty=app default).
+                                                INSERT: 18 bound params (13 original +
+                                                word_wrap, is_sci_tab, caret_pos,
+                                                scroll_line, spell_lang).
+                                                SELECT: reads cols 0–17; col13=wordWrap,
+                                                col14=isSciTab, col15=caretPos,
+                                                col16=scrollLine, col17=spellLang.
+                                                NeSession_Save(tabs) — atomic
+                                                BEGIN/DELETE/INSERT.../COMMIT into
+                                                session_tabs; safe against mid-write crash.
+                                                NeSession_Load(out) — SELECT ORDER BY
+                                                sort_order into out vector.
+                                                NeSession_HasData() — true when at least
+                                                one row exists.
+                                                NeSession_Clear() — DELETE all rows.
+                                                Uses NeProfiles_GetDb() for the shared
+                                                SQLite handle (no separate connection).
 
   ne_crypto.h / ne_crypto.cpp                   Lightweight password encryption helper.
                                                 NeCrypto_Init() / NeCrypto_Encrypt() /
@@ -620,23 +835,6 @@
                                                 DB persistence (zoom_rtf / zoom_sci settings),
                                                 startup clamping, and bug history (Ctrl+scroll
                                                 silently skipping Scintilla tabs).
-
-  API_INTERNALS\INTERNALS\focus_restore_INTERNALS.txt
-                                                How to restore keyboard focus to the active
-                                                child editor when the app is re-activated
-                                                (Alt+Tab / taskbar click) so that the text
-                                                selection is immediately live (blue, not grey).
-                                                Key pitfall: SetFocus in WM_ACTIVATE does NOT
-                                                stick — DefWindowProcW overrides it.
-                                                Correct pattern: handle WM_SETFOCUS on the
-                                                top-level frame window and redirect to the
-                                                currently visible child editor.
-                                                Second pitfall: in a multi-editor-type tab
-                                                system (e.g. RichEdit + Scintilla tabs) always
-                                                target the VISIBLE editor (doc->hSci if non-NULL,
-                                                else doc->hEdit) — calling SetFocus on a hidden
-                                                RichEdit while a Scintilla tab is active leaves
-                                                the selection grey and silent.
 
   API_INTERNALS\API\shell32_API.txt             Shell icon loading reference — PrivateExtractIconsW
                                                 vs LoadImageW(MAKEINTRESOURCE), verified
@@ -941,42 +1139,6 @@
                                                 mainwindow.cpp which then launches
                                                 compile_inno.bat <generated.iss> via
                                                 ShellExecuteW in a visible cmd window.
-                                                Default output filename (OutputBase token):
-                                                cfg.outputFilename if set; else strips
-                                                whitespace from proj.name and forms
-                                                "<NameNoSpaces>_<version>_Setup" (e.g.
-                                                "SetupCraft_1.0.0_Setup"); pure fallback
-                                                "Setup" when both name and filename empty.
-
-  test_page.h / test_page.cpp                   Test Installer page — page index 7, IDC range
-                                                8300–8315. Controls go directly on the main
-                                                hwnd (same pattern as scripts.cpp / settings.cpp).
-                                                Public API:
-                                                  TEST_BuildPage(hwnd, hInst, pageY,
-                                                    clientWidth, hPageTitleFont,
-                                                    hGuiFont, locale)
-                                                  TEST_TearDown()          — null HWND statics
-                                                  TEST_OnCommand(hwnd, id, event) → bool
-                                                  TEST_RunTest(hwnd)       — resolve path,
-                                                    persist, update status (stub; Inno
-                                                    compile + launch is next round)
-                                                State persisted via SETT_SetTestOutputFolder /
-                                                SETT_SetTestOutputFilename (settings.cpp) into
-                                                DB keys "test_output_folder" /
-                                                "test_output_filename" scoped to project.
-                                                ComputeDefaultTestFolder(): cfg.outputFolder +
-                                                \test_output; or %USERPROFILE%\Documents\
-                                                SetupCraft\<ProjectName>-Setupfiles\test_output.
-                                                ComputeDefaultTestFilename(): cfg.outputFilename
-                                                + _test; or <NameNoSpaces>_<ver>_Setup_test.
-                                                UniqueFilename(folder, baseName): checks if
-                                                baseName.exe exists in folder, tries
-                                                baseName(1).exe … baseName(999).exe to avoid
-                                                overwriting existing files.
-                                                SBuildConfig gains two new fields:
-                                                testOutputFolder and testOutputFilename.
-                                                IDM_BUILD_TEST (F5) calls TEST_RunTest from
-                                                any page (routed by mainwindow.cpp WM_COMMAND).
 
   API_INTERNALS\API\my_scrollbar_vscroll_API.txt  Custom Win32 vertical scrollbar — full public API.
                                                 msb_attach / msb_detach / msb_sync /
@@ -984,8 +1146,11 @@
                                                 MSB_HORIZONTAL / MSB_NOHIDE flags; color and
                                                 layout macros; RichEdit specifics (nMax/nPos
                                                 measurement, EM_SETRECT format-rect management,
-                                                EM_SHOWSCROLLBAR suppression); typical wiring
-                                                pattern for V+H dual-attach. ListView H-axis:
+                                                EM_SHOWSCROLLBAR suppression); Scintilla specifics
+                                                (SCI_ message reads, SCI_SETVSCROLLBAR V suppress,
+                                                ShowScrollBar H suppress, UpdateWindow before first
+                                                overflow check); typical wiring pattern for V+H
+                                                dual-attach. ListView H-axis:
 
   API_INTERNALS\API\my_scrollbar_hscroll_API.txt  Custom Win32 horizontal scrollbar — impl notes.
                                                 Step-by-step rewrite (Steps 1-3 complete).
@@ -1248,6 +1413,33 @@
                                                 use ownership for intra-app Z-order; audit
                                                 checklist for translation pass).
 
+  API_INTERNALS\INTERNALS\focus_restore_INTERNALS.txt
+                                                Focus and activation patterns — four
+                                                distinct problems and their correct fixes:
+                                                (1) WM_SETFOCUS redirect: why SetFocus in
+                                                WM_ACTIVATE is overridden by DefWindowProcW
+                                                and how to redirect focus to the active child
+                                                editor from WM_SETFOCUS on the frame instead.
+                                                (2) SetForegroundWindow guard in dialog close:
+                                                never call SetForegroundWindow(parent)
+                                                unconditionally — but also why the
+                                                "check fg == dlg" guard fails for custom modal
+                                                loops (dlg handle is already destroyed when the
+                                                loop exits, so the check is always false).
+                                                (3) TOPMOST trick — the correct reliable
+                                                pattern: SetWindowPos(HWND_TOPMOST) then
+                                                SetWindowPos(HWND_NOTOPMOST) at teardown,
+                                                gated on restoreOnClose flag captured at
+                                                creation time (was parent foreground when
+                                                dialog opened?). Atomically brings parent to
+                                                front without permanently pinning it.
+                                                (4) WM_ACTIVATEAPP + Chromium debounce:
+                                                naive s_appIsActive flag is reset by
+                                                Chromium's spurious WM_ACTIVATEAPP(TRUE)
+                                                bounce (~50–200 ms after deactivation);
+                                                fix with s_deactivatedAt GetTickCount stamp
+                                                and 500 ms suppress window.
+
   API_INTERNALS\INTERNALS\sc_shortcut_dialog_INTERNALS.txt
                                                 Configure Shortcut modal dialog — SC_EditShortcutDialog()
                                                 full signature (hwndParent, hInst, type, smPath,
@@ -1484,7 +1676,11 @@
                                                 with <<AppName>>+<<Year>> substitution; persisted
                                                 via DB::SetSetting installer_license_template_<pid>;
                                                 s_licenseTemplateId int; 19 templates seeded in
-                                                license_templates table — see below),
+                                                license_templates table — see below;
+                                                BUG NOTE: use hCtrl (WM_COMMAND lParam) directly
+                                                in CBN_SELCHANGE handler — GetDlgItem can return
+                                                a stale recycled HWND after SwitchPage teardown,
+                                                causing CB_GETCURSEL to always report index 0),
                                                 license acceptance toggle (IDC_IDLG_LICENSE_ACCEPT=7046,
                                                 custom checkbox below License row; s_licenseMustAccept
                                                 bool; preview shows I accept/I do not accept radio

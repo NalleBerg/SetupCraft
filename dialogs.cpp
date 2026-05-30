@@ -59,10 +59,17 @@ static bool s_dialogEnabled[IDLG_COUNT] = {
     true,  // IDLG_FINISH
 };
 
-static bool s_licenseMustAccept = true;        // true → preview shows I accept/I do not accept radio pair
-static int  s_licenseTemplateId = 0;           // id into license_templates table; 0 = The Unlicense
-static int  s_licenseSource     = 0;           // 0 = built-in RTF editor, 1 = external file
+static bool s_licenseMustAccept       = true; // true → preview shows I accept/I do not accept radio pair
+static int  s_licenseTemplateId      = 0;    // id of the template shown in the dropdown
+static bool s_licenseEdited          = false; // true only when user saved custom edits via "Edit Content..."
+static int  s_licenseContentTemplate = -1;   // template id at the time of the last custom edit
+static int  s_licenseSource          = 0;    // 0 = built-in RTF editor, 1 = external file
 static std::wstring s_licenseFilePath;         // absolute path when s_licenseSource == 1
+
+// RTF content for each license template combobox entry, parallel to the combobox items.
+// Populated in IDLG_BuildPage so CBN_SELCHANGE can apply the content without any DB call.
+static std::vector<std::wstring> s_ltRtfByIdx;
+static std::vector<int>          s_ltIdByIdx;
 
 // Finish-page "launch app when done" state.
 static bool s_finishLaunchEnabled    = false;                  // main toggle
@@ -154,6 +161,9 @@ static std::wstring L10n(const wchar_t* key, const wchar_t* fallback)
     auto it = s_pLocale->find(key);
     return (it != s_pLocale->end()) ? it->second : fallback;
 }
+
+// Forward declaration — defined later, used in IDLG_OnCommand and IDLG_ApplyDefaults.
+static std::wstring RtfEncodeText(const std::wstring& text);
 
 // Return true if the given dialog type should be shown based on live project state.
 static bool IsDialogVisible(InstallerDialogType type)
@@ -2795,9 +2805,11 @@ void IDLG_Reset()
     s_installTitle     = L"";
     s_previewAppName   = L"";
     s_installIconPath  = L"";
-    s_licenseMustAccept = true;
-    s_licenseTemplateId = 0;
-    s_licenseSource     = 0;
+    s_licenseMustAccept       = true;
+    s_licenseTemplateId      = 0;
+    s_licenseEdited          = false;
+    s_licenseContentTemplate = -1;
+    s_licenseSource          = 0;
     s_licenseFilePath.clear();
     s_finishLaunchEnabled    = false;
     s_finishLaunchDesc       = L"Launch {#MyAppName}";
@@ -3101,11 +3113,16 @@ int IDLG_BuildPage(HWND hwnd, HINSTANCE hInst,
             {
                 auto templates = DB::GetAllLicenseTemplates();
                 int selIdx = 0;
+                s_ltRtfByIdx.clear();
+                s_ltIdByIdx.clear();
                 for (int ti = 0; ti < (int)templates.size(); ti++) {
                     int cbIdx = (int)SendMessageW(hCmb, CB_ADDSTRING, 0,
                         (LPARAM)templates[ti].name.c_str());
                     SendMessageW(hCmb, CB_SETITEMDATA, cbIdx,
                         (LPARAM)(LONG_PTR)templates[ti].id);
+                    // Pre-load RTF for instant access in CBN_SELCHANGE — no DB round-trip needed.
+                    s_ltRtfByIdx.push_back(DB::GetLicenseTemplateRtf(templates[ti].id));
+                    s_ltIdByIdx.push_back(templates[ti].id);
                     if (templates[ti].id == s_licenseTemplateId)
                         selIdx = cbIdx;
                 }
@@ -3222,7 +3239,7 @@ int IDLG_BuildPage(HWND hwnd, HINSTANCE hInst,
 
 // ── IDLG_OnCommand ────────────────────────────────────────────────────────────
 
-bool IDLG_OnCommand(HWND hwnd, int wmId, int wmEvent, HWND /*hCtrl*/)
+bool IDLG_OnCommand(HWND hwnd, int wmId, int wmEvent, HWND hCtrl)
 {
     // ── Installer-title section handlers ─────────────────────────────────────
 
@@ -3295,15 +3312,24 @@ bool IDLG_OnCommand(HWND hwnd, int wmId, int wmEvent, HWND /*hCtrl*/)
 
     // License template selector: load chosen RTF into the in-memory license slot.
     if (wmId == IDC_IDLG_LICENSE_TEMPLATE && wmEvent == CBN_SELCHANGE) {
-        HWND hCmb = GetDlgItem(hwnd, IDC_IDLG_LICENSE_TEMPLATE);
+        // Use hCtrl (lParam) directly — GetDlgItem can return a stale HWND
+        // if the page was rebuilt while the combo still exists as a sibling.
+        HWND hCmb = hCtrl ? hCtrl : GetDlgItem(hwnd, IDC_IDLG_LICENSE_TEMPLATE);
         if (hCmb) {
             int selIdx = (int)SendMessageW(hCmb, CB_GETCURSEL, 0, 0);
             if (selIdx != CB_ERR) {
                 int tmplId = (int)(LONG_PTR)SendMessageW(hCmb, CB_GETITEMDATA, selIdx, 0);
                 s_licenseTemplateId = tmplId;
-                std::wstring rtf = DB::GetLicenseTemplateRtf(tmplId);
+                s_licenseEdited = false; // template chosen; any old custom edit no longer applies
+                // Use the RTF pre-loaded at page-build time; fall back to DB.
+                std::wstring rtf;
+                if (selIdx >= 0 && selIdx < (int)s_ltRtfByIdx.size())
+                    rtf = s_ltRtfByIdx[selIdx];
+                if (rtf.empty())
+                    rtf = DB::GetLicenseTemplateRtf(tmplId);
                 if (!rtf.empty()) {
-                    // Substitute <<AppName>> and <<Year>> before storing in memory.
+                    // Substitute <<AppName>>, <<Year>> and <<LicenseCreditNote>>
+                    // before storing in memory. Matches the logic in SubstitutePlaceholders.
                     std::wstring appName = s_previewAppName.empty() ? L"<<AppName>>" : s_previewAppName;
                     SYSTEMTIME st = {}; GetLocalTime(&st);
                     std::wstring year = std::to_wstring(st.wYear);
@@ -3316,7 +3342,18 @@ bool IDLG_OnCommand(HWND hwnd, int wmId, int wmEvent, HWND /*hCtrl*/)
                     };
                     replaceAll(rtf, L"<<AppName>>", appName);
                     replaceAll(rtf, L"<<Year>>",    year);
+                    // Credit note: localize, substitute <<AppName>> within the note,
+                    // then RTF-encode before splicing (handles Unicode punctuation).
+                    if (rtf.find(L"<<LicenseCreditNote>>") != std::wstring::npos) {
+                        std::wstring note = L10n(L"idlg_license_credit_note",
+                            L"If you find <<AppName>> useful, a credit in your application\u2019s "
+                            L"About dialog or documentation is warmly appreciated "
+                            L"\u2014 though it is not required.");
+                        replaceAll(note, L"<<AppName>>", appName);
+                        replaceAll(rtf, L"<<LicenseCreditNote>>", RtfEncodeText(note));
+                    }
                     s_dialogs[IDLG_LICENSE].content_rtf = rtf;
+                    s_licenseContentTemplate = tmplId;
                     MainWindow::MarkAsModified();
                 }
             }
@@ -3440,6 +3477,10 @@ bool IDLG_OnCommand(HWND hwnd, int wmId, int wmEvent, HWND /*hCtrl*/)
             ed.wrapToWindow = true;
         if (OpenRtfEditor(hwnd, ed)) {
             dlg.content_rtf = ed.outRtf;
+            if (typeIdx == IDLG_LICENSE) {
+                s_licenseEdited = true;
+                s_licenseContentTemplate = s_licenseTemplateId;
+            }
             MainWindow::MarkAsModified();
         }
         return true;
@@ -3567,32 +3608,31 @@ void IDLG_ApplyDefaults(const std::wstring& appName, const std::wstring& appVers
 {
     s_previewAppName = appName;  // keep in sync for preview Finish dialog
 
-    // For the License dialog: seed from the active license template (which
-    // includes the logo image) rather than the image-less dialog_defaults row.
-    // This mirrors exactly what CBN_SELCHANGE does when the user picks a template.
-    // We reseed whenever the current slot has no embedded image (\pict) AND the
-    // active template does have one — this fixes both brand-new projects and
-    // existing projects that were previously seeded from the image-less
-    // dialog_defaults row.  If the user has their own custom content with an
-    // image (or explicitly chose a template with no image), we leave it alone.
-    {
-        bool slotHasPict = (s_dialogs[IDLG_LICENSE].content_rtf.find(L"\\pict")
-                            != std::wstring::npos);
-        if (!slotHasPict) {
-            std::wstring rtf = DB::GetLicenseTemplateRtf(s_licenseTemplateId);
-            bool tmplHasPict = (rtf.find(L"\\pict") != std::wstring::npos);
-            if (tmplHasPict) {
-                std::wstring an = appName.empty() ? L"<<AppName>>" : appName;
-                SYSTEMTIME st = {}; GetLocalTime(&st);
-                std::wstring year = std::to_wstring(st.wYear);
-                auto repl = [](std::wstring& s, const std::wstring& f, const std::wstring& t) {
-                    size_t p = 0;
-                    while ((p = s.find(f, p)) != std::wstring::npos) { s.replace(p, f.size(), t); p += t.size(); }
-                };
-                repl(rtf, L"<<AppName>>", an);
-                repl(rtf, L"<<Year>>",    year);
-                s_dialogs[IDLG_LICENSE].content_rtf = rtf;
+    // License: only keep saved content if the user explicitly edited it AND
+    // that edit was made while the same template was selected.
+    // In all other cases re-seed from the current template.
+    bool usesaved = s_licenseEdited && (s_licenseContentTemplate == s_licenseTemplateId);
+    if (!usesaved || s_dialogs[IDLG_LICENSE].content_rtf.empty()) {
+        std::wstring rtf = DB::GetLicenseTemplateRtf(s_licenseTemplateId);
+        if (!rtf.empty()) {
+            std::wstring an = appName.empty() ? L"<<AppName>>" : appName;
+            SYSTEMTIME st = {}; GetLocalTime(&st);
+            std::wstring year = std::to_wstring(st.wYear);
+            auto repl = [](std::wstring& s, const std::wstring& f, const std::wstring& t) {
+                size_t p = 0;
+                while ((p = s.find(f, p)) != std::wstring::npos) { s.replace(p, f.size(), t); p += t.size(); }
+            };
+            repl(rtf, L"<<AppName>>", an);
+            repl(rtf, L"<<Year>>",    year);
+            if (rtf.find(L"<<LicenseCreditNote>>") != std::wstring::npos) {
+                std::wstring note = L10n(L"idlg_license_credit_note",
+                    L"If you find <<AppName>> useful, a credit in your application\u2019s "
+                    L"About dialog or documentation is warmly appreciated "
+                    L"\u2014 though it is not required.");
+                repl(note, L"<<AppName>>", an);
+                repl(rtf, L"<<LicenseCreditNote>>", RtfEncodeText(note));
             }
+            s_dialogs[IDLG_LICENSE].content_rtf = rtf;
         }
     }
 
@@ -3621,8 +3661,10 @@ void IDLG_SaveToDb(int projectId)
     DB::SetSetting(L"installer_title_" + pid, s_installTitle);
     DB::SetSetting(L"installer_icon_"  + pid, s_installIconPath);
     DB::SetSetting(L"installer_license_must_accept_" + pid, s_licenseMustAccept ? L"1" : L"0");
-    DB::SetSetting(L"installer_license_template_"    + pid, std::to_wstring(s_licenseTemplateId));
-    DB::SetSetting(L"installer_license_source_"      + pid, std::to_wstring(s_licenseSource));
+    DB::SetSetting(L"installer_license_template_"         + pid, std::to_wstring(s_licenseTemplateId));
+    DB::SetSetting(L"installer_license_edited_"           + pid, s_licenseEdited ? L"1" : L"0");
+    DB::SetSetting(L"installer_license_content_template_" + pid, std::to_wstring(s_licenseContentTemplate));
+    DB::SetSetting(L"installer_license_source_"           + pid, std::to_wstring(s_licenseSource));
     DB::SetSetting(L"installer_license_file_"        + pid, s_licenseFilePath);
     DB::SetSetting(L"installer_preview_w_" + pid, std::to_wstring(s_previewLogW));
     DB::SetSetting(L"installer_preview_h_" + pid, std::to_wstring(s_previewLogH));
@@ -3701,6 +3743,11 @@ void IDLG_LoadFromDb(int projectId)
     std::wstring savedTmpl, savedSrc, savedFilePath;
     if (DB::GetSetting(L"installer_license_template_" + pid, savedTmpl) && !savedTmpl.empty())
         s_licenseTemplateId = _wtoi(savedTmpl.c_str());
+    std::wstring savedEdited, savedContentTmpl;
+    if (DB::GetSetting(L"installer_license_edited_" + pid, savedEdited))
+        s_licenseEdited = (savedEdited == L"1");
+    if (DB::GetSetting(L"installer_license_content_template_" + pid, savedContentTmpl) && !savedContentTmpl.empty())
+        s_licenseContentTemplate = _wtoi(savedContentTmpl.c_str());
     if (DB::GetSetting(L"installer_license_source_" + pid, savedSrc) && !savedSrc.empty())
         s_licenseSource = _wtoi(savedSrc.c_str());
     if (DB::GetSetting(L"installer_license_file_" + pid, savedFilePath))

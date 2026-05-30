@@ -277,6 +277,12 @@
       //   and <<Year>> substituted, and the result stored in
       //   s_dialogs[IDLG_LICENSE].content_rtf.  The developer can then edit the
       //   content further using "Edit Content…".
+      // *** IMPORTANT: read the combo HWND from hCtrl (the WM_COMMAND lParam),
+      //   NOT from GetDlgItem(hwnd, IDC_IDLG_LICENSE_TEMPLATE).  SwitchPage
+      //   destroys and recreates all page controls on each visit; if the old
+      //   HWND is recycled by the OS, GetDlgItem can resolve to a different
+      //   sibling with the same control ID, causing CB_GETCURSEL to always
+      //   return index 0 regardless of the user's selection. ***
       // Combo populated from DB::GetAllLicenseTemplates() in IDLG_BuildPage.
       // Reset to 0 by IDLG_Reset().
       // Persisted by IDLG_SaveToDb / loaded by IDLG_LoadFromDb via
