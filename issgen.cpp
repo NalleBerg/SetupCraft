@@ -12,6 +12,7 @@
  */
 
 #include "issgen.h"
+#include "dialogs.h"
 #include <algorithm>
 #include <map>
 
@@ -324,6 +325,16 @@ static const wchar_t* ShowLanguageDialogStr(int val)
     }
 }
 
+// Map showInstallDetails index (0=auto 1=yes 2=no) to the Inno ShowInstallDetails= string.
+static const wchar_t* ShowInstallDetailsStr(int val)
+{
+    switch (val) {
+        case 1:  return L"yes";
+        case 2:  return L"no";
+        default: return L"auto";
+    }
+}
+
 // Map minOsVersion index to the Inno MinVersion= string.
 // Returns L"" for "no minimum" (index 0).
 static const wchar_t* MinVersionStr(int ver)
@@ -573,6 +584,7 @@ std::wstring ISS_GenerateIss(
         { L"UninstallFilesDir",        cfg.uninstallFilesDir.empty() ? L"{app}" : cfg.uninstallFilesDir },
         { L"LanguageDetectionMethod",  LangDetectionMethodStr(cfg.langDetectionMethod) },
         { L"ShowLanguageDialog",       ShowLanguageDialogStr(cfg.showLanguageDialog)    },
+        { L"ShowInstallDetails",       ShowInstallDetailsStr(IDLG_GetInstallShowDetails()) },
     };
 
     // ── Substitute {#Token} placeholders ─────────────────────────────────────
@@ -680,6 +692,96 @@ std::wstring ISS_GenerateIss(
         faBlock += L"\r\n";
     }
     ReplaceAll(tmpl, L"; <<FILE_ASSOCIATIONS>>", faBlock);
+
+    // ── Replace the "; <<INSTALL_PROGRESS_CODE>>" marker ────────────────────────────────────
+    // Emits Pascal code for smooth progress bar (PBS_SMOOTH), ETA countdown label,
+    // and/or folder page read-only (when "Allow folder change" is unchecked).
+    {
+        const bool smooth          = IDLG_GetInstallProgressSmooth();
+        const bool eta             = IDLG_GetInstallShowEta();
+        const bool folderReadOnly  = !IDLG_GetSelectFolderAllowChange();
+        std::wstring installCode;
+
+        if (smooth || eta || folderReadOnly) {
+            if (smooth) {
+                installCode +=
+                    L"function GetWindowLong(hWnd: LongInt; nIndex: Integer): LongInt;\r\n"
+                    L"  external 'GetWindowLongW@user32.dll stdcall';\r\n"
+                    L"function SetWindowLong(hWnd: LongInt; nIndex: Integer; dwNewLong: LongInt): LongInt;\r\n"
+                    L"  external 'SetWindowLongW@user32.dll stdcall';\r\n"
+                    L"\r\n";
+            }
+            if (eta) {
+                installCode +=
+                    L"function GetTickCount_SC: Cardinal;\r\n"
+                    L"  external 'GetTickCount@kernel32.dll stdcall';\r\n"
+                    L"\r\n"
+                    L"var\r\n"
+                    L"  g_InstallStart_SC: Cardinal;\r\n"
+                    L"  g_EtaLabel_SC: TLabel;\r\n"
+                    L"\r\n";
+            }
+            installCode += L"procedure InitializeWizard;\r\n";
+            if (smooth) {
+                installCode +=
+                    L"const\r\n"
+                    L"  GWL_STYLE  = -16;\r\n"
+                    L"  PBS_SMOOTH = 1;\r\n"
+                    L"begin\r\n"
+                    L"  SetWindowLong(WizardForm.ProgressGauge.Handle, GWL_STYLE,\r\n"
+                    L"    GetWindowLong(WizardForm.ProgressGauge.Handle, GWL_STYLE) or PBS_SMOOTH);\r\n";
+            } else {
+                installCode += L"begin\r\n";
+            }
+            if (eta) {
+                installCode +=
+                    L"  g_EtaLabel_SC := TLabel.Create(WizardForm);\r\n"
+                    L"  g_EtaLabel_SC.Parent := WizardForm.InstallingPage;\r\n"
+                    L"  g_EtaLabel_SC.AutoSize := False;\r\n"
+                    L"  g_EtaLabel_SC.Left   := WizardForm.ProgressGauge.Left;\r\n"
+                    L"  g_EtaLabel_SC.Top    := WizardForm.ProgressGauge.Top + WizardForm.ProgressGauge.Height + 4;\r\n"
+                    L"  g_EtaLabel_SC.Width  := WizardForm.ProgressGauge.Width;\r\n"
+                    L"  g_EtaLabel_SC.Caption := '';\r\n";
+            }
+            if (folderReadOnly) {
+                installCode +=
+                    L"  WizardForm.DirEdit.ReadOnly := True;\r\n"
+                    L"  WizardForm.DirBrowseButton.Enabled := False;\r\n";
+            }
+            installCode += L"end;\r\n\r\n";
+
+            if (eta) {
+                installCode +=
+                    L"procedure CurInstallProgressChanged(CurProgress, MaxProgress: Integer);\r\n"
+                    L"var\r\n"
+                    L"  Elapsed, Remaining: Cardinal;\r\n"
+                    L"  RemainSec: Integer;\r\n"
+                    L"  Pct: Double;\r\n"
+                    L"begin\r\n"
+                    L"  if CurProgress = 0 then\r\n"
+                    L"  begin\r\n"
+                    L"    g_InstallStart_SC := GetTickCount_SC;\r\n"
+                    L"    if Assigned(g_EtaLabel_SC) then\r\n"
+                    L"      g_EtaLabel_SC.Caption := 'Calculating time remaining...';\r\n"
+                    L"    Exit;\r\n"
+                    L"  end;\r\n"
+                    L"  if (MaxProgress <= 0) then Exit;\r\n"
+                    L"  Elapsed := GetTickCount_SC - g_InstallStart_SC;\r\n"
+                    L"  if Elapsed < 1000 then Exit;\r\n"
+                    L"  Pct := CurProgress / MaxProgress;\r\n"
+                    L"  if Pct <= 0 then Exit;\r\n"
+                    L"  Remaining := Round(Elapsed / Pct) - Elapsed;\r\n"
+                    L"  RemainSec := Remaining div 1000;\r\n"
+                    L"  if RemainSec < 0 then RemainSec := 0;\r\n"
+                    L"  if Assigned(g_EtaLabel_SC) then\r\n"
+                    L"    g_EtaLabel_SC.Caption := 'Time remaining: '\r\n"
+                    L"      + IntToStr(RemainSec div 60) + ' min '\r\n"
+                    L"      + IntToStr(RemainSec mod 60) + ' sec';\r\n"
+                    L"end;\r\n\r\n";
+            }
+        }
+        ReplaceAll(tmpl, L"; <<INSTALL_PROGRESS_CODE>>", installCode);
+    }
 
     // ── Replace the "; <<DISK_SPACE_CODE>>" marker ──────────────────────────────────────────
     // Always emits UpdateReadyMemo (shows required MB and available MB on the Ready page).

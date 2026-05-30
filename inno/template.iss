@@ -29,6 +29,7 @@ DirExistsWarning={#DirExistsWarning}
 SetupLogging={#SetupLogging}
 LanguageDetectionMethod={#LanguageDetectionMethod}
 ShowLanguageDialog={#ShowLanguageDialog}
+ShowInstallDetails={#ShowInstallDetails}
 VersionInfoVersion={#VersionInfoVersion}
 VersionInfoTextVersion={#VersionInfoTextVersion}
 VersionInfoDescription={#VersionInfoDescription}
@@ -152,6 +153,7 @@ begin
     Result := True;
 end;
 
+; <<INSTALL_PROGRESS_CODE>>
 ; <<DISK_SPACE_CODE>>
 ; <<DEP_ENFORCE_CODE>>
 ; <<SETUP_LOG_PROC>>

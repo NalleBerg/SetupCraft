@@ -386,6 +386,7 @@ CMakeFiles/SkeletonApp.dir/issgen.cpp.obj: \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_multimap.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/erase_if.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\settings.h \
+ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\dialogs.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/algorithm \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_algo.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/algorithmfwd.h \

@@ -107,6 +107,7 @@ static HTREEITEM s_rightClickedItem = NULL; // Track which TreeView item was rig
 static int s_rightClickedRegIndex = -1; // Track which ListView item was right-clicked
 static bool s_projectNameManuallySet = false; // Track if user manually edited project name
 static bool s_updatingProjectNameProgrammatically = false; // Prevent EN_CHANGE during programmatic updates
+static bool s_syncingNameFields = false; // Re-entrance guard for cross-field name sync
 static bool s_installPathUserEdited = false; // Once user manually picks a path, stop auto-updating it
 static std::wstring s_currentInstallPath;    // Persists the install path across page switches
 static HWND s_hAboutButton = NULL; // Track About button for tooltip
@@ -3239,6 +3240,8 @@ void MainWindow::SwitchPage(HWND hwnd, int pageIndex) {
                                s_hPageTitleFont, s_hGuiFont, s_locale,
                                s_currentProject.name, s_currentProject.version,
                                s_appPublisher, s_appIconPath, s_appId);
+        // Pre-fill the output filename field if the user has not manually set it.
+        SETT_SetDerivedOutputFilename(hwnd, s_currentProject.name, s_currentProject.version);
         // Wire Regenerate GUID button tooltip subclass now that the control exists.
         {
             HWND hRegen = GetDlgItem(hwnd, IDC_SETT_REGEN_GUID);
@@ -9638,6 +9641,58 @@ LRESULT CALLBACK CompEditDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
     return DefWindowProcW(hwnd, msg, wParam, lParam);
 }
 
+// ── SyncNameToAllFields ───────────────────────────────────────────────────────
+// Mirrors a project-name change to all four name controls and updates derived
+// state (window title, status bar, output filename).  Re-entrance-guarded.
+/*static*/ void MainWindow::SyncNameToAllFields(HWND hwnd, const std::wstring& name, int sourceId)
+{
+    if (s_syncingNameFields) return;
+    s_syncingNameFields = true;
+
+    s_currentProject.name = name;
+
+    // Window title
+    SetWindowTextW(hwnd, (L"SetupCraft - " + name).c_str());
+
+    // Files page (IDC_PROJECT_NAME)
+    if (sourceId != IDC_PROJECT_NAME) {
+        HWND h = GetDlgItem(hwnd, IDC_PROJECT_NAME);
+        if (h) {
+            s_updatingProjectNameProgrammatically = true;
+            SetWindowTextW(h, name.c_str());
+            s_updatingProjectNameProgrammatically = false;
+        }
+    }
+    // Settings page (IDC_SETT_APP_NAME)
+    if (sourceId != IDC_SETT_APP_NAME) {
+        HWND h = GetDlgItem(hwnd, IDC_SETT_APP_NAME);
+        if (h) SetWindowTextW(h, name.c_str());
+    }
+    // Registry page (IDC_REG_DISPLAY_NAME)
+    if (sourceId != IDC_REG_DISPLAY_NAME) {
+        HWND h = GetDlgItem(hwnd, IDC_REG_DISPLAY_NAME);
+        if (h) SetWindowTextW(h, name.c_str());
+    }
+    // Dialogs page installer title — update in-memory state always;
+    // update live control when not the source.
+    IDLG_SetInstallerTitle(name);
+    if (sourceId != IDC_IDLG_INST_TITLE_EDIT) {
+        HWND h = GetDlgItem(hwnd, IDC_IDLG_INST_TITLE_EDIT);
+        if (h) SetWindowTextW(h, name.c_str());
+    }
+
+    // Status bar
+    std::wstring sb = L"Project: " + name
+                    + L" | Version: " + s_currentProject.version
+                    + L" | Directory: " + s_currentProject.directory;
+    SetWindowTextW(s_hStatus, sb.c_str());
+
+    // Auto-prefill output filename (no-op if user already edited it manually)
+    SETT_SetDerivedOutputFilename(hwnd, name, s_currentProject.version);
+
+    s_syncingNameFields = false;
+}
+
 LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
     case WM_CREATE: {
@@ -10400,6 +10455,15 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         if (FA_OnCommand(hwnd, wmId, wmEvent)) return 0;
         if (SCR_OnCommand(hwnd, wmId, wmEvent, (HWND)lParam)) return 0;
         if (TEST_OnCommand(hwnd, wmId, wmEvent)) return 0;
+        // Intercept installer-title edit to sync project name BEFORE IDLG_OnCommand
+        // (IDLG_OnCommand returns true for this control, so mainwindow would never see it)
+        if (wmId == IDC_IDLG_INST_TITLE_EDIT && wmEvent == EN_CHANGE && !s_syncingNameFields) {
+            wchar_t buf[512] = {};
+            GetDlgItemTextW(hwnd, IDC_IDLG_INST_TITLE_EDIT, buf, 512);
+            SyncNameToAllFields(hwnd, buf, IDC_IDLG_INST_TITLE_EDIT);
+            MarkAsModified();
+            // fall through — let IDLG_OnCommand also update s_installTitle
+        }
         if (IDLG_OnCommand(hwnd, wmId, wmEvent, (HWND)lParam)) return 0;
         if (SETT_OnCommand(hwnd, wmId, wmEvent, (HWND)lParam)) return 0;
 
@@ -10409,6 +10473,10 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             wchar_t buf[512];
             GetDlgItemTextW(hwnd, IDC_REG_PUBLISHER, buf, 512);
             s_appPublisher = buf;
+
+            // Mirror to Settings page if live
+            HWND hSettPub = GetDlgItem(hwnd, IDC_SETT_PUBLISHER);
+            if (hSettPub) SetWindowTextW(hSettPub, s_appPublisher.c_str());
 
             // Auto-update install path unless user has manually chosen one
             if (!s_installPathUserEdited) {
@@ -10446,6 +10514,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             HWND hSettVer = GetDlgItem(hwnd, IDC_SETT_APP_VERSION);
             if (hSettVer && GetWindowTextLengthW(hSettVer) != (int)s_currentProject.version.size())
                 SetWindowTextW(hSettVer, s_currentProject.version.c_str());
+            // Auto-prefill output filename
+            SETT_SetDerivedOutputFilename(hwnd, s_currentProject.name, s_currentProject.version);
             MarkAsModified();
             return 0;
         }
@@ -10462,6 +10532,8 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             HWND hRegVer = GetDlgItem(hwnd, IDC_REG_VERSION);
             if (hRegVer && GetWindowTextLengthW(hRegVer) != (int)s_currentProject.version.size())
                 SetWindowTextW(hRegVer, s_currentProject.version.c_str());
+            // Auto-prefill output filename
+            SETT_SetDerivedOutputFilename(hwnd, s_currentProject.name, s_currentProject.version);
             MarkAsModified();
             return 0;
         }
@@ -10480,37 +10552,26 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         if (wmId == IDC_SETT_APP_NAME && wmEvent == EN_CHANGE) {
             wchar_t buf[256] = {};
             GetDlgItemTextW(hwnd, IDC_SETT_APP_NAME, buf, 256);
-            s_currentProject.name = buf;
-            std::wstring title = L"SetupCraft - " + s_currentProject.name;
-            SetWindowTextW(hwnd, title.c_str());
-            // Mirror to Files page if live
-            HWND hProjName = GetDlgItem(hwnd, IDC_PROJECT_NAME);
-            if (hProjName) {
-                s_updatingProjectNameProgrammatically = true;
-                SetWindowTextW(hProjName, s_currentProject.name.c_str());
-                s_updatingProjectNameProgrammatically = false;
-            }
+            SyncNameToAllFields(hwnd, buf, IDC_SETT_APP_NAME);
             MarkAsModified();
             return 0;
         }
 
-        // Handle project name changes
+        // Handle project name changes — also add new REG_DISPLAY_NAME handler
+        if (wmId == IDC_REG_DISPLAY_NAME && wmEvent == EN_CHANGE) {
+            wchar_t buf[256] = {};
+            GetDlgItemTextW(hwnd, IDC_REG_DISPLAY_NAME, buf, 256);
+            SyncNameToAllFields(hwnd, buf, IDC_REG_DISPLAY_NAME);
+            MarkAsModified();
+            return 0;
+        }
+
         if (wmId == IDC_PROJECT_NAME && wmEvent == EN_CHANGE) {
-            // Mark as manually set if this is a user edit (not programmatic)
-            if (!s_updatingProjectNameProgrammatically) {
-                s_projectNameManuallySet = true;
-            }
-            
-            // Get the new project name
-            wchar_t projectName[256];
-            GetDlgItemTextW(hwnd, IDC_PROJECT_NAME, projectName, 256);
-            
-            // Update the window title
-            std::wstring title = L"SetupCraft - " + std::wstring(projectName);
-            SetWindowTextW(hwnd, title.c_str());
-            
-            // Note: Install folder is not updated here - it reflects the actual folder structure
-            
+            if (s_updatingProjectNameProgrammatically) return 0;
+            if (!s_syncingNameFields) s_projectNameManuallySet = true;
+            wchar_t buf[256] = {};
+            GetDlgItemTextW(hwnd, IDC_PROJECT_NAME, buf, 256);
+            SyncNameToAllFields(hwnd, buf, IDC_PROJECT_NAME);
             MarkAsModified();
             return 0;
         }

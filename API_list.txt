@@ -1581,10 +1581,12 @@
                                                 (48×48 icon preview, OFN_EXPLORER .ico picker,
                                                 title edit field, IDLG_SetInstallerInfo /
                                                 IDLG_GetInstallerTitle / IDLG_GetInstallerIconPath),
-                                                control ID ranges (7000-7137; enable checkboxes
+                                                control ID ranges (7000-7145; enable checkboxes
                                                 7060-7069; finish launch section 7070-7073;
                                                 license IDCs 7110-7117; select-folder IDCs
-                                                7118-7119; row base max = 7010+9×4+3=7049),
+                                                7118-7119; install row sub-controls 7140-7144;
+                                                select-folder allow-change 7145;
+                                                row base max = 7010+9×4+3=7049),
                                                 per-dialog enable toggles
                                                 (IDC_IDLG_ROW_ENABLE_BASE=7060; WELCOME/LICENSE/
                                                 READY/FINISH rows each carry a custom checkbox
@@ -1644,6 +1646,46 @@
                                                 and installer_ready_show_group_<pid>;
                                                 public accessors IDLG_GetReadyShowDir()/
                                                 IDLG_GetReadyShowGroup()),
+                                                Install-row sub-controls
+                                                (IDC_IDLG_INSTALL_SHOW_DETAILS_LBL=7140 static label;
+                                                IDC_IDLG_INSTALL_SHOW_DETAILS=7141 checkbox —
+                                                  ShowInstallDetails=yes in [Setup];
+                                                IDC_IDLG_INSTALL_PROGRESS_LBL=7142 static label;
+                                                IDC_IDLG_INSTALL_PROGRESS_SMOOTH=7143 checkbox —
+                                                  emits SetWindowLong PBS_SMOOTH in InitializeWizard;
+                                                IDC_IDLG_INSTALL_SHOW_ETA=7144 checkbox —
+                                                  emits TNewStaticText + CurInstallProgressChanged
+                                                  Pascal proc; all three default false, persisted
+                                                  as installer_install_show_details_<pid>,
+                                                  installer_install_progress_smooth_<pid>,
+                                                  installer_install_show_eta_<pid>; public
+                                                  accessors IDLG_GetInstallShowDetails()/
+                                                  IDLG_GetInstallProgressSmooth()/
+                                                  IDLG_GetInstallShowEta();
+                                                Install preview: PopulateExtras creates a
+                                                  PROGRESS_CLASS bar at 0% in hCompChecks[0]
+                                                  and a CreateCustomButton "Show Details"
+                                                  in hCompChecks[1]; LayoutPreviewControls
+                                                  positions bar full-width at ctrlY (S(18)h)
+                                                  and button below at ctrlY+S(18)+S(6) with
+                                                  MeasureButtonWidth-derived width;
+                                                  locale key idlg_install_prv_show_det),
+                                                Select-Folder allow-change sub-control
+                                                (IDC_IDLG_SELECT_FOLDER_ALLOW_CHANGE=7145
+                                                  custom checkbox; default checked;
+                                                  when unchecked issgen emits
+                                                  WizardForm.DirEdit.ReadOnly := True;
+                                                  WizardForm.DirBrowseButton.Enabled := False;
+                                                  inside InitializeWizard (separate from
+                                                  DisableDirPage/SETT_IsSelectFolderDisabled
+                                                  which hides the page entirely);
+                                                  s_selectFolderAllowChange=true default;
+                                                  persisted as installer_sf_allow_change_<pid>;
+                                                  IDLG_GetSelectFolderAllowChange() accessor;
+                                                  InitializeWizard emission condition widened
+                                                  to smooth||eta||folderReadOnly;
+                                                  locale keys idlg_sf_allow_change,
+                                                  idlg_sf_allow_change_tip),
                                                 sizer-panel header font/color controls
                                                 (IdlgHeaderFont struct {name,size,bold,italic};
                                                 IDLG_NOCOLOR=(COLORREF)-1 sentinel;

@@ -73,6 +73,7 @@ private:
     static void PopulateListView(HWND hList, const std::wstring &folderPath);
     static void UpdateInstallPathFromTree(HWND hwnd);
     static void UpdateComponentsButtonState(HWND hwnd);
+    static void SyncNameToAllFields(HWND hwnd, const std::wstring& name, int sourceId);
     static void AddTreeNodeRecursive(HWND hTree, HTREEITEM hParent,
                                      const std::wstring& folderPath,
                                      const std::vector<std::wstring>& excludePatterns = {});

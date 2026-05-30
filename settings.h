@@ -187,6 +187,12 @@ std::vector<InnoLangEntry> SETT_GetInstallerLanguages();
 void SETT_SetTestOutputFolder(const std::wstring& v);
 void SETT_SetTestOutputFilename(const std::wstring& v);
 
+// Auto-prefill output filename from project name + version (no-op if user edited it manually).
+// Strips all whitespace from the name component, matching issgen.cpp derive logic.
+void SETT_SetDerivedOutputFilename(HWND hwndParent,
+                                   const std::wstring& name,
+                                   const std::wstring& version);
+
 // Snapshot of all build-output and install settings, used by the .iss generator.
 struct SBuildConfig {
     std::wstring publisherUrl;

@@ -166,6 +166,17 @@ constexpr COLORREF IDLG_NOCOLOR = (COLORREF)-1;
 #define IDC_IDLG_SZR_CLR_BG       7136  // header background (bg) color swatch button
 #define IDC_IDLG_SZR_FONT_BROWSE  7137  // "..." button — opens ChooseFontW picker
 
+// Install-row sub-controls (range 7140–7144)
+// Displayed below the Install row in the Dialogs page.
+#define IDC_IDLG_INSTALL_SHOW_DETAILS_LBL  7140  // "Show install details:" label
+#define IDC_IDLG_INSTALL_SHOW_DETAILS      7141  // combobox: auto / yes / no
+#define IDC_IDLG_INSTALL_PROGRESS_LBL      7142  // "Progress bar style:" label
+#define IDC_IDLG_INSTALL_PROGRESS_SMOOTH   7143  // combobox: Smooth / Classic
+#define IDC_IDLG_INSTALL_SHOW_ETA          7144  // checkbox: show ETA countdown
+
+// Select-Folder row sub-controls (range 7145)
+#define IDC_IDLG_SELECT_FOLDER_ALLOW_CHANGE  7145  // checkbox: allow end user to change install folder
+
 // Installer-title section controls (range 7110–7119)
 // Displayed at the top of the Dialogs page, above the dialog-type rows.
 // The icon and title here set what appears in the installer's own title bar.
@@ -225,6 +236,7 @@ void IDLG_SetInstallerInfo(const std::wstring& title, const std::wstring& iconPa
 
 // Retrieve current in-memory values for the save handler.
 std::wstring IDLG_GetInstallerTitle();
+void         IDLG_SetInstallerTitle(const std::wstring& title);
 std::wstring IDLG_GetInstallerIconPath();
 
 // Scroll-offset accessors — used by the main-window WM_VSCROLL / WM_MOUSEWHEEL
@@ -268,6 +280,19 @@ bool IDLG_GetReadyShowDir();
 // Returns true when AlwaysShowGroupOnReadyPage=yes should be emitted in [Setup].
 // Defaults to true (matching Inno's built-in default).
 bool IDLG_GetReadyShowGroup();
+
+// ── Install-page accessors (for script generation) ────────────────────────────
+// 0=auto, 1=yes, 2=no  →  ShowInstallDetails= in [Setup].
+int  IDLG_GetInstallShowDetails();
+// true = emit PBS_SMOOTH style via InitializeWizard in [Code].
+bool IDLG_GetInstallProgressSmooth();
+// true = emit ETA countdown label via CurInstallProgressChanged in [Code].
+bool IDLG_GetInstallShowEta();
+
+// ── Select-Folder page accessors ─────────────────────────────────────────────
+// true (default) = end user can type/browse to a different folder.
+// false = folder page is shown but DirEdit is read-only (info-only).
+bool IDLG_GetSelectFolderAllowChange();
 
 // ── Header font / color accessors (for [Code] section generation) ─────────────
 

@@ -2,6 +2,13 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.05.30.10] - 2026-05-30
+
+### Dialogs page — Install preview progress bar + Select Folder "allow change" checkbox
+- **`dialogs.cpp` — `PopulateExtras` / `LayoutPreviewControls`: Install row now shows a real progress bar at 0% and a "Show Details" button in the preview**: Previously the Install row fell into the generic `else { pd->showExtras = false; }` branch so the preview panel was empty. A new `IDLG_INSTALL` branch in `PopulateExtras` now creates a `PROGRESS_CLASS` window at 0% (via `PBM_SETRANGE32` + `PBM_SETPOS`) stored in `hCompChecks[0]`, and a `CreateCustomButton` "Show Details" button (`ButtonColor::Blue`, width from `MeasureButtonWidth`) stored in `hCompChecks[1]`. The matching `IDLG_INSTALL` branch in `LayoutPreviewControls` positions the bar full-width at `ctrlY` (height `S(18)`) and the button below it at `ctrlY + S(18) + S(6)` with auto-derived width. Locale key: `idlg_install_prv_show_det`.
+- **`dialogs.h` / `dialogs.cpp` — Select Folder row: new "Allow end user to change the installation folder" checkbox (`IDC_IDLG_SELECT_FOLDER_ALLOW_CHANGE = 7145`)**: A new sub-control is rendered under the Select Folder row — a custom checkbox (default *checked*) that lets the developer decide whether the end user can type or browse to a different install path. When *unchecked*, SetupCraft emits `WizardForm.DirEdit.ReadOnly := True;` and `WizardForm.DirBrowseButton.Enabled := False;` inside `InitializeWizard` in the generated `[Code]` section, so the folder page is still shown but the path field and Browse button are disabled (information-only). This is entirely separate from the `DisableDirPage` / `SETT_IsSelectFolderDisabled()` mechanism, which hides the page altogether. Module-static `s_selectFolderAllowChange = true` (reset in `IDLG_Reset`); persisted to DB as `installer_sf_allow_change_<projectId>`. Public accessor: `IDLG_GetSelectFolderAllowChange()`. Locale keys: `idlg_sf_allow_change`, `idlg_sf_allow_change_tip`.
+- **`issgen.cpp` — `InitializeWizard` block extended for folder read-only mode**: The `; <<INSTALL_PROGRESS_CODE>>` expansion now reads `folderReadOnly = !IDLG_GetSelectFolderAllowChange()`. When true, two Pascal lines are appended inside the existing `InitializeWizard` procedure (alongside smooth-progress and ETA lines): `WizardForm.DirEdit.ReadOnly := True;` and `WizardForm.DirBrowseButton.Enabled := False;`. The emission condition is widened to `smooth || eta || folderReadOnly` so `InitializeWizard` is generated whenever any of the three features is active.
+
 ## [2026.05.30.09] - 2026-05-30
 
 ### Dialogs page — license template dropdown now correctly updates editor content

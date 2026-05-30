@@ -36,6 +36,8 @@ static std::wstring s_publisherUrl;
 static std::wstring s_supportUrl;
 static std::wstring s_outputFolder;
 static std::wstring s_outputFilename;
+static bool         s_outputFilenameUserEdited = false;
+static bool         s_updatingOutputFilenameProgrammatically = false;
 static std::wstring s_testOutputFolder;
 static std::wstring s_testOutputFilename;
 static int          s_compressionType  = 2;    // 0=store, 1=zip, 2=lzma, 3=lzma2
@@ -262,6 +264,7 @@ void SETT_Reset()
     s_supportUrl       = L"";
     s_outputFolder     = L"";
     s_outputFilename   = L"";
+    s_outputFilenameUserEdited = false;
     s_testOutputFolder   = L"";
     s_testOutputFilename = L"";
     s_compressionType  = 2;
@@ -1249,6 +1252,8 @@ bool SETT_OnCommand(HWND hwnd, int wmId, int wmEvent, HWND /*hCtrl*/)
         wchar_t buf[MAX_PATH] = {};
         GetDlgItemTextW(hwnd, IDC_SETT_OUTPUT_FILE, buf, MAX_PATH);
         s_outputFilename = buf;
+        if (!s_updatingOutputFilenameProgrammatically)
+            s_outputFilenameUserEdited = true;
         MainWindow::MarkAsModified();
         return true;
     }
@@ -1685,7 +1690,10 @@ void SETT_LoadFromDb(int projectId)
     if (DB::GetSetting(K(L"publisher_url"),     val)) s_publisherUrl     = val;
     if (DB::GetSetting(K(L"support_url"),       val)) s_supportUrl       = val;
     if (DB::GetSetting(K(L"output_folder"),     val)) s_outputFolder     = val;
-    if (DB::GetSetting(K(L"output_filename"),   val)) s_outputFilename   = val;
+    if (DB::GetSetting(K(L"output_filename"),   val)) {
+        s_outputFilename   = val;
+        s_outputFilenameUserEdited = !val.empty();
+    }
     if (DB::GetSetting(K(L"test_output_folder"),   val)) s_testOutputFolder   = val;
     if (DB::GetSetting(K(L"test_output_filename"), val)) s_testOutputFilename = val;
     if (DB::GetSetting(K(L"compression_type"),  val)) s_compressionType  = _wtoi(val.c_str());
@@ -1832,6 +1840,36 @@ SBuildConfig SETT_GetBuildConfig()
     cfg.testOutputFolder    = s_testOutputFolder;
     cfg.testOutputFilename  = s_testOutputFilename;
     return cfg;
+}
+
+// ── SETT_SetDerivedOutputFilename ─────────────────────────────────────────────
+// Auto-prefills the output filename as <NameNoSpaces>_<version>_Setup when the
+// user has not manually edited the field.  Mirrors the same logic as issgen.cpp.
+void SETT_SetDerivedOutputFilename(HWND hwndParent,
+                                   const std::wstring& name,
+                                   const std::wstring& version)
+{
+    if (s_outputFilenameUserEdited) return;
+
+    std::wstring safeName = name;
+    safeName.erase(std::remove_if(safeName.begin(), safeName.end(), ::iswspace),
+                   safeName.end());
+
+    std::wstring derived;
+    if (safeName.empty())
+        derived = L"Setup";
+    else
+        derived = safeName + (version.empty() ? L"" : L"_" + version) + L"_Setup";
+
+    if (derived == s_outputFilename) return;
+    s_outputFilename = derived;
+
+    HWND hCtrl = hwndParent ? GetDlgItem(hwndParent, IDC_SETT_OUTPUT_FILE) : NULL;
+    if (hCtrl) {
+        s_updatingOutputFilenameProgrammatically = true;
+        SetWindowTextW(hCtrl, derived.c_str());
+        s_updatingOutputFilenameProgrammatically = false;
+    }
 }
 
 // ── SETT_SetTestOutputFolder / SETT_SetTestOutputFilename ─────────────────────

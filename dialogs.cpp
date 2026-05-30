@@ -80,6 +80,14 @@ static bool s_finishLaunchDefChecked = true;                   // false → Inno
 static bool s_readyShowDir   = true;   // AlwaysShowDirOnReadyPage   (yes by default, matching Inno)
 static bool s_readyShowGroup = true;   // AlwaysShowGroupOnReadyPage (yes by default, matching Inno)
 
+// Install-page state.
+static int  s_installShowDetails   = 0;    // 0=auto, 1=yes, 2=no → ShowInstallDetails
+static bool s_installProgressSmooth = true; // true=smooth PBS_SMOOTH style
+static bool s_installShowEta        = false; // emit ETA countdown code
+
+// Select-Folder page state.
+static bool s_selectFolderAllowChange = true; // false → DirEdit read-only (info-only page)
+
 // Header font / color state — one "global" flag per group controls whether all
 // dialogs share a single value or each carries its own per-dialog override.
 // Cleared by IDLG_Reset(); persisted per-project in IDLG_SaveToDb/LoadFromDb.
@@ -463,7 +471,7 @@ static void LayoutPreviewControls(HWND hwnd, PreviewData* pd)
                          cW - pad * 2 - S(4), rH, SWP_NOZORDER | SWP_NOACTIVATE);
         }
 
-        // Position component checkboxes (or Select Folder path+button) when visible.
+        // Position component checkboxes (or Select Folder path+button, or Install progress+details) when visible.
         if (pd->type == IDLG_SELECT_FOLDER && pd->hCompChecks.size() >= 2) {
             // Path edit fills available width minus icon-only Browse button (S(55) min).
             const int editH   = S(24);
@@ -477,6 +485,21 @@ static void LayoutPreviewControls(HWND hwnd, PreviewData* pd)
             if (hBrowse && IsWindow(hBrowse))
                 SetWindowPos(hBrowse, NULL, pad + S(4) + editW + S(8), ctrlY,
                              browseW, editH, SWP_NOZORDER | SWP_NOACTIVATE);
+        } else if (pd->type == IDLG_INSTALL && pd->hCompChecks.size() >= 2) {
+            // Progress bar full-width, then "Show Details" button below it.
+            const int pbH   = S(18);
+            const int btnH2 = S(28);
+            HWND hPB    = pd->hCompChecks[0];
+            HWND hDetBtn = pd->hCompChecks[1];
+            if (hPB && IsWindow(hPB))
+                SetWindowPos(hPB, NULL, pad + S(4), ctrlY,
+                             cW - pad * 2 - S(8), pbH, SWP_NOZORDER | SWP_NOACTIVATE);
+            if (hDetBtn && IsWindow(hDetBtn)) {
+                std::wstring detTxt = L10n(L"idlg_install_prv_show_det", L"Show Details");
+                int detW = MeasureButtonWidth(detTxt, false);
+                SetWindowPos(hDetBtn, NULL, pad + S(4), ctrlY + pbH + S(6),
+                             detW, btnH2, SWP_NOZORDER | SWP_NOACTIVATE);
+            }
         } else {
             int cy = ctrlY;
             for (HWND h : pd->hCompChecks) {
@@ -806,6 +829,26 @@ static void PopulateExtras(HWND hwnd, PreviewData* pd, InstallerDialogType newTy
 
             SetWindowTextW(pd->hExtrasLabel, line.c_str());
         }
+
+    } else if (newType == IDLG_INSTALL) {
+        pd->showExtras = true;
+        if (pd->hExtrasLabel && IsWindow(pd->hExtrasLabel))
+            SetWindowTextW(pd->hExtrasLabel, L"");
+        // Progress bar at 0% (visual only — shows installation progress in the real installer)
+        HWND hPB = CreateWindowExW(0, PROGRESS_CLASS, NULL,
+            WS_CHILD | WS_VISIBLE,
+            0, 0, 10, 10,
+            hwnd, NULL, s_hInst, NULL);
+        SendMessageW(hPB, PBM_SETRANGE32, 0, 100);
+        SendMessageW(hPB, PBM_SETPOS, 0, 0);
+        pd->hCompChecks.push_back(hPB);
+        // "Show Details" button (visual only)
+        std::wstring detTxt = L10n(L"idlg_install_prv_show_det", L"Show Details");
+        int detW = MeasureButtonWidth(detTxt, false);
+        HWND hDetBtn = CreateCustomButton(hwnd, 0,
+            detTxt, ButtonColor::Blue,
+            0, 0, detW, S(28), s_hInst);
+        pd->hCompChecks.push_back(hDetBtn);
 
     } else {
         pd->showExtras = false;
@@ -2816,6 +2859,10 @@ void IDLG_Reset()
     s_finishLaunchDefChecked = true;
     s_readyShowDir   = true;
     s_readyShowGroup = true;
+    s_installShowDetails    = 0;
+    s_installProgressSmooth = true;
+    s_installShowEta        = false;
+    s_selectFolderAllowChange = true;
     // Header font / color state.
     s_fontGlobal   = true;
     s_colorGlobal  = true;
@@ -3169,6 +3216,88 @@ int IDLG_BuildPage(HWND hwnd, HINSTANCE hInst,
             y += chkH + gap;
         }
 
+        // ── Select-Folder row sub-controls ───────────────────────────────────
+        if (type == IDLG_SELECT_FOLDER) {
+            const int chkIndent = padH + iconSz + gap;
+            const int chkH = S(24);
+            HWND hAllowChk = CreateCustomCheckbox(hwnd, IDC_IDLG_SELECT_FOLDER_ALLOW_CHANGE,
+                L10n(L"idlg_sf_allow_change", L"Allow end user to change the installation folder"),
+                s_selectFolderAllowChange,
+                chkIndent, y, clientWidth - chkIndent - padH, chkH,
+                hInst);
+            if (hGuiFont) SendMessageW(hAllowChk, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+            SetButtonTooltip(hAllowChk, L10n(L"idlg_sf_allow_change_tip",
+                L"When checked: the end user can freely type or browse to a different installation folder.\n"
+                L"When unchecked: the folder selection page is shown as an info dialog only \u2014 the "
+                L"destination is pre-set and cannot be changed (DirEdit read-only).").c_str());
+            y += chkH + gap;
+        }
+
+        // ── Install-row sub-controls ─────────────────────────────────────────
+        if (type == IDLG_INSTALL) {
+            const int chkIndent = padH + iconSz + gap;
+            const int lblH  = S(24);
+            const int cmbH  = S(24);
+            const int chkH  = S(24);
+            const int lblW  = S(160);
+            const int cmbW  = S(140);
+
+            // "Show install details:" label + combo (Auto / Yes / No)
+            HWND hDetLbl = CreateWindowExW(0, L"STATIC",
+                L10n(L"idlg_install_show_details_lbl", L"Show install details:").c_str(),
+                WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
+                chkIndent, y, lblW, lblH,
+                hwnd, (HMENU)(UINT_PTR)IDC_IDLG_INSTALL_SHOW_DETAILS_LBL, hInst, NULL);
+            if (hGuiFont) SendMessageW(hDetLbl, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+
+            HWND hDetCmb = CreateWindowExW(0, WC_COMBOBOXW, NULL,
+                WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
+                chkIndent + lblW + S(6), y, cmbW, cmbH * 4,
+                hwnd, (HMENU)(UINT_PTR)IDC_IDLG_INSTALL_SHOW_DETAILS, hInst, NULL);
+            if (hGuiFont) SendMessageW(hDetCmb, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+            SendMessageW(hDetCmb, CB_ADDSTRING, 0, (LPARAM)L10n(L"idlg_install_det_auto", L"Auto").c_str());
+            SendMessageW(hDetCmb, CB_ADDSTRING, 0, (LPARAM)L10n(L"idlg_install_det_yes",  L"Yes").c_str());
+            SendMessageW(hDetCmb, CB_ADDSTRING, 0, (LPARAM)L10n(L"idlg_install_det_no",   L"No").c_str());
+            SendMessageW(hDetCmb, CB_SETCURSEL, (WPARAM)s_installShowDetails, 0);
+            SetButtonTooltip(hDetCmb, L10n(L"idlg_install_det_tip",
+                L"Controls whether the installation log panel is visible during installation.\n"
+                L"Auto = Inno decides; Yes = always show; No = hide details panel.").c_str());
+            y += cmbH + S(4);
+
+            // "Progress bar style:" label + combo (Smooth / Classic)
+            HWND hPrgLbl = CreateWindowExW(0, L"STATIC",
+                L10n(L"idlg_install_progress_lbl", L"Progress bar style:").c_str(),
+                WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
+                chkIndent, y, lblW, lblH,
+                hwnd, (HMENU)(UINT_PTR)IDC_IDLG_INSTALL_PROGRESS_LBL, hInst, NULL);
+            if (hGuiFont) SendMessageW(hPrgLbl, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+
+            HWND hPrgCmb = CreateWindowExW(0, WC_COMBOBOXW, NULL,
+                WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
+                chkIndent + lblW + S(6), y, cmbW, cmbH * 4,
+                hwnd, (HMENU)(UINT_PTR)IDC_IDLG_INSTALL_PROGRESS_SMOOTH, hInst, NULL);
+            if (hGuiFont) SendMessageW(hPrgCmb, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+            SendMessageW(hPrgCmb, CB_ADDSTRING, 0, (LPARAM)L10n(L"idlg_install_prg_smooth",  L"Smooth").c_str());
+            SendMessageW(hPrgCmb, CB_ADDSTRING, 0, (LPARAM)L10n(L"idlg_install_prg_classic", L"Classic").c_str());
+            SendMessageW(hPrgCmb, CB_SETCURSEL, (WPARAM)(s_installProgressSmooth ? 0 : 1), 0);
+            SetButtonTooltip(hPrgCmb, L10n(L"idlg_install_prg_tip",
+                L"Smooth: applies PBS_SMOOTH style for a continuous progress bar fill.\n"
+                L"Classic: default segmented progress bar appearance.").c_str());
+            y += cmbH + S(4);
+
+            // "Show ETA countdown" checkbox
+            HWND hEta = CreateCustomCheckbox(hwnd, IDC_IDLG_INSTALL_SHOW_ETA,
+                L10n(L"idlg_install_show_eta", L"Show estimated time remaining (ETA) during installation"),
+                s_installShowEta,
+                chkIndent, y, clientWidth - chkIndent - padH, chkH,
+                hInst);
+            if (hGuiFont) SendMessageW(hEta, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+            SetButtonTooltip(hEta, L10n(L"idlg_install_eta_tip",
+                L"Displays a live countdown label below the progress bar during installation "
+                L"(generated via [Code] Pascal script).").c_str());
+            y += chkH + gap;
+        }
+
         // ── Finish-row sub-controls ───────────────────────────────────────────
         // "Launch app when done": adds a [Run] entry with Flags: postinstall
         // shellexec skipifsilent (+ unchecked when s_finishLaunchDefChecked is false).
@@ -3414,6 +3543,34 @@ bool IDLG_OnCommand(HWND hwnd, int wmId, int wmEvent, HWND hCtrl)
     if (wmId == IDC_IDLG_READY_SHOW_GROUP) {
         HWND hChk = GetDlgItem(hwnd, IDC_IDLG_READY_SHOW_GROUP);
         if (hChk) s_readyShowGroup = (SendMessageW(hChk, BM_GETCHECK, 0, 0) == BST_CHECKED);
+        MainWindow::MarkAsModified();
+        return true;
+    }
+
+    // Install-page sub-controls
+    if (wmId == IDC_IDLG_INSTALL_SHOW_DETAILS && wmEvent == CBN_SELCHANGE) {
+        int sel = (int)SendDlgItemMessageW(hwnd, IDC_IDLG_INSTALL_SHOW_DETAILS, CB_GETCURSEL, 0, 0);
+        if (sel >= 0) s_installShowDetails = sel;
+        MainWindow::MarkAsModified();
+        return true;
+    }
+    if (wmId == IDC_IDLG_INSTALL_PROGRESS_SMOOTH && wmEvent == CBN_SELCHANGE) {
+        int sel = (int)SendDlgItemMessageW(hwnd, IDC_IDLG_INSTALL_PROGRESS_SMOOTH, CB_GETCURSEL, 0, 0);
+        if (sel >= 0) s_installProgressSmooth = (sel == 0);
+        MainWindow::MarkAsModified();
+        return true;
+    }
+    if (wmId == IDC_IDLG_INSTALL_SHOW_ETA) {
+        HWND hChk = GetDlgItem(hwnd, IDC_IDLG_INSTALL_SHOW_ETA);
+        if (hChk) s_installShowEta = (SendMessageW(hChk, BM_GETCHECK, 0, 0) == BST_CHECKED);
+        MainWindow::MarkAsModified();
+        return true;
+    }
+
+    // Select-Folder page sub-controls
+    if (wmId == IDC_IDLG_SELECT_FOLDER_ALLOW_CHANGE) {
+        HWND hChk = GetDlgItem(hwnd, IDC_IDLG_SELECT_FOLDER_ALLOW_CHANGE);
+        if (hChk) s_selectFolderAllowChange = (SendMessageW(hChk, BM_GETCHECK, 0, 0) == BST_CHECKED);
         MainWindow::MarkAsModified();
         return true;
     }
@@ -3683,6 +3840,12 @@ void IDLG_SaveToDb(int projectId)
     // Ready-page summary settings
     DB::SetSetting(L"installer_ready_show_dir_"   + pid, s_readyShowDir   ? L"1" : L"0");
     DB::SetSetting(L"installer_ready_show_group_" + pid, s_readyShowGroup ? L"1" : L"0");
+    // Install-page settings
+    DB::SetSetting(L"installer_install_show_details_"    + pid, std::to_wstring(s_installShowDetails));
+    DB::SetSetting(L"installer_install_progress_smooth_" + pid, s_installProgressSmooth ? L"1" : L"0");
+    DB::SetSetting(L"installer_install_show_eta_"        + pid, s_installShowEta        ? L"1" : L"0");
+    // Select-Folder page settings
+    DB::SetSetting(L"installer_sf_allow_change_" + pid, s_selectFolderAllowChange ? L"1" : L"0");
     // Header font settings (global flag + global values + per-dialog values)
     DB::SetSetting(L"installer_hdr_font_global_" + pid, s_fontGlobal  ? L"1" : L"0");
     DB::SetSetting(L"installer_hdr_font_name_"   + pid, s_globalFont.name);
@@ -3783,6 +3946,18 @@ void IDLG_LoadFromDb(int projectId)
         s_readyShowDir   = (sReadyDir != L"0");
     if (DB::GetSetting(L"installer_ready_show_group_" + pid, sReadyGroup))
         s_readyShowGroup = (sReadyGroup != L"0");
+    // Install-page settings
+    std::wstring sInstDet, sInstPrg, sInstEta;
+    if (DB::GetSetting(L"installer_install_show_details_"    + pid, sInstDet) && !sInstDet.empty())
+        s_installShowDetails = _wtoi(sInstDet.c_str());
+    if (DB::GetSetting(L"installer_install_progress_smooth_" + pid, sInstPrg))
+        s_installProgressSmooth = (sInstPrg != L"0");
+    if (DB::GetSetting(L"installer_install_show_eta_"        + pid, sInstEta))
+        s_installShowEta = (sInstEta == L"1");
+    // Select-Folder page settings
+    std::wstring sSfAllow;
+    if (DB::GetSetting(L"installer_sf_allow_change_" + pid, sSfAllow))
+        s_selectFolderAllowChange = (sSfAllow != L"0");
     // Header font settings
     auto strToColor = [](const std::wstring& s) -> COLORREF {
         if (s.empty() || s == L"-1") return IDLG_NOCOLOR;
@@ -3834,6 +4009,12 @@ void IDLG_SetInstallerInfo(const std::wstring& title, const std::wstring& iconPa
 // ── IDLG_GetInstallerTitle / IDLG_GetInstallerIconPath ────────────────────────
 
 std::wstring IDLG_GetInstallerTitle()    { return s_installTitle; }
+
+void IDLG_SetInstallerTitle(const std::wstring& title)
+{
+    s_installTitle = title;
+    // Live control update (if page is active) is handled by the caller via SetWindowTextW.
+}
 std::wstring IDLG_GetInstallerIconPath() { return s_installIconPath; }
 
 // ── Scroll-offset accessors ───────────────────────────────────────────────────
@@ -3851,6 +4032,11 @@ bool         IDLG_GetFinishLaunchDefaultChecked() { return s_finishLaunchDefChec
 
 bool IDLG_GetReadyShowDir()   { return s_readyShowDir; }
 bool IDLG_GetReadyShowGroup() { return s_readyShowGroup; }
+
+int  IDLG_GetInstallShowDetails()    { return s_installShowDetails; }
+bool IDLG_GetInstallProgressSmooth() { return s_installProgressSmooth; }
+bool IDLG_GetInstallShowEta()        { return s_installShowEta; }
+bool IDLG_GetSelectFolderAllowChange() { return s_selectFolderAllowChange; }
 
 // ── Header font / color accessors ───────────────────────────────────────────────
 IdlgHeaderFont IDLG_GetHeaderFont(InstallerDialogType t)   { return EffectiveFont(t); }
