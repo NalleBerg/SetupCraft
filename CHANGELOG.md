@@ -2,6 +2,14 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.05.31.11] - 2026-05-31
+
+### Dialogs page — Install preview: Show Details button rendering fix, Finish page layout fix, ShowFinishFeedback removed
+- **`dialogs.cpp` / `dialogs.h` — Install preview "Show Details" button now renders correctly (`IDC_IDLG_INSTALL_PRV_DET_BTN = 7146`)**: The button was created with `id = 0`, so the parent `WM_DRAWITEM` handler could never route it to `DrawCustomButton` — it drew as a plain grey rectangle. Fixed: `IDC_IDLG_INSTALL_PRV_DET_BTN = 7146` assigned at creation; `WM_DRAWITEM` now checks both `IDC_IDLG_SELECT_FOLDER_BROWSE` and `IDC_IDLG_INSTALL_PRV_DET_BTN` before routing to `DrawCustomButton`. A `WM_COMMAND` handler was added: clicking the button calls `ShowValidationDialog` with title `idlg_install_prv_show_det` ("Show Details") and body `idlg_install_prv_det_preview` ("[ Preview ] — Install details will be shown here during installation."), giving the developer a functional preview of the real Inno "Show Details" log window.
+- **`dialogs.cpp` — Select Folder preview: `EnableWindow(hBrowse, FALSE)` removed (icon-only rule)**: When `s_selectFolderAllowChange` is false, the previous code disabled both the path-edit and the icon-only Browse button. Per `button_INTERNALS`: icon-only (`L""`) custom buttons must never receive `EnableWindow(FALSE)` — `DrawCustomButton` has no `ODS_DISABLED` greying path, and disabled windows never receive `WM_MOUSEMOVE`. Only `hPathEdit` is now disabled; the Browse button renders normally.
+- **`dialogs.cpp` — `LayoutPreviewControls`: split-layout `contentH` cap now always reserves extras-panel space**: The auto-fit branch used `contentH = std::min(S(contentFitH), avail)`, which could consume 100% of available height (e.g. a large logo on the Finish page), pushing the extras panel completely off-screen. Fixed to `contentH = std::min(S(contentFitH), avail - gap - extrasNaturalH)` (with a `S(40)` floor). The Finish page logo is now fully visible with the "Launch app when done" checkbox always appearing below it.
+- **`dialogs.cpp` — `ShowFinishFeedback` removed**: After clicking Finish in the preview, a second "Installation Complete" modal dialog appeared with a greyed-out "Open AppName" checkbox. Redundant: the Finish preview page already shows the launch checkbox in the extras panel. `ShowFinishFeedback`, `FinishFeedbackWndProc`, `FinishFbData`, and all `IDC_FFBK_*` defines removed (~150 lines). Clicking Finish in the preview now closes the preview cleanly.
+
 ## [2026.05.30.10] - 2026-05-30
 
 ### Dialogs page — Install preview progress bar + Select Folder "allow change" checkbox

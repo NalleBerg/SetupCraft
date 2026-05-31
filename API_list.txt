@@ -1670,6 +1670,15 @@
                                                   and button below at ctrlY+S(18)+S(6) with
                                                   MeasureButtonWidth-derived width;
                                                   locale key idlg_install_prv_show_det),
+                                                Install preview "Show Details" button
+                                                (IDC_IDLG_INSTALL_PRV_DET_BTN=7146
+                                                  BS_OWNERDRAW Blue button in hCompChecks[1];
+                                                  WM_DRAWITEM routes CtlID 7146 to
+                                                  DrawCustomButton alongside CtlID 7119;
+                                                  WM_COMMAND click calls ShowValidationDialog
+                                                  with title idlg_install_prv_show_det and
+                                                  body idlg_install_prv_det_preview;
+                                                  locale key idlg_install_prv_det_preview),
                                                 Select-Folder allow-change sub-control
                                                 (IDC_IDLG_SELECT_FOLDER_ALLOW_CHANGE=7145
                                                   custom checkbox; default checked;
@@ -1685,7 +1694,11 @@
                                                   InitializeWizard emission condition widened
                                                   to smooth||eta||folderReadOnly;
                                                   locale keys idlg_sf_allow_change,
-                                                  idlg_sf_allow_change_tip),
+                                                  idlg_sf_allow_change_tip;
+                                                  preview disables hPathEdit only when
+                                                  !s_selectFolderAllowChange; browse button
+                                                  is icon-only and must NOT be disabled per
+                                                  button_INTERNALS icon-only rule),
                                                 sizer-panel header font/color controls
                                                 (IdlgHeaderFont struct {name,size,bold,italic};
                                                 IDLG_NOCOLOR=(COLORREF)-1 sentinel;
@@ -1766,6 +1779,26 @@
                                                 mainwindow.cpp 7-point wiring checklist
                                                 (with mistake history), layout constants,
                                                 and full locale key table.
+                                                LayoutPreviewControls split-layout
+                                                contentH cap rule (v2026.05.31.11):
+                                                  maxContent = avail - gap - extrasNaturalH
+                                                  if (maxContent < S(40)) maxContent = S(40)
+                                                  contentH = min(S(contentFitH), maxContent)
+                                                Always reserve extrasNaturalH BEFORE giving
+                                                remaining space to content; prevents large
+                                                images (e.g. Finish-page logo) from consuming
+                                                all available height and pushing the extras
+                                                panel off-screen.
+                                                ShowFinishFeedback removed (v2026.05.31.11):
+                                                FinishFeedbackWndProc, FinishFbData,
+                                                IDC_FFBK_* defines, and ShowFinishFeedback
+                                                function body all deleted (~150 lines). Was
+                                                a second "Installation Complete" popup shown
+                                                after clicking Finish in the preview; the
+                                                Finish preview page already shows the launch
+                                                checkbox in the extras panel, making the
+                                                second dialog redundant. Clicking Finish in
+                                                the preview now closes the preview cleanly.
 
   API_INTERNALS\INTERNALS\scripts_INTERNALS.txt  Scripts page module architecture —
                                                 SCR_BuildPage / SCR_Reset / SCR_TearDown

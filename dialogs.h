@@ -177,6 +177,9 @@ constexpr COLORREF IDLG_NOCOLOR = (COLORREF)-1;
 // Select-Folder row sub-controls (range 7145)
 #define IDC_IDLG_SELECT_FOLDER_ALLOW_CHANGE  7145  // checkbox: allow end user to change install folder
 
+// Install preview extras (range 7146)
+#define IDC_IDLG_INSTALL_PRV_DET_BTN  7146  // "Show Details" button in Install preview (visual only)
+
 // Installer-title section controls (range 7110–7119)
 // Displayed at the top of the Dialogs page, above the dialog-type rows.
 // The icon and title here set what appears in the installer's own title bar.

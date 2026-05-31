@@ -414,7 +414,11 @@ static void LayoutPreviewControls(HWND hwnd, PreviewData* pd)
             contentH = avail - gap - extrasNaturalH;
             if (contentH < S(60)) contentH = S(60);
         } else if (pd->contentFitH > 0) {
-            contentH = std::min(S(pd->contentFitH), avail);
+            // Cap at the space above the extras panel so large images (e.g. Finish
+            // page logo) never push the extras checkboxes/controls off-screen.
+            int maxContent = avail - gap - extrasNaturalH;
+            if (maxContent < S(40)) maxContent = S(40);
+            contentH = std::min(S(pd->contentFitH), maxContent);
         } else {
             contentH = avail / 2;
         }
@@ -769,6 +773,14 @@ static void PopulateExtras(HWND hwnd, PreviewData* pd, InstallerDialogType newTy
             0, 0, 10, 10, s_hInst);
         if (s_hGuiFont) SendMessageW(hBrowse, WM_SETFONT, (WPARAM)s_hGuiFont, TRUE);
         pd->hCompChecks.push_back(hBrowse);
+        // Reflect the "allow change" setting: when unchecked, disable the path edit
+        // to match the installer's DirEdit.ReadOnly := True appearance.
+        // The browse button is icon-only (L"") and must NOT be disabled per
+        // button_INTERNALS: icon-only buttons never receive WM_MOUSEMOVE and
+        // DrawCustomButton has no ODS_DISABLED greying path.
+        if (!s_selectFolderAllowChange) {
+            EnableWindow(hPathEdit, FALSE);
+        }
 
     } else if (newType == IDLG_FINISH && s_finishLaunchEnabled) {
         pd->showExtras = true;
@@ -842,10 +854,10 @@ static void PopulateExtras(HWND hwnd, PreviewData* pd, InstallerDialogType newTy
         SendMessageW(hPB, PBM_SETRANGE32, 0, 100);
         SendMessageW(hPB, PBM_SETPOS, 0, 0);
         pd->hCompChecks.push_back(hPB);
-        // "Show Details" button (visual only)
+        // "Show Details" button — clicking opens a small preview info window.
         std::wstring detTxt = L10n(L"idlg_install_prv_show_det", L"Show Details");
         int detW = MeasureButtonWidth(detTxt, false);
-        HWND hDetBtn = CreateCustomButton(hwnd, 0,
+        HWND hDetBtn = CreateCustomButton(hwnd, IDC_IDLG_INSTALL_PRV_DET_BTN,
             detTxt, ButtonColor::Blue,
             0, 0, detW, S(28), s_hInst);
         pd->hCompChecks.push_back(hDetBtn);
@@ -960,7 +972,6 @@ static int MeasureRichEditLogHeight(HWND hRE)
 // Forward declarations (defined near ShowPreviewDialog, used here).
 static void TryCancelPreview(HWND hwnd, PreviewData* pd);
 static int ScanRtfNaturalWidthTwips(const std::wstring& rtf);
-static void ShowFinishFeedback(HWND hOwner);
 
 // ── AutoFitPreview — resize the preview window to fit the current dialog's RTF
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1515,6 +1526,15 @@ static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
             TryCancelPreview(hwnd, pd);
             return 0;
         }
+        if (id == IDC_IDLG_INSTALL_PRV_DET_BTN && pd->type == IDLG_INSTALL) {
+            // Simulate the real Inno "Show Details" log window — show a preview notice.
+            std::wstring title = L10n(L"idlg_install_prv_show_det", L"Show Details");
+            std::wstring body  = L10n(L"idlg_install_prv_det_preview",
+                L"[ Preview ]\r\nInstall details will be shown here during installation.");
+            ShowValidationDialog(hwnd, title, body,
+                s_pLocale ? *s_pLocale : std::map<std::wstring,std::wstring>{});
+            return 0;
+        }
         if (id == IDC_IDLG_SELECT_FOLDER_BROWSE && pd->type == IDLG_SELECT_FOLDER
                 && pd->hCompChecks.size() >= 2) {
             // Read current path, strip the appname suffix to get the initial dir.
@@ -1615,7 +1635,8 @@ static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
     case WM_DRAWITEM: {
         // Required by custom themed checkboxes (BS_OWNERDRAW internals).
         LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
-        if (dis->CtlID == IDC_IDLG_SELECT_FOLDER_BROWSE) {
+        if (dis->CtlID == IDC_IDLG_SELECT_FOLDER_BROWSE ||
+            dis->CtlID == IDC_IDLG_INSTALL_PRV_DET_BTN) {
             ButtonColor color = (ButtonColor)GetWindowLongPtrW(dis->hwndItem, GWLP_USERDATA);
             return DrawCustomButton(dis, color, pd ? pd->hGuiFont : NULL);
         }
@@ -2407,165 +2428,6 @@ static int ScanRtfNaturalWidthTwips(const std::wstring& rtf)
     return maxTwips;
 }
 
-// ── ShowFinishFeedback — small "end of preview" dialog shown when Finish is clicked ──
-// Mimics the real installer's post-Finish moment: installer title in caption,
-// a "This is the end of the installer preview." message, and a disabled
-// "Open <AppName>" checkbox (checked, greyed — looks like the real finish page
-// but makes it clear it's only a preview).
-
-struct FinishFbData {
-    bool running;
-    bool ok;
-};
-
-// Control IDs for the finish-feedback dialog
-#define IDC_FFBK_MSG   1001
-#define IDC_FFBK_OPEN  1002
-#define IDC_FFBK_OK    1003
-
-static LRESULT CALLBACK FinishFeedbackWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
-{
-    FinishFbData* fd = (FinishFbData*)(LONG_PTR)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
-
-    switch (msg) {
-    case WM_CREATE: {
-        CREATESTRUCTW* cs = (CREATESTRUCTW*)lParam;
-        fd = (FinishFbData*)cs->lpCreateParams;
-        if (!fd) return -1;
-        SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)fd);
-
-        HFONT hGuiFont = s_hGuiFont ? s_hGuiFont
-            : (HFONT)GetStockObject(DEFAULT_GUI_FONT);
-
-        // Message label
-        std::wstring msg_ = L10n(L"idlg_preview_done_msg",
-                                  L"This is the end of the installer preview.");
-        HWND hMsg = CreateWindowExW(0, L"STATIC", msg_.c_str(),
-            WS_CHILD | WS_VISIBLE | SS_LEFT,
-            S(16), S(16), S(280), S(32),
-            hwnd, (HMENU)(UINT_PTR)IDC_FFBK_MSG, cs->hInstance, NULL);
-        if (hGuiFont) SendMessageW(hMsg, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
-
-        // "Open <AppName>" checkbox — ticked and disabled to simulate the real page
-        std::wstring appLabel = L10n(L"idlg_preview_done_open", L"Open <<AppName>>");
-        // Replace <<AppName>> placeholder with the live project name
-        std::wstring::size_type p;
-        while ((p = appLabel.find(L"<<AppName>>")) != std::wstring::npos)
-            appLabel.replace(p, 11, s_previewAppName.empty() ? L"app" : s_previewAppName);
-        HWND hChk = CreateCustomCheckbox(hwnd, IDC_FFBK_OPEN, appLabel,
-            true, S(16), S(56), S(280), S(24), cs->hInstance);
-        EnableWindow(hChk, FALSE);
-
-        // OK button
-        std::wstring okTxt = L10n(L"ok", L"OK");
-        HWND hOk = CreateWindowExW(0, L"BUTTON", okTxt.c_str(),
-            WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
-            S(16), S(96), S(80), S(30),
-            hwnd, (HMENU)(UINT_PTR)IDC_FFBK_OK, cs->hInstance, NULL);
-        if (hGuiFont) SendMessageW(hOk, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
-        return 0;
-    }
-
-    case WM_DRAWITEM: {
-        LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
-        if (DrawCustomCheckbox(dis)) return TRUE;
-        return DefWindowProcW(hwnd, msg, wParam, lParam);
-    }
-
-    case WM_COMMAND:
-        if (LOWORD(wParam) == IDC_FFBK_OK || LOWORD(wParam) == IDCANCEL) {
-            if (fd) { fd->ok = (LOWORD(wParam) == IDC_FFBK_OK); fd->running = false; }
-        }
-        return 0;
-
-    case WM_KEYDOWN:
-        if (wParam == VK_RETURN || wParam == VK_ESCAPE) {
-            if (fd) { fd->ok = (wParam == VK_RETURN); fd->running = false; }
-        }
-        return 0;
-
-    case WM_CLOSE:
-        if (fd) { fd->ok = false; fd->running = false; }
-        return 0;
-
-    case WM_CTLCOLORSTATIC:
-        SetBkColor((HDC)wParam, GetSysColor(COLOR_WINDOW));
-        SetTextColor((HDC)wParam, GetSysColor(COLOR_WINDOWTEXT));
-        return (LRESULT)GetSysColorBrush(COLOR_WINDOW);
-    }
-
-    return DefWindowProcW(hwnd, msg, wParam, lParam);
-}
-
-// Shows the finish-feedback dialog as a modal popup over hOwner.
-// hOwner should be the preview window (not the main window) so the preview
-// stays disabled while this dialog is visible.
-static void ShowFinishFeedback(HWND hOwner)
-{
-    static bool s_classOk = false;
-    if (!s_classOk) {
-        WNDCLASSEXW wc    = {};
-        wc.cbSize         = sizeof(wc);
-        wc.hInstance      = s_hInst;
-        wc.hCursor        = LoadCursor(NULL, IDC_ARROW);
-        wc.hbrBackground  = (HBRUSH)(COLOR_WINDOW + 1);
-        wc.lpfnWndProc    = FinishFeedbackWndProc;
-        wc.lpszClassName  = L"IDLGFinishFbClass";
-        RegisterClassExW(&wc);
-        s_classOk = true;
-    }
-
-    FinishFbData fd = {};
-    fd.running = true;
-    fd.ok      = false;
-
-    // Caption: installer title or generic fallback
-    std::wstring caption = s_installTitle.empty()
-        ? L10n(L"idlg_preview_done_title", L"Installation Complete")
-        : s_installTitle + L"  \u2014  "
-          + L10n(L"idlg_preview_done_title", L"Installation Complete");
-
-    // Window size: fixed, small
-    const DWORD style   = WS_POPUP | WS_CAPTION | WS_SYSMENU;
-    const DWORD exStyle = WS_EX_DLGMODALFRAME;
-    RECT adj = { 0, 0, S(312), S(142) };
-    AdjustWindowRectEx(&adj, style, FALSE, exStyle);
-    int wndW = adj.right - adj.left;
-    int wndH = adj.bottom - adj.top;
-
-    // Centre over owner
-    RECT rcOwn; GetWindowRect(hOwner, &rcOwn);
-    int px = rcOwn.left + (rcOwn.right  - rcOwn.left - wndW) / 2;
-    int py = rcOwn.top  + (rcOwn.bottom - rcOwn.top  - wndH) / 2;
-
-    HWND hFb = CreateWindowExW(exStyle,
-        L"IDLGFinishFbClass", caption.c_str(), style,
-        px, py, wndW, wndH, hOwner, NULL, s_hInst, &fd);
-    if (!hFb) return;
-
-    // Apply installer icon to the caption if we have one
-    if (s_hInstallIcon)
-        SendMessageW(hFb, WM_SETICON, ICON_SMALL, (LPARAM)s_hInstallIcon);
-
-    EnableWindow(hOwner, FALSE);
-    ShowWindow(hFb, SW_SHOW);
-    UpdateWindow(hFb);
-
-    MSG m;
-    while (fd.running && GetMessageW(&m, NULL, 0, 0) > 0) {
-        // hFb is a CreateWindowExW popup, not a real dialog — do NOT use
-        // IsDialogMessageW here; it eats first WM_LBUTTONDOWN on non-focused
-        // controls.  WM_KEYDOWN VK_RETURN/VK_ESCAPE handled in FinishFeedbackWndProc.
-        TranslateMessage(&m);
-        DispatchMessageW(&m);
-    }
-
-    EnableWindow(hOwner, TRUE);
-    DestroyWindow(hFb);
-    SetActiveWindow(hOwner);
-    SetForegroundWindow(hOwner);
-}
-
 // ── TryCancelPreview ──────────────────────────────────────────────────────────
 // Called from all Cancel / WM_CLOSE / Escape paths in PreviewWndProc.
 // If the sizes have not changed since the preview opened, cancels normally
@@ -2832,8 +2694,8 @@ static void ShowPreviewDialog(HWND hwndParent, InstallerDialogType type)
     // inside DispatchMessageW → PreviewWndProc WM_COMMAND, creating a second
     // message loop while the outer preview loop was suspended — that caused
     // the first-click swallowing on the OK button).
-    if (pd.finishSelected && !pd.cancelled)
-        ShowFinishFeedback(hwndParent);
+    // ShowFinishFeedback removed: the Finish page preview already shows the
+    // launch checkbox, so a second "Installation Complete" dialog is redundant.
 }
 
 // ── IDLG_Reset ────────────────────────────────────────────────────────────────

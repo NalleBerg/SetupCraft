@@ -200,6 +200,22 @@
     clicking OK — no busy-wait, no thread, no extra state.
     Useful for: FTP upload success, auto-save confirmations, brief info toasts.
 
+  Split-layout content height cap pattern
+    When a dialog has a content area (e.g. image, RichEdit) stacked above a
+    fixed-height extras panel (checkboxes, sub-controls), the content area must
+    NEVER be sized as min(measuredH, avail) — "avail" includes the extras-panel
+    height, so a large content element will push the extras panel off-screen.
+    Correct pattern:
+      int maxContent = avail - gap - extrasNaturalH;
+      if (maxContent < S(40)) maxContent = S(40);   // floor so content is never 0
+      contentH = std::min(S(contentFitH), maxContent);
+    Rule: always subtract ALL reserved heights (each extras strip, each gap)
+    from avail BEFORE capping contentH.  Forget any one of them and you get the
+    same off-screen bug whenever the content is large enough.
+    Symptom of violation: the extras panel (checkboxes, buttons) becomes invisible
+    when a large image or long text is present — it is placed below the visible
+    area of the dialog window.
+
   Session restore pattern (crash-safe, installed-only)
     ne_session.h / ne_session.cpp implement atomic session persistence via the
     shared SQLite handle from ne_profiles.cpp.
