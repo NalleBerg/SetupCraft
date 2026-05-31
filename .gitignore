@@ -6,3 +6,6 @@ test_scrollbar/build_test/
 
 # Machine-specific workspace file (absolute paths)
 *.code-workspace
+
+# Temporary git commit message file
+commit_msg.tmp
