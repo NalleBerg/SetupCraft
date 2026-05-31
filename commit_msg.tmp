@@ -1,22 +1,10 @@
-v2026.05.31.11 — Install preview Show Details button fix + Finish layout + cleanup
+v2026.05.31.13 — Select Folder preview: hide folder picker when change not allowed + docs consolidated to MyStyleForAllProjects
 
-dialogs.h / dialogs.cpp — Show Details button (IDC_IDLG_INSTALL_PRV_DET_BTN=7146):
-  Was IDC=0 so WM_DRAWITEM never routed to DrawCustomButton — grey box. Fixed:
-  proper IDC assigned, WM_DRAWITEM guard extended, WM_COMMAND click calls
-  ShowValidationDialog with preview notice (idlg_install_prv_det_preview).
-
-dialogs.cpp — Select Folder preview allow-change fix (icon-only rule):
-  EnableWindow(hBrowse, FALSE) removed per button_INTERNALS: icon-only buttons
-  must not be disabled — no ODS_DISABLED path in DrawCustomButton.
-  Only hPathEdit is disabled when !s_selectFolderAllowChange.
-
-dialogs.cpp — LayoutPreviewControls split-layout content height cap:
-  contentH was capped at min(S(contentFitH), avail) — could fill 100% of
-  available height, pushing extras panel off-screen. Now capped at
-  avail - gap - extrasNaturalH (floor S(40)). Fixes Finish page: logo fully
-  visible with launch checkbox below it.
-
-dialogs.cpp — ShowFinishFeedback removed (~150 lines):
-  FinishFeedbackWndProc, FinishFbData, IDC_FFBK_* and ShowFinishFeedback
-  body deleted. The Finish page preview already shows the launch checkbox;
-  a second Installation Complete dialog was redundant.
+- dialogs.cpp / PopulateExtras: Browse button now only created when s_selectFolderAllowChange is true.
+  When false, only hPathEdit is pushed to hCompChecks (size == 1).
+- dialogs.cpp / LayoutPreviewControls: new else-if (size == 1) branch gives path-edit full row width.
+- API_list.txt and API_INTERNALS\ removed from SetupCraft repo.
+  All docs (API_list.txt, API_INTERNALS\API\, INTERNALS\) now live exclusively in
+  C:\Users\NalleBerg\Documents\C++\Workspace\MyStyleForAllProjects\
+- SetupCraft.code-workspace created (gitignored): opens SetupCraft + MyStyleForAllProjects side by side.
+- *.code-workspace added to .gitignore.

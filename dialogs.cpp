@@ -489,6 +489,13 @@ static void LayoutPreviewControls(HWND hwnd, PreviewData* pd)
             if (hBrowse && IsWindow(hBrowse))
                 SetWindowPos(hBrowse, NULL, pad + S(4) + editW + S(8), ctrlY,
                              browseW, editH, SWP_NOZORDER | SWP_NOACTIVATE);
+        } else if (pd->type == IDLG_SELECT_FOLDER && pd->hCompChecks.size() == 1) {
+            // No browse button (allow-change unchecked): path edit takes the full row.
+            const int editH = S(24);
+            HWND hEdit = pd->hCompChecks[0];
+            if (hEdit && IsWindow(hEdit))
+                SetWindowPos(hEdit, NULL, pad + S(4), ctrlY,
+                             cW - pad * 2 - S(4), editH, SWP_NOZORDER | SWP_NOACTIVATE);
         } else if (pd->type == IDLG_INSTALL && pd->hCompChecks.size() >= 2) {
             // Progress bar full-width, then "Show Details" button below it.
             const int pbH   = S(18);
@@ -764,21 +771,19 @@ static void PopulateExtras(HWND hwnd, PreviewData* pd, InstallerDialogType newTy
             hwnd, (HMENU)(UINT_PTR)IDC_IDLG_SELECT_FOLDER_PATH, s_hInst, NULL);
         if (s_hGuiFont) SendMessageW(hPathEdit, WM_SETFONT, (WPARAM)s_hGuiFont, TRUE);
         pd->hCompChecks.push_back(hPathEdit);
-        // Browse button (visual only — non-functional in preview; icon-only style)
-        HWND hBrowse = CreateCustomButtonWithIcon(
-            hwnd, IDC_IDLG_SELECT_FOLDER_BROWSE,
-            L"",                  // icon-only: centres the icon, no text
-            ButtonColor::Blue,
-            L"shell32.dll", 127,
-            0, 0, 10, 10, s_hInst);
-        if (s_hGuiFont) SendMessageW(hBrowse, WM_SETFONT, (WPARAM)s_hGuiFont, TRUE);
-        pd->hCompChecks.push_back(hBrowse);
-        // Reflect the "allow change" setting: when unchecked, disable the path edit
-        // to match the installer's DirEdit.ReadOnly := True appearance.
-        // The browse button is icon-only (L"") and must NOT be disabled per
-        // button_INTERNALS: icon-only buttons never receive WM_MOUSEMOVE and
-        // DrawCustomButton has no ODS_DISABLED greying path.
-        if (!s_selectFolderAllowChange) {
+        if (s_selectFolderAllowChange) {
+            // Browse button (visual only — non-functional in preview; icon-only style)
+            HWND hBrowse = CreateCustomButtonWithIcon(
+                hwnd, IDC_IDLG_SELECT_FOLDER_BROWSE,
+                L"",                  // icon-only: centres the icon, no text
+                ButtonColor::Blue,
+                L"shell32.dll", 127,
+                0, 0, 10, 10, s_hInst);
+            if (s_hGuiFont) SendMessageW(hBrowse, WM_SETFONT, (WPARAM)s_hGuiFont, TRUE);
+            pd->hCompChecks.push_back(hBrowse);
+        } else {
+            // Allow-change unchecked: path edit takes the full row width;
+            // no browse button is created at all.
             EnableWindow(hPathEdit, FALSE);
         }
 
