@@ -1,6 +1,13 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 31 May 2026 &mdash; v2026.05.31.13 (13:00)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 1 June 2026 &mdash; v2026.06.01.08 (08:50)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.06.01.08</span></h3>
+<p><strong>Dialogs page &mdash; Select Folder preview: correct heading when folder change is locked (01.06.2026, 08:50):</strong></p>
+<ul>
+<li><strong><code>dialogs.cpp</code> &mdash; <code>NavigateTo</code> + <code>WM_CREATE</code>: heading label reads &ldquo;Install Folder&rdquo; when <code>s_selectFolderAllowChange</code> is false:</strong> Previously the preview always showed &ldquo;Select Installation Folder&rdquo; as the large heading regardless of whether folder change was allowed. When locked, the user has nothing to select, so the heading now reads &ldquo;Install Folder&rdquo; &mdash; reflecting the page&rsquo;s informational-only purpose. The title-bar caption and Back/Next navigation still use the full name. Two code paths updated: the initial <code>hTypeTitle&thinsp;=&thinsp;CreateWindowExW(&hellip;)</code> in <code>WM_CREATE</code> and the <code>SetWindowTextW(pd-&gt;hTypeTitle,&thinsp;&hellip;)</code> call in <code>NavigateTo</code>.</li>
+<li><strong><code>locale/en_GB.txt</code> &mdash; <code>idlg_name_select_folder</code> and <code>idlg_name_select_folder_locked</code> added:</strong> <code>idlg_name_select_folder=Select Installation Folder</code> (used in all normal cases) and <code>idlg_name_select_folder_locked=Install Folder</code> (used when <code>s_selectFolderAllowChange</code> is false).</li>
+</ul>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.05.31.13</span></h3>
 <p><strong>Dialogs page &mdash; Select Folder preview: browse button hidden when folder is locked + docs migrated to shared folder (31.05.2026, 13:00):</strong></p>

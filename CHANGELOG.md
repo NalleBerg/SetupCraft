@@ -2,6 +2,12 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.06.01.08] - 2026-06-01
+
+### Dialogs page — Select Folder preview: correct heading when folder change is locked
+- **`dialogs.cpp` — `NavigateTo` + `WM_CREATE`: heading label reads "Install Folder" when `s_selectFolderAllowChange` is false**: Previously the preview always showed "Select Installation Folder" as the large heading regardless of whether the end user is allowed to change the folder. When folder change is disabled the user has no choice to make, so the heading now reads "Install Folder" — reflecting the page's informational-only purpose. The title-bar caption and Back/Next navigation still use the full name so the developer can always tell which dialog they are viewing. Two code paths updated: the initial `hTypeTitle = CreateWindowExW(...)` in `WM_CREATE` and the `SetWindowTextW(pd->hTypeTitle, ...)` call in `NavigateTo`.
+- **`locale/en_GB.txt` — `idlg_name_select_folder` and `idlg_name_select_folder_locked` added**: `idlg_name_select_folder=Select Installation Folder` (used in all normal cases) and `idlg_name_select_folder_locked=Install Folder` (used when `s_selectFolderAllowChange` is false).
+
 ## [2026.05.31.13] - 2026-05-31
 
 ### Dialogs page — Select Folder preview: browse button hidden when folder is locked + docs migrated to shared folder

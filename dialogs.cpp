@@ -1292,8 +1292,13 @@ static void NavigateTo(HWND hwnd, PreviewData* pd, InstallerDialogType newType)
         + L10n(L"idlg_preview_caption", L"Preview") + L"  \u2014  " + dlgName;
     SetWindowTextW(hwnd, caption.c_str());
 
-    // Update the heading label inside the window
-    if (pd->hTypeTitle) SetWindowTextW(pd->hTypeTitle, dlgName.c_str());
+    // Update the heading label inside the window.
+    // When the Select Folder page has change disabled, the heading becomes
+    // "Install Folder" (no "Select") since the user cannot change anything.
+    std::wstring headingName = dlgName;
+    if (newType == IDLG_SELECT_FOLDER && !s_selectFolderAllowChange)
+        headingName = L10n(L"idlg_name_select_folder_locked", L"Install Folder");
+    if (pd->hTypeTitle) SetWindowTextW(pd->hTypeTitle, headingName.c_str());
 
     // Refresh sizer font/color controls so they display the new dialog's values,
     // then invalidate the header strip so font/bg colour are repainted.
@@ -1391,7 +1396,10 @@ static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
         // will position them correctly immediately afterwards.
         std::wstring dlgName = L10n(kDialogNameKeys[(int)pd->type],
                                     kDialogNameFallbacks[(int)pd->type]);
-        pd->hTypeTitle = CreateWindowExW(0, L"STATIC", dlgName.c_str(),
+        std::wstring headingName = dlgName;
+        if (pd->type == IDLG_SELECT_FOLDER && !s_selectFolderAllowChange)
+            headingName = L10n(L"idlg_name_select_folder_locked", L"Install Folder");
+        pd->hTypeTitle = CreateWindowExW(0, L"STATIC", headingName.c_str(),
             WS_CHILD | WS_VISIBLE | SS_LEFT,
             0, 0, 10, 10, hwnd, NULL, cs->hInstance, NULL);
         if (pd->hTitleFont) SendMessageW(pd->hTypeTitle, WM_SETFONT, (WPARAM)pd->hTitleFont, TRUE);
