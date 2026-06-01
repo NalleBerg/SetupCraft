@@ -86,7 +86,7 @@ static bool s_installProgressSmooth = true; // true=smooth PBS_SMOOTH style
 static bool s_installShowEta        = false; // emit ETA countdown code
 
 // Select-Folder page state.
-static bool s_selectFolderAllowChange = true; // false → DirEdit read-only (info-only page)
+static bool s_selectFolderAllowChange = false; // false → DirEdit read-only (info-only page)
 
 // Header font / color state — one "global" flag per group controls whether all
 // dialogs share a single value or each carries its own per-dialog override.
@@ -2737,7 +2737,7 @@ void IDLG_Reset()
     s_installShowDetails    = 0;
     s_installProgressSmooth = true;
     s_installShowEta        = false;
-    s_selectFolderAllowChange = true;
+    s_selectFolderAllowChange = false;
     // Header font / color state.
     s_fontGlobal   = true;
     s_colorGlobal  = true;

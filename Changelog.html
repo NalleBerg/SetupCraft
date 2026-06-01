@@ -1,6 +1,12 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 1 June 2026 &mdash; v2026.06.01.08 (08:50)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 1 June 2026 &mdash; v2026.06.01.09 (09:03)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+
+<h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.06.01.09</span></h3>
+<p><strong>Dialogs page &mdash; Select Folder &ldquo;allow change&rdquo; checkbox now defaults to unchecked (01.06.2026, 09:03):</strong></p>
+<ul>
+<li><strong><code>dialogs.cpp</code> &mdash; <code>s_selectFolderAllowChange</code> default changed from <code>true</code> to <code>false</code>:</strong> Most installers target Program Files and should not let the end user change the destination folder. The &ldquo;Allow end user to change the installation folder&rdquo; checkbox now ships unchecked by default for new projects (and after <code>IDLG_Reset</code>). Existing saved projects are unaffected &mdash; the value is read from the database as before.</li>
+</ul>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.06.01.08</span></h3>
 <p><strong>Dialogs page &mdash; Select Folder preview: correct heading when folder change is locked (01.06.2026, 08:50):</strong></p>

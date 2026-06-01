@@ -2,6 +2,11 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.06.01.09] - 2026-06-01
+
+### Dialogs page — Select Folder "allow change" checkbox now defaults to unchecked
+- **`dialogs.cpp` — `s_selectFolderAllowChange` default changed from `true` to `false`**: Most installers target `Program Files` and should not let the end user change the destination folder. The "Allow end user to change the installation folder" checkbox now ships unchecked by default for new projects (and after `IDLG_Reset`). Existing saved projects are unaffected — the value is read from the DB as before.
+
 ## [2026.06.01.08] - 2026-06-01
 
 ### Dialogs page — Select Folder preview: correct heading when folder change is locked
