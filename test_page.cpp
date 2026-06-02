@@ -31,8 +31,10 @@
 #include "db.h"
 #include "dpi.h"            // S()
 #include "button.h"         // CreateCustomButtonWithIcon(), MeasureButtonWidth()
-#include "issgen.h"         // ISS_FindInnoDir(), ISS_GenerateIss()
+#include "issgen.h"         // ISS_FindInnoDir(), ISS_GenerateIss(), IssExtraData
 #include "file_assoc.h"     // FA_GetAssociations()
+#include "shortcuts.h"      // SC_GetShortcutRows(), SC_GetMenuNodeRows(), SC_Get*OptOut()
+#include "scripts.h"        // SCR_GetScripts()
 #include <commctrl.h>       // PROGRESS_CLASS, PBM_*, PBS_*
 #include <shlobj.h>         // SHBrowseForFolderW, SHGetPathFromIDListW, SHCreateDirectoryExW
 #include <shellapi.h>       // ShellExecuteW
@@ -164,6 +166,7 @@ struct TestBuildParams {
     std::vector<FileAssocRow>   assocs;
     std::vector<InstallTypeRow> types;
     std::vector<ComponentRow>   comps;
+    IssExtraData extra;    // shortcuts, scripts, registry entries
 };
 
 // ── Find ISCC.exe ─────────────────────────────────────────────────────────────
@@ -189,7 +192,7 @@ static DWORD WINAPI TEST_BuildThreadProc(LPVOID param)
     ThrSetStep(L"Step 1 of 2 \u2014 Generating installer script\u2026");
     std::wstring genErr = ISS_GenerateIss(
         p->templatePath, p->outIssPath,
-        p->proj, p->cfg, p->langs, p->assocs, p->types, p->comps);
+        p->proj, p->cfg, p->langs, p->assocs, p->types, p->comps, p->extra);
     if (!genErr.empty()) {
         ThrAppendLog(L"Error generating .iss script:\r\n" + genErr + L"\r\n");
         ThrFinish(false, L"\u2716  Failed to generate installer script \u2014 see Details");
@@ -737,6 +740,15 @@ void TEST_RunTest(HWND hwnd)
         return;
     }
 
+    // Guard: unsaved changes — test must use the saved DB state, not in-memory edits
+    if (MainWindow::HasUnsavedChanges()) {
+        if (s_hStatus && IsWindow(s_hStatus))
+            SetWindowTextW(s_hStatus,
+                loc(L"test_status_unsaved",
+                    L"Project has unsaved changes. Save first (Ctrl+S).").c_str());
+        return;
+    }
+
     // Guard: don't start a second build while one is running
     if (s_timerId != 0) return;
 
@@ -807,6 +819,15 @@ void TEST_RunTest(HWND hwnd)
         p->types = DB::GetInstallTypesForProject(p->proj.id);
         p->comps = MainWindow::GetComponents();
     }
+
+    // ── Populate extra data for ISS generation ───────────────────────────────
+    p->extra.shortcuts      = SC_GetShortcutRows();
+    p->extra.menuNodes      = SC_GetMenuNodeRows();
+    p->extra.desktopOptOut  = SC_GetDesktopOptOut();
+    p->extra.smPinOptOut    = SC_GetSmPinOptOut();
+    p->extra.tbPinOptOut    = SC_GetTbPinOptOut();
+    p->extra.scripts        = SCR_GetScripts();
+    p->extra.registryEntries = MainWindow::GetCustomRegistryEntries();
 
     // ── Reset shared thread state ─────────────────────────────────────────────
     EnterCriticalSection(&s_cs);

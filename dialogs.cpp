@@ -452,8 +452,12 @@ static void LayoutPreviewControls(HWND hwnd, PreviewData* pd)
                 // Split layout: always start at editY, always fill contentH.
                 // V-align is not applied here — in split layout the viewport
                 // should be flush to the top so images are never pushed down.
+                // When a custom scrollbar is attached, narrow hContent by barW
+                // so the bar occupies the freed strip and is never overdrawn.
+                int reWs = reW;
+                if (pd->hContentSB) reWs -= S(MSB_WIDTH_FULL);
                 SetWindowPos(pd->hContent, NULL, reX, editY,
-                             reW, contentH, SWP_NOZORDER | SWP_NOACTIVATE);
+                             reWs, contentH, SWP_NOZORDER | SWP_NOACTIVATE);
                 // Sync scroll range immediately after resize.
                 UpdateWindow(pd->hContent);
             }
@@ -560,7 +564,11 @@ static void LayoutPreviewControls(HWND hwnd, PreviewData* pd)
                     case 2: reY = editY + vspace; break;       // Bottom
                 }
             }
-            SetWindowPos(pd->hContent, NULL, reX, reY, reW, reH,
+            // When a custom scrollbar is attached, narrow hContent by barW
+            // so the bar occupies the freed strip and is never overdrawn.
+            int reWn = reW;
+            if (pd->hContentSB) reWn -= S(MSB_WIDTH_FULL);
+            SetWindowPos(pd->hContent, NULL, reX, reY, reWn, reH,
                          SWP_NOZORDER | SWP_NOACTIVATE);
         }
         if (pd->hExtrasLabel && IsWindow(pd->hExtrasLabel))
@@ -592,28 +600,65 @@ static void LayoutPreviewControls(HWND hwnd, PreviewData* pd)
         SetWindowTextW(pd->hNext, nextTxt.c_str());
     }
     // Sync the custom scrollbar to reflect whether the current content
-    // overflows the RichEdit's visible area (handles both auto-fit and
-    // developer-manually-sized cases in one place).
+    // overflows the RichEdit's visible area.  Only attach/keep the bar when
+    // the window has been height-capped (contentNeedsScroll) or the developer
+    // has manually resized the preview — auto-fit always sizes to content so
+    // a scrollbar should never be needed in the default state.
     if (pd->hContent && IsWindow(pd->hContent)) {
-        // Ensure WS_VSCROLL is always set so the RichEdit maintains SCROLLINFO.
+        // Ensure WS_VSCROLL is always set so the RichEdit maintains SCROLLINFO,
+        // but always hide the native bar — we replace it with our custom one.
         LONG cst = GetWindowLongW(pd->hContent, GWL_STYLE);
         if (!(cst & WS_VSCROLL)) {
             SetWindowLongW(pd->hContent, GWL_STYLE, cst | WS_VSCROLL);
             SetWindowPos(pd->hContent, NULL, 0, 0, 0, 0,
                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED | SWP_NOACTIVATE);
         }
+        // Read SCROLLINFO *before* hiding the native bar: EM_SHOWSCROLLBAR(FALSE)
+        // clears the scroll range, making GetScrollInfo useless afterwards.
+        UpdateWindow(pd->hContent);
+        SCROLLINFO si = {}; si.cbSize = sizeof(si); si.fMask = SIF_ALL;
+        GetScrollInfo(pd->hContent, SB_VERT, &si);
+        bool rawOverflow = si.nMax > 0 && si.nPage > 0 && (UINT)si.nPage < (UINT)si.nMax;
+        // Always suppress the native scrollbar — the custom overlay bar is used instead.
+        SendMessageW(pd->hContent, EM_SHOWSCROLLBAR, SB_VERT, FALSE);
+        bool userSized = s_previewUserSized[(int)pd->type];
+        bool scrollAllowed = pd->contentNeedsScroll || rawOverflow || userSized;
+        bool overflow     = scrollAllowed;
         if (pd->hContentSB) {
-            // Bar already attached: let Msb_ContentOverflows decide visibility.
-            // GetScrollInfo is zeroed after EM_SHOWSCROLLBAR(FALSE) and must not
-            // be used to decide whether to keep or detach the custom scrollbar.
-            msb_sync(pd->hContentSB);
-        } else {
-            UpdateWindow(pd->hContent);  // flush layout so GetScrollInfo is current
-            SCROLLINFO si = {}; si.cbSize = sizeof(si); si.fMask = SIF_ALL;
-            GetScrollInfo(pd->hContent, SB_VERT, &si);
-            bool overflow = si.nMax > 0 && si.nPage > 0 && (UINT)si.nPage <= (UINT)si.nMax;
-            if (overflow)
-                pd->hContentSB = msb_attach(pd->hContent, MSB_VERTICAL);
+            if (!scrollAllowed) {
+                // Height cap was removed (e.g. user unsized or AutoFit shrunk window).
+                // Detach the bar so it no longer occupies visual space.
+                msb_detach(pd->hContentSB);
+                pd->hContentSB = NULL;
+            } else {
+                // Bar already attached: sync thumb position/size.
+                msb_sync(pd->hContentSB);
+            }
+        } else if (scrollAllowed && overflow) {
+            // MSB_NOHIDE: bar stays visible as long as it is attached.
+            // We detach explicitly (above) when scroll is no longer needed.
+            // NOHIDE also bypasses Msb_ContentOverflows, which returns (0,0)
+            // for lines below the viewport before the first paint pass.
+            //
+            // RICHEDIT50W uses GetDC internally (not BeginPaint) so it repaints
+            // its full client rect and overdraws any overlapping sibling.
+            // Fix: narrow hContent by barW so the bar sits in the freed strip,
+            // strictly to the right of hContent's client area.
+            //   edgeGap = -barW  →  bar_x = ptOrig.x + cw - barW - (-barW)
+            //                              = ptOrig.x + cw  (= right of hContent)
+            pd->hContentSB = msb_attach(pd->hContent, MSB_VERTICAL);
+            msb_set_edge_gap(pd->hContentSB, -S(MSB_WIDTH_FULL));
+            // Narrow hContent now that the bar is attached, then reposition bar.
+            RECT rcRe; GetClientRect(pd->hContent, &rcRe);
+            SetWindowPos(pd->hContent, NULL, 0, 0,
+                         rcRe.right - S(MSB_WIDTH_FULL), rcRe.bottom,
+                         SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+            // Force RichEdit to lay out at the new width before msb_reposition
+            // calls Msb_ContentOverflows (EM_POSFROMCHAR is unreliable before
+            // the first paint pass; UpdateWindow forces the layout so the check
+            // is accurate and MSB_NOHIDE is not needed).
+            UpdateWindow(pd->hContent);
+            msb_reposition(pd->hContentSB);
         }
         // Horizontal scrollbar intentionally omitted — RichEdit wraps to its
         // control width (EM_SETTARGETDEVICE 0) so there is no horizontal overflow.
@@ -785,6 +830,63 @@ static void PopulateExtras(HWND hwnd, PreviewData* pd, InstallerDialogType newTy
             // Allow-change unchecked: path edit takes the full row width;
             // no browse button is created at all.
             EnableWindow(hPathEdit, FALSE);
+        }
+
+    } else if (newType == IDLG_SHORTCUTS) {
+        // Show every defined shortcut row.  Opt-outable rows are live (ticked)
+        // checkboxes; non-opt-outable rows are disabled (locked-on) checkboxes.
+        // If no shortcut rows exist at all, hide the extras panel entirely.
+        bool dskOpt = SC_GetDesktopOptOut();
+        bool smOpt  = SC_GetSmPinOptOut();
+        bool tbOpt  = SC_GetTbPinOptOut();
+        auto rows   = SC_GetShortcutRows();
+        int  idx    = 0;
+        std::wstring optOutTip = L10n(L"idlg_prv_sc_optout_tip",
+                                      L"Uncheck to not add this shortcut");
+        for (const auto& r : rows) {
+            // ── Desktop shortcut ──────────────────────────────────────────────
+            if (r.type == SCT_DESKTOP) {
+                std::wstring lbl = L10n(L"idlg_prv_sc_desktop", L"Desktop shortcut: ")
+                                 + r.name;
+                bool canOpt = dskOpt;
+                HWND hChk = CreateCustomCheckbox(hwnd,
+                    IDC_IDLG_PRV_COMP_BASE + idx++, lbl, true,
+                    0, 0, 10, 22, s_hInst);
+                if (s_hGuiFont) SendMessageW(hChk, WM_SETFONT, (WPARAM)s_hGuiFont, TRUE);
+                if (!canOpt) EnableWindow(hChk, FALSE);
+                pd->hCompChecks.push_back(hChk);
+            }
+            // ── Pin to Start (flag on any shortcut row) ───────────────────────
+            if (r.pin_to_start) {
+                std::wstring lbl = L10n(L"idlg_prv_sc_pinstart", L"Pin to Start: ")
+                                 + r.name;
+                bool canOpt = smOpt;
+                HWND hChk = CreateCustomCheckbox(hwnd,
+                    IDC_IDLG_PRV_COMP_BASE + idx++, lbl, true,
+                    0, 0, 10, 22, s_hInst);
+                if (s_hGuiFont) SendMessageW(hChk, WM_SETFONT, (WPARAM)s_hGuiFont, TRUE);
+                if (!canOpt) EnableWindow(hChk, FALSE);
+                pd->hCompChecks.push_back(hChk);
+            }
+            // ── Pin to Taskbar (flag on any shortcut row) ─────────────────────
+            if (r.pin_to_taskbar) {
+                std::wstring lbl = L10n(L"idlg_prv_sc_pintaskbar", L"Pin to Taskbar: ")
+                                 + r.name;
+                bool canOpt = tbOpt;
+                HWND hChk = CreateCustomCheckbox(hwnd,
+                    IDC_IDLG_PRV_COMP_BASE + idx++, lbl, true,
+                    0, 0, 10, 22, s_hInst);
+                if (s_hGuiFont) SendMessageW(hChk, WM_SETFONT, (WPARAM)s_hGuiFont, TRUE);
+                if (!canOpt) EnableWindow(hChk, FALSE);
+                pd->hCompChecks.push_back(hChk);
+            }
+        }
+        if (pd->hCompChecks.empty()) {
+            pd->showExtras = false;
+        } else {
+            pd->showExtras = true;
+            if (pd->hExtrasLabel && IsWindow(pd->hExtrasLabel))
+                SetWindowTextW(pd->hExtrasLabel, L"");
         }
 
     } else if (newType == IDLG_FINISH && s_finishLaunchEnabled) {
@@ -1161,6 +1263,7 @@ static void AutoFitPreview(HWND hPreview, PreviewData* pd)
             rtfLogH += singleLineH;
         }
         logH = rtfLogH + kChromeLogH;
+        pd->contentNeedsScroll = needsVScroll;  // gate scrollbar in LayoutPreviewControls
         pd->contentNaturalW    = logW;      // used by H-align in LayoutPreviewControls
         pd->contentNaturalH    = rtfLogH;   // outer reH must fit content
     }
@@ -1332,6 +1435,7 @@ static void NavigateTo(HWND hwnd, PreviewData* pd, InstallerDialogType newType)
     }
 
     // Reposition buttons (text and enable state may have changed)
+    // LayoutPreviewControls reads SCROLLINFO then hides the native bar itself.
     LayoutPreviewControls(hwnd, pd);
 
     // Auto-fit both dimensions for all dialog types so the window always feels
@@ -1366,6 +1470,16 @@ static void NavigateTo(HWND hwnd, PreviewData* pd, InstallerDialogType newType)
                          SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
         }
     }
+
+    // Final scrollbar sync: AutoFitPreview may not have changed the window size
+    // (window already at capped height from a previous visit), so WM_SIZE never
+    // fired and LayoutPreviewControls was never called with contentNeedsScroll=true.
+    // Also covers the case where msb_attach ran but Msb_MeasureRichVertMax hadn't
+    // yet seen a fully-reflowed document.
+    if (pd->hContentSB) {
+        msb_notify_content_changed(pd->hContentSB);
+    } else if (pd->contentNeedsScroll)
+        LayoutPreviewControls(hwnd, pd);
 }
 
 // ── Preview window proc ───────────────────────────────────────────────────────
@@ -1497,6 +1611,19 @@ static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
         // the developer-chosen background colour (when one has been set).
         HDC hdc = (HDC)wParam;
         RECT rc; GetClientRect(hwnd, &rc);
+        // Exclude the custom scrollbar window from the fill so we don't paint
+        // white over it (replicates what WS_CLIPCHILDREN would do, but only for
+        // the bar — WS_CLIPCHILDREN cannot be used because the transparent title
+        // label relies on the parent painting the header colour under it).
+        if (pd && pd->hContentSB) {
+            HWND hBar = msb_get_bar_hwnd(pd->hContentSB);
+            if (hBar && IsWindowVisible(hBar)) {
+                RECT rcBar;
+                GetWindowRect(hBar, &rcBar);
+                MapWindowPoints(NULL, hwnd, (POINT*)&rcBar, 2);
+                ExcludeClipRect(hdc, rcBar.left, rcBar.top, rcBar.right, rcBar.bottom);
+            }
+        }
         FillRect(hdc, &rc, GetSysColorBrush(COLOR_WINDOW));
         if (pd) {
             COLORREF bg = EffectiveBgColor(pd->type);
@@ -3344,17 +3471,21 @@ bool IDLG_OnCommand(HWND hwnd, int wmId, int wmEvent, HWND hCtrl)
                             pos += to.size();
                         }
                     };
-                    replaceAll(rtf, L"<<AppName>>", appName);
+                    // <<AppName>> is embedded directly in the RTF template — inject bold group.
+                    std::wstring boldAn2 = appName.empty() ? L"" : L"{\\b " + RtfEncodeText(appName) + L"}";
+                    replaceAll(rtf, L"<<AppName>>", boldAn2);
                     replaceAll(rtf, L"<<Year>>",    year);
-                    // Credit note: localize, substitute <<AppName>> within the note,
-                    // then RTF-encode before splicing (handles Unicode punctuation).
+                    // Credit note: localize, then RTF-encode with bold name via marker trick.
                     if (rtf.find(L"<<LicenseCreditNote>>") != std::wstring::npos) {
                         std::wstring note = L10n(L"idlg_license_credit_note",
                             L"If you find <<AppName>> useful, a credit in your application\u2019s "
                             L"About dialog or documentation is warmly appreciated "
                             L"\u2014 though it is not required.");
-                        replaceAll(note, L"<<AppName>>", appName);
-                        replaceAll(rtf, L"<<LicenseCreditNote>>", RtfEncodeText(note));
+                        const std::wstring kMk2 = L"\x01AN\x02";
+                        replaceAll(note, L"<<AppName>>", kMk2);
+                        std::wstring encoded2 = RtfEncodeText(note);
+                        replaceAll(encoded2, kMk2, boldAn2);
+                        replaceAll(rtf, L"<<LicenseCreditNote>>", encoded2);
                     }
                     s_dialogs[IDLG_LICENSE].content_rtf = rtf;
                     s_licenseContentTemplate = tmplId;
@@ -3566,10 +3697,35 @@ static std::wstring SubstitutePlaceholders(std::wstring rtf,
             pos += to.size();
         }
     };
-    // Replace compound placeholder first to avoid partial matches with <<AppName>>
-    repl(rtf, L"<<AppNameAndVersion>>", nameVer);
-    repl(rtf, L"<<AppName>>",           name);
-    repl(rtf, L"<<AppVersion>>",        version);
+    // RTF bold group around a piece of text (properly encoded).
+    auto boldRtf = [](const std::wstring& text) -> std::wstring {
+        if (text.empty()) return L"";
+        return L"{\\b " + RtfEncodeText(text) + L"}";
+    };
+    // For locale strings that are plain-text then RTF-encoded, we cannot inject
+    // RTF codes before RtfEncodeText runs (it would escape the backslashes).
+    // Solution: substitute <<AppName>> etc. with pure-ASCII marker tokens first,
+    // call RtfEncodeText on the surrounding text, then replace the markers with
+    // bold RTF groups.  The markers contain only ASCII ctrl chars that
+    // RtfEncodeText passes through unchanged.
+    const std::wstring kMkN  = L"\x01N\x02";
+    const std::wstring kMkNV = L"\x01NV\x02";
+    const std::wstring kMkV  = L"\x01V\x02";
+    auto encodeWithBoldNames = [&](std::wstring text) -> std::wstring {
+        repl(text, L"<<AppNameAndVersion>>", kMkNV);
+        repl(text, L"<<AppName>>",           kMkN);
+        repl(text, L"<<AppVersion>>",        kMkV);
+        std::wstring encoded = RtfEncodeText(text);
+        repl(encoded, kMkNV, boldRtf(nameVer));
+        repl(encoded, kMkN,  boldRtf(name));
+        repl(encoded, kMkV,  boldRtf(version));
+        return encoded;
+    };
+    // Replace compound placeholder first to avoid partial matches with <<AppName>>.
+    // These are embedded directly in RTF, so inject bold RTF groups.
+    repl(rtf, L"<<AppNameAndVersion>>", boldRtf(nameVer));
+    repl(rtf, L"<<AppName>>",           boldRtf(name));
+    repl(rtf, L"<<AppVersion>>",        boldRtf(version));
     // License credit note — localized text embedded in RTF.
     // The locale value is plain Unicode; <<AppName>> inside it is substituted
     // first, then the whole string is RTF-encoded before splicing into the RTF.
@@ -3578,8 +3734,7 @@ static std::wstring SubstitutePlaceholders(std::wstring rtf,
             L"If you find <<AppName>> useful, a credit in your application\u2019s "
             L"About dialog or documentation is warmly appreciated "
             L"\u2014 though it is not required.");
-        repl(note, L"<<AppName>>", name);
-        repl(rtf, L"<<LicenseCreditNote>>", RtfEncodeText(note));
+        repl(rtf, L"<<LicenseCreditNote>>", encodeWithBoldNames(note));
     }
     // Resolve <<DlgDefaultDepsBody>> based on which delivery modes the project uses.
     if (rtf.find(L"<<DlgDefaultDepsBody>>") != std::wstring::npos) {
@@ -3593,8 +3748,7 @@ static std::wstring SubstitutePlaceholders(std::wstring rtf,
         std::wstring text = L10n(key,
             L"The following components are required by <<AppName>>. "
             L"If any are missing, they will be downloaded or set up automatically.");
-        repl(text, L"<<AppName>>", name);
-        repl(rtf, L"<<DlgDefaultDepsBody>>", RtfEncodeText(text));
+        repl(rtf, L"<<DlgDefaultDepsBody>>", encodeWithBoldNames(text));
     }
     // Resolve all remaining <<DlgDefault*>> placeholders from locale strings.
     struct { const wchar_t* ph; const wchar_t* key; const wchar_t* fallback; } kDlgKeys[] = {
@@ -3606,9 +3760,7 @@ static std::wstring SubstitutePlaceholders(std::wstring rtf,
         { L"<<DlgDefaultForMeAllBody>>",   L"idlg_default_for_me_all_body",
           L"Choose whether to install <<AppName>> for yourself only, "
           L"or for all users of this computer." },
-        { L"<<DlgDefaultSelectFolderBody>>", L"idlg_default_select_folder_body",
-          L"Choose the folder in which <<AppName>> should be installed, "
-          L"then click \u00abNext\u00bb." },
+        // SELECT_FOLDER body is handled before this loop (see below) — not here.
         { L"<<DlgDefaultComponentsBody>>", L"idlg_default_components_body",
           L"Select the components of <<AppName>> you want to install." },
         { L"<<DlgDefaultShortcutsBody>>",  L"idlg_default_shortcuts_body",
@@ -3626,12 +3778,24 @@ static std::wstring SubstitutePlaceholders(std::wstring rtf,
         { L"<<DlgDefaultFinishBody2>>",    L"idlg_default_finish_body2",
           L"Click \u00abFinish\u00bb to exit." },
     };
+    // Resolve <<DlgDefaultSelectFolderBody>> — text differs based on whether
+    // the end user is allowed to change the folder.
+    if (rtf.find(L"<<DlgDefaultSelectFolderBody>>") != std::wstring::npos) {
+        std::wstring text;
+        if (s_selectFolderAllowChange) {
+            text = L10n(L"idlg_default_select_folder_body",
+                L"Choose the folder in which <<AppName>> should be installed, "
+                L"then click \u00abNext\u00bb.");
+        } else {
+            text = L10n(L"idlg_default_select_folder_body_locked",
+                L"<<AppName>> will be installed in the following folder.");
+        }
+        repl(rtf, L"<<DlgDefaultSelectFolderBody>>", encodeWithBoldNames(text));
+    }
     for (const auto& k : kDlgKeys) {
         if (rtf.find(k.ph) == std::wstring::npos) continue;
         std::wstring text = L10n(k.key, k.fallback);
-        repl(text, L"<<AppNameAndVersion>>", nameVer);
-        repl(text, L"<<AppName>>",           name);
-        repl(rtf, k.ph, RtfEncodeText(text));
+        repl(rtf, k.ph, encodeWithBoldNames(text));
     }
     return rtf;
 }
@@ -3654,15 +3818,21 @@ void IDLG_ApplyDefaults(const std::wstring& appName, const std::wstring& appVers
                 size_t p = 0;
                 while ((p = s.find(f, p)) != std::wstring::npos) { s.replace(p, f.size(), t); p += t.size(); }
             };
-            repl(rtf, L"<<AppName>>", an);
+            // <<AppName>> is embedded directly in the RTF template — inject bold group.
+            std::wstring boldAn = an.empty() ? L"" : L"{\\b " + RtfEncodeText(an) + L"}";
+            repl(rtf, L"<<AppName>>", boldAn);
             repl(rtf, L"<<Year>>",    year);
             if (rtf.find(L"<<LicenseCreditNote>>") != std::wstring::npos) {
                 std::wstring note = L10n(L"idlg_license_credit_note",
                     L"If you find <<AppName>> useful, a credit in your application\u2019s "
                     L"About dialog or documentation is warmly appreciated "
                     L"\u2014 though it is not required.");
-                repl(note, L"<<AppName>>", an);
-                repl(rtf, L"<<LicenseCreditNote>>", RtfEncodeText(note));
+                // Use marker trick: substitute after RtfEncodeText to preserve bold RTF.
+                const std::wstring kMk = L"\x01AN\x02";
+                repl(note, L"<<AppName>>", kMk);
+                std::wstring encoded = RtfEncodeText(note);
+                repl(encoded, kMk, boldAn);
+                repl(rtf, L"<<LicenseCreditNote>>", encoded);
             }
             s_dialogs[IDLG_LICENSE].content_rtf = rtf;
         }

@@ -26,6 +26,7 @@
 #include <string>
 #include <map>
 #include <vector>
+#include "db.h"   // DB::ScShortcutRow, DB::ScMenuNodeRow
 
 // ── Embedded icon resource IDs ──────────────────────────────────────────────
 #define IDI_TRASHCAN  2   // icons/trashcan_empty.ico — multi-size 16‥128 px
@@ -187,3 +188,13 @@ void SC_SaveToDb(int projectId);
 // s_scShortcuts, opt-out flags).  Called from MainWindow::Create() after
 // SC_Reset() when opening an existing project (project.id > 0).
 void SC_LoadFromDb(int projectId);
+
+// ── Read-only accessors for the build system ──────────────────────────────────
+// Return the current in-memory shortcuts/nodes as plain DB row types (no live
+// HTREEITEM handles) so callers do not need to depend on ShortcutDef or ScMenuNode.
+// Reflect unsaved changes the user has made since the last IDM_FILE_SAVE.
+std::vector<DB::ScShortcutRow> SC_GetShortcutRows();
+std::vector<DB::ScMenuNodeRow> SC_GetMenuNodeRows();
+bool SC_GetDesktopOptOut();
+bool SC_GetSmPinOptOut();
+bool SC_GetTbPinOptOut();

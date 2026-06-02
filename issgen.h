@@ -15,12 +15,29 @@
 
 #include <windows.h>
 #include <string>
-#include "db.h"       // ProjectRow
+#include "db.h"       // ProjectRow, RegistryEntryRow, ScShortcutRow, ScMenuNodeRow, ScriptRow
 #include "settings.h" // SBuildConfig, InnoLangEntry
 
 // Searches for the inno/ directory relative to the running executable.
 // Returns the full path (no trailing backslash) on success, or L"" if not found.
 std::wstring ISS_FindInnoDir();
+
+// Extra data (beyond the core project/settings) consumed by ISS_GenerateIss.
+// Mirrors the data that each specialised page provides through its public API.
+struct IssExtraData {
+    // Shortcuts page
+    std::vector<DB::ScShortcutRow> shortcuts;    // desktop + SM + pin entries
+    std::vector<DB::ScMenuNodeRow> menuNodes;    // Start Menu folder tree nodes
+    bool desktopOptOut  = false;                 // "allow opt-out" desktop checkbox
+    bool smPinOptOut    = false;                 // "allow opt-out" SM pin checkbox
+    bool tbPinOptOut    = false;                 // "allow opt-out" Taskbar pin checkbox
+
+    // Scripts page
+    std::vector<DB::ScriptRow> scripts;          // pre/post/finish/uninstall scripts
+
+    // Custom registry entries from the Registry page
+    std::vector<RegistryEntryRow> registryEntries;
+};
 
 // Generates a complete .iss script and writes it to outPath.
 // proj    — current project row (name, version, app_id, app_publisher, directory, …)
@@ -29,6 +46,7 @@ std::wstring ISS_FindInnoDir();
 // assocs  — file associations from FA_GetAssociations(); empty vector = none
 // types   — install type presets from DB::GetInstallTypesForProject(); empty = no [Types] section
 // comps   — components from DB::GetComponentsForProject(); empty = no [Components] section
+// extra   — shortcuts, scripts, custom registry entries, dialog flags
 // Returns an empty string on success, or a human-readable error message.
 std::wstring ISS_GenerateIss(
     const std::wstring&                  templatePath,
@@ -38,4 +56,5 @@ std::wstring ISS_GenerateIss(
     const std::vector<InnoLangEntry>&    langs,
     const std::vector<FileAssocRow>&     assocs,
     const std::vector<InstallTypeRow>&   types,
-    const std::vector<ComponentRow>&     comps);
+    const std::vector<ComponentRow>&     comps,
+    const IssExtraData&                  extra);

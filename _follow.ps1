@@ -7,13 +7,27 @@
 # it resets to 0 whenever you start _follow.ps1 and increments once
 # per build.  Ctrl+C to stop.
 
-$log       = Join-Path $PSScriptRoot 'makeit.log'
-$countFile = Join-Path $PSScriptRoot 'makeit_count.txt'
-$pos       = 0
+$log            = Join-Path $PSScriptRoot 'makeit.log'
+$countFile      = Join-Path $PSScriptRoot 'makeit_count.txt'
+$countTodayFile = Join-Path $PSScriptRoot 'makeit_today.txt'
+$pos            = 0
 
-# Reset counter to 0 for this session — first build will show as Run #1.
-Set-Content $countFile 0
-$run = 0
+# ── Load persistent counters ─────────────────────────────────────────────────
+# makeit_count.txt  — all-time build number, never reset
+# makeit_today.txt  — append log; one line per build: "yyyy-MM-dd HH:mm:ss  #N"
+#                     today's count = lines starting with today's date
+$runAll      = 0
+$runToday    = 0
+$sessionRuns = 0
+$today       = (Get-Date).ToString('yyyy-MM-dd')
+
+if (Test-Path $countFile) {
+    $v = Get-Content $countFile -Raw
+    if ($v -match '^\s*(\d+)\s*$') { $runAll = [int]$Matches[1] }
+}
+if (Test-Path $countTodayFile) {
+    $runToday = @(Get-Content $countTodayFile | Where-Object { $_ -match "^$today" }).Count
+}
 
 # ── Phase tracking ────────────────────────────────────────────────────────────
 $script:phase      = ''
@@ -150,7 +164,7 @@ Write-Host ''
 Write-Host ('═' * 62) -ForegroundColor DarkCyan
 Write-Host '  _follow.ps1  —  SetupCraft build watcher' -ForegroundColor Cyan
 Write-Host "  Log : $log" -ForegroundColor DarkCyan
-Write-Host '  Run counter reset to 0.  Ctrl+C to stop.' -ForegroundColor DarkCyan
+Write-Host ("  Forever: #{0}   Today: #{1}   Ctrl+C to stop." -f $runAll, $runToday) -ForegroundColor DarkCyan
 Write-Host ('═' * 62) -ForegroundColor DarkCyan
 Write-Host ''
 Write-Host '  Waiting for makeit.bat to start...' -ForegroundColor DarkGray
@@ -163,17 +177,30 @@ while ($true) {
         $size = $info.Length
 
         # Detect new run: log was truncated (makeit.bat started fresh).
-        # Also fires on very first build when run=0 and content appears.
-        if ($size -lt $pos -or ($run -eq 0 -and $size -gt 0)) {
-            $run++
-            Set-Content $countFile $run
-            $pos          = 0
+        # Also fires on very first build of the session when content appears.
+        if ($size -lt $pos -or ($sessionRuns -eq 0 -and $size -gt 0)) {
+            # Refresh today in case midnight passed between builds
+            $now   = Get-Date
+            $today = $now.ToString('yyyy-MM-dd')
+            # Recalculate today's count from the log (handles midnight rollover)
+            $runToday = 0
+            if (Test-Path $countTodayFile) {
+                $runToday = @(Get-Content $countTodayFile | Where-Object { $_ -match "^$today" }).Count
+            }
+            $runAll++
+            $runToday++
+            $sessionRuns++
+            Set-Content $countFile $runAll
+            # Append one timestamped entry to today's log
+            $entry = "{0}  #{1}" -f $now.ToString('yyyy-MM-dd HH:mm:ss'), $runAll
+            Add-Content $countTodayFile $entry
+            $pos               = 0
             $script:phase      = ''     # reset phase tracker for each run
             $script:buildStart = [DateTime]::Now
             Clear-Host
             Write-Host ''
             Write-Host ('═' * 62) -ForegroundColor Cyan
-            Write-Host ("  BUILD RUN #{0}   {1}" -f $run,
+            Write-Host ("  BUILD RUN {0}   ({1} today)   {2}" -f $runAll, $runToday,
                 $info.LastWriteTime.ToString('yyyy-MM-dd  HH:mm:ss')) -ForegroundColor Cyan
             Write-Host '  SetupCraft  —  MinGW / CMake' -ForegroundColor Cyan
             Write-Host ('═' * 62) -ForegroundColor Cyan

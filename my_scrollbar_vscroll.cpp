@@ -36,6 +36,7 @@
 #include <stdlib.h>     /* malloc / free */
 #include <windowsx.h>   /* GET_X_LPARAM / GET_Y_LPARAM */
 #include <commctrl.h>   /* LVM_SCROLL, ListView_GetItemRect, etc. */
+#include <richedit.h>   /* FORMATRANGE, EM_FORMATRANGE, EM_SHOWSCROLLBAR, etc. */
 #include <algorithm>    /* std::min / std::max */
 using std::min;
 using std::max;
@@ -411,6 +412,41 @@ static int Msb_MeasureRichVertMax(HWND hRE)
 
     /* Bottom of last line = top-of-last-line + line-height + scroll offset. */
     int docBottom = (int)ptLast.y + vertOff + lineH;
+
+    /* EM_POSFROMCHAR in RichEdit returns (0,0) for characters that are not
+     * in the current layout cache (i.e. lines below the visible viewport).
+     * When ptLast.y == 0 for a multi-line document, the measurement is wrong.
+     * Fall back to EM_FORMATRANGE which accurately measures the full document
+     * height regardless of which lines are currently visible. */
+    if (ptLast.y == 0 && lastLine > 0) {
+        RECT rcClient = {};
+        GetClientRect(hRE, &rcClient);
+        int clientWPx = rcClient.right > 0 ? rcClient.right : 400;
+        HDC hdc = GetDC(hRE);
+        if (hdc) {
+            int dpiX = GetDeviceCaps(hdc, LOGPIXELSX);
+            int dpiY = GetDeviceCaps(hdc, LOGPIXELSY);
+            if (dpiX <= 0) dpiX = 96;
+            if (dpiY <= 0) dpiY = 96;
+            LONG widthTwips = MulDiv(clientWPx, 1440, dpiX);
+            FORMATRANGE fr   = {};
+            fr.hdc           = hdc;
+            fr.hdcTarget     = hdc;
+            fr.chrg.cpMin    = 0;
+            fr.chrg.cpMax    = -1;
+            fr.rcPage        = { 0, 0, widthTwips, 0x0FFFFFFF };
+            fr.rc            = fr.rcPage;
+            SendMessageW(hRE, EM_FORMATRANGE, FALSE, (LPARAM)&fr);
+            SendMessageW(hRE, EM_FORMATRANGE, FALSE, 0); /* free cached info */
+            ReleaseDC(hRE, hdc);
+            /* fr.rc.top holds the height of all formatted content in twips. */
+            if (fr.rc.top > 0) {
+                int heightPx = MulDiv((int)fr.rc.top, dpiY, 1440) + vertOff;
+                return max(1, heightPx);
+            }
+        }
+    }
+
     return max(1, docBottom);
 }
 

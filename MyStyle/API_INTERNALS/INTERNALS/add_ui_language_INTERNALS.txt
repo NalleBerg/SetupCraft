@@ -1,0 +1,210 @@
+================================================================================
+  NSBEdit ÔÇö Adding a New UI Language (Locale) ÔÇö Step-by-Step Internals
+================================================================================
+
+PURPOSE
+-------
+Explains every code location that must be touched to add a new language to
+the GUI Language drop-down.  Missing any step causes silent failure ÔÇö the
+exe builds without errors but the language either does not appear in the
+menu or does not change when selected.
+
+================================================================================
+OVERVIEW OF THE LOCALE SYSTEM
+================================================================================
+
+  locale/xx_YY.txt          UTF-8 text file, KEY = value pairs (no BOM needed)
+  NSBEdit.rc                Embeds each locale file as an RCDATA resource
+  NSBEdit.cpp
+    #define IDR_LOCALE_*    Maps a C++ symbol to the RCDATA resource ID
+    Ne_LoadLocale()         Loads the file for g_localeId into g_str (additive)
+    Ne_RebuildLocaleMenu()  Rebuilds the language drop-down menu from scratch
+  locale/en_GB.txt          Must contain LANG_UI_<LANG> key for every language
+  locale/no_nb.txt          Same ÔÇö every locale file must list all languages
+  locale/xx_YY.txt          The new file itself must also list all languages
+
+IMPORTANT ÔÇö g_str is ADDITIVE:
+  Ne_LoadLocale() never clears g_str before loading.  It overwrites matching
+  keys.  If FindResourceW fails silently (see pitfall below), g_str retains
+  the previously loaded language and the UI appears unchanged.
+
+================================================================================
+RESOURCE ID LAYOUT  (NSBEdit.rc)
+================================================================================
+
+  ID   Type        File
+  ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+   1   ICON        NSBEdit.ico
+   1   RT_MANIFEST app.manifest       (different type ÔÇö no conflict)
+  10   RCDATA      locale/en_GB.txt
+  11   RCDATA      locale/no_nb.txt
+  12   RCDATA      nsb_256.png        ÔåÉ DO NOT USE ÔÇö already taken
+  13   RCDATA      GnuLogo.bmp        ÔåÉ DO NOT USE ÔÇö already taken
+  14   RCDATA      locale/is_IS.txt
+  15   RCDATA      locale/sv_SE.txt
+  16   RCDATA      locale/da_DK.txt
+  17   RCDATA      locale/fi_FI.txt
+  18   RCDATA      locale/de_DE.txt
+  19   RCDATA      locale/fr_FR.txt
+  20   RCDATA      locale/es_ES.txt
+  21   RCDATA      locale/uk_UA.txt
+
+  Next free locale ID: 22, 23, 24, ÔÇª
+  Always check NSBEdit.rc for ALL existing RCDATA IDs before assigning a
+  new one.  windres accepts duplicate IDs without any warning ÔÇö the last
+  definition wins, silently discarding the earlier one.
+
+================================================================================
+STEP-BY-STEP CHECKLIST
+================================================================================
+
+Step 1 ÔÇö Create the locale file
+---------------------------------
+  File:  locale/xx_YY.txt   (IETF language tag: language_REGION)
+  Examples:  sv_SE.txt  da_DK.txt  fi_FI.txt  de_DE.txt
+
+  ÔÇó Copy locale/no_nb.txt as a starting point ÔÇö it is a complete reference.
+  ÔÇó Translate every value.  All keys must be present (g_str is additive,
+    but a missing key falls back to the key name itself as the display text).
+  ÔÇó Save as UTF-8, no BOM.
+  ÔÇó Add the LANG_UI_<LANG> key for every language already in the menu
+    (including the new one).  All three of these must be in the new file:
+      LANG_UI_ENGLISH   = English
+      LANG_UI_ICELANDIC = ├ìslenska
+      LANG_UI_NORWEGIAN = Norsk (bokm├Ñl)
+      LANG_UI_<NEWLANG> = <Native name>
+
+Step 2 ÔÇö Check which RC resource IDs are free
+----------------------------------------------
+  Open NSBEdit.rc and read every line of the form  N RCDATA "..."
+  Collect the used IDs.  Pick the next unused integer (currently: 15).
+
+  *** PITFALL: windres does NOT warn about duplicate RCDATA IDs. ***
+  If you accidentally reuse an existing ID, the wrong data is loaded at
+  runtime and Ne_LoadLocale silently returns without updating g_str.
+  The language appears not to change.  Always scan the RC file first.
+
+Step 3 ÔÇö Add the RCDATA entry to NSBEdit.rc
+--------------------------------------------
+  <newId> RCDATA "locale/xx_YY.txt"
+
+  Insert it in the locale block (after the last locale entry), before the
+  non-locale RCDATA lines (nsb_256.png, GnuLogo.bmp).
+
+Step 4 ÔÇö Add the #define in NSBEdit.cpp
+----------------------------------------
+  Near line ~64, in the "Resource IDs" defines block:
+
+    #define IDR_LOCALE_EN_GB    10
+    #define IDR_LOCALE_NO_NB    11
+    #define IDR_LOCALE_IS_IS    14
+    #define IDR_LOCALE_XX_YY    <newId>   // ÔåÉ add this
+
+  The name must be  IDR_LOCALE_  followed by the locale tag in UPPER_CASE
+  with the hyphen/slash replaced by underscore.
+
+Step 5 ÔÇö Add a case to Ne_LoadLocale()
+----------------------------------------
+  The switch block (near line ~1104):
+
+    switch (g_localeId) {
+        case 1:  resId = IDR_LOCALE_NO_NB; break;
+        case 2:  resId = IDR_LOCALE_IS_IS; break;
+        case <N>: resId = IDR_LOCALE_XX_YY; break;   // ÔåÉ add this
+        default: resId = IDR_LOCALE_EN_GB; break;
+    }
+
+  The case number N is the locale's integer ID used by the menu and
+  stored in the SQLite settings DB.  It does NOT need to match the
+  RCDATA resource ID ÔÇö they are independent.
+
+  Locale ID assignment:
+    0  = English  (en_GB)
+    1  = Norwegian (no_nb)
+    2  = Icelandic (is_IS)
+    3  = Swedish   (sv_SE)
+    4  = Danish    (da_DK)
+    5  = Finnish   (fi_FI)
+    6  = German    (de_DE)
+    7  = French    (fr_FR)
+    8  = Spanish   (es_ES)
+    9  = Ukrainian (uk_UA)
+    10, 11, 12, ÔÇª ÔÇö assign sequentially for future languages.
+
+Step 6 ÔÇö Add the menu item to Ne_RebuildLocaleMenu()
+------------------------------------------------------
+  Near line ~6836.  The menu is rebuilt from scratch every time it opens,
+  so order here IS the display order.  Keep it alphabetical by native name.
+
+    Ne_AppendMenuOD(s_hLocaleMenu, MF_STRING, IDM_LOCALE_BASE + 0,
+                    Ls(L"LANG_UI_ENGLISH"),   false, g_localeId == 0 ? g_hLocaleMenuIcon : NULL);
+    Ne_AppendMenuOD(s_hLocaleMenu, MF_STRING, IDM_LOCALE_BASE + 2,
+                    Ls(L"LANG_UI_ICELANDIC"), false, g_localeId == 2 ? g_hLocaleMenuIcon : NULL);
+    Ne_AppendMenuOD(s_hLocaleMenu, MF_STRING, IDM_LOCALE_BASE + N,
+                    Ls(L"LANG_UI_NEWLANG"),   false, g_localeId == N ? g_hLocaleMenuIcon : NULL);
+    Ne_AppendMenuOD(s_hLocaleMenu, MF_STRING, IDM_LOCALE_BASE + 1,
+                    Ls(L"LANG_UI_NORWEGIAN"), false, g_localeId == 1 ? g_hLocaleMenuIcon : NULL);
+
+  The second argument to IDM_LOCALE_BASE + N is the locale integer ID (from
+  Step 5), NOT the RCDATA resource ID.  The WM_COMMAND handler computes
+  newLocaleId = wmId - IDM_LOCALE_BASE, so these must match exactly.
+
+Step 7 ÔÇö Add LANG_UI_<NEWLANG> to ALL existing locale files
+-------------------------------------------------------------
+  Each locale file must contain a LANG_UI_ key for every language in the
+  menu, in its own language.  The display name in a locale's own file can
+  differ from English (e.g. "├ìslenska" not "Icelandic").
+
+  Files to update:
+    locale/en_GB.txt   ÔÇö add  LANG_UI_NEWLANG = <English name or native>
+    locale/no_nb.txt   ÔÇö add  LANG_UI_NEWLANG = <Norwegian or native>
+    locale/is_IS.txt   ÔÇö add  LANG_UI_NEWLANG = <Icelandic or native>
+    locale/xx_YY.txt   ÔÇö already contains it (created in Step 1)
+
+Step 8 ÔÇö Build and test
+------------------------
+  .\makeit.bat
+  Run NSBEdit.exe.
+  Open the Language menu ÔÇö confirm the new entry appears, has the
+  correct native name, and that clicking it changes the UI language
+  and places the checkmark icon on the new entry.
+
+================================================================================
+SUMMARY TABLE
+================================================================================
+
+  File                  What to change
+  ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+  locale/xx_YY.txt      CREATE ÔÇö full translation, all LANG_UI_* keys present
+  NSBEdit.rc            ADD  <newRcId> RCDATA "locale/xx_YY.txt"
+  NSBEdit.cpp ~64       ADD  #define IDR_LOCALE_XX_YY  <newRcId>
+  NSBEdit.cpp ~1104     ADD  case <localeId>: resId = IDR_LOCALE_XX_YY; break;
+  NSBEdit.cpp ~6836     ADD  Ne_AppendMenuOD entry (alphabetical)
+  locale/en_GB.txt      ADD  LANG_UI_NEWLANG = ...
+  locale/no_nb.txt      ADD  LANG_UI_NEWLANG = ...
+  locale/is_IS.txt      ADD  LANG_UI_NEWLANG = ...
+  (all other locales)   ADD  LANG_UI_NEWLANG = ...
+
+================================================================================
+PITFALLS ENCOUNTERED
+================================================================================
+
+1.  DUPLICATE RCDATA ID
+    windres silently accepts two RCDATA entries with the same ID.  The first
+    definition wins.  NSBEdit already uses IDs 12 (nsb_256.png) and 13
+    (GnuLogo.bmp).  Assigning a locale to ID 12 caused FindResourceW to
+    return PNG binary data to the locale parser ÔÇö no keys were parsed, g_str
+    was not updated, and the language appeared not to change.
+    Fix: always read NSBEdit.rc before picking an ID.  Current next free: 22.
+
+2.  MISSING LANG_UI_* KEY IN A LOCALE FILE
+    If a locale file does not contain  LANG_UI_NEWLANG, the menu item for
+    that language will display the raw key string "LANG_UI_NEWLANG" as its
+    label when that locale is active.
+
+3.  LOCALE INTEGER ID vs RCDATA RESOURCE ID CONFUSION
+    These are independent numbers.  The locale integer ID (0, 1, 2, ÔÇª) is
+    what gets stored in the DB, used as the switch-case value in
+    Ne_LoadLocale, and added to IDM_LOCALE_BASE for the menu command ID.
+    The RCDATA resource ID (10, 11, 14, ÔÇª) is what windres uses to embed
+    the file.  They do not need to match.

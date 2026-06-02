@@ -1,10 +1,10 @@
  
 ================================================================
-  SetupCraft Build  --  31.05.2026  13:02:29,81
+  SetupCraft Build  --  02.06.2026  12:15:26,08
 ================================================================
 
 [PRE] Stopping any running SetupCraft.exe instances...
-ERROR: The process "SetupCraft.exe" not found.
+SUCCESS: The process "SetupCraft.exe" with PID 24272 has been terminated.
 [PRE] Ready.
 
   Generator : MinGW Makefiles
@@ -12,7 +12,7 @@ ERROR: The process "SetupCraft.exe" not found.
 ================================================================
 
 [CONFIGURE] Running cmake -S . -B build ...
--- Configuring done (0.1s)
+-- Configuring done (0.0s)
 -- Generating done (0.1s)
 -- Build files have been written to: C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build
 
@@ -217,6 +217,6 @@ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\LicenseImg\wtfpl-badge-1.p
 15 File(s) copied
 
 Package created at C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\SetupCraft
-SetupCraft.exe: 31.05.2026 13:04
+SetupCraft.exe: 02.06.2026 12:16
 
 [DONE] All steps completed successfully.

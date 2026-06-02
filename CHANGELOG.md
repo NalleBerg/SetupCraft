@@ -2,6 +2,26 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.06.02.12] - 2026-06-02 12:12
+
+### Dialogs page — dialog edits now persist correctly; Finish page no longer shows a spurious scrollbar
+
+- **`db.cpp` — `InitDb`: "New Project" cleanup migration now runs exactly once (Bug fix)**: A migration that deleted all `installer_dialogs` rows whose `content_rtf` matched `LIKE '%New Project%'` was running on *every* application launch. The original intent was a one-time cleanup of rows written before the `<<DlgDefault>>` placeholder system existed. However, `SubstitutePlaceholders` embeds the real project name into saved RTF (e.g. `{\b New Project}` when the project is literally named "New Project"), so the migration silently deleted developer-edited dialog content on every restart, making it appear that Dialogs-page edits never persisted after reopening the project. Fix: the migration is now guarded by a `settings` key (`mig_del_new_project_done`); it only runs once on the first launch after upgrading, then the key is written to prevent subsequent runs.
+
+- **`db.cpp` — `InitDb` + default RTF constant: trailing `\par` removed from Finish dialog template (Bug fix)**: The default RTF for `dialog_type=9` (Finish) ended with `...<<DlgDefaultFinishBody2>>\par}`. The trailing `\par` created an empty final paragraph, making the content fractionally taller than the preview window and triggering a spurious vertical scrollbar. Fix: the hardcoded constant was changed to end with `...<<DlgDefaultFinishBody2>>}`. A one-time SQL migration (`UPDATE dialog_defaults`) is also applied to patch the same trailing-`\par` pattern in any existing database that still stores the old template.
+
+## [2026.06.02.11] - 2026-06-02
+
+### Dialogs page — License preview: custom scrollbar now visible and correctly auto-hides
+
+Three separate bugs were fixed to make the MSB bar work on the RICHEDIT50W-based License preview:
+
+- **`dialogs.cpp` — `SyncContentScrollbar`: Bug 1 — RICHEDIT50W overwrites the bar (GetDC vs BeginPaint)**: RICHEDIT50W (Msftedit.dll) calls `GetDC` internally, not `BeginPaint`. `GetDC` does not honour the clip region established by `WS_CLIPSIBLINGS`, so the control overpaints its entire client rectangle on every repaint, erasing any overlapping sibling window — including the MSB bar. (`RichEdit20W` in `Riched20.dll`, used by `about.cpp`, uses `BeginPaint` and respects `WS_CLIPSIBLINGS` — that is why the same MSB overlay works there with no special treatment.) Fix: `hContent` is narrowed by `S(MSB_WIDTH_FULL)` (12 logical px at 96 DPI) so the bar sits in the freed strip to the *right* of `hContent`'s client area; `msb_set_edge_gap(-S(MSB_WIDTH_FULL))` shifts the bar's anchor to exactly `ptOrig.x + cw` (right edge of narrowed control). The RichEdit never touches that column. The narrowing is applied at all three `SetWindowPos` sites in `LayoutPreviewControls` (split layout and single layout branches) and at the new-attach block in `SyncContentScrollbar`.
+
+- **`dialogs.cpp` — `SyncContentScrollbar`: Bug 2 — `EM_POSFROMCHAR` unreliable before first paint pass**: `Msb_ContentOverflows` measures document height via `EM_POSFROMCHAR`, which returns `(0, 0)` for off-screen lines until the RichEdit has performed at least one paint pass. When `msb_reposition` was called immediately after `msb_attach` (both called from within the `WM_SIZE → LayoutPreviewControls` chain, before `UpdateWindow`), the overflow check returned false and the bar was hidden immediately after being created. Fix: `UpdateWindow(pd->hContent)` is called after narrowing `hContent` and before `msb_reposition`, forcing a synchronous layout so `EM_POSFROMCHAR` returns accurate line positions. `MSB_NOHIDE` is therefore not needed and not used.
+
+- **`dialogs.cpp` — `SyncContentScrollbar`: Bug 3 — `scrollAllowed` excluded `rawOverflow` for split-layout dialogs**: The License dialog uses the split layout; `contentNeedsScroll` is hardcoded `false` for split layouts because the radio-button extras panel always fits below the RTF area. The old guard `scrollAllowed = contentNeedsScroll || userSized` therefore never triggered bar attachment even when the RTF content was taller than the capped window. Fix: `scrollAllowed = contentNeedsScroll || rawOverflow || userSized`. `rawOverflow` is read from `GetScrollInfo` *before* `EM_SHOWSCROLLBAR(FALSE)` resets the range — it is the ground-truth overflow answer from the RichEdit itself. The overflow comparison is also tightened to strict `<` (`(UINT)si.nPage < (UINT)si.nMax`) to avoid false-positive attachment when content exactly fills the window (`nPage == nMax`).
+
 ## [2026.06.01.09] - 2026-06-01
 
 ### Dialogs page — Select Folder "allow change" checkbox now defaults to unchecked

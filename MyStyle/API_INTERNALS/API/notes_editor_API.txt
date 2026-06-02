@@ -1,0 +1,146 @@
+================================================================================
+  notes_editor — Rich-Text Notes / Description Editor Popup
+================================================================================
+
+  Module files:  notes_editor.h  /  notes_editor.cpp
+  Dependencies:  button.h, dpi.h, Msftedit.dll (or Riched20.dll), comdlg32
+
+
+OVERVIEW
+────────
+  notes_editor provides a self-contained modal popup window for editing a
+  rich-text (RTF) notes/description string attached to a component row.
+
+  The window is registered under the class name "CompNotesEditor".  Only one
+  instance can normally run at a time (the caller's message pump blocks until
+  the window closes).
+
+  The editor supports:
+    • Bold, Italic, Underline   (CHARFORMAT2 effects)
+    • Subscript  (X₂)           (CFE_SUBSCRIPT)
+    • Superscript  (X²)         (CFE_SUPERSCRIPT)
+    • Font size                  (combo: 8–36 pt, default 10 pt)
+    • Text colour                (ChooseColorW system picker)
+    • 500 character limit        (EM_EXLIMITTEXT + live countdown label)
+    • RTF stream in/out          (EM_STREAMIN / EM_STREAMOUT, SF_RTF)
+
+  "Save" writes the RTF to NotesEditorData::outRtf and returns true.
+  "Cancel" (or closing the window) leaves outRtf unchanged and returns false.
+  The caller is responsible for persisting outRtf to the database.
+
+
+FEATURES
+────────
+  • DPI-aware layout via S() from dpi.h.
+  • Loads Msftedit.dll first (RichEdit 4.1 / RICHEDIT50W), falls back to
+    Riched20.dll (RichEdit 2.0 / RichEdit20W).
+  • Default editor font: Segoe UI 10 pt.
+  • Toolbar buttons use system UI font; Bold button uses FW_BOLD variant,
+    Italic button uses lfItalic variant.
+  • OK / Cancel rendered via CreateCustomButtonWithIcon + DrawCustomButton
+    (from button.h).
+  • All i18n display strings are passed in by the caller via NotesEditorData.
+    Empty fields fall back to built-in English strings.
+  • Own message pump (GetMessage loop) — does NOT nest inside the parent's
+    pump, so it is safe to call from any window proc or callback.
+
+
+USAGE EXAMPLE
+─────────────
+
+  #include "notes_editor.h"
+
+  // Inside a WM_COMMAND handler:
+  NotesEditorData nd;
+  nd.initRtf      = currentComponent.notes_rtf;  // existing RTF (or empty)
+  nd.titleText    = L"Edit Notes";
+  nd.okText       = L"Save";
+  nd.cancelText   = L"Cancel";
+  nd.charsLeftFmt = L"%d characters left";        // one %d placeholder
+
+  if (OpenNotesEditor(hwnd, nd)) {
+      // User clicked Save — persist nd.outRtf
+      currentComponent.notes_rtf = nd.outRtf;
+  }
+  // If false: user cancelled, nd.outRtf is unchanged
+
+
+API REFERENCE
+─────────────
+
+  ┌─  struct NotesEditorData  ────────────────────────────────────────────────┐
+  │                                                                            │
+  │  std::wstring  initRtf        RTF string to pre-load.  Pass L"" to open  │
+  │                               with a blank editor.                        │
+  │                                                                            │
+  │  std::wstring  outRtf         (output) RTF string written back when the   │
+  │                               user clicks Save.  Undefined on cancel.     │
+  │                                                                            │
+  │  bool          okClicked      (output) true iff the user clicked Save.    │
+  │                               Set by OpenNotesEditor before it returns.   │
+  │                                                                            │
+  │  std::wstring  titleText      Window caption.  Default: L"Edit Notes"     │
+  │  std::wstring  okText         Save button label.  Default: L"Save"        │
+  │  std::wstring  cancelText     Cancel button label.  Default: L"Cancel"    │
+  │  std::wstring  charsLeftFmt   printf-style format with one %%d for the    │
+  │                               remaining character count.                   │
+  │                               Default: L"%%d characters left"             │
+  └────────────────────────────────────────────────────────────────────────────┘
+
+  bool OpenNotesEditor(HWND hwndParent, NotesEditorData& data);
+
+    Opens the notes editor as a topmost modal popup centred over hwndParent.
+    Blocks until the window is closed (runs its own GetMessage loop).
+
+    Parameters:
+      hwndParent  Parent window handle (used for centering and ownership).
+      data        In/out struct (see above).  Caller fills input fields
+                  before calling; output fields are written on return.
+
+    Returns:
+      true   — user clicked Save; data.outRtf contains the new RTF.
+      false  — user cancelled or closed the window; data.outRtf unchanged.
+
+  Notes:
+    • The "CompNotesEditor" window class is registered on first call; it is
+      not unregistered on process exit (normal for Win32 classes).
+    • You may call OpenNotesEditor from a static dialog proc — it does not
+      require the LS() lambda or any WndProc-specific context.
+    • The RTF stored in outRtf is UTF-8–compatible ASCII RTF as produced by
+      EM_STREAMOUT / SF_RTF.  It can be stored as a TEXT column in SQLite.
+
+
+CONTROL IDs  (defined in notes_editor.h)
+──────────────────────────────────────────
+  IDC_NOTES_STATUS      329   char-count status label  (internal)
+  IDC_NOTES_EDIT        330   RichEdit control
+  IDC_NOTES_BOLD        331   Bold toolbar button
+  IDC_NOTES_ITALIC      332   Italic toolbar button
+  IDC_NOTES_UNDERLINE   333   Underline toolbar button
+  IDC_NOTES_SUBSCRIPT   334   Subscript toolbar button  (X₂)
+  IDC_NOTES_SUPERSCRIPT 335   Superscript toolbar button  (X²)
+  IDC_NOTES_FONTSIZE    336   Font-size combobox
+  IDC_NOTES_COLOR       337   Text-colour picker button
+  IDC_NOTES_OK          338   Save button
+  IDC_NOTES_CANCEL      339   Cancel button
+
+  IDs 340–341 are caller-side buttons that trigger OpenNotesEditor and are
+  defined in mainwindow.cpp:
+    IDC_FOLDER_DLG_NOTES  340   "Notes / Description..." button in folder edit
+    IDC_COMPDLG_NOTES     341   "Notes / Description..." button in comp edit
+
+
+i18n NOTES
+──────────
+  All user-visible strings in the editor window itself are passed in through
+  NotesEditorData.  Toolbar button tooltips are currently English-only
+  (hardcoded in notes_editor.cpp) — add locale lookup there if needed.
+
+  The caller (e.g. mainwindow.cpp CompFolderEditDlgProc / CompEditDlgProc)
+  fills titleText, okText, cancelText, charsLeftFmt.  Since those procs are
+  static callbacks that do NOT have the LS() lambda in scope, the strings
+  are currently hardcoded to English literals.  To add translations, supply
+  the localised strings at the call site after looking them up via your
+  localisation mechanism.
+
+================================================================================

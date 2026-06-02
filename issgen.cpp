@@ -13,6 +13,8 @@
 
 #include "issgen.h"
 #include "dialogs.h"
+#include "shortcuts.h"  // SCT_* constants
+#include "scripts.h"    // SWR_* constants
 #include <algorithm>
 #include <map>
 
@@ -419,6 +421,272 @@ static std::wstring BuildSignToolLine(const SBuildConfig& cfg)
 
 // ── ISS_FindInnoDir ───────────────────────────────────────────────────────────
 
+// Build a [Tasks] section body for desktop/pin opt-out tasks.
+// A task is only emitted when the user enabled the corresponding opt-out flag.
+// Returns empty string when no opt-out tasks are needed.
+static std::wstring BuildTasksSection(
+    const std::vector<DB::ScShortcutRow>& shortcuts,
+    bool desktopOptOut, bool smPinOptOut, bool tbPinOptOut)
+{
+    // Determine whether any desktop / pin shortcuts actually exist.
+    bool hasDesktop    = false;
+    bool hasSmPin      = false;
+    bool hasTbPin      = false;
+    for (const auto& sc : shortcuts) {
+        if (sc.type == SCT_DESKTOP)     hasDesktop = true;
+        if (sc.type == SCT_PIN_START)   hasSmPin   = true;
+        if (sc.type == SCT_PIN_TASKBAR) hasTbPin   = true;
+    }
+
+    std::wstring tasks;
+    if (hasDesktop && desktopOptOut)
+        tasks += L"Name: \"desktopicon\"; Description: \"Create a &desktop icon\"; "
+                 L"GroupDescription: \"Additional icons:\"; Flags: unchecked\r\n";
+    if (hasSmPin && smPinOptOut)
+        tasks += L"Name: \"pinstart\"; Description: \"&Pin to Start\"; "
+                 L"GroupDescription: \"Start Menu:\"; Flags: unchecked\r\n";
+    if (hasTbPin && tbPinOptOut)
+        tasks += L"Name: \"pintaskbar\"; Description: \"Pin to &Taskbar\"; "
+                 L"GroupDescription: \"Taskbar:\"; Flags: unchecked\r\n";
+
+    if (tasks.empty()) return L"";
+    return L"[Tasks]\r\n" + tasks + L"\r\n";
+}
+
+// Resolve the Start Menu path for a shortcut, building the {group}\subfolder\...
+// chain from the node tree.  Returns L"{group}" for a shortcut at the Programs root.
+static std::wstring ResolveSmPath(
+    const DB::ScShortcutRow& sc,
+    const std::vector<DB::ScMenuNodeRow>& nodes)
+{
+    // Build id → node map for quick look-up.
+    std::map<int, const DB::ScMenuNodeRow*> byId;
+    for (const auto& n : nodes) byId[n.id] = &n;
+
+    // Walk up the parent chain to collect folder names.
+    std::vector<std::wstring> parts;
+    int cur = sc.sm_node_id;
+    while (cur > 1) {  // 0=SM root, 1=Programs; both map to {group}
+        auto it = byId.find(cur);
+        if (it == byId.end()) break;
+        parts.push_back(it->second->name);
+        cur = it->second->parent_id;
+    }
+
+    // Reverse so topmost folder comes first.
+    std::wstring path = L"{group}";
+    for (int i = (int)parts.size() - 1; i >= 0; --i)
+        path += L"\\" + parts[i];
+    return path;
+}
+
+// Build the [Icons] section body from shortcut definitions.
+// Desktop shortcuts → {userdesktop}\name
+// SM shortcuts      → {group}\[subfolder\...]name
+// Pin shortcuts are handled via [Run] instead.
+static std::wstring BuildIconsSection(
+    const std::vector<DB::ScShortcutRow>& shortcuts,
+    const std::vector<DB::ScMenuNodeRow>& nodes,
+    bool desktopOptOut)
+{
+    std::wstring out;
+    for (const auto& sc : shortcuts) {
+        if (sc.type != SCT_DESKTOP && sc.type != SCT_STARTMENU) continue;
+        if (sc.exe_path.empty() && sc.name.empty()) continue;
+
+        std::wstring dest;
+        std::wstring taskFlag;
+        if (sc.type == SCT_DESKTOP) {
+            dest = L"{userdesktop}\\" + sc.name;
+            if (desktopOptOut) taskFlag = L"desktopicon";
+        } else {
+            dest = ResolveSmPath(sc, nodes) + L"\\" + sc.name;
+        }
+
+        out += L"Name: \"" + dest + L"\";"
+               L" Filename: \"" + sc.exe_path + L"\"";
+
+        if (!sc.working_dir.empty())
+            out += L"; WorkingDir: \"" + sc.working_dir + L"\"";
+        if (!sc.arguments.empty())
+            out += L"; Parameters: \"" + sc.arguments + L"\"";
+        if (!sc.comment.empty())
+            out += L"; Comment: \"" + sc.comment + L"\"";
+        if (!sc.hotkey.empty())
+            out += L"; HotKey: \"" + sc.hotkey + L"\"";
+        if (!sc.icon_path.empty())
+            out += L"; IconFilename: \"" + sc.icon_path + L"\"; IconIndex: "
+                   + std::to_wstring(sc.icon_index);
+        if (sc.run_as_admin)
+            out += L"; Flags: runasadmin";
+        if (!taskFlag.empty())
+            out += (sc.run_as_admin ? L" " : L"; Flags: ") +
+                   (sc.run_as_admin ? taskFlag : (L"uncheckedonce; Tasks: " + taskFlag));
+
+        out += L"\r\n";
+    }
+    if (out.empty()) return L"";
+    return L"[Icons]\r\n" + out + L"\r\n";
+}
+
+// Build the [Run] section body.
+// Includes:
+//   1. Script SWR_AFTER_FILES entries (unconditional).
+//   2. Script SWR_FINISH_OPTOUT entries (Flags: postinstall skipifsilent).
+//   3. Finish-page app launch entry (from IDLG_GetFinishLaunchEnabled()).
+//   4. Pin-to-Start / Pin-to-Taskbar entries via PowerShell.
+static std::wstring BuildRunSection(
+    const std::vector<DB::ScriptRow>& scripts,
+    const std::vector<DB::ScShortcutRow>& shortcuts,
+    bool smPinOptOut, bool tbPinOptOut)
+{
+    std::wstring out;
+
+    // SWR_AFTER_FILES scripts (run unconditionally after file copy).
+    for (const auto& s : scripts) {
+        if (s.when_to_run != SWR_AFTER_FILES) continue;
+        // Write script content to a temp file at runtime and run it.
+        // For now emit a Run entry that executes the script directly.
+        // Script type 0=BAT, 1=PS1.
+        std::wstring flags;
+        if (s.run_hidden)  flags += L"runhidden ";
+        if (!s.wait_for_completion) flags += L"nowait ";
+        if (!s.required_components.empty())
+            flags += L"; Components: \"" + s.required_components + L"\"";
+        if (s.type == SCR_TYPE_PS1) {
+            // Emit inline PS1 call: write content to %TEMP% file, call PowerShell.
+            out += L"; Script: " + s.name + L"\r\n";
+            out += L"Filename: \"{sys}\\WindowsPowerShell\\v1.0\\powershell.exe\";"
+                   L" Parameters: \"-ExecutionPolicy Bypass -File \\\"{tmp}\\" + s.name + L".ps1\\\"\"";
+        } else {
+            out += L"; Script: " + s.name + L"\r\n";
+            out += L"Filename: \"{cmd}\"; Parameters: \"/c \\\"{tmp}\\" + s.name + L".bat\\\"\"";
+        }
+        if (!flags.empty()) out += L"; Flags: " + flags;
+        out += L"\r\n";
+    }
+
+    // SWR_FINISH_OPTOUT scripts (user opt-out checkbox on Finish page).
+    for (const auto& s : scripts) {
+        if (s.when_to_run != SWR_FINISH_OPTOUT) continue;
+        std::wstring desc = s.description.empty() ? s.name : s.description;
+        std::wstring flags = L"postinstall skipifsilent";
+        if (s.run_hidden)              flags += L" runhidden";
+        if (!s.wait_for_completion)    flags += L" nowait";
+        if (s.finish_checked_by_default == 0) flags += L" unchecked";
+        if (s.type == SCR_TYPE_PS1) {
+            out += L"; Script: " + s.name + L"\r\n";
+            out += L"Filename: \"{sys}\\WindowsPowerShell\\v1.0\\powershell.exe\";"
+                   L" Parameters: \"-ExecutionPolicy Bypass -File \\\"{tmp}\\" + s.name + L".ps1\\\"\";";
+        } else {
+            out += L"; Script: " + s.name + L"\r\n";
+            out += L"Filename: \"{cmd}\"; Parameters: \"/c \\\"{tmp}\\" + s.name + L".bat\\\"\";";
+        }
+        out += L" Description: \"" + desc + L"\"; Flags: " + flags + L"\r\n";
+    }
+
+    // Finish-page app launch entry from the Dialogs page.
+    if (IDLG_GetFinishLaunchEnabled()) {
+        std::wstring desc = IDLG_GetFinishLaunchDesc();
+        std::wstring flags = L"nowait postinstall shellexec skipifsilent";
+        if (!IDLG_GetFinishLaunchDefaultChecked()) flags += L" unchecked";
+        out += L"Filename: \"{app}\\{#ExeName}\"; Description: \"" + desc + L"\"; Flags: " + flags + L"\r\n";
+    }
+
+    // Pin to Start / Pin to Taskbar via PowerShell (requires Windows 10+).
+    for (const auto& sc : shortcuts) {
+        if (sc.type == SCT_PIN_START) {
+            std::wstring flags = L"nowait runhidden shellexec";
+            if (smPinOptOut) flags += L" unchecked; Tasks: \"pinstart\"";
+            out += L"Filename: \"{sys}\\WindowsPowerShell\\v1.0\\powershell.exe\";"
+                   L" Parameters: \"-ExecutionPolicy Bypass -Command \\\"$shell = New-Object -COM Shell.Application;"
+                   L" $folder = $shell.NameSpace(Split-Path '" + sc.exe_path + L"');"
+                   L" $item = $folder.ParseName(Split-Path '" + sc.exe_path + L"' -Leaf);"
+                   L" $item.InvokeVerb('taskbarpin')\\\"\"; Flags: " + flags + L"\r\n";
+        } else if (sc.type == SCT_PIN_TASKBAR) {
+            std::wstring flags = L"nowait runhidden shellexec";
+            if (tbPinOptOut) flags += L" unchecked; Tasks: \"pintaskbar\"";
+            out += L"Filename: \"{sys}\\WindowsPowerShell\\v1.0\\powershell.exe\";"
+                   L" Parameters: \"-ExecutionPolicy Bypass -Command \\\"$shell = New-Object -COM Shell.Application;"
+                   L" $folder = $shell.NameSpace(Split-Path '" + sc.exe_path + L"');"
+                   L" $item = $folder.ParseName(Split-Path '" + sc.exe_path + L"' -Leaf);"
+                   L" $item.InvokeVerb('taskbarpin')\\\"\"; Flags: " + flags + L"\r\n";
+        }
+    }
+
+    if (out.empty()) return L"";
+    return L"[Run]\r\n" + out + L"\r\n";
+}
+
+// Build the [UninstallRun] section body from scripts tagged SWR_UNINSTALL
+// or with also_uninstall == 1.
+static std::wstring BuildUninstallRunSection(
+    const std::vector<DB::ScriptRow>& scripts)
+{
+    std::wstring out;
+    for (const auto& s : scripts) {
+        if (s.when_to_run != SWR_UNINSTALL && !s.also_uninstall) continue;
+        std::wstring flags;
+        if (s.run_hidden)           flags += L"runhidden ";
+        if (!s.wait_for_completion) flags += L"nowait ";
+        if (s.type == SCR_TYPE_PS1) {
+            out += L"; Script: " + s.name + L"\r\n";
+            out += L"Filename: \"{sys}\\WindowsPowerShell\\v1.0\\powershell.exe\";"
+                   L" Parameters: \"-ExecutionPolicy Bypass -File \\\"{tmp}\\" + s.name + L".ps1\\\"\"";
+        } else {
+            out += L"; Script: " + s.name + L"\r\n";
+            out += L"Filename: \"{cmd}\"; Parameters: \"/c \\\"{tmp}\\" + s.name + L".bat\\\"\"";
+        }
+        if (!flags.empty()) out += L"; Flags: " + flags;
+        out += L"\r\n";
+    }
+    if (out.empty()) return L"";
+    return L"[UninstallRun]\r\n" + out + L"\r\n";
+}
+
+// Build additional custom [Registry] entries from the Registry page.
+// Entries with name == "__KEY__" are key-creation-only (no ValueType).
+static std::wstring BuildCustomRegistrySection(
+    const std::vector<RegistryEntryRow>& entries)
+{
+    std::wstring out;
+    for (const auto& e : entries) {
+        // Normalise hive string to Inno format.
+        std::wstring hive = e.hive;
+        if (hive == L"HKEY_LOCAL_MACHINE")    hive = L"HKLM";
+        else if (hive == L"HKEY_CURRENT_USER") hive = L"HKCU";
+        else if (hive == L"HKEY_CLASSES_ROOT") hive = L"HKCR";
+        else if (hive == L"HKEY_USERS")        hive = L"HKU";
+
+        if (e.name == L"__KEY__") {
+            // Key creation only — no ValueType/ValueName/ValueData.
+            out += L"Root: " + hive + L"; Subkey: \"" + e.path + L"\"";
+        } else {
+            // Map type string to Inno ValueType.
+            std::wstring vtype;
+            if      (e.type == L"dword")    vtype = L"dword";
+            else if (e.type == L"binary")   vtype = L"binary";
+            else if (e.type == L"expandsz") vtype = L"expandsz";
+            else if (e.type == L"multisz")  vtype = L"multisz";
+            else                            vtype = L"string";
+
+            out += L"Root: " + hive + L"; Subkey: \"" + e.path + L"\";"
+                   L" ValueType: " + vtype + L";";
+            if (!e.name.empty())
+                out += L" ValueName: \"" + e.name + L"\";";
+            out += L" ValueData: \"" + e.data + L"\"";
+        }
+        if (!e.flags.empty())
+            out += L"; Flags: " + e.flags;
+        if (!e.components.empty())
+            out += L"; Components: \"" + e.components + L"\"";
+        out += L"\r\n";
+    }
+    return out;
+}
+
+// ── ISS_FindInnoDir ───────────────────────────────────────────────────────────
+
 std::wstring ISS_FindInnoDir()
 {
     wchar_t exePath[MAX_PATH] = {};
@@ -456,7 +724,8 @@ std::wstring ISS_GenerateIss(
     const std::vector<InnoLangEntry>&    langs,
     const std::vector<FileAssocRow>&     assocs,
     const std::vector<InstallTypeRow>&   types,
-    const std::vector<ComponentRow>&     comps)
+    const std::vector<ComponentRow>&     comps,
+    const IssExtraData&                  extra)
 {
     // ── Read template ─────────────────────────────────────────────────────────
     // Use Win32 to read the file so wide paths work on MinGW.
@@ -585,6 +854,15 @@ std::wstring ISS_GenerateIss(
         { L"LanguageDetectionMethod",  LangDetectionMethodStr(cfg.langDetectionMethod) },
         { L"ShowLanguageDialog",       ShowLanguageDialogStr(cfg.showLanguageDialog)    },
         { L"ShowInstallDetails",       ShowInstallDetailsStr(IDLG_GetInstallShowDetails()) },
+        // Dialog-derived [Setup] tokens
+        { L"DisableWelcomePage",       IDLG_IsDialogEnabled(IDLG_WELCOME)  ? L"no" : L"yes" },
+        { L"DisableReadyPage",         IDLG_IsDialogEnabled(IDLG_READY)    ? L"no" : L"yes" },
+        { L"DisableFinishedPage",      IDLG_IsDialogEnabled(IDLG_FINISH)   ? L"no" : L"yes" },
+        { L"AlwaysShowDirOnReadyPage", IDLG_GetReadyShowDir()   ? L"yes" : L"no"             },
+        { L"AlwaysShowGroupOnReadyPage", IDLG_GetReadyShowGroup() ? L"yes" : L"no"           },
+        { L"LicenseFile",
+          (IDLG_GetLicenseSource() == 1 && !IDLG_GetLicenseFilePath().empty())
+              ? IDLG_GetLicenseFilePath() : L"" },
     };
 
     // ── Substitute {#Token} placeholders ─────────────────────────────────────
@@ -897,6 +1175,20 @@ std::wstring ISS_GenerateIss(
         ReplaceAll(tmpl, L"; <<SETUP_LOG_PROC>>", logProc);
         ReplaceAll(tmpl, L"; <<SETUP_LOG_CALL>>", logCall);
     }
+
+    // ── Replace ; <<TASKS>>, <<ICONS>>, <<RUN>>, <<UNINSTALL_RUN>>, <<CUSTOM_REGISTRY>> ──────
+    ReplaceAll(tmpl, L"; <<TASKS>>",
+        BuildTasksSection(extra.shortcuts, extra.desktopOptOut,
+                          extra.smPinOptOut, extra.tbPinOptOut));
+    ReplaceAll(tmpl, L"; <<ICONS>>",
+        BuildIconsSection(extra.shortcuts, extra.menuNodes, extra.desktopOptOut));
+    ReplaceAll(tmpl, L"; <<RUN>>",
+        BuildRunSection(extra.scripts, extra.shortcuts,
+                        extra.smPinOptOut, extra.tbPinOptOut));
+    ReplaceAll(tmpl, L"; <<UNINSTALL_RUN>>",
+        BuildUninstallRunSection(extra.scripts));
+    ReplaceAll(tmpl, L"; <<CUSTOM_REGISTRY>>",
+        BuildCustomRegistrySection(extra.registryEntries));
 
     // ── Write output as UTF-8 with BOM (ISCC accepts UTF-8 BOM) ─────────────
     int needed = WideCharToMultiByte(CP_UTF8, 0,

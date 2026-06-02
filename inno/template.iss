@@ -37,6 +37,12 @@ VersionInfoProductName={#VersionInfoProductName}
 VersionInfoProductVersion={#VersionInfoProductVersion}
 VersionInfoCompany={#VersionInfoCompany}
 VersionInfoCopyright={#VersionInfoCopyright}
+DisableWelcomePage={#DisableWelcomePage}
+LicenseFile={#LicenseFile}
+DisableReadyPage={#DisableReadyPage}
+AlwaysShowDirOnReadyPage={#AlwaysShowDirOnReadyPage}
+AlwaysShowGroupOnReadyPage={#AlwaysShowGroupOnReadyPage}
+DisableFinishedPage={#DisableFinishedPage}
 {#SignToolLine}
 
 [Languages]
@@ -77,19 +83,20 @@ Name: desktopicon; Description: "Create a &desktop icon"; GroupDescription: "Add
 ; Copy all files from SourceDir (set by generator)
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs
 
-[Icons]
-Name: "{group}\{#AppName}"; Filename: "{app}\{#ExeName}"; WorkingDir: "{app}"
-Name: "{userdesktop}\{#AppName}"; Filename: "{app}\{#ExeName}"; Tasks: desktopicon
+; <<TASKS>>
+
+; <<ICONS>>
 
 [Registry]
-; Example registry entries (installer modifies these)
+; Auto-generated registry entries (installer base path, PATH additions, file associations, custom entries)
 Root: HKLM; Subkey: "Software\{#Publisher}\{#AppName}"; ValueType: string; ValueName: "InstallPath"; ValueData: "{app}"; Flags: preservestringtype
 ; <<PATH_REGISTRY>>
 ; <<FILE_ASSOCIATIONS>>
+; <<CUSTOM_REGISTRY>>
 
-[Run]
-; Run app after install
-Filename: "{app}\{#ExeName}"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
+; <<RUN>>
+
+; <<UNINSTALL_RUN>>
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"

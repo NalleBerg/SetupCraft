@@ -29,6 +29,8 @@
 #include <commctrl.h>
 #include <string>
 #include <map>
+#include <vector>
+#include "db.h"   // DB::ScriptRow
 
 // ── Script type constants ─────────────────────────────────────────────────────
 #define SCR_TYPE_BAT  0   // .bat / cmd
@@ -83,3 +85,7 @@ void SCR_SaveToDb(int projectId);
 // Load scripts from the DB into memory and refresh the ListView.
 // Call after SCR_Reset() on project open.
 void SCR_LoadFromDb(int projectId);
+
+// Return a copy of the current in-memory script list (including unsaved changes).
+// Used by the build system to snapshot state before passing to ISS_GenerateIss.
+std::vector<DB::ScriptRow> SCR_GetScripts();

@@ -378,14 +378,14 @@ CMakeFiles/SkeletonApp.dir/scripts.cpp.obj: \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_map.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_multimap.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/erase_if.h \
- C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\script_edit_dialog.h \
- C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\db.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/vector \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_uninitialized.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_vector.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_bvector.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/vector.tcc \
+ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\db.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\deps.h \
+ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\script_edit_dialog.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\mainwindow.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\dpi.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\button.h \

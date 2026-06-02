@@ -3768,6 +3768,24 @@ const std::vector<ComponentRow>& MainWindow::GetComponents() {
     return s_components;
 }
 
+std::vector<RegistryEntryRow> MainWindow::GetCustomRegistryEntries()
+{
+    std::vector<RegistryEntryRow> out;
+    out.reserve(s_customRegistryEntries.size());
+    for (const auto& e : s_customRegistryEntries) {
+        RegistryEntryRow r{};
+        r.hive       = e.hive;
+        r.path       = e.path;
+        r.name       = e.name;
+        r.type       = e.type;
+        r.data       = e.data;
+        r.flags      = e.flags;
+        r.components = e.components;
+        out.push_back(r);
+    }
+    return out;
+}
+
 void MainWindow::AddTreeNodeRecursive(HWND hTree, HTREEITEM hParent,
                                       const std::wstring& folderPath,
                                       const std::vector<std::wstring>& excludePatterns) {
@@ -13847,10 +13865,18 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 installTypes = DB::GetInstallTypesForProject(s_currentProject.id);
                 buildComps   = s_components;
             }
+            IssExtraData extra;
+            extra.shortcuts      = SC_GetShortcutRows();
+            extra.menuNodes      = SC_GetMenuNodeRows();
+            extra.desktopOptOut  = SC_GetDesktopOptOut();
+            extra.smPinOptOut    = SC_GetSmPinOptOut();
+            extra.tbPinOptOut    = SC_GetTbPinOptOut();
+            extra.scripts        = SCR_GetScripts();
+            extra.registryEntries = MainWindow::GetCustomRegistryEntries();
             std::wstring genErr = ISS_GenerateIss(templatePath, outIssPath,
                                                   s_currentProject, cfg, langs,
                                                   FA_GetAssociations(),
-                                                  installTypes, buildComps);
+                                                  installTypes, buildComps, extra);
             if (!genErr.empty()) {
                 MessageBoxW(hwnd, genErr.c_str(), L"Compile", MB_OK | MB_ICONERROR);
                 return 0;

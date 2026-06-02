@@ -392,6 +392,8 @@ CMakeFiles/SkeletonApp.dir/test_page.cpp.obj: \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\button.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\issgen.h \
  C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\file_assoc.h \
+ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\shortcuts.h \
+ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\scripts.h \
  C:/mingw64/x86_64-w64-mingw32/include/shlobj.h \
  C:/mingw64/x86_64-w64-mingw32/include/shlguid.h \
  C:/mingw64/x86_64-w64-mingw32/include/isguids.h \

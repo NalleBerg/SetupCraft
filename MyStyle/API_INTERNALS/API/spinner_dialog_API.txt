@@ -1,0 +1,359 @@
+SPINNER DIALOG COMPONENT - API DOCUMENTATION
+============================================
+
+OVERVIEW
+--------
+The SpinnerDialog component provides a modal loading dialog with animated
+blue spinning circle for Windows applications. Perfect for indicating 
+background operations like network requests, database queries, or file processing.
+
+Extracted from WinProgramManager's startup loading dialog, this component
+is designed to be lightweight, reusable, and easy to integrate into any
+Win32 application.
+
+
+FEATURES
+--------
+• Modal dialog with animated spinner (~60 FPS)
+• Customizable text message
+• Windows accent blue spinner (RGB 0, 120, 215)
+• Auto-centers on parent window or screen
+• Independent timer-based animation
+• Clean white background design
+• Prevents user from closing during operation
+• No external dependencies beyond Win32 API
+
+
+USAGE EXAMPLE
+-------------
+
+#include "spinner_dialog.h"
+
+// Example 1: Show spinner during winget query
+void FetchReleaseNotes(const std::string& packageId) {
+    SpinnerDialog* spinner = new SpinnerDialog(hwndParent);
+    spinner->Show(L"Querying winget, please wait...");
+    
+    // Do async operation
+    std::string notes = QueryWinget(packageId);
+    
+    spinner->Hide();
+    delete spinner;
+    
+    // Display results
+    MessageBoxA(hwndParent, notes.c_str(), "Release Notes", MB_OK);
+}
+
+// Example 2: Update text during multi-step operation
+void ProcessData(HWND parent) {
+    SpinnerDialog* spinner = new SpinnerDialog(parent);
+    
+    spinner->Show(L"Loading database...");
+    LoadDatabase();
+    
+    spinner->SetText(L"Processing records...");
+    ProcessRecords();
+    
+    spinner->SetText(L"Saving results...");
+    SaveResults();
+    
+    spinner->Hide();
+    delete spinner;
+}
+
+// Example 3: Show spinner without parent
+void BackgroundTask() {
+    SpinnerDialog* spinner = new SpinnerDialog();  // Centers on screen
+    spinner->Show(L"Working, please wait...");
+    
+    // Do work
+    DoExpensiveOperation();
+    
+    spinner->Hide();
+    delete spinner;
+}
+
+
+API REFERENCE
+-------------
+
+CONSTRUCTOR
+-----------
+SpinnerDialog(HWND hParent = NULL)
+
+Creates a new spinner dialog instance.
+
+Parameters:
+  hParent - Parent window handle (optional)
+            If provided, dialog centers on parent window
+            If NULL, dialog centers on screen
+            
+Default State:
+  - Dialog is NOT visible (call Show() to display)
+  - Spinner animation ready but not started
+  - No text set
+
+Example:
+  SpinnerDialog* spinner = new SpinnerDialog(hwndMain);
+
+
+DESTRUCTOR
+----------
+~SpinnerDialog()
+
+Automatically hides dialog and cleans up resources.
+Always delete the SpinnerDialog object when done.
+
+Example:
+  delete spinner;
+  spinner = nullptr;
+
+
+METHOD: Show()
+--------------
+void Show(const std::wstring& text)
+
+Shows the spinner dialog with specified message text.
+Starts animation timer automatically.
+
+Parameters:
+  text - Message to display below icon
+         Examples:
+         L"Querying winget, please wait..."
+         L"Loading data..."
+         L"Processing, please wait..."
+
+Behavior:
+  - Creates dialog window if not already created
+  - Centers dialog on parent or screen
+  - Sets message text
+  - Makes dialog visible
+  - Starts spinner animation
+  - Returns after dialog is shown (non-blocking)
+
+Example:
+  spinner->Show(L"Downloading update...");
+
+
+METHOD: Hide()
+--------------
+void Hide()
+
+Hides the spinner dialog and stops animation.
+Does NOT delete the object - you can Show() again later.
+
+Example:
+  spinner->Hide();
+
+
+METHOD: SetText()
+-----------------
+void SetText(const std::wstring& text)
+
+Updates the displayed message text without hiding/showing dialog.
+Useful for multi-step operations.
+
+Parameters:
+  text - New message to display
+
+Example:
+  spinner->SetText(L"Step 2 of 3: Processing data...");
+
+
+METHOD: IsVisible()
+-------------------
+bool IsVisible() const
+
+Returns true if dialog is currently visible.
+
+Example:
+  if (spinner->IsVisible()) {
+      spinner->Hide();
+  }
+
+
+METHOD: GetHandle()
+-------------------
+HWND GetHandle() const
+
+Returns the dialog window handle.
+Useful for advanced operations or parent window relationships.
+
+Example:
+  HWND hDlg = spinner->GetHandle();
+  EnableWindow(hMainWindow, FALSE);  // Disable parent during spinner
+
+
+DESIGN SPECIFICATIONS
+---------------------
+
+Visual Appearance:
+  - Dialog Size: 400×250 pixels
+  - Background: White (RGB 255, 255, 255)
+  - Title Bar: "Please Wait"
+  - Icon: Information icon (blue "i")
+  - Spinner: Blue Unicode characters (◐ ◓ ◑ ◒)
+  - Spinner Color: RGB(0, 120, 215) - Windows accent blue
+  - Spinner Font: 50pt Segoe UI
+  - Text Font: 14pt Segoe UI
+  - Animation: 60ms per frame (~16 FPS, smooth)
+
+Layout:
+  - Icon: Top center at (150, 20), 100×100
+  - Text: Below icon at (20, 130), 360×30
+  - Spinner: Bottom at (150, 170), 100×60
+  - All elements centered horizontally
+
+Behavior:
+  - Modal: Blocks parent window interaction
+  - Topmost: Always on top
+  - Non-closable: User cannot close with X button or Alt+F4
+  - Timer-based: Independent animation loop
+
+
+THREADING CONSIDERATIONS
+-------------------------
+The SpinnerDialog is designed for use on the UI thread. The animation
+timer runs on the main message loop.
+
+For background operations:
+  1. Show spinner on UI thread
+  2. Launch worker thread for expensive operation
+  3. Worker thread posts message when complete
+  4. UI thread handles message and hides spinner
+
+Example:
+  // UI thread:
+  spinner->Show(L"Processing...");
+  std::thread worker([hwnd]() {
+      DoWork();
+      PostMessage(hwnd, WM_USER + 1, 0, 0);  // Notify UI thread
+  });
+  worker.detach();
+  
+  // In window procedure:
+  case WM_USER + 1:
+      spinner->Hide();
+      return 0;
+
+
+BEST PRACTICES
+--------------
+
+1. Short Operations (< 1 second):
+   • Consider using hourglass cursor instead
+   • Spinner is better for operations > 500ms
+
+2. Long Operations:
+   • Show spinner immediately
+   • Update text for multi-step processes
+   • Don't show spinner for > 30 seconds without progress indication
+
+3. Error Handling:
+   • Always hide spinner in error paths
+   • Use try/finally or RAII pattern
+   
+4. Memory Management:
+   • Delete spinner after use
+   • Consider using unique_ptr<SpinnerDialog>
+
+5. User Experience:
+   • Use descriptive messages
+   • Avoid technical jargon
+   • Keep messages short (< 50 characters)
+
+Example with Error Handling:
+  SpinnerDialog* spinner = new SpinnerDialog(hwndParent);
+  try {
+      spinner->Show(L"Loading...");
+      DoOperation();
+      spinner->Hide();
+  } catch (...) {
+      spinner->Hide();  // Ensure cleanup
+      throw;
+  }
+  delete spinner;
+
+
+INTEGRATION CHECKLIST
+----------------------
+1. Copy spinner_dialog.h and spinner_dialog.cpp to your project
+2. Add spinner_dialog.cpp to your build system (CMakeLists.txt, etc.)
+3. Include "spinner_dialog.h" in your source file
+4. Create SpinnerDialog instance before showing
+5. Call Show() to display
+6. Call Hide() when operation completes
+7. Delete instance to clean up
+
+
+TROUBLESHOOTING
+---------------
+Q: Spinner doesn't appear?
+A: Check that:
+   - Show() was called
+   - Message loop is running (Windows messages being processed)
+   - Parent window handle is valid (or use NULL)
+
+Q: Spinner not animating?
+A: Ensure message loop is processing messages. If main thread is blocked,
+   spinner won't animate. Use worker threads for expensive operations.
+
+Q: Dialog appears off-screen?
+A: This happens if parent window is minimized. Either:
+   - Pass NULL to center on screen
+   - Check parent state before showing
+
+Q: User can close dialog?
+A: SpinnerDialog blocks WM_CLOSE. If dialog can be closed, check that
+   you're using SpinnerDialog class, not a standard Windows dialog.
+
+Q: Memory leak detected?
+A: Always delete the SpinnerDialog object:
+   delete spinner;
+   spinner = nullptr;
+
+
+EXAMPLE PROJECT STRUCTURE
+--------------------------
+YourProject/
+├── main.cpp              (your application)
+├── spinner_dialog.cpp    (copy from WinProgramManager)
+├── spinner_dialog.h      (copy from WinProgramManager)
+└── CMakeLists.txt        (add spinner_dialog.cpp to sources)
+
+
+COMPARISON WITH OTHER PATTERNS
+-------------------------------
+
+SpinnerDialog vs. Progress Bar:
+  • Spinner: Indeterminate duration, unknown progress
+  • Progress Bar: Determinate duration, known progress percentage
+  • Use Spinner when you can't estimate completion time
+
+SpinnerDialog vs. Status Bar:
+  • Spinner: Modal, blocks UI, demands attention
+  • Status Bar: Non-modal, doesn't block, passive feedback
+  • Use Spinner for critical operations that must complete
+
+SpinnerDialog vs. Hourglass Cursor:
+  • Spinner: Visible dialog with message, better for > 500ms
+  • Hourglass: Minimal UI change, better for < 500ms
+  • Use Spinner when operation requires explanation
+
+
+VERSION HISTORY
+---------------
+v1.0 (2026-02-03)
+  - Initial extraction from WinProgramManager startup loading dialog
+  - C++ class-based API
+  - Automatic resource management
+  - Customizable text messaging
+  - Modal dialog with timer-based animation
+  - Clean white background design
+  - Windows accent blue spinner
+
+
+LICENSE
+-------
+Part of WinProgramSuite
+© 2026 NalleBerg

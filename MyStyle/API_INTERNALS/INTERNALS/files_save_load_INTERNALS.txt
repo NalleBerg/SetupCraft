@@ -1,0 +1,350 @@
+================================================================================
+  NSBEdit ÔÇö Files Page: Save / Load Architecture
+  (Internal reference for diagnosing and extending persistence)
+================================================================================
+
+ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+1. DATA STRUCTURES
+ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+
+VirtualFolderFile  (mainwindow.h)
+    std::wstring sourcePath      ÔÇô absolute path on the developer's machine
+    std::wstring destination     ÔÇô relative file name with leading backslash,
+                                   e.g. "\MyApp.exe"
+    std::wstring install_scope   ÔÇô "" | "AskAtInstall"
+    std::wstring inno_flags      ÔÇô space-separated Inno Setup [Files] Flags:
+                                   tokens, e.g. "ignoreversion sign 64bit".
+                                   Empty string = no special flags.
+                                   Persisted to files.inno_flags DB column.
+                                   Displayed in Files-page ListView column 2
+                                   ("Flags").  Edited via FileFlagsDialogProc
+                                   (IDM_FILES_FLAGS right-click context menu).
+
+TreeNodeSnapshot  (mainwindow.h)
+    std::wstring text            ÔÇô display label of the tree node
+    std::wstring fullPath        ÔÇô the value stored in TVITEM.lParam for that node
+                                   ("" = virtual node, real path = physical folder)
+    std::vector<VirtualFolderFile> virtualFiles  ÔÇô files attached to this node
+    std::vector<TreeNodeSnapshot>  children      ÔÇô recursive child nodes
+    mutable bool expanded     = true  ÔÇô Files-page expanded state, per session only;
+                                        saved by SaveTreeSnapshot, restored by
+                                        RestoreTreeSnapshot; always true on first visit
+    mutable bool compExpanded = true  ÔÇô Components-page expanded state, independent
+                                        of `expanded`; saved by SaveCompTreeExpansion
+                                        when leaving page 9, applied by
+                                        VFSPicker_AddSubtree when rebuilding comp tree
+
+FileRow  (db.h)
+    int         id
+    int         project_id
+    std::wstring source_path       ÔÇô real disk path, or "" for virtual folders
+    std::wstring destination_path  ÔÇô full virtual path from root label,
+                                     e.g. "Program Files\MyApp\sub"
+    std::wstring install_scope     ÔÇô "" | "AskAtInstall" | "__folder__"
+                                     "__folder__" marks a folder node row (not a file)
+    std::wstring inno_flags        ÔÇô space-separated Inno [Files] Flags: tokens
+                                     (empty string for folder rows and files with
+                                     no special flags)
+
+Static globals in mainwindow.cpp
+    s_virtualFolderFiles : map<HTREEITEM, vector<VirtualFolderFile>>
+        Ôå│ In-memory store.  Keyed on live HTREEITEM handles.
+          Populated ONLY for nodes where TVITEM.lParam == "" (virtual nodes).
+          Also repopulated by RestoreTreeSnapshot and the DB-rebuild path on load.
+
+    s_treeSnapshot_ProgramFiles / _ProgramData / _AppData / _AskAtInstall
+        Ôå│ In-memory snapshot taken when leaving page 0 (SwitchPage).
+          Survives tab switches. CLEARED on MainWindow::Create() (project open).
+
+DB tables  (db.h / db.cpp)
+    files(id, project_id, source_path, destination_path, install_scope, inno_flags)
+        Ôå│ On-disk persistent store for the full tree (folder nodes + files).
+          install_scope = "__folder__" ÔåÆ folder node row.
+          install_scope = "" or "AskAtInstall" ÔåÆ file row.
+          inno_flags = space-separated Inno [Files] flag tokens (empty string
+          when no flags set).  Column added via ALTER TABLE migration in InitDb.
+    projects(id, ÔÇª, directory, ÔÇª)
+        Ôå│ "directory" = last known install path, synced on every Save.
+
+ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+2. HOW "ADD FOLDER" WORKS  (IDC_FILES_ADD_DIR)
+ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+
+User picks a folder via SHBrowseForFolder.
+  ÔåÆ AddTreeNode(hTree, hParent, folderName, path)      ÔåÉ lParam = REAL path
+  ÔåÆ AddTreeNodeRecursive(hTree, hRoot, path)           ÔåÉ all sub-dirs, real lParam
+  ÔåÆ s_currentInstallPath updated; IDC_INSTALL_FOLDER updated.
+
+These nodes have a real disk path in lParam, so they are NOT added to
+s_virtualFolderFiles.  They are captured via SaveTreeSnapshot ÔåÆ SaveTreeToDb
+during save (see section 4).
+
+ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+3. HOW "ADD FILES" WORKS  (IDC_FILES_ADD_FILES)
+ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+
+User picks files via GetOpenFileName.
+For each file, finds the target HTREEITEM (hTargetFolder).
+  folderPath = (wchar_t*)tvItem.lParam
+  if (!folderPath || wcslen(folderPath) == 0)   ÔåÉ VIRTUAL node only
+      s_virtualFolderFiles[hTargetFolder].push_back(fileInfo)
+
+Files added onto a virtual folder node are stored in s_virtualFolderFiles and
+are captured by SaveTreeSnapshot ÔåÆ snap.virtualFiles ÔåÆ SaveTreeToDb ÔåÆ DB.
+
+REMAINING LIMITATION: Files added onto a real-path folder node (lParam != "")
+are NOT stored in s_virtualFolderFiles and will not appear in snap.virtualFiles.
+They will be missing from the DB after save.  The workaround is to add files
+only to virtual (manually-created) folders, not to folders added via "Add Folder".
+(This limitation existed before the fix and is considered a future improvement.)
+
+ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+4. SAVE PROCESS  (IDM_FILE_SAVE in WndProc)
+ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+
+Step 1.  Read project name from IDC_PROJECT_NAME edit ÔåÆ s_currentProject.name.
+Step 2.  If project.id <= 0 ÔåÆ DB::InsertProject (creates row, gets new id).
+Step 3.  Sync directory:
+           if Files page is live ÔåÆ read IDC_INSTALL_FOLDER ÔåÆ s_currentInstallPath
+           s_currentProject.directory = s_currentInstallPath  (if non-empty)
+Step 4.  DB::UpdateProject(s_currentProject)  (all metadata including directory).
+Step 5.  Take a fresh tree snapshot if Files page is currently shown:
+           SaveTreeSnapshot for each of the four root handles
+           ÔåÆ s_treeSnapshot_ProgramFiles / _ProgramData / _AppData / _AskAtInstall
+Step 6.  DB::DeleteFilesForProject(id)  (wipe old rows).
+Step 7.  SaveTreeToDb(id, s_treeSnapshot_ProgramFiles,  L"Program Files")
+         SaveTreeToDb(id, s_treeSnapshot_ProgramData,   L"ProgramData")
+         SaveTreeToDb(id, s_treeSnapshot_AppData,       L"AppData (Roaming)")
+         SaveTreeToDb(id, s_treeSnapshot_AskAtInstall,  L"AskAtInstall")
+           Each call recursively walks the snapshot nodes:
+             ÔÇó Every folder node  ÔåÆ InsertFile(ÔÇª, source_path=lParam,
+                                               destination_path="Root\...\NodeName",
+                                               install_scope="__folder__")
+             ÔÇó Every virtual file ÔåÆ InsertFile(ÔÇª, source_path=fullPath,
+                                               destination_path="Root\...\Folder\file",
+                                               install_scope="" or "AskAtInstall")
+Step 8.  DB::SetSetting("ask_at_install_<id>", "1"/"0").
+Step 9.  s_hasUnsavedChanges = false.
+
+SaveTreeToDb  (static helper in mainwindow.cpp, before SwitchPage):
+  Recursively processes a vector<TreeNodeSnapshot>.
+  parentVirtualPath starts as the root label (e.g. "Program Files").
+  For each node: myPath = parentVirtualPath + "\\" + snap.text
+    InsertFile(id, snap.fullPath, myPath, L"__folder__")
+    for each f in snap.virtualFiles:
+        InsertFile(id, f.sourcePath, myPath + f.destination, f.install_scope)
+    recurse into snap.children with myPath as new parent.
+
+ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+5. LOAD PROCESS  (SwitchPage ÔåÆ page 0)
+ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+
+On every visit to the Files tab the page HWND is destroyed and recreated.
+The four root nodes (Program Files, ProgramData, AppData (Roaming), AskAtInstall)
+are always created fresh.  Then the following priority order applies:
+
+  Priority 1 ÔÇö Session snapshot (hasSnapshot == true)
+    Any of s_treeSnapshot_* is non-empty.
+    ÔåÆ s_virtualFolderFiles.clear()
+    ÔåÆ RestoreTreeSnapshot for each root
+      (re-creates HTREEITEM nodes + repopulates s_virtualFolderFiles)
+    Used during: tab switches within the same session.
+
+  Priority 2 ÔÇö DB rebuild (hasSnapshot == false, project.id > 0)
+    DB::GetFilesForProject(id) returns rows.
+    Rows are sorted shallowest-first (fewest backslashes in destination_path).
+    A map<wstring, HTREEITEM> (pathToNode) tracks virtual path ÔåÆ live handle.
+    ÔÇó install_scope == "__folder__":
+        Extract parent path and node name from destination_path.
+        AddTreeNode(hTree, parentHandle, nodeName, source_path)
+        Register new HTREEITEM in pathToNode.
+    ÔÇó anything else (file row):
+        Find parent HTREEITEM via pathToNode.
+        Push VirtualFolderFile into s_virtualFolderFiles[parentHandle].
+    TreeView_Expand called on Program Files root.
+    Used during: first open after restart when project has been saved.
+
+  Priority 3 ÔÇö Disk scan fallback (no snapshot, no DB rows)
+    if (!s_currentProject.directory.empty())
+        PopulateTreeView(hTree, directory, installPath)
+    Scans actual disk folders, builds real-path nodes.
+    Used during: legacy projects that predate the DB-rebuild fix, or new
+    projects that have never been saved.
+
+  Priority 4 ÔÇö Empty tree
+    No snapshot, no DB rows, no directory.  Only root stubs shown.
+
+ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+6. SNAPSHOT LIFETIME
+ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+
+Created:   SwitchPage() when leaving page index 0.
+           Also taken inside IDM_FILE_SAVE if Files page is currently shown.
+
+Cleared:   MainWindow::Create() ÔÇö every time any project is opened or a new
+           project window is created, ensuring a clean slate.
+
+Restored:  SwitchPage() when entering page index 0, if hasSnapshot == true
+           (Priority 1 in section 5).
+
+Scope:     IN-MEMORY ONLY.  Does not survive application restart.
+
+ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+7. HISTORY ÔÇö ROOT CAUSE OF "FILES MISSING AFTER RE-OPEN" (FIXED)
+ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+
+Two independent bugs existed before the March 2026 fix:
+
+Bug A ÔÇö Save didn't capture physical-folder trees  [FIXED]
+  The old save loop only iterated s_virtualFolderFiles, missing every node
+  created by "Add Folder" (real lParam path ÔåÆ not in s_virtualFolderFiles).
+  Fix: SaveTreeToDb walks the full snapshot including real-path nodes.
+
+Bug B ÔÇö Load never read the files table  [FIXED]
+  No code queried the files table on open; the only restore paths were the
+  in-memory snapshot (dies on restart) or a disk scan (fails if directory="").
+  Fix: Priority-2 DB rebuild path added to the page-0 load logic.
+
+Bug C ÔÇö directory never persisted  [FIXED]
+  s_currentProject.directory was never written back from the UI; projects where
+  the user had not set it via Settings always had directory="".
+  Fix: Save handler now reads IDC_INSTALL_FOLDER ÔåÆ s_currentProject.directory
+  before calling DB::UpdateProject.
+
+Remaining known limitation:
+  Files added via "Add Files" onto a real-path folder node (lParam != "") are
+  still not captured (see section 3).  This is a future improvement item.
+
+ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+8. KEY FUNCTION / FILE MAP  (with approximate line numbers post-fix)
+ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+
+mainwindow.h
+  VirtualFolderFile struct
+  TreeNodeSnapshot  struct
+
+mainwindow.cpp
+  static s_virtualFolderFiles      (line ~83)
+  static s_treeSnapshot_*          (lines ~86-89)
+  MainWindow::Create()             (line ~300)  ÔÇô clears all state, opens project
+  SaveTreeToDb()                   (line ~877)  ÔÇô NEW: recursive DB writer
+  MainWindow::SwitchPage()         (line ~900)  ÔÇô snapshot on leave, restore on enter
+  MainWindow::SaveTreeSnapshot()   (line ~860)
+  MainWindow::RestoreTreeSnapshot()(line ~884)
+  IDM_FILE_SAVE handler            (line ~4965) ÔÇô save path (updated)
+  IDC_FILES_ADD_DIR handler        (line ~3440) ÔÇô adds real-path folder nodes
+  IDC_FILES_ADD_FILES handler      (line ~3510) ÔÇô adds files, virtual-only to map
+  MainWindow::AddTreeNode()        (line ~1860)
+  MainWindow::PopulateTreeView()   (line ~1908)
+  DB rebuild path (Priority 2)     (line ~1260) ÔÇô NEW: loads tree from DB on open
+
+db.h
+  FileRow struct                   ÔÇô NEW
+  DB::GetFilesForProject()         ÔÇô NEW declaration
+
+db.cpp
+  DB::GetFilesForProject()         ÔÇô NEW: SELECT files WHERE project_id ORDER BY id
+  DB::InsertFile()                 ÔÇô unchanged
+  DB::DeleteFilesForProject()      ÔÇô unchanged
+
+================================================================================
+8b. EnsureTreeSnapshotsFromDb() AND PopulateSnapshotFilesFromDisk()
+    (Dep Picker population ÔÇö added 2026-03-15)
+================================================================================
+
+EnsureTreeSnapshotsFromDb()  (public static MainWindow member, mainwindow.cpp ~5240)
+
+  Called at the start of CompFolderDepPickerDlgProc WM_CREATE to guarantee that
+  all four s_treeSnapshot_* vectors are non-empty so the dep picker has data.
+
+  PROBLEM solved: The old implementation had `if (!snapVecs[si]->empty()) continue`
+  inside the per-folder loop.  Once the first folder row was added to a section the
+  guard fired on every subsequent row, silently dropping all of them.
+
+  NEW ALGORITHM:
+    Step 1 ÔÇö Check which sections need rebuilding (only those still empty).
+    Step 2 ÔÇö Load DB::GetFilesForProject(id) for the project.
+    Step 3 ÔÇö Pass 1: for every "__folder__" row create/update a
+             std::map<wstring, TreeNodeSnapshot> nodeMap entry.
+             Key = destination_path (full virtual path).
+             The map gives O(log n) lookup and stable references.
+    Step 4 ÔÇö Pass 2: for every non-folder (file) row derive parentPath
+             (strip the last backslash segment from destination_path) and call
+             nodeMap[parentPath].virtualFiles.push_back(vf).
+    Step 5 ÔÇö Pass 3: sort nodeMap keys deepest-first (most backslashes first).
+             For each key: if the node has no parent in nodeMap it is a section
+             root ÔÇö append to snapVecs[si].  If it has a parent, move it into
+             nodeMap[parentKey].children.  This ensures children are fully
+             assembled before being inserted into their parent.
+
+  Result: all subfolders (AskAtInstall, nested WinUpdate children, etc.) and
+  all their file entries are correctly populated in the snapshot vectors.
+
+PopulateSnapshotFilesFromDisk()  (free static function, mainwindow.cpp ~5355)
+
+  Signature:
+    static void PopulateSnapshotFilesFromDisk(std::vector<TreeNodeSnapshot>& nodes)
+
+  Purpose: For any real-path node (snap.fullPath non-empty) whose virtualFiles
+  vector is STILL empty after EnsureTreeSnapshotsFromDb, perform a one-time
+  FindFirstFileW scan of direct child files and populate snap.virtualFiles.
+  Recurses into children.
+
+  This handles developer machines where real-path disk folders exist but have
+  not yet been saved (so no DB file rows exist yet) ÔÇö locale/, img/, WinUpdate
+  subfiles etc. all become visible in the dep picker immediately.
+
+  DB-first principle: EnsureTreeSnapshotsFromDb runs first; this function is
+  a fallback only.  If the DB already populated virtualFiles it is skipped.
+
+  Called in CompFolderDepPickerDlgProc WM_CREATE, once per section:
+    MainWindow::EnsureTreeSnapshotsFromDb();
+    PopulateSnapshotFilesFromDisk(s_treeSnapshot_ProgramFiles);
+    PopulateSnapshotFilesFromDisk(s_treeSnapshot_ProgramData);
+    PopulateSnapshotFilesFromDisk(s_treeSnapshot_AppData);
+    PopulateSnapshotFilesFromDisk(s_treeSnapshot_AskAtInstall);
+
+================================================================================
+7. FILES PAGE MULTI-SELECT
+================================================================================
+
+static std::set<HTREEITEM> s_filesTreeMultiSel   (mainwindow.cpp)
+    Set of all currently multi-selected tree items.  Empty when no multi-select
+    is active (i.e. when the user last plain-clicked or left the Files page).
+
+FilesTree_CtrlClickProc  (subclass WndProc on s_hTreeView)
+    WM_LBUTTONDOWN:
+      ÔÇô Ctrl held  ÔåÆ toggle clicked item in s_filesTreeMultiSel;
+                      do NOT suppress the default TreeView selection update;
+                      call InvalidateRect(hwnd, NULL, TRUE) to trigger repaint.
+      ÔÇô Shift held ÔåÆ walk the tree from the current selection anchor down to
+                      the clicked item, adding each HTREEITEM to the set;
+                      call InvalidateRect.
+      ÔÇô No modifier ÔåÆ clear s_filesTreeMultiSel; call InvalidateRect;
+                       let the default WndProc handle normal single-selection.
+
+NM_CUSTOMDRAW handler  (WM_NOTIFY, idFrom == 102)
+    CDDS_PREPAINT  ÔåÆ return CDRF_NOTIFYITEMDRAW.
+    CDDS_ITEMPREPAINT:
+      ÔÇô If (HTREEITEM)pcd->nmcd.dwItemSpec is in s_filesTreeMultiSel:
+          pcd->clrText   = GetSysColor(COLOR_HIGHLIGHTTEXT);
+          pcd->clrTextBk = GetSysColor(COLOR_HIGHLIGHT);
+          return CDRF_NEWFONT;
+      ÔÇô Otherwise ÔåÆ fall through, return CDRF_DODEFAULT.
+    This produces a blue highlight indistinguishable from native Windows
+    Explorer multi-select.  No owner-draw or custom paint needed.
+
+Remove handler  (IDC_FILES_REMOVE_FILE button)
+    If s_filesTreeMultiSel is non-empty:
+      ÔÇô Iterate s_filesTreeMultiSel and delete each item with the usual
+        confirmation prompt (one confirmation covers the whole batch).
+      ÔÇô Clear s_filesTreeMultiSel after all deletions.
+    If empty:
+      ÔÇô Fall back to the normal single-item delete (selected item).
+
+Page teardown  (SwitchPage cleanup, before s_hTreeView = NULL)
+    s_filesTreeMultiSel.clear();
+    Ensures stale HTREEITEM handles cannot be referenced after the tree is
+    destroyed.
+
+================================================================================

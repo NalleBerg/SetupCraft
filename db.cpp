@@ -315,7 +315,7 @@ bool DB::InitDb() {
             { 6, LR"({\rtf1\ansi\deff0{\fonttbl{\f0\fswiss\fcharset0 Arial;}}\f0\fs20\pard\ql <<DlgDefaultShortcutsBody>>\par})" },
             { 7, LR"({\rtf1\ansi\deff0{\fonttbl{\f0\fswiss\fcharset0 Arial;}}\f0\fs20\pard\ql <<DlgDefaultReadyBody1>>\par\pard\ql\sb120 <<DlgDefaultReadyBody2>>\par})" },
             { 8, LR"({\rtf1\ansi\deff0{\fonttbl{\f0\fswiss\fcharset0 Arial;}}\f0\fs20\pard\ql <<DlgDefaultInstallingBody>>\par})" },
-            { 9, LR"({\rtf1\ansi\deff0{\fonttbl{\f0\fswiss\fcharset0 Arial;}}\f0\fs20\pard\qc{\b\fs28 <<DlgDefaultFinishTitle>>}\par\pard\ql\sb120 <<DlgDefaultFinishBody1>>\par\pard\ql\sb120 <<DlgDefaultFinishBody2>>\par})" },
+            { 9, LR"({\rtf1\ansi\deff0{\fonttbl{\f0\fswiss\fcharset0 Arial;}}\f0\fs20\pard\qc{\b\fs28 <<DlgDefaultFinishTitle>>}\par\pard\ql\sb120 <<DlgDefaultFinishBody1>>\par\pard\ql\sb120 <<DlgDefaultFinishBody2>>})" },
         };
         // Migration: if dialog_defaults still uses the old 9-type numbering
         // (type 4 = COMPONENTS), shift types 4-8 → 5-9 to make room for the
@@ -401,6 +401,47 @@ bool DB::InitDb() {
                     if (p_finalize) p_finalize(s3);
                 }
             }
+        }
+        // Migration: remove installer_dialogs rows that were saved with the old
+        // hardcoded "New Project" placeholder text (written before the <<DlgDefault>>
+        // placeholder system existed).  When the project is next loaded these slots
+        // will be left empty and IDLG_ApplyDefaults will regenerate them from the
+        // current defaults, substituting the real project name and version.
+        // IMPORTANT: this migration must run exactly once.  Running it on every
+        // launch would delete saved content for any project whose name happens to
+        // contain "New Project".  A settings key guards the one-time execution.
+        {
+            bool migDone = false;
+            const char* chkMig =
+                "SELECT 1 FROM settings WHERE key='mig_del_new_project_done' LIMIT 1;";
+            void* cm = NULL;
+            if (p_prepare(db, chkMig, -1, &cm, NULL) == 0) {
+                if (p_step(cm) == 100 /*SQLITE_ROW*/) migDone = true;
+                if (p_finalize) p_finalize(cm);
+            }
+            if (!migDone) {
+                p_exec(db,
+                    "DELETE FROM installer_dialogs "
+                    "WHERE content_rtf LIKE '%New Project%';",
+                    NULL, NULL, &errmsg);
+                p_exec(db,
+                    "INSERT OR IGNORE INTO settings (key, value) "
+                    "VALUES ('mig_del_new_project_done', '1');",
+                    NULL, NULL, &errmsg);
+            }
+        }
+        // Migration: remove trailing \par before the closing } in the Finish
+        // dialog default template (dialog_type=9).  The extra \par created an
+        // empty paragraph that made the content slightly taller than the preview
+        // window, causing a spurious scrollbar.  Only updates the template row
+        // if it still contains the old trailing-\par pattern.
+        {
+            const char* migSql9 =
+                "UPDATE dialog_defaults SET content_rtf = "
+                "SUBSTR(content_rtf, 1, LENGTH(content_rtf) - LENGTH('\\par}')) || '}' "
+                "WHERE dialog_type=9 "
+                "AND content_rtf LIKE '%<<DlgDefaultFinishBody2>>\\par}';";
+            p_exec(db, migSql9, NULL, NULL, &errmsg);
         }
     }
 

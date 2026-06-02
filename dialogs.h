@@ -111,15 +111,15 @@ constexpr COLORREF IDLG_NOCOLOR = (COLORREF)-1;
 #define IDC_IDLG_READY_SHOW_DIR   7074  // checkbox: AlwaysShowDirOnReadyPage
 #define IDC_IDLG_READY_SHOW_GROUP 7075  // checkbox: AlwaysShowGroupOnReadyPage
 
-// License-row sub-controls (moved to 7110–7117 to avoid overlap with row controls)
-#define IDC_IDLG_LICENSE_ACCEPT        7110   // checkbox: require end-user acceptance before Next
-#define IDC_IDLG_LICENSE_TEMPLATE      7111   // combobox: choose a license template to load
-#define IDC_IDLG_LICENSE_TEMPLATE_LBL  7112   // static label: "License template:"
-#define IDC_IDLG_LICENSE_SRC_LBL       7113   // static label: "License source:"
-#define IDC_IDLG_LICENSE_SRC           7114   // combobox: Built-in RTF editor / External file
-#define IDC_IDLG_LICENSE_FILE_LBL      7115   // static label: "File path:" (visible when external)
-#define IDC_IDLG_LICENSE_FILE_EDIT     7116   // read-only edit: path to external .rtf/.txt file
-#define IDC_IDLG_LICENSE_FILE_BROWSE   7117   // "Browse…" button to pick the external file
+// License-row sub-controls (range 7150–7157)
+#define IDC_IDLG_LICENSE_ACCEPT        7150   // checkbox: require end-user acceptance before Next
+#define IDC_IDLG_LICENSE_TEMPLATE      7151   // combobox: choose a license template to load
+#define IDC_IDLG_LICENSE_TEMPLATE_LBL  7152   // static label: "License template:"
+#define IDC_IDLG_LICENSE_SRC_LBL       7153   // static label: "License source:"
+#define IDC_IDLG_LICENSE_SRC           7154   // combobox: Built-in RTF editor / External file
+#define IDC_IDLG_LICENSE_FILE_LBL      7155   // static label: "File path:" (visible when external)
+#define IDC_IDLG_LICENSE_FILE_EDIT     7156   // read-only edit: path to external .rtf/.txt file
+#define IDC_IDLG_LICENSE_FILE_BROWSE   7157   // "Browse…" button to pick the external file
 
 // Select Installation Folder — preview extras controls
 #define IDC_IDLG_SELECT_FOLDER_PATH    7118   // read-only path edit in Select Folder preview

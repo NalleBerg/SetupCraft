@@ -1931,3 +1931,51 @@ void SC_LoadFromDb(int projectId)
         if (r.id >= s_scNextShortcutId) s_scNextShortcutId = r.id + 1;
     }
 }
+
+// ── Build-system read-only accessors ──────────────────────────────────────────
+// Convert in-memory ShortcutDef / ScMenuNode to plain DB row types (no live
+// HTREEITEM handles) so callers (e.g. test_page.cpp) can snapshot the current
+// state — including unsaved changes — for the ISS generator.
+
+std::vector<DB::ScShortcutRow> SC_GetShortcutRows()
+{
+    std::vector<DB::ScShortcutRow> out;
+    out.reserve(s_scShortcuts.size());
+    for (const auto& sc : s_scShortcuts) {
+        DB::ScShortcutRow r{};
+        r.id            = sc.id;
+        r.type          = sc.type;
+        r.sm_node_id    = sc.smNodeId;
+        r.name          = sc.name;
+        r.exe_path      = sc.exePath;
+        r.working_dir   = sc.workingDir;
+        r.arguments     = sc.arguments;
+        r.comment       = sc.comment;
+        r.hotkey        = sc.hotkey;
+        r.icon_path     = sc.iconPath;
+        r.icon_index    = sc.iconIndex;
+        r.run_as_admin  = sc.runAsAdmin  ? 1 : 0;
+        r.pin_to_start  = sc.pinToStart  ? 1 : 0;
+        r.pin_to_taskbar= sc.pinToTaskbar ? 1 : 0;
+        out.push_back(r);
+    }
+    return out;
+}
+
+std::vector<DB::ScMenuNodeRow> SC_GetMenuNodeRows()
+{
+    std::vector<DB::ScMenuNodeRow> out;
+    out.reserve(s_scMenuNodes.size());
+    for (const auto& n : s_scMenuNodes) {
+        DB::ScMenuNodeRow r{};
+        r.id        = n.id;
+        r.parent_id = n.parentId;
+        r.name      = n.name;
+        out.push_back(r);
+    }
+    return out;
+}
+
+bool SC_GetDesktopOptOut() { return s_scDesktopOptOut; }
+bool SC_GetSmPinOptOut()   { return s_scSmPinOptOut;   }
+bool SC_GetTbPinOptOut()   { return s_scTbPinOptOut;   }

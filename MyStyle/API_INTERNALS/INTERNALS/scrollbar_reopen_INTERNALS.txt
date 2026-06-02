@@ -1,0 +1,211 @@
+scrollbar_reopen_INTERNALS.txt
+ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+MSB (custom scrollbar) lifecycle across project-close / reopen
+ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+
+SUMMARY OF THE BUG PATTERN
+ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+When the user closes a project (IDM_FILE_CLOSE) the main window is destroyed
+with DestroyWindow(hwnd) *without* going through SwitchPage first.  The child
+windows (Files TreeView, ListView, Components TreeView/ListView ÔÇª) receive
+WM_DESTROY, which fires Msb_TargetSubclassProc ÔåÆ msb_detach, which frees the
+MsbContext heap allocation.  However, the static HMSB handles that SwitchPage
+normally clears (s_hMsbFilesTreeV etc.) remain non-NULL and point to the freed
+memory.
+
+On the *next* MainWindow::Create call a new window is created and its very
+first WM_SIZE fires msb_reposition() on those dangling pointers ÔåÆ heap
+corruption ÔåÆ crash (usually within ~1 second of the window appearing).
+
+THE THREE FIXES APPLIED (see commits after 199a9e1)
+ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+1. Msb_TargetSubclassProc WM_DESTROY (my_scrollbar.cpp Ôëê1431)
+   - Old code: return 0   ÔåÉ swallowed WM_DESTROY, MainWindow::WndProc never ran
+   - New code: save origProc; msb_detach V+H; CallWindowProcW(origProc, ÔÇª)
+   - Effect: chains through so MainWindow::WndProc WM_DESTROY can null statics.
+     For bar CHILDREN (TreeView/ListView) the chain reaches the native control
+     proc.  For the MAIN WINDOW sub-classed for the Dialogs scrollbar it
+     reaches MainWindow::WndProc.
+
+2. MainWindow::WndProc WM_DESTROY (mainwindow.cpp Ôëê10850)
+   Nulls all nine HMSB statics after calling DragDrop_Unregister() and
+   CleanupTooltipSystem().  This runs whether or not Msb_TSP was installed on
+   the main window.
+
+3. MainWindow::Create() stale-state reset (mainwindow.cpp Ôëê475)
+   Belt-and-suspenders: at the very top of Create(), before CreateWindowExW,
+   all nine HMSB statics AND all HWND statics are nulled.  This makes the
+   function safe even when WM_DESTROY execution is incomplete for any reason.
+   Do NOT call msb_detach hereÔÇöthe MsbContext allocations were already freed
+   by the child-window WM_DESTROY chain; detaching again would be a
+   double-free.
+
+THE SISTER BUG: SwitchPage detach-before-destroy ordering
+ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+Introduced in commit 199a9e1: SwitchPage's controlIds[] loop contained both
+IDC_COMP_TREEVIEW and IDC_COMP_LISTVIEW.  DestroyWindow on those windows
+triggered Msb_TargetSubclassProc ÔåÆ msb_detach, freeing the Components MSB
+contexts.  The explicit msb_detach calls that followed then freed the same
+pointer again ÔåÆ double-free / crash ("white screen" when switching
+FilesÔåÆComponents).
+
+Fix: detach the Components-page MSBs *before* the controlIds[] loop:
+  if (s_hMsbCompTreeV) { msb_detach(s_hMsbCompTreeV); s_hMsbCompTreeV = NULL; }
+  if (s_hMsbCompTreeH) { msb_detach(s_hMsbCompTreeH); s_hMsbCompTreeH = NULL; }
+  if (s_hMsbCompListV) { msb_detach(s_hMsbCompListV); s_hMsbCompListV = NULL; }
+  if (s_hMsbCompListH) { msb_detach(s_hMsbCompListH); s_hMsbCompListH = NULL; }
+  // ÔåÉ controlIds[] loop runs here; IDC_COMP_* windows destroyed next
+THE SAME BUG REOCCURRED: Registry page MSBs (fixed same session)
+ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+When Registry page MSBs (s_hMsbRegTreeV/H, s_hMsbRegListV/H) were added,
+their detach calls were placed AFTER the controlIds[] loop ÔÇö the same mistake.
+IDC_REG_TREEVIEW and IDC_REG_LISTVIEW are in the controlIds[] array, so their
+WM_DESTROY freed the MSB contexts via Msb_TargetSubclassProc before the
+explicit detach ÔåÆ double-free ÔåÆ white screen crash when switching
+RegistryÔåÆComponents.
+
+Fix: move ALL four reg MSB detach calls to sit directly above the
+controlIds[] loop (next to the Components detaches).
+THE HIDDEN BUG: SwitchPage generic loop and the status bar / About button
+ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+SwitchPage contains a generic child-window enumeration loop:
+
+  "Destroy any child that is at least partially below the toolbar"
+
+The loop was written to spare toolbar buttons by checking:
+  bool isToolbarBtn = (childId >= IDC_TB_FILES && childId <= IDC_TB_ABOUT)
+                    || childId == IDC_TB_DIALOGS || ÔÇª;
+
+IDC_STATUS_BAR = 5002 falls *below* IDC_TB_FILES = 5010, so the status bar
+is NOT protected by isToolbarBtn.  s_hAboutButton is the custom About icon
+buttonÔÇöits position (far-right toolbar corner) places it below s_toolbarHeight
+after WM_SIZE, so it too could be destroyed.
+
+On the INITIAL WM_CREATE call to SwitchPage(0) the status bar was just created
+at position (0,0,0,0) so rcChild.bottom = 0 Ôëñ s_toolbarHeight ÔåÆ spared.
+But on any SUBSEQUENT SwitchPage call (after WM_SIZE has repositioned the bar
+to the bottom) rcChild.bottom Ôëê clientHeight >> toolbarHeight ÔåÆ destroyed.
+
+Consequence: s_hStatus becomes a dangling non-NULL HWND.  The WM_SIZE handler
+sends WM_SIZE to s_hStatus without an IsWindow guard, potentially hitting an
+unrelated recycled HWND.
+
+Fix (mainwindow.cpp Ôëê1662):
+  if (hChild != s_hTreeView && ÔÇª &&
+      hChild != s_hStatus && hChild != s_hAboutButton) {   ÔåÉ added
+      DestroyWindow(hChild);
+  }
+
+RULE FOR ADDING MSBs TO A NEW PAGE
+ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+When you attach custom scrollbars to a new page's TreeView / ListView:
+
+  (a) Declare the four HMSB statics (V+H for each control).
+  (b) Add them to the Create() stale-state reset block (plain NULL, no detach).
+  (c) Add them to MainWindow::WndProc WM_DESTROY (plain NULL, no detach).
+  (d) In SwitchPage ÔÇö TEARDOWN section ÔÇö detach them BEFORE the controlIds[]
+      loop destroys the target windows.  The detach block must sit directly
+      above the "Destroy all known control IDs" comment, NOT after it.
+      EVERY page whose TreeView/ListView IDs appear in controlIds[] must have
+      its MSBs detached here.  Getting this wrong = double-free crash.
+        if (s_hMsbFooV) { msb_detach(s_hMsbFooV); s_hMsbFooV = NULL; }
+        ÔÇª
+  (e) In SwitchPage ÔÇö SETUP section (case N) ÔÇö call msb_attach AFTER the
+      target window is fully populated (all InsertItem + Expand calls done).
+      This ensures ShowScrollBar(FALSE) inside msb_attach runs after the
+      tree has re-enabled native bars for the last time during population.
+        s_hMsbFooV = msb_attach(hFoo, MSB_VERTICAL);
+        s_hMsbFooH = msb_attach(hFoo, MSB_HORIZONTAL);
+        if (s_hMsbFooH)
+            msb_set_edge_gap(s_hMsbFooH,
+                GetSystemMetrics(SM_CYEDGE) + GetSystemMetrics(SM_CYBORDER) + 6);
+        // No extra WM_SIZE or msb_reposition needed after attach ÔÇö done.
+  (f) Add any persistent HWND statics to the Create() stale-state reset block
+      and to the explicit exclusion list in the generic child-window destroy loop
+      (for IDs outside toolbar range 5010ÔÇô5019 / 5080ÔÇô5083).
+  (g) **REQUIRED**: Create the TreeView / ListView with WS_VSCROLL|WS_HSCROLL
+      in its window style.  Without these styles the control never populates
+      SCROLLINFO (nMax always 0) ÔåÆ MSB reads "no overflow" ÔåÆ bars never appear.
+      The native bar VISUAL is suppressed by msb_attach; the STYLE must remain.
+  (h) **REQUIRED for TreeViews**: Hook TVN_ITEMEXPANDED in the page's WM_NOTIFY
+      handler.  The GUARD `if (s_hMsbFooV || s_hMsbFooH)` IS MANDATORY ÔÇö the
+      tree fires TVN_ITEMEXPANDED synchronously during initial populate (before
+      msb_attach), and the guard prevents the handler from running then.
+
+      Just call msb_reposition.  Do NOT do ShowScrollBar/GetScrollInfo/SetScrollInfo
+      or SendMessageW(WM_SIZE) ÔÇö both approaches fail for the V-axis:
+      ÔÇó Capture/restore: TreeView only updates SB_VERT nMax during WM_SIZE, not
+        during expand, so siV.nMax==0 at TVN_ITEMEXPANDED time ÔåÆ V bar never shows.
+      ÔÇó SendMessageW(WM_SIZE) same-size: TreeView caches client size, skips
+        scroll recalculation ÔåÆ V SCROLLINFO still stale after the call.
+      msb_reposition handles HideNativeBar + Msb_ReconstructTreeVScrollInfo
+      (TVGN_NEXTVISIBLE tree-walk) + Msb_UpdateVisibility internally.
+
+        if (nmhdr->idFrom == IDC_YOUR_TREE && nmhdr->code == TVN_ITEMEXPANDED
+            && (s_hMsbFooV || s_hMsbFooH)) {
+            if (s_hMsbFooV) msb_reposition(s_hMsbFooV);
+            if (s_hMsbFooH) msb_reposition(s_hMsbFooH);
+        }
+  (i) **REQUIRED**: Hook WM_SIZE in the page's resize block and call
+      msb_reposition after EndDeferWindowPos for all bars on that page.
+        if (s_hMsbFooV) msb_reposition(s_hMsbFooV);
+        if (s_hMsbFooH) msb_reposition(s_hMsbFooH);
+
+
+WHAT my_scrollbar.cpp HANDLES INTERNALLY (no per-page action needed)
+ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+
+  WM_NCPAINT interception (inNcPaint guard)
+  ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+  The TreeView re-enables its native scrollbars inside its own WM_NCPAINT
+  handler on every NC repaint ÔÇö triggered by expand/collapse, scrollwheel,
+  focus change, hover, anything.  Without intervention ShowScrollBar(FALSE)
+  is only temporary between events.
+  Fix: the subclass intercepts WM_NCPAINT, lets origProc paint the NC area,
+  then calls HideNativeBar on both axes.  The re-entrant WM_NCPAINT caused by
+  ShowScrollBar(FALSE) is forwarded directly to origProc via the `inNcPaint`
+  flag (preventing a loop), then the flag is cleared.  Native bars are
+  permanently invisible regardless of what triggers NC repaint.
+
+  V-axis overflow via TVGN_NEXTVISIBLE tree-walk
+  ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+  GetScrollInfo(SB_VERT).nPage for TreeView is unreliable ÔÇö ShowScrollBar(FALSE)
+  zeroes it, and same-size WM_SIZE may not recompute it.  Msb_ContentOverflows
+  for TreeView V-axis ignores SCROLLINFO when nPage==0: walks expanded visible
+  items via TVGN_NEXTVISIBLE from root, compares count vs (clientH / itemH)
+  capacity.  Returns TRUE as soon as rowCount > capacity (early exit, O(N)).
+  Msb_ReconstructTreeVScrollInfo (called by msb_reposition and after every
+  HideNativeBar on V-axis) rebuilds a synthetic SCROLLINFO:
+    nMin=0, nMax=totalRows-1, nPage=capacity, nPos=firstVisibleRowIndex
+  so thumb position, arrow clicks, and thumb drag all have a correct reference.
+
+  WM_SIZE re-entrancy loop (inWmSize guard)
+  ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+  Msb_HideNativeBar ÔåÆ ShowScrollBar(FALSE) changes the NC area ÔåÆ Windows
+  sends a synchronous WM_SIZE back while we are still inside WM_SIZE handler.
+  Without a guard: origProc(WM_SIZE) ÔåÆ ShowScrollBar(TRUE) ÔåÆ NC ÔåÆ WM_SIZE ÔåÆ ...
+  Fix: `inWmSize` BOOL in MsbCtx.  Re-entrant WM_SIZE returns 0 WITHOUT
+  calling origProc (origProc would re-show native bars and perpetuate the loop).
+
+  ShowScrollBar(FALSE) resets SCROLLINFO
+  ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+  TreeView/ListView reset nMax/nPage/nPos to 0 on ShowScrollBar(FALSE).
+  For V-axis (TreeView): Msb_ReconstructTreeVScrollInfo rebuilds correct state
+  from the live tree instead of restoring old values (which may be stale).
+  For H-axis: pre-hide capture / post-hide restore still works because H
+  extent is set at item insertion time and is reliable.  Transparent to caller.
+
+
+KEY ID RANGES (as of this writing)
+ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+  IDC_STATUS_BAR     = 5002  ÔåÉ BELOW toolbar range, needs explicit exclusion
+  IDC_TB_FILES       = 5010  \
+  IDC_TB_ABOUT       = 5019  / toolbar range: isToolbarBtn covers 5010ÔÇô5019
+  IDC_TB_DIALOGS     = 5080  \
+  IDC_TB_COMPONENTS  = 5081  |  added individually to isToolbarBtn
+  IDC_TB_EXIT        = 5082  |
+  IDC_TB_CLOSE_PROJECT=5083  /
+
+Control IDs in ranges 5100ÔÇô5110, 5300ÔÇô5304 are per-page labels destroyed
+by the controlIds[] arrayÔÇöthey never reach the generic loop.
+

@@ -875,6 +875,12 @@ void SCR_SaveToDb(int projectId)
     }
 }
 
+// ── SCR_GetScripts ───────────────────────────────────────────────────────────
+std::vector<DB::ScriptRow> SCR_GetScripts()
+{
+    return s_scripts;
+}
+
 // ── SCR_LoadFromDb ────────────────────────────────────────────────────────────
 void SCR_LoadFromDb(int projectId)
 {

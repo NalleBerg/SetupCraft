@@ -48,6 +48,10 @@ public:
     static bool UseComponents()       { return s_currentProject.use_components != 0; }
     static const std::wstring& GetProjectDirectory() { return s_currentProject.directory; }
     static const std::vector<ComponentRow>& GetComponents();
+    // Returns the current in-memory custom registry entries (including unsaved
+    // changes) as RegistryEntryRow so the build system can use them without
+    // depending on the private RegistryEntry struct defined in mainwindow.cpp.
+    static std::vector<RegistryEntryRow> GetCustomRegistryEntries();
     static bool AskAtInstallEnabled() { return s_askAtInstallEnabled; }
     static const std::wstring& GetProjectName()    { return s_currentProject.name; }
     static const std::wstring& GetProjectVersion() { return s_currentProject.version; }

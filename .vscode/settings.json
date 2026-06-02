@@ -8,6 +8,7 @@
             "approve": true,
             "matchCommandLine": true
         },
-        "&": true
+        "&": true,
+        ".\\sqlite3\\sqlite3.exe": true
     }
 }

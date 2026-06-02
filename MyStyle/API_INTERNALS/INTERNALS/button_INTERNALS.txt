@@ -1,0 +1,360 @@
+================================================================================
+  NSBEdit ÔÇö Button & Toolbar Internals
+================================================================================
+
+FILES:
+  button.h      Public API declarations
+  button.cpp    Implementation ÔÇö creation, subclass proc, draw logic
+  mainwindow.cpp  CreateToolbar() ÔÇö lays out both toolbar rows
+
+================================================================================
+1. BUTTON COLORS (enum class ButtonColor)
+================================================================================
+
+  Blue   ÔÇö neutral actions; navigation row (Files, Components, Registry, ÔÇª)
+  Red    ÔÇö destructive / exit actions (Exit, Close Project)
+  Green  ÔÇö constructive / commit actions (Save, Build)
+
+  Colors are stored as GWLP_USERDATA on the button HWND so WM_DRAWITEM can
+  retrieve them without any extra map lookup.
+
+  Color triplets (base / hover / pressed):
+    Blue   : (225,225,225) / (229,241,251) / (204,228,247)   ÔÇö system-grey-ish
+    Red    : (205,92,92)   / (220,120,120) / (180,70,70)
+    Green  : (70,140,70)   / (90,160,90)   / (50,120,50)
+
+  Active-page override (not a ButtonColor value ÔÇö a window property):
+    When a toolbar button is the active page, SwitchPage() sets the
+    "IsActivePage" window property (value 1) on that button and removes it
+    from all other page buttons. DrawCustomButton checks this property and
+    substitutes the base colour with (196, 224, 246) ÔÇö a clear light blue ÔÇö
+    whenever the button is neither pressed nor hovered. Hover and pressed
+    colours still apply normally on top of the active state.
+    The three non-page buttons (Save, Close Project, Exit) are never added to
+    the page-button table and never receive this property.
+
+================================================================================
+2. CREATION API
+================================================================================
+
+  All three functions return the HWND of the new button and install
+  ButtonSubclassProc via SetWindowSubclass.
+
+  HWND CreateCustomButton(
+      HWND hwndParent, int id, const std::wstring& text,
+      ButtonColor color,
+      int x, int y, int width, int height, HINSTANCE hInst)
+
+      Plain text-only button. BS_OWNERDRAW | WS_CHILD | WS_VISIBLE.
+
+  HWND CreateCustomButtonWithIcon(
+      HWND hwndParent, int id, const std::wstring& text,
+      ButtonColor color,
+      const wchar_t* iconDll, int iconIndex,
+      int x, int y, int width, int height, HINSTANCE hInst)
+
+      Text + single icon. Icon is extracted from the DLL at creation time via
+      PrivateExtractIconsW (supports transparency). The DLL path and index are
+      stored as window properties "IconDLL" (malloc'd wchar_t*) and "IconIndex"
+      (cast to HANDLE) so DrawCustomButton can redraw on demand.
+
+  HWND CreateCustomButtonWithCompositeIcon(
+      HWND hwndParent, int id, const std::wstring& text,
+      ButtonColor color,
+      const wchar_t* iconDll1, int iconIndex1,
+      const wchar_t* iconDll2, int iconIndex2,
+      int x, int y, int width, int height, HINSTANCE hInst)
+
+      Text + two overlaid icons (icon2 is drawn on top of icon1).
+      Adds "IconDLL2" / "IconIndex2" properties alongside the primary set.
+
+  void UpdateButtonText(HWND hButton, const std::wstring& text)
+      Changes label and triggers InvalidateRect.
+
+================================================================================
+2a. AUTO-SIZING BUTTONS (MeasureButtonWidth)
+================================================================================
+
+  int MeasureButtonWidth(const std::wstring& text, bool hasIcon)
+
+      Returns the minimum pixel width for a custom button that will display
+      `text` without truncation.  Uses the same bold DPI-scaled font
+      (SPI_GETNONCLIENTMETRICS ├ù1.2, FW_BOLD, CLEARTYPE_QUALITY) as
+      DrawCustomButton, so the measurement matches the actual render.
+
+      Width formula:
+        icon button  : S(10) + S(20) + S(15) + textCX + S(8)   (icon+gap+text+pad)
+        text-only    : S(10) + textCX + S(10)
+        minimum      : S(55)  (never returns smaller than this)
+
+      RULE: Every button whose label comes from a locale key MUST use
+      MeasureButtonWidth rather than a hardcoded pixel constant.  The app
+      supports 20+ languages; text length varies significantly.
+
+  Icon-only buttons (empty text string)
+      Pass L"" as text to CreateCustomButton*.  DrawCustomButton detects
+      this (isIconOnly = wcslen(buttonText) == 0) and centres the icon
+      horizontally in the full button rect instead of left-aligning it:
+          iconX = rc.left + (rc.right - rc.left - iconSize) / 2;
+      Use for "browse" / folder-picker buttons and any other icon-only control.
+      MeasureButtonWidth(L"", false) returns S(55) ÔÇö the minimum.
+
+  Page-level button rows (deps.cpp, mainwindow.cpp Files / Reg / Components,
+  shortcuts.cpp SC page, main.cpp entry screen)
+      Measure each label, store widths, then derive x positions by accumulation:
+          int w0 = MeasureButtonWidth(text0, true);
+          int w1 = MeasureButtonWidth(text1, true);
+          int gap = S(10);
+          CreateCustomButtonWithIcon(..., S(20),         y, w0, btnH, ...);
+          CreateCustomButtonWithIcon(..., S(20)+w0+gap,  y, w1, btnH, ...);
+      Never hardcode x offsets like S(140) or S(260) ÔÇö they assume fixed widths.
+
+  Stacked rows with a full-width lower button (mainwindow.cpp Files page)
+      When a single button sits below a multi-button row and must span the
+      same total width, measure ALL buttons first, then reconcile:
+          int w0 = MeasureButtonWidth(top0, true);
+          int w1 = MeasureButtonWidth(top1, true);
+          int wb = MeasureButtonWidth(bottom, true);
+          int rowW = w0 + gap + w1;
+          if (wb > rowW) { w0 += wb - rowW; rowW = wb; }  // grow w0 to fill
+          // create top row with updated w0/w1 and x = S(20)+w0+gap for btn1
+          // create bottom button with width = rowW
+      This ensures the bottom button never clips its text, and the top row
+      never creates visual misalignment.  Measure all, reconcile, create once
+      ÔÇö never destroy-and-recreate.
+
+  Entry screen window auto-resize (main.cpp WndProc WM_CREATE)
+      The four 2├ù2 grid button texts are measured before any child control is
+      created.  buttonWidth = max(all four measurements, S(140)).
+      clientWidth = max(S(362), 2*buttonWidth + S(13) + S(48)).
+      SetWindowPos is called immediately to resize the window and re-centre it
+      on the work area.  g_entryButtonWidth (static global) carries the value
+      forward to the button-creation block later in WM_CREATE.
+
+================================================================================
+3. TOOLTIP SUPPORT (SetButtonTooltip)
+================================================================================
+
+  void SetButtonTooltip(HWND hButton, const wchar_t* text)
+
+      Stores a heap-allocated copy of `text` as window property "TooltipText"
+      on the button. Pass NULL or L"" to clear a previously set tooltip.
+      ButtonSubclassProc reads this property in WM_MOUSEMOVE and shows the
+      tooltip automatically (see ┬º4).
+
+  Usage example (in CreateToolbar or anywhere after button creation):
+      HWND hBtn = CreateCustomButtonWithIcon(...);
+      SetButtonTooltip(hBtn, L"Close this project and return to the start screen");
+
+  The tooltip is shown as a simple single-line/wrapped message (no multilingual
+  columns) using the existing tooltip system (ShowMultilingualTooltip with a
+  single entry whose country-code field is empty ÔÇö see tooltip_API.txt ┬º7).
+
+  Tooltip text is stored per-button, so different buttons can have different
+  tooltips with no extra tracking state.
+
+================================================================================
+4. BUTTONSUBCLASSPROC ÔÇö HOVER AND TOOLTIP FLOW
+================================================================================
+
+  Installed by all Create* functions via SetWindowSubclass.
+  State is stored entirely in window properties (no global variables):
+
+    "IsHovering"   ÔÇö (HANDLE)1 / (HANDLE)0
+    "IsActivePage" ÔÇö (HANDLE)1 when this button is the active page button;
+                     removed (RemovePropW) when the button becomes inactive.
+                     Set/cleared by SwitchPage() in mainwindow.cpp.
+    "IconDLL"      ÔÇö malloc'd wchar_t*  (freed in WM_NCDESTROY)
+    "IconIndex"    ÔÇö cast HANDLE
+    "IconDLL2"     ÔÇö malloc'd wchar_t*  (freed in WM_NCDESTROY)
+    "IconIndex2"   ÔÇö cast HANDLE
+    "TooltipText"  ÔÇö malloc'd wchar_t*  (freed in WM_NCDESTROY)
+
+  Message flow:
+
+  WM_MOUSEMOVE
+    ÔÇó Reads "IsHovering". If already TRUE, do nothing (avoids repeat work on
+      every mouse move packet).
+    ÔÇó Sets "IsHovering" = 1, calls InvalidateRect to trigger a hover repaint.
+    ÔÇó Calls TrackMouseEvent(TME_LEAVE, hwndTrack=hwnd) so the OS will post
+      WM_MOUSELEAVE when the cursor exits the button rect.
+    ÔÇó If "TooltipText" property is set and IsTooltipVisible() == false:
+        - Calls GetWindowRect to get screen coords of the button.
+        - Builds a single TooltipEntry with empty country code and the text.
+        - Calls ShowMultilingualTooltip(entries, rc.left, rc.bottom+4, parent).
+          (Tooltip appears just below the button.)
+
+  WM_MOUSELEAVE
+    ÔÇó Clears "IsHovering", invalidates for normal-state repaint.
+    ÔÇó Calls HideTooltip() unconditionally.
+
+  WM_LBUTTONUP
+    ÔÇó InvalidateRect ÔÇö forces redraw to clear the pressed highlight immediately.
+
+  WM_NCDESTROY
+    ÔÇó Frees "IconDLL", "IconDLL2", "TooltipText" heap buffers.
+    ÔÇó Removes all window properties.
+    ÔÇó Calls RemoveWindowSubclass to uninstall itself cleanly.
+
+  NOTE: ButtonSubclassProc does NOT manage disabled-button tooltips.
+  Disabled windows never receive WM_MOUSEMOVE from the OS ÔÇö their tooltips
+  must use the parent-WM_MOUSEMOVE + timer-callback pattern.
+  See tooltip_API.txt ┬º9 "SPECIAL CASE: TOOLTIP ON A DISABLED WINDOW".
+
+================================================================================
+5. DRAWCUSTOMBUTTON ÔÇö WM_DRAWITEM FLOW
+================================================================================
+
+  BOOL DrawCustomButton(LPDRAWITEMSTRUCT dis, ButtonColor color, HFONT hFont)
+
+  Called from the parent window's WM_DRAWITEM handler.
+  The parent passes ButtonColor retrieved from GWLP_USERDATA:
+      ButtonColor color = (ButtonColor)GetWindowLongPtr(dis->hwndItem, GWLP_USERDATA);
+
+  Draw order:
+    1. Determine bgColor from color triplet + hover/pressed/active state.
+       For icon-only buttons (empty text): use COLOR_BTNFACE with subtle shade
+       adjustment to blend with the toolbar background.
+       For text buttons: if "IsActivePage" property is set and button is not
+       pressed or hovered, override base with (196,224,246) ÔÇö light blue.
+       Otherwise: pressed ÔåÆ colors.pressed, hover ÔåÆ colors.hover, else
+       colors.base.
+    2. Fill background with bgColor.
+    3. Draw 1px grey border (RGB 173,173,173) as a native-style button frame.
+    4. If "IconDLL" property present: load icon via PrivateExtractIconsW and
+       DrawIconEx at the left side of the button (16├ù16 scaled by DPI).
+       Exception: if isIconOnly (empty text), the icon is horizontally centred
+       in the full button rect ÔÇö iconX = rc.left + (width ÔêÆ iconSize) / 2.
+    5. If "IconDLL2" property present: overlay second icon on same position.
+    6. Draw button text with TRANSPARENT background using hFont (bold, DPI-scaled).
+       Text is centred in the remaining horizontal space after the icon.
+
+  WM_DRAWITEM guard in mainwindow.cpp (WM_DRAWITEM handler):
+      The parent checks CtlID against known toolbar and page button ID ranges
+      before calling DrawCustomButton. When you add a new button with an ID
+      outside the ranges IDC_TB_FILESÔÇôIDC_TB_SAVE, you must add a separate
+      || dis->CtlID == IDC_TB_YOUR_BUTTON check to this guard.
+
+================================================================================
+6. TOOLBAR LAYOUT (CreateToolbar in mainwindow.cpp)
+================================================================================
+
+  Two fixed-height rows rendered as child buttons of the main HWND:
+
+  ROW 1 ÔÇö Navigation (left-to-right, x accumulates with gap):
+    Files | Components | Registry | Shortcuts | Dependencies | Dialogs
+
+  ROW 2 ÔÇö Actions (left-to-right):
+    Settings | Scripts | Test | Build | Save | Close Project | Exit
+
+  Flush right (absolute position): About icon (icon-only, no label)
+
+  Layout algorithm (inside CreateToolbar):
+    - btnH = S(28)  ÔÇö button height, DPI-scaled
+    - gap  = S(4)   ÔÇö gap between buttons, DPI-scaled
+    - x starts at S(10) for each row
+    - MeasureTBWidth(text) measures the pixel width needed for that label
+      (uses a temporary DC with the bold DPI-scaled font)
+    - x += width + gap after each button
+
+  Button labels are looked up from s_locale (e.g. s_locale[L"tb_save"]).
+  Each lookup falls back to a hardcoded English string if the key is absent.
+
+================================================================================
+7. HOW TO ADD A NEW TOOLBAR BUTTON
+================================================================================
+
+  1. Add an IDC_ define in mainwindow.cpp (in the "Toolbar button IDs" block).
+     Use the next available number above IDC_TB_CLOSE_PROJECT (5083).
+     Example: #define IDC_TB_MY_ACTION 5084
+
+  2. In CreateToolbar(), pick the row and insertion point. Add:
+       auto itKey = s_locale.find(L"locale_key");
+       std::wstring btnText = (itKey != s_locale.end()) ? itKey->second : L"My Action";
+       int wBtn = MeasureTBWidth(btnText);
+       HWND hBtn = CreateCustomButtonWithIcon(hwnd, IDC_TB_MY_ACTION, btnText,
+           ButtonColor::Blue,               // pick color
+           L"shell32.dll", ICON_INDEX,      // pick icon
+           x, rowY, wBtn, btnH, hInst);
+       // Optional tooltip for enabled buttons:
+       SetButtonTooltip(hBtn, L"Tooltip text shown on hover");
+       x += wBtn + gap;
+
+  3. Add a case in the WM_COMMAND handler (after the nearby cases):
+       case IDC_TB_MY_ACTION:
+           // ... do work or forward to IDM_... ...
+           return 0;
+
+  4. Add IDC_TB_MY_ACTION to the isToolbarBtn guard (~line 962):
+       || childId == IDC_TB_MY_ACTION
+
+  5. Add IDC_TB_MY_ACTION to the WM_DRAWITEM guard (~line 5573):
+       || dis->CtlID == IDC_TB_MY_ACTION
+
+  6. If the button can be disabled:
+       EnableWindow(GetDlgItem(hwnd, IDC_TB_MY_ACTION), FALSE/TRUE);
+       For tooltips on a disabled button, use the timer-callback pattern
+       (see tooltip_API.txt ┬º9). Do NOT use SetButtonTooltip for disabled buttons
+       ÔÇö WM_MOUSEMOVE is never delivered to disabled windows.
+
+================================================================================
+8. ICON INDICES (shell32.dll ÔÇö verified at use sites in this project)
+================================================================================
+
+  27   ÔÇö Close/X door (used by Exit)
+  80   ÔÇö Gear/wrench (used by Build)
+  131  ÔÇö Folder (used by Close Project)
+  258  ÔÇö Floppy disk / Save (used by Save)
+
+  Icons are loaded via PrivateExtractIconsW with the TRANSPARENT flag, which
+  gives correct alpha on modern Windows themes. DestroyIcon is called after
+  DrawIconEx, so no HICON resources accumulate.
+
+================================================================================
+9. CRITICAL BUG HISTORY ÔÇö SPURIOUS-LEAVE GUARD IN WM_MOUSELEAVE
+================================================================================
+
+  SYMPTOM: All dialogs show a blank window for 4ÔÇô12 seconds on open. Second
+  open of the same dialog is even slower (10+ sec). Problem worsens the more
+  custom buttons are visible on screen. Reverts to instant when all custom
+  buttons are hidden.
+
+  ROOT CAUSE: A ÔÇ£spurious-leave guardÔÇØ was added to WM_MOUSELEAVE inside
+  ButtonSubclassProc:
+
+      case WM_MOUSELEAVE: {
+          POINT pt; GetCursorPos(&pt);
+          RECT rc;  GetWindowRect(hwnd, &rc);
+          if (PtInRect(&rc, pt)) {
+              // cursor still inside ÔÇö re-arm TrackMouseEvent and bail
+              TrackMouseEvent(&tme);
+              break;
+          }
+          // real leave ÔÇö clear hover
+          ...
+      }
+
+  This guard fires on EVERY custom button on EVERY mouse leave. When a dialog
+  is opening, dozens of WM_MOUSELEAVE messages are dispatched across all
+  toolbar and dialog buttons simultaneously. Each call to GetCursorPos +
+  GetWindowRect + PtInRect takes ~300ÔÇô500 ┬Ás; multiplied over 20+ buttons
+  re-arming TrackMouseEvent in a tight cascade it starves the message pump
+  entirely, preventing WM_CREATE and WM_SIZE from being processed, keeping the
+  dialog window blank.
+
+  FIX: Remove the guard entirely. WM_MOUSELEAVE is reliable ÔÇö Windows only
+  delivers it after TrackMouseEvent fires and the cursor has genuinely left
+  the tracked window. No guard is needed.
+
+      case WM_MOUSELEAVE:
+          SetPropW(hwnd, L"IsHovering", (HANDLE)0);
+          InvalidateRect(hwnd, NULL, FALSE);
+          HideTooltip();
+          break;
+
+  NEVER re-add any GetCursorPos / GetWindowRect / PtInRect logic to
+  ButtonSubclassProc WM_MOUSELEAVE under any circumstances.
+
+================================================================================
+END
+================================================================================
