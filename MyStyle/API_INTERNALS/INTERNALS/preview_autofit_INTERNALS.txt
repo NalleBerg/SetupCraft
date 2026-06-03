@@ -21,8 +21,13 @@
     ÔÇó Once from NavigateTo on every Back/Next navigation.
     ÔÇó Once from SizerWndProc when the developer presses Reset Size.
 
-  It is suppressed silently when s_previewUserSized[pd->type] is true
-  (developer has manually resized that dialog type via the sizer panel).
+  When s_previewUserSized[pd->type] is true, AutoFitPreview still runs the
+  full measurement to determine the natural window size.  If the current window
+  is already at least as large as the natural size, it returns early (preserving
+  the developer's custom size).  If the current window is too small to fit the
+  content, s_previewUserSized[type] is cleared and the window is auto-fitted to
+  the correct natural size.  This prevents a stale saved size from keeping the
+  window short and forcing a spurious scrollbar.
 
 --------------------------------------------------------------------------------
 2. WIDTH MEASUREMENT  ÔÇö ScanRtfNaturalWidthTwips
@@ -52,7 +57,18 @@
       for a 1 px tall window ÔåÆ RichEdit never lays out ÔåÆ GetScrollInfo returns 0.
     ÔÇó Height = 1 px so all content always overflows vertically.
     ÔÇó Width  = measPhysW = S(logW) - 2*S(16)   (the live RichEdit interior width)
-    ÔÇó Positioned at -(measPhysW + 100) so it is off-screen left (invisible to user).
+    ─ Positioned at (3, 3) inside the parent client area (NOT off-screen).
+
+  WHY (3, 3) AND NOT OFF-SCREEN:
+    Windows clips child windows to their parent's client bounds.  A child placed
+    at x = -(measPhysW + 100) is fully outside the parent's client rect and is
+    therefore clipped — it is never painted.  Without a paint pass WM_PAINT
+    never fires and GetScrollInfo.nMax stays 0, falling back to EM_FORMATRANGE
+    which does not account for embedded images (OLE path, paint-time only).
+    Fix (2026-06-03): position the measurement window at (3, 3) inside the
+    parent so it receives WM_PAINT and GetScrollInfo returns the true height.
+    After DestroyWindow, InvalidateRect on the 3×3 region cleans up the
+    transient 1 px row.
 
   After StreamRtfIn:
     RedrawWindow(hM, NULL, NULL, RDW_ERASE | RDW_INVALIDATE | RDW_UPDATENOW)
@@ -285,10 +301,19 @@
      fills the view (nPage == nMax means no overflow, no need for a scrollbar).
   4. Call EM_SHOWSCROLLBAR(FALSE) to suppress the native bar.  Must happen
      AFTER step 3 — ShowScrollBar resets nMax to 0, making GetScrollInfo useless.
-  5. scrollAllowed = contentNeedsScroll || rawOverflow || userSized
-     Note: for split-layout dialogs (License), contentNeedsScroll is always
-     false (the radio-button extras panel always fits); rawOverflow is the
-     ground-truth answer for those pages.
+  5. scrollAllowed = contentNeedsScroll || userSized
+     rawOverflow is intentionally NOT included in scrollAllowed.
+     Rationale: including rawOverflow created a self-reinforcing cycle —
+     attaching a scrollbar narrowed hContent, which caused GetScrollInfo to
+     report overflow on the next layout pass, which kept the scrollbar.
+     Fix (2026-06-03): only explicit AutoFitPreview truncation (contentNeedsScroll)
+     or a developer-resized window (userSized) may attach the scrollbar.
+     rawOverflow is still read (step 3) and stored in `overflow` for the
+     detach guard (step 6), but it does not control attachment.
+     For the License page (split-layout, contentNeedsScroll always false):
+     the scrollbar now attaches only when the developer has manually resized
+     the window smaller than the content (userSized=true).  Auto-fit always
+     produces a window tall enough — no scrollbar needed.
   6. If hContentSB is non-NULL and !scrollAllowed → msb_detach + NULL.
   7. If hContentSB is non-NULL and scrollAllowed → msb_sync(hContentSB).
   8. If hContentSB is NULL and scrollAllowed:

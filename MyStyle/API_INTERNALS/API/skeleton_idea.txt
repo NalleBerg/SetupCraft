@@ -792,4 +792,24 @@
     8. Add locale keys to locale/en_GB.txt (both copies):
          scdlg_hotkey_label, scdlg_hotkey_tooltip, scdlg_hotkey_clear_tooltip.
 
+  - Page-local state must be seeded from the project record in Create(), not lazily:
+    When a module keeps a page-local static (e.g. s_currentInstallPath) that is
+    derived from the loaded project record (e.g. projects.directory), it MUST be
+    assigned immediately in Create() after `s_currentProject = project` — before
+    any page-build call.
+    Anti-pattern: rely on the first page visit to set the static from the DB.
+    Problem: Reset() clears the static; if the user opens a project and visits
+    a different page first, the static is empty when the relevant page is built,
+    so the page shows a computed fallback instead of the saved value.  Worse: if
+    the Save handler reads from the fallback and writes it back to the DB, the
+    previously saved value is silently overwritten.
+    Rule: in Create(), assign all module-local statics that mirror project-record
+    fields immediately after `s_currentProject = project`:
+        s_currentProject = project;
+        s_currentInstallPath = project.directory;  // empty for new projects (OK)
+        // ... other per-project statics ...
+    (Bug found: Files page always showed default install path after reopening a
+    project because s_currentInstallPath was never restored from project.directory,
+    v2026.06.03.08.)
+
 ================================================================================

@@ -426,11 +426,16 @@ static void LayoutPreviewControls(HWND hwnd, PreviewData* pd)
             contentH = avail - gap - extrasNaturalH;
             if (contentH < S(60)) contentH = S(60);
         } else if (pd->contentFitH > 0) {
-            // Cap at the space above the extras panel so large images (e.g. Finish
-            // page logo) never push the extras checkboxes/controls off-screen.
-            int maxContent = avail - gap - extrasNaturalH;
-            if (maxContent < S(40)) maxContent = S(40);
-            contentH = std::min(S(pd->contentFitH), maxContent);
+            // AutoFitPreview already sized the window to hold contentFitH + extras.
+            // Fill all available space above the extras panel rather than capping to
+            // S(contentFitH): DPI rounding means S(sum) ≠ sum-of-S() by 1–2 px, so
+            // capping to S(contentFitH) can make contentH 1–2 px too short, which
+            // triggers a false overflow → spurious scrollbar.
+            // Using avail-gap-extrasNaturalH gives the RichEdit all the space that
+            // the window was sized to provide; any ±1px rounding error goes to blank
+            // space at the bottom of the RichEdit rather than causing an overflow.
+            contentH = avail - gap - extrasNaturalH;
+            if (contentH < S(40)) contentH = S(40);
         } else {
             contentH = avail / 2;
         }
@@ -634,14 +639,36 @@ static void LayoutPreviewControls(HWND hwnd, PreviewData* pd)
         // Always suppress the native scrollbar — the custom overlay bar is used instead.
         SendMessageW(pd->hContent, EM_SHOWSCROLLBAR, SB_VERT, FALSE);
         bool userSized = s_previewUserSized[(int)pd->type];
-        bool scrollAllowed = pd->contentNeedsScroll || rawOverflow || userSized;
-        bool overflow     = scrollAllowed;
+        // scrollAllowed: should a scrollbar be shown at all?
+        // AutoFitPreview sizes the window to fit the content exactly, so raw
+        // overflow must NEVER trigger a scrollbar in auto-fit mode — any apparent
+        // overflow is a measurement artifact (narrow width from a previous attach,
+        // DPI rounding, etc.).  A scrollbar is only appropriate when:
+        //   • contentNeedsScroll: AutoFitPreview hit the screen height cap and the
+        //     RTF was explicitly truncated (split: splitCapped; single: needsVScroll)
+        //   • userSized: the developer manually resized the window smaller than content
+        // rawOverflow is NOT used here — trusting AutoFitPreview's measurement is
+        // more reliable than a potentially-stale GetScrollInfo reading.
+        bool scrollAllowed = pd->contentNeedsScroll || userSized;
+        bool overflow     = pd->contentNeedsScroll || rawOverflow || userSized;
         if (pd->hContentSB) {
             if (!scrollAllowed) {
                 // Height cap was removed (e.g. user unsized or AutoFit shrunk window).
                 // Detach the bar so it no longer occupies visual space.
                 msb_detach(pd->hContentSB);
                 pd->hContentSB = NULL;
+                // Restore the full client width: hContent was narrowed by S(MSB_WIDTH_FULL)
+                // when the bar was first attached (so the bar could sit in the freed strip).
+                // Not restoring it would leave the content permanently too narrow, causing
+                // text to reflow and produce false overflow on every subsequent WM_SIZE,
+                // which would immediately re-attach the bar and keep it visible forever.
+                {
+                    RECT rcRe; GetClientRect(pd->hContent, &rcRe);
+                    SetWindowPos(pd->hContent, NULL, 0, 0,
+                                 rcRe.right + S(MSB_WIDTH_FULL), rcRe.bottom,
+                                 SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+                    UpdateWindow(pd->hContent);
+                }
             } else {
                 // Bar already attached: sync thumb position/size.
                 msb_sync(pd->hContentSB);
@@ -1122,11 +1149,12 @@ static int ScanRtfNaturalWidthTwips(const std::wstring& rtf);
 // Updates: s_previewLogW, s_previewLogH, pd->contentNaturalW/H, pd->contentFitH,
 // pd->contentNeedsScroll, and the sizer W/H spinners.
 // Uses SWP_NOMOVE — caller handles repositioning / centring.
-// Skips silently when s_previewUserSized[(int)pd->type] is true.
+// When s_previewUserSized is true the window is only grown (never shrunk) to
+// ensure the content fits; the user's larger-than-natural size is preserved.
 static void AutoFitPreview(HWND hPreview, PreviewData* pd)
 {
     if (!hPreview || !IsWindow(hPreview) || !pd) return;
-    if (s_previewUserSized[(int)pd->type]) return;
+    bool userSizedMode = s_previewUserSized[(int)pd->type];
 
     // ── Work-area caps ────────────────────────────────────────────────────────
     int maxLogW, maxLogH;
@@ -1183,18 +1211,68 @@ static void AutoFitPreview(HWND hPreview, PreviewData* pd)
     bool needsVScroll = false;
 
     if (pd->showExtras) {
-        // ── Split layout (Components page etc.) ───────────────────────────────
-        int n = std::max((int)pd->hCompChecks.size(), 1);
+        // ── Split layout ──────────────────────────────────────────────────────
+        //
+        // Window height is derived algebraically from the same layout constants
+        // as LayoutPreviewControls so the two functions can never drift apart.
+        // All values are in logical px (96 dpi basis); S() is only applied in
+        // the actual layout pass, not here.
+        //
+        // From LayoutPreviewControls:
+        //   editY  = pad + titleH + gap
+        //   btnY   = logH - pad - btnH
+        //   avail  = btnY - gap - editY = logH - (pad+titleH+gap+gap+btnH+pad)
+        //
+        // Define kLChrome = pad+titleH+gap+gap+btnH+pad  (= avail offset from logH).
+        // For split with content: avail = contentH + contentGap + extrasNaturalH
+        //   → logH = kLChrome + contentH + contentGap + extrasNaturalH
+        // For split without content (contentHidden): avail = extrasNaturalH
+        //   → logH = kLChrome + extrasNaturalH
+        //
+        // extrasNaturalH is computed with the IDENTICAL formula to LayoutPreviewControls.
+        // All kL* constants must be kept in sync with LayoutPreviewControls.
+        constexpr int kLPad    = 16;  // pad        ← must match LayoutPreviewControls
+        constexpr int kLBtnH   = 30;  // btnH       ← must match LayoutPreviewControls
+        constexpr int kLGap    = 8;   // gap        ← must match LayoutPreviewControls
+        constexpr int kLTitleH = 36;  // titleH     ← must match LayoutPreviewControls
+        constexpr int kLChkH   = 24;  // chkH / rH  ← must match LayoutPreviewControls
+        constexpr int kLExtGap = 6;   // extGap     ← must match LayoutPreviewControls
+        constexpr int kLChkSpc = 4;   // S(4) inter-checkbox spacing
+        constexpr int kLExtPad = 8;   // S(8) trailing padding after last control
+        // kLChrome = pad + titleH + gap  [editY]  +  gap + btnH + pad  [bottom chrome]
+        constexpr int kLChrome = kLPad + kLTitleH + kLGap + kLGap + kLBtnH + kLPad;
+
+        // extLblH: READY shows 3 lines of disk-space text; all others show 1 line.
+        // Must stay in sync with: const int extLblH = (pd->type==IDLG_READY)?S(62):S(22);
+        const int kLExtLblH = (pd->type == IDLG_READY) ? 62 : 22;
+
+        // extrasNaturalH — identical formula to LayoutPreviewControls.
+        int extrasNaturalH;
+        if (!pd->hCompChecks.empty()) {
+            int ne = (int)pd->hCompChecks.size();
+            extrasNaturalH = kLExtLblH + kLExtGap
+                           + ne * kLChkH + std::max(0, ne - 1) * kLChkSpc + kLExtPad;
+        } else if (pd->hRadioMe && IsWindow(pd->hRadioMe) && IsWindowVisible(pd->hRadioMe)) {
+            // Two radio buttons with kLExtGap spacing between them.
+            extrasNaturalH = kLExtLblH + kLExtGap + kLChkH + kLExtGap + kLChkH + kLExtPad;
+        } else {
+            extrasNaturalH = kLExtLblH + kLExtGap + kLChkH + kLExtPad;
+        }
+
         if (pd->contentHidden) {
-            // No RTF — extras fill the full interior.
-            // editY(60) + extLblH(22) + extGap(6) + n×28 + breathing(10)
-            //   + gap(8) + btnH(30) + pad(16)  =  144 + n×28
-            logH = 144 + n * 28;
+            // No RTF — extras take the full available area; no contentGap.
+            logH = kLChrome + extrasNaturalH;
         } else {
             int rtfLogH = 60;  // safe minimum
+            // Position at (3,3) — INSIDE the parent client area so the RichEdit
+            // actually receives WM_PAINT and GetScrollInfo returns correct nMax.
+            // Off-screen (negative x) windows are clipped by the parent and never
+            // painted, causing GetScrollInfo nMax=0 → EM_FORMATRANGE fallback which
+            // undercounts images.  The 1px window is destroyed before control returns.
+            // A 3px margin keeps it away from the window edge (avoids border artifacts).
             HWND hM = CreateWindowExW(0, reClassX, L"",
                 WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL,
-                -(measPhysW + 100), 0, measPhysW, 1,
+                3, 3, measPhysW, 1,
                 hPreview, NULL, s_hInst, NULL);
             int splitLineH = 18;  // one-line bottom padding (default ~9pt line)
             if (hM) {
@@ -1209,35 +1287,25 @@ static void AutoFitPreview(HWND hPreview, PreviewData* pd)
                     if (nLines > 0) splitLineH = std::min(measured / nLines, 24);
                 }
                 DestroyWindow(hM);
+                // Repaint the 1px row that the measurement window briefly occupied.
+                RECT rcDirty = { 3, 3, 3 + measPhysW, 4 };
+                InvalidateRect(hPreview, &rcDirty, TRUE);
             }
             rtfLogH += splitLineH;  // one blank line of breathing room at the bottom
             if (rtfLogH < 60) rtfLogH = 60;
-            // Extras content height (the area below extLbl+extGap, above the
-            // breathing+gap+btnH+pad block).
-            // • Checkboxes: n×28 design-px (chkH 24 + S(4) spacing per item).
-            // • Radio buttons (FOR_ME_ALL): rH(24) + S(6) + rH(24) + breathing(8) = 62.
-            //   Using n=1 → n×28 = 28 is 34 px short, jamming the second radio
-            //   button against the navigation buttons.
-            int extrasContentH;
-            if (!pd->hCompChecks.empty()) {
-                extrasContentH = n * 28;
-            } else if (pd->hRadioMe && IsWindow(pd->hRadioMe) && IsWindowVisible(pd->hRadioMe)) {
-                extrasContentH = 62;   // rH(24) + S(6)(6) + rH(24) + breathing(8)
-            } else {
-                extrasContentH = n * 28;
-            }
-            // editY(60) + rtfLogH + gap(8) + extLbl(22) + extGap(6)
-            //   + extrasContentH + gap(8) + btnH(30) + pad(16)  =  160 + rtfLogH + extrasContentH
-            logH = 160 + rtfLogH + extrasContentH;
+            // logH = kLChrome + contentH(rtfLogH) + contentGap(kLGap) + extrasNaturalH
+            logH = kLChrome + rtfLogH + kLGap + extrasNaturalH;
             pd->contentFitH = rtfLogH;
+            bool splitCapped = false;
             if (logH > maxLogH) {
                 logH = maxLogH;
-                int cappedRtfLogH = maxLogH - 160 - extrasContentH;
+                splitCapped = true;
+                int cappedRtfLogH = maxLogH - kLChrome - kLGap - extrasNaturalH;
                 if (cappedRtfLogH < 60) cappedRtfLogH = 60;
                 pd->contentFitH = cappedRtfLogH;
             }
+            pd->contentNeedsScroll = splitCapped;
         }
-        pd->contentNeedsScroll = false;  // split: items always fit below RTF
         pd->contentNaturalW    = 0;      // alignment only applies to single layout
         pd->contentNaturalH    = 0;
     } else {
@@ -1247,9 +1315,10 @@ static void AutoFitPreview(HWND hPreview, PreviewData* pd)
         int rtfLogH = 100;  // safe minimum
         int singleLineH = 18;  // one-line bottom padding (default ~9pt line)
         if (!rtf.empty()) {
+            // See split-layout comment above: 3px margin, inside parent client area.
             HWND hM = CreateWindowExW(0, reClassX, L"",
                 WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL,
-                -(measPhysW + 100), 0, measPhysW, 1,
+                3, 3, measPhysW, 1,
                 hPreview, NULL, s_hInst, NULL);
             if (hM) {
                 if (pd->hGuiFont) SendMessageW(hM, WM_SETFONT, (WPARAM)pd->hGuiFont, FALSE);
@@ -1263,6 +1332,8 @@ static void AutoFitPreview(HWND hPreview, PreviewData* pd)
                     if (nLines > 0) singleLineH = std::min(measured / nLines, 24);
                 }
                 DestroyWindow(hM);
+                RECT rcDirty = { 3, 3, 3 + measPhysW, 4 };
+                InvalidateRect(hPreview, &rcDirty, TRUE);
             }
         }
         rtfLogH      = std::max(rtfLogH, 100);
@@ -1281,6 +1352,28 @@ static void AutoFitPreview(HWND hPreview, PreviewData* pd)
     }
 
     logH = std::max(150, logH);
+
+    // When userSized: only grow, never shrink.  The user deliberately made the
+    // window a certain size; we only override it if the content no longer fits.
+    if (userSizedMode) {
+        RECT rcCur; GetWindowRect(hPreview, &rcCur);
+        RECT adjCur = { 0, 0, S(logW), S(logH) };
+        AdjustWindowRectEx(&adjCur, kPreviewStyle, FALSE, kPreviewExStyle);
+        int naturalW = adjCur.right  - adjCur.left;
+        int naturalH = adjCur.bottom - adjCur.top;
+        int curW = rcCur.right  - rcCur.left;
+        int curH = rcCur.bottom - rcCur.top;
+        if (curH >= naturalH && curW >= naturalW) {
+            // Window is already large enough — no resize needed.
+            // Leave contentFitH=0 so LayoutPreviewControls gives the RichEdit
+            // all available space above the extras (userSized branch).
+            return;
+        }
+        // Content no longer fits the saved size — clear userSized so the window
+        // auto-fits and scrollAllowed stays false (no scrollbar on a correctly-sized window).
+        s_previewUserSized[(int)pd->type] = false;
+    }
+
     s_previewLogH = logH;
     s_previewLogW = logW;
 

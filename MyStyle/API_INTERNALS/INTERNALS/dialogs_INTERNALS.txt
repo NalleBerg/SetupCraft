@@ -601,9 +601,15 @@
         IDLG_LoadFromDb(s_currentProject.id);  // refresh IDs from DB
 
   MISTAKE HISTORY:
-    - [5] was missing initially ÔåÆ row buttons rendered as blank grey rectangles.
-    - [6] was missing initially ÔåÆ BN_CLICKED on all IDLG buttons silently dropped.
+    - [5] was missing initially → row buttons rendered as blank grey rectangles.
+    - [6] was missing initially → BN_CLICKED on all IDLG buttons silently dropped.
       Both were caught in the same debugging session (2026.03.25) and fixed.
+    - IDLG_ApplyDefaults had a `bool alwaysResolve = (d.first == (int)IDLG_SELECT_FOLDER)`
+      exception that bypassed the !empty() guard for the Select Folder slot, causing
+      user-edited body RTF to be overwritten on every project open (2026.06.03, fixed).
+      The flag was introduced to reflect s_selectFolderAllowChange state, but that
+      live-update is handled by the IDC_IDLG_SELECT_FOLDER_ALLOW_CHANGE handler directly
+      and does not require re-seeding from the template on open.
 
 --------------------------------------------------------------------------------
 9. LAYOUT CONSTANTS

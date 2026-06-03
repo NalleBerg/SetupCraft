@@ -3,6 +3,8 @@ glyphpicker/build/
 stopwatch/build/
 test_scrollbar/build_test/
 
+# Debug/log files generated at runtime
+*.log
 
 # Machine-specific workspace file (absolute paths)
 *.code-workspace

@@ -210,7 +210,16 @@ Bug C ÔÇö directory never persisted  [FIXED]
   the user had not set it via Settings always had directory="".
   Fix: Save handler now reads IDC_INSTALL_FOLDER ÔåÆ s_currentProject.directory
   before calling DB::UpdateProject.
-
+Bug D — s_currentInstallPath never restored from project.directory on open  [FIXED]
+  In Create(), SETT_Reset() cleared s_currentInstallPath but it was never
+  re-populated from s_currentProject.directory after the project was loaded.
+  So on every project open the Files page fell back to
+  GetProgramFilesPath() + "\\" + project.name regardless of the saved path.
+  Worse: if the user saved while on the Files page that recomputed default
+  was written back to the DB, silently overwriting the real install path.
+  Fix: in Create(), immediately after `s_currentProject = project`,
+  `s_currentInstallPath = project.directory` is assigned (empty for new
+  projects, so no change in behaviour there).
 Remaining known limitation:
   Files added via "Add Files" onto a real-path folder node (lParam != "") are
   still not captured (see section 3).  This is a future improvement item.

@@ -2,6 +2,18 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.06.03.12] - 2026-06-03 12:22
+
+### Dialogs page — Ready to Install preview: spurious scrollbar definitively fixed
+
+- **`dialogs.cpp` — `AutoFitPreview`: measurement RichEdit now positioned at (3, 3) inside the parent window (Bug fix)**: The 1 px tall measurement window was previously placed at `x = -(measPhysW + 100)`, off-screen to the left. Windows clips child windows to their parent's bounds, so the window was never painted: `GetScrollInfo.nMax` always returned 0, silently falling back to `EM_FORMATRANGE` which severely underestimates height for image-heavy RTF (e.g. the SetupCraft logo on the Ready to Install page). The window was therefore too short, which attached a scrollbar. Fix: position the measurement window at `(3, 3)` inside the parent so it receives `WM_PAINT` and `GetScrollInfo` returns the true content height including images. The 1 px row is invalidated after `DestroyWindow` so it is repainted cleanly.
+
+- **`dialogs.cpp` — `LayoutPreviewControls`: split-layout `contentH` uses full available space above extras (Bug fix)**: The auto-fit branch capped `contentH` to `std::min(S(contentFitH), maxContent)`. At certain DPI levels (e.g. 150%), `S(sum of constants)` differs from the sum of individually `S()`-scaled values by 1–2 px. This made `maxContent` 1–2 px less than `S(contentFitH)`, causing a 1–2 px real overflow and attaching a scrollbar to an otherwise correctly-sized window. Fix: in auto-fit mode, `contentH = avail − gap − extrasNaturalH` directly — all the space the window was sized to provide. Any ±1 px rounding slack becomes blank air at the bottom of the RichEdit rather than triggering overflow.
+
+- **`dialogs.cpp` — `SyncContentScrollbar`: `rawOverflow` removed from `scrollAllowed` (Bug fix)**: `rawOverflow` was included in the `scrollAllowed` expression, which could attach a fresh scrollbar on any layout pass where `GetScrollInfo` reported overflow — even on a correctly auto-fit window (measurement artifact, DPI rounding, or stale reading from a previous narrowed-width attach). Fix: `scrollAllowed = contentNeedsScroll || userSized` only. A scrollbar now appears exclusively when (a) `AutoFitPreview` hit the screen-height cap and explicitly truncated the RTF, or (b) the developer manually resized the window smaller than the content.
+
+- **`dialogs.cpp` — `AutoFitPreview`: stale `userSized` saved state cleared when content no longer fits (Bug fix)**: When `s_previewUserSized[type]` was true (developer had previously resized the window via the sizer panel), `AutoFitPreview` skipped measurement entirely. If the saved window size was smaller than the current content (e.g. after project data changed, or on a different DPI), the window stayed at the old too-small size and `scrollAllowed = userSized = true` forced a scrollbar. Fix: `AutoFitPreview` now measures the natural content size even in `userSized` mode. If the current window is already large enough, it returns early (preserving the developer's larger-than-natural size). If content no longer fits, `s_previewUserSized[type]` is cleared and auto-fit takes over, resizing to the correct natural height with no scrollbar.
+
 ## [2026.06.03.08] - 2026-06-03 08:22
 
 ### Files page & Dialogs page — install folder path now correctly restored on project open; Select Folder body text edits no longer discarded
