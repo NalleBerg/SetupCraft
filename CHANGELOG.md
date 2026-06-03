@@ -2,6 +2,16 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.06.03.08] - 2026-06-03 08:22
+
+### Files page & Dialogs page — install folder path now correctly restored on project open; Select Folder body text edits no longer discarded
+
+- **`mainwindow.cpp` — `Create()`: `s_currentInstallPath` now initialised from `project.directory` (Bug fix)**: When opening an existing project, `s_currentInstallPath` was always cleared by `SETT_Reset()` and never restored from the `projects.directory` column in the DB. The Install folder field on the Files page therefore always fell back to `GetProgramFilesPath() + "\\" + project.name` — discarding the previously saved path. On a subsequent Save (while on the Files page) that recomputed default was then written back to the DB, silently overwriting the real saved install path. Fix: in `Create()`, immediately after `s_currentProject = project`, `s_currentInstallPath = project.directory` is now assigned. Empty for new projects (no change in behaviour); populated for existing ones (correct path shown and preserved).
+
+- **`dialogs.cpp` — `IDLG_ApplyDefaults`: `alwaysResolve` exception removed for `IDLG_SELECT_FOLDER` (Bug fix)**: `IDLG_ApplyDefaults` had a special-case flag `bool alwaysResolve = (d.first == (int)IDLG_SELECT_FOLDER)` that bypassed the `!empty()` guard for the Select Folder dialog, unconditionally regenerating its body RTF from the template on every project open. Because `IDLG_ApplyDefaults` is called after `IDLG_LoadFromDb`, the previously saved (user-edited) RTF body was immediately overwritten in memory — making edits appear not to persist even though they were correctly written to the DB. Fix: the `alwaysResolve` flag is removed; the Select Folder slot now respects the same `!empty()` guard as every other dialog slot. Live-update on the "Allow change" checkbox toggle is unaffected — that path goes through `IDC_IDLG_SELECT_FOLDER_ALLOW_CHANGE` directly.
+
+- **`locale/en_GB.txt` — `idlg_default_select_folder_body_locked`: trailing colon added (Typo fix)**: The locked-folder body text read *"\<\<AppName\>\> will be installed in the following folder."* (full stop). Changed to end with a colon (*"…folder:"*) so the sentence flows naturally into the path display below it.
+
 ## [2026.06.02.12] - 2026-06-02 12:12
 
 ### Dialogs page — dialog edits now persist correctly; Finish page no longer shows a spurious scrollbar

@@ -705,6 +705,7 @@ HWND MainWindow::Create(HINSTANCE hInstance, const ProjectRow &project, const st
     s_components.clear();   // load once here, never on page switch
     s_installTypes.clear(); // load once here, alongside components
     s_currentProject = project;
+    s_currentInstallPath = project.directory; // Restore saved install path (empty for new projects)
     s_locale = locale;
 
     // Seed the installer-title section with the project name as default.

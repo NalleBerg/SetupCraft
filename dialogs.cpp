@@ -107,10 +107,15 @@ static HFONT      s_hGuiFont   = NULL;
 static HFONT      s_hTitleFont = NULL;
 static const std::map<std::wstring,std::wstring>* s_pLocale = NULL;
 
+// Forward declaration — defined later in this file.
+static std::wstring SubstitutePlaceholders(std::wstring rtf,
+    const std::wstring& appName, const std::wstring& appVersion);
+
 // Installer-title section state (survives page switches; cleared by IDLG_Reset).
 static std::wstring s_installTitle;             // text shown in installer title bar
 static std::wstring s_installIconPath;          // custom .ico path; empty = default
 static std::wstring s_previewAppName;           // project name used in preview finish dialog
+static std::wstring s_previewAppVersion;        // project version cached for re-resolve on allow-change toggle
 static HICON        s_hInstallIcon    = NULL;   // currently displayed icon HANDLE
 static HWND         s_hInstIconPreview = NULL;  // preview control for live updates
 
@@ -289,6 +294,13 @@ static int s_previewVAlign = 1;
 // Preview and sizer styles — defined once so AdjustWindowRectEx is consistent.
 static const DWORD kPreviewStyle   = WS_POPUP | WS_CAPTION; // no WS_SYSMENU → no ×
 static const DWORD kPreviewExStyle = WS_EX_DLGMODALFRAME;
+
+// Tracks any currently-open preview window so the checkbox handler can
+// push a content-refresh message to it without a dedicated modal pump.
+static HWND s_hActivePreview = NULL;
+// Posted to s_hActivePreview when s_dialogs[type].content_rtf is re-resolved
+// externally (e.g. allow-change checkbox toggle).  wParam = dialog type.
+static const UINT WM_IDLG_REFRESH_CONTENT = WM_USER + 42;
 
 // Interior-HWND storage; set during WM_CREATE, used by layout/navigation helpers.
 struct PreviewData {
@@ -1827,6 +1839,18 @@ static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
         return 0;
     }
 
+    // Posted by the checkbox handler when s_dialogs[type].content_rtf changes
+    // (e.g. the "Allow end user to change folder" toggle).  Refreshes the live
+    // preview without closing/reopening the window.
+    if (msg == WM_IDLG_REFRESH_CONTENT) {
+        if (pd) {
+            InstallerDialogType refreshType = (InstallerDialogType)(int)wParam;
+            if (pd->type == refreshType)
+                NavigateTo(hwnd, pd, refreshType);
+        }
+        return 0;
+    }
+
     return DefWindowProcW(hwnd, msg, wParam, lParam);
 }
 
@@ -2697,6 +2721,7 @@ static void ShowPreviewDialog(HWND hwndParent, InstallerDialogType type)
         L"IDLGPreviewClass", caption.c_str(), kPreviewStyle,
         px, py, wndW, wndH, hwndParent, NULL, s_hInst, &pd);
     if (!hPreview) { if (hSmIcon) DestroyIcon(hSmIcon); if (hLgIcon) DestroyIcon(hLgIcon); return; }
+    s_hActivePreview = hPreview;
 
     if (hSmIcon) SendMessageW(hPreview, WM_SETICON, ICON_SMALL, (LPARAM)hSmIcon);
     if (hLgIcon) SendMessageW(hPreview, WM_SETICON, ICON_BIG,   (LPARAM)hLgIcon);
@@ -2808,6 +2833,7 @@ static void ShowPreviewDialog(HWND hwndParent, InstallerDialogType type)
 
     // Standard Win32 modal pattern: enable owner BEFORE destroying the popup
     // so Windows automatically activates it when the popup disappears.
+    s_hActivePreview = NULL;
     EnableWindow(hwndParent, TRUE);
     if (hSizer  && IsWindow(hSizer))  DestroyWindow(hSizer);
     if (hPreview && IsWindow(hPreview)) DestroyWindow(hPreview);
@@ -2848,7 +2874,8 @@ void IDLG_Reset()
         s_dialogEnabled[i]       = true;
     }
     s_installTitle     = L"";
-    s_previewAppName   = L"";
+    s_previewAppName    = L"";
+    s_previewAppVersion = L"";
     s_installIconPath  = L"";
     s_licenseMustAccept       = true;
     s_licenseTemplateId      = 0;
@@ -3577,6 +3604,25 @@ bool IDLG_OnCommand(HWND hwnd, int wmId, int wmEvent, HWND hCtrl)
     if (wmId == IDC_IDLG_SELECT_FOLDER_ALLOW_CHANGE) {
         HWND hChk = GetDlgItem(hwnd, IDC_IDLG_SELECT_FOLDER_ALLOW_CHANGE);
         if (hChk) s_selectFolderAllowChange = (SendMessageW(hChk, BM_GETCHECK, 0, 0) == BST_CHECKED);
+        // Re-resolve the Select Folder default RTF so the body text switches
+        // between the "choose folder" and "locked" variants.
+        {
+            auto defs = DB::GetAllDialogDefaults();
+            for (const auto& d : defs) {
+                if (d.first == IDLG_SELECT_FOLDER && !d.second.empty()) {
+                    s_dialogs[IDLG_SELECT_FOLDER].content_rtf =
+                        SubstitutePlaceholders(d.second,
+                            s_previewAppName.empty()    ? L"AppName" : s_previewAppName,
+                            s_previewAppVersion);
+                    break;
+                }
+            }
+        }
+        // If a preview is open on the Select Folder page, refresh it live.
+        if (s_hActivePreview && IsWindow(s_hActivePreview)) {
+            PostMessageW(s_hActivePreview, WM_IDLG_REFRESH_CONTENT,
+                         (WPARAM)IDLG_SELECT_FOLDER, 0);
+        }
         MainWindow::MarkAsModified();
         return true;
     }
@@ -3788,7 +3834,7 @@ static std::wstring SubstitutePlaceholders(std::wstring rtf,
                 L"then click \u00abNext\u00bb.");
         } else {
             text = L10n(L"idlg_default_select_folder_body_locked",
-                L"<<AppName>> will be installed in the following folder.");
+                L"<<AppName>> will be installed in the following folder:");
         }
         repl(rtf, L"<<DlgDefaultSelectFolderBody>>", encodeWithBoldNames(text));
     }
@@ -3802,7 +3848,8 @@ static std::wstring SubstitutePlaceholders(std::wstring rtf,
 
 void IDLG_ApplyDefaults(const std::wstring& appName, const std::wstring& appVersion)
 {
-    s_previewAppName = appName;  // keep in sync for preview Finish dialog
+    s_previewAppName    = appName;     // keep in sync for preview Finish dialog
+    s_previewAppVersion = appVersion;  // keep in sync for allow-change re-resolve
 
     // License: only keep saved content if the user explicitly edited it AND
     // that edit was made while the same template was selected.
@@ -3841,7 +3888,7 @@ void IDLG_ApplyDefaults(const std::wstring& appName, const std::wstring& appVers
     auto defaults = DB::GetAllDialogDefaults();
     for (const auto& d : defaults) {
         if (d.first < 0 || d.first >= IDLG_COUNT) continue;
-        if (!s_dialogs[d.first].content_rtf.empty()) continue; // already has content
+        if (!s_dialogs[d.first].content_rtf.empty()) continue;
         if (d.second.empty()) continue;
         s_dialogs[d.first].content_rtf =
             SubstitutePlaceholders(d.second, appName, appVersion);
