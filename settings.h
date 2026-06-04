@@ -70,7 +70,6 @@ struct InnoLangEntry { std::wstring isl; bool local; };
 #define IDC_SETT_UAC_HIGHEST     8022   // Radio: highestAvailable
 #define IDC_SETT_MIN_OS          8023   // Combo: minimum OS version
 #define IDC_SETT_PRIV_OVERRIDES  8024   // Combo: PrivilegesRequiredOverridesAllowed
-#define IDC_SETT_WIZARD_STYLE    8025   // Combo: WizardStyle (modern / classic)
 
 // ── Code signing section ─────────────────────────────────────────────────────
 #define IDC_SETT_SIGN_ENABLE     8060   // Custom checkbox: enable signing

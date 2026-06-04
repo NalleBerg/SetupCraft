@@ -2,6 +2,20 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.06.04.17] - 2026-06-04 17:24
+
+### Test Installer page — fully operational: generates .iss and compiles with bundled IS7; WizardStyle locked to modern; Ctrl+S fixed
+
+- **`test_page.cpp` — `TEST_RunTest()`: complete implementation (New feature)**: The Test Installer page (F5) now generates a `.iss` script via `ISS_GenerateIss()` and compiles it with the bundled `ISCC.exe` on a background thread. Output lines are fed into the Details window as they arrive. The progress bar runs in marquee mode during compilation; on completion it snaps to full and shows the build result. The Run button is disabled during the build and re-enabled on finish.
+
+- **`issgen.cpp` / `settings.cpp` — `WizardStyle` hardcoded to `modern` (Change)**: The "Wizard style" combo (Modern / Classic) has been removed from the Settings page. `WizardStyle=modern` is now the only output — `ShowInstallDetails` requires modern style and IS7 rejects it otherwise. The `s_wizardStyle` variable, its `DB::SetSetting`/`GetSetting` calls, and the `IDC_SETT_WIZARD_STYLE` constant are all removed. `cfg.wizardStyle` is set to `0` (modern) unconditionally in `SETT_GetBuildConfig()`.
+
+- **`issgen.cpp` — `ShowInstallDetails` token added to token table (Bug fix)**: The `{#ShowInstallDetails}` placeholder in `template.iss` was not being substituted because the corresponding token entry was missing from the token table. Added `{ L"ShowInstallDetails", ShowInstallDetailsStr(IDLG_GetInstallShowDetails()) }` after `DisableFinishedPage`.
+
+- **`makeit.bat` — Inno Setup 7 x64 bundled; junk files cleaned from package (New feature)**: The `inno\` directory now ships Inno Setup 7.0.1-beta x64 (`ISCC.exe` + compiler DLLs). `makeit.bat` removes `unins000.*`, `.chm` files, `isfaq.url`, `whatsnew.htm`, wizard bitmaps, `SetupClassicIcon.ico`, `ISPPBuiltins.iss`, `Compil32.exe`, `ISSigTool.exe`, `license.txt`, and the `Examples\` subfolder from the packaged `inno\` so only the compiler and required runtime files are shipped.
+
+- **`mainwindow.cpp` — `IDC_SETT_WIZARD_STYLE` reference removed from control list (Bug fix)**: A stale reference to the removed `IDC_SETT_WIZARD_STYLE` constant in `SwitchPage`'s control-hide list caused a compile error. Removed.
+
 ## [2026.06.03.12] - 2026-06-03 12:22
 
 ### Dialogs page — Ready to Install preview: spurious scrollbar definitively fixed

@@ -1,0 +1,8 @@
+format issig-v2
+file-name "is7z.dll"
+file-size 1003152
+file-hash 6ebb9a5fc340c639fad1480658c9c88f4576dd39c26f1a2e6a47c9e87fc45055
+file-tag ""
+key-id def0147c3bbc17ab99bf7b7a9c2de1390283f38972152418d7c2a4a7d7131a38
+sig-r 8758b78bc90afef95683e7c86e9c6bf0c4f4453ebf70039da8ae1f8c9aecb876
+sig-s 19bd8043fde398a7dc312280c9103bc27a57f7e8ac178cb7da08933426d57bef

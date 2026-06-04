@@ -1,0 +1,8 @@
+format issig-v2
+file-name "SetupLdr.e64"
+file-size 1410560
+file-hash 2877ff36840c2ca42f6cb8c9eac986d170a106a31fb2f292c9072fedaa718cc8
+file-tag ""
+key-id def020edee3c4835fd54d85eff8b66d4d899b22a777353ca4a114b652e5e7a28
+sig-r 0d1bc6e91278fa7786f206e159c0f2244e126816eeb5f1369c058b09af129fc4
+sig-s ea296b10e0b98ff48083968d30b8dbd2ba0e84b57523aab97cca03d6a5742e82

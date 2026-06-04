@@ -138,10 +138,35 @@ if exist "%~dp0sqlite3\" (
     xcopy /e /i /y "%~dp0sqlite3" "%PKG_DIR%\sqlite3\"
 )
 
-REM Inno template
+REM Inno Setup (bundled ISCC + compiler DLLs + language files + template)
 if exist "%~dp0inno\" (
-    echo Copying inno templates...
+    echo Copying inno directory...
     xcopy /e /i /y "%~dp0inno" "%PKG_DIR%\inno\"
+
+    REM Remove files that belong to the Inno Setup self-installer or are
+    REM developer-only and have no place in the distributed SetupCraft package.
+    for %%F in (
+        "%PKG_DIR%\inno\unins000.dat"
+        "%PKG_DIR%\inno\unins000.exe"
+        "%PKG_DIR%\inno\unins000.msg"
+        "%PKG_DIR%\inno\ISetup.chm"
+        "%PKG_DIR%\inno\ISetup-dark.chm"
+        "%PKG_DIR%\inno\isfaq.url"
+        "%PKG_DIR%\inno\whatsnew.htm"
+        "%PKG_DIR%\inno\WizClassicImage.bmp"
+        "%PKG_DIR%\inno\WizClassicImage-IS.bmp"
+        "%PKG_DIR%\inno\WizClassicSmallImage.bmp"
+        "%PKG_DIR%\inno\WizClassicSmallImage-IS.bmp"
+        "%PKG_DIR%\inno\SetupClassicIcon.ico"
+        "%PKG_DIR%\inno\ISPPBuiltins.iss"
+        "%PKG_DIR%\inno\Compil32.exe"
+        "%PKG_DIR%\inno\ISSigTool.exe"
+        "%PKG_DIR%\inno\ISetup.chm"
+        "%PKG_DIR%\inno\license.txt"
+    ) do if exist %%F del /q %%F
+
+    REM Remove Examples subfolder — not needed at runtime
+    if exist "%PKG_DIR%\inno\Examples\" rmdir /s /q "%PKG_DIR%\inno\Examples"
 )
 
 REM Scintilla / Lexilla

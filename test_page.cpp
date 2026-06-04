@@ -170,7 +170,14 @@ struct TestBuildParams {
 };
 
 // ── Find ISCC.exe ─────────────────────────────────────────────────────────────
-static std::wstring FindIscc() {
+// innoDir: if non-empty, checked first (e.g. a bundled ISCC next to template.iss).
+static std::wstring FindIscc(const std::wstring& innoDir = L"") {
+    // Check the inno/ directory first — a bundled or side-by-side ISCC.exe takes priority.
+    if (!innoDir.empty()) {
+        std::wstring local = innoDir + L"\\ISCC.exe";
+        if (GetFileAttributesW(local.c_str()) != INVALID_FILE_ATTRIBUTES)
+            return local;
+    }
     const wchar_t* candidates[] = {
         L"C:\\Program Files (x86)\\Inno Setup 6\\ISCC.exe",
         L"C:\\Program Files\\Inno Setup 6\\ISCC.exe",
@@ -202,7 +209,14 @@ static DWORD WINAPI TEST_BuildThreadProc(LPVOID param)
 
     // Step 2: compile with ISCC
     ThrSetStep(L"Step 2 of 2 \u2014 Compiling with ISCC\u2026");
-    std::wstring iscc = FindIscc();
+    // Derive the inno/ directory from the template path so a bundled ISCC.exe is found.
+    std::wstring innoHint;
+    {
+        size_t slash = p->templatePath.rfind(L'\\');
+        if (slash != std::wstring::npos)
+            innoHint = p->templatePath.substr(0, slash);
+    }
+    std::wstring iscc = FindIscc(innoHint);
     if (iscc.empty()) {
         ThrAppendLog(L"ISCC.exe not found.\r\nInstall Inno Setup 6 from: https://jrsoftware.org/isdl.php\r\n");
         ThrFinish(false, L"\u2716  ISCC.exe not found \u2014 install Inno Setup 6");
@@ -791,36 +805,44 @@ void TEST_RunTest(HWND hwnd)
         if (cur[0] == L'\0') SetWindowTextW(s_hFileEdit, baseName.c_str());
     }
 
+    // Uniquify filename so we never silently overwrite a previous test build
+    baseName = UniqueFilename(folder, baseName);
+
+    // Persist paths
     SETT_SetTestOutputFolder(folder);
     SETT_SetTestOutputFilename(baseName);
-    baseName = UniqueFilename(folder, baseName);
     s_lastTestFolder = folder;
 
-    // ── Locate inno/ directory ────────────────────────────────────────────────
+    // ── Locate inno/ dir + template ──────────────────────────────────────────
     std::wstring innoDir = ISS_FindInnoDir();
     if (innoDir.empty()) {
         if (s_hStatus && IsWindow(s_hStatus))
             SetWindowTextW(s_hStatus,
-                L"\u2716  Cannot find inno\\ directory next to SetupCraft.exe");
+                loc(L"test_status_no_inno",
+                    L"\u2716  Could not find inno\\ directory. "
+                    L"Make sure template.iss is present next to SetupCraft.exe.").c_str());
         return;
     }
 
-    // ── Build thread parameters ───────────────────────────────────────────────
+    // ── Build the parameter block for the thread ──────────────────────────────
     TestBuildParams* p = new TestBuildParams();
     p->templatePath = innoDir + L"\\template.iss";
-    p->outIssPath   = innoDir + L"\\" + MainWindow::GetProjectName() + L"_test.iss";
-    p->proj   = MainWindow::GetCurrentProject();
-    p->cfg    = SETT_GetBuildConfig();
-    p->cfg.outputFolder   = folder;     // override with test paths
+    p->outIssPath   = innoDir + L"\\" + MainWindow::GetProjectName() + L"_test_generated.iss";
+
+    p->proj = MainWindow::GetCurrentProject();
+
+    p->cfg = SETT_GetBuildConfig();
+    p->cfg.outputFolder   = folder;
     p->cfg.outputFilename = baseName;
+
     p->langs  = SETT_GetInstallerLanguages();
     p->assocs = FA_GetAssociations();
+
     if (p->proj.use_components && p->proj.id > 0) {
         p->types = DB::GetInstallTypesForProject(p->proj.id);
-        p->comps = MainWindow::GetComponents();
+        p->comps = MainWindow::GetComponents();  // already in memory
     }
 
-    // ── Populate extra data for ISS generation ───────────────────────────────
     p->extra.shortcuts      = SC_GetShortcutRows();
     p->extra.menuNodes      = SC_GetMenuNodeRows();
     p->extra.desktopOptOut  = SC_GetDesktopOptOut();
@@ -838,42 +860,50 @@ void TEST_RunTest(HWND hwnd)
     s_threadResult = L"";
     LeaveCriticalSection(&s_cs);
 
-    // ── Update UI: running state ──────────────────────────────────────────────
-    if (s_hStatus && IsWindow(s_hStatus))
-        SetWindowTextW(s_hStatus,
-            loc(L"test_status_running", L"Build in progress\u2026").c_str());
-
-    if (s_hProgress && IsWindow(s_hProgress)) {
-        LONG sty = GetWindowLongW(s_hProgress, GWL_STYLE);
-        SetWindowLongW(s_hProgress, GWL_STYLE, (sty & ~PBS_SMOOTH) | PBS_MARQUEE);
-        SendMessageW(s_hProgress, PBM_SETBARCOLOR, 0, (LPARAM)CLR_DEFAULT);
-        ShowWindow(s_hProgress, SW_SHOW);
-        SendMessageW(s_hProgress, PBM_SETMARQUEE, TRUE, 60);
-    }
-    if (s_hStepLbl && IsWindow(s_hStepLbl)) {
-        SetWindowTextW(s_hStepLbl, L"");
-        ShowWindow(s_hStepLbl, SW_SHOW);
-    }
-    // Clear details window if open
-    if (s_hDetailsEdit && IsWindow(s_hDetailsEdit))
-        SetWindowTextW(s_hDetailsEdit, L"");
-
-    HWND hRun = GetDlgItem(hwnd, IDC_TEST_RUN_BTN);
-    if (hRun) EnableWindow(hRun, FALSE);
-    if (s_hDetailsBtn && IsWindow(s_hDetailsBtn))
-        ShowWindow(s_hDetailsBtn, SW_HIDE);
-
-    // ── Launch build thread + polling timer ───────────────────────────────────
-    s_hwndMain     = hwnd;
+    // ── Kick off the build thread ─────────────────────────────────────────────
     s_hBuildThread = CreateThread(NULL, 0, TEST_BuildThreadProc, p, 0, NULL);
     if (!s_hBuildThread) {
         delete p;
         if (s_hStatus && IsWindow(s_hStatus))
-            SetWindowTextW(s_hStatus, L"\u2716  Failed to start build thread");
-        if (s_hProgress && IsWindow(s_hProgress)) ShowWindow(s_hProgress, SW_HIDE);
-        if (s_hStepLbl  && IsWindow(s_hStepLbl))  ShowWindow(s_hStepLbl,  SW_HIDE);
-        if (hRun) EnableWindow(hRun, TRUE);
+            SetWindowTextW(s_hStatus,
+                loc(L"test_status_thread_fail",
+                    L"\u2716  Failed to start build thread.").c_str());
         return;
     }
+
+    // ── Update UI: building in progress ──────────────────────────────────────
+    s_hwndMain = hwnd;
+
+    // Disable Run button while building
+    HWND hRun = GetDlgItem(hwnd, IDC_TEST_RUN_BTN);
+    if (hRun) EnableWindow(hRun, FALSE);
+
+    // Hide Details button (stale from previous build)
+    if (s_hDetailsBtn && IsWindow(s_hDetailsBtn))
+        ShowWindow(s_hDetailsBtn, SW_HIDE);
+
+    // Show + start marquee progress bar
+    if (s_hProgress && IsWindow(s_hProgress)) {
+        LONG sty = GetWindowLongW(s_hProgress, GWL_STYLE);
+        SetWindowLongW(s_hProgress, GWL_STYLE, (sty & ~PBS_SMOOTH) | PBS_MARQUEE);
+        SendMessageW(s_hProgress, PBM_SETBARCOLOR, 0, (LPARAM)CLR_DEFAULT);
+        SendMessageW(s_hProgress, PBM_SETMARQUEE, TRUE, 60);
+        ShowWindow(s_hProgress, SW_SHOW);
+    }
+
+    // Show step label
+    if (s_hStepLbl && IsWindow(s_hStepLbl)) {
+        SetWindowTextW(s_hStepLbl, L"");
+        ShowWindow(s_hStepLbl, SW_SHOW);
+    }
+
+    // Status: tell the developer what we're building
+    std::wstring buildingMsg =
+        loc(L"test_status_building", L"Building\u2026  ")
+        + folder + L"\\" + baseName + L".exe";
+    if (s_hStatus && IsWindow(s_hStatus))
+        SetWindowTextW(s_hStatus, buildingMsg.c_str());
+
+    // Start timer that polls thread state and feeds the UI
     s_timerId = SetTimer(hwnd, 8901, 150, TEST_TimerProc);
 }

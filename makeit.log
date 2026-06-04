@@ -1,10 +1,10 @@
  
 ================================================================
-  SetupCraft Build  --  02.06.2026  12:15:26,08
+  SetupCraft Build  --  04.06.2026  17:27:16,52
 ================================================================
 
 [PRE] Stopping any running SetupCraft.exe instances...
-SUCCESS: The process "SetupCraft.exe" with PID 24272 has been terminated.
+ERROR: The process "SetupCraft.exe" not found.
 [PRE] Ready.
 
   Generator : MinGW Makefiles
@@ -13,7 +13,7 @@ SUCCESS: The process "SetupCraft.exe" with PID 24272 has been terminated.
 
 [CONFIGURE] Running cmake -S . -B build ...
 -- Configuring done (0.0s)
--- Generating done (0.1s)
+-- Generating done (0.0s)
 -- Build files have been written to: C:/Users/NalleBerg/Documents/C++/Workspace/SetupCraft/build
 
 [BUILD] Compiling — cmake --build build --clean-first --verbose ...
@@ -184,12 +184,165 @@ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\sqlite3\README.md
 C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\sqlite3\sqlite3.dll
 C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\sqlite3\sqlite3.exe
 3 File(s) copied
-Copying inno templates...
+Copying inno directory...
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Compil32.exe
 C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\compile_inno.bat
-C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\LICENSE.txt
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Default.isl
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\is7z-x64.dll
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\is7z-x64.dll.issig
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\is7z.dll
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\is7z.dll.issig
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\is7zxa-x64.dll
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\is7zxa-x64.dll.issig
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\is7zxa.dll
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\is7zxa.dll.issig
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\is7zxr-x64.dll
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\is7zxr-x64.dll.issig
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\is7zxr.dll
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\is7zxr.dll.issig
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\isbunzip-x64.dll
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\isbunzip-x64.dll.issig
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\isbunzip.dll
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\isbunzip.dll.issig
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\isbzip-x64.dll
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\isbzip-x64.dll.issig
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\isbzip.dll
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\isbzip.dll.issig
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\ISCC.exe
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\ISCmplr.dll
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\ISCmplr.dll.issig
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\ISetup-dark.chm
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\ISetup.chm
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\isfaq.url
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\ISIDE.exe
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\islzma-Arm64EC.dll
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\islzma-Arm64EC.dll.issig
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\islzma-x64.dll
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\islzma-x64.dll.issig
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\islzma.dll
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\islzma.dll.issig
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\islzma32.exe
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\islzma32.exe.issig
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\islzma64.exe
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\islzma64.exe.issig
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\ISPP.dll
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\ISPP.dll.issig
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\ISPPBuiltins.iss
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\isscint-x64.dll
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\isscint-x64.dll.issig
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\isscint.dll
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\isscint.dll.issig
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\ISSigTool.exe
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\isunzlib-x64.dll
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\isunzlib-x64.dll.issig
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\isunzlib.dll
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\isunzlib.dll.issig
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\iszlib-x64.dll
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\iszlib-x64.dll.issig
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\iszlib.dll
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\iszlib.dll.issig
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\license.txt
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Setup.e32
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Setup.e32.issig
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Setup.e64
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Setup.e64.issig
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\SetupClassicIcon.ico
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\SetupCustomStyle.e32
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\SetupCustomStyle.e32.issig
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\SetupCustomStyle.e64
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\SetupCustomStyle.e64.issig
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\SetupLdr.e32
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\SetupLdr.e32.issig
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\SetupLdr.e64
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\SetupLdr.e64.issig
 C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Swedish.isl
 C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\template.iss
-4 File(s) copied
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\unins000.dat
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\unins000.exe
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\unins000.msg
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\unins001.dat
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\unins001.exe
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\unins001.msg
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\whatsnew.htm
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\WizClassicImage-IS.bmp
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\WizClassicImage.bmp
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\WizClassicSmallImage-IS.bmp
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\WizClassicSmallImage.bmp
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Examples\64Bit.iss
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Examples\64BitThreeArch.iss
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Examples\64BitTwoArch.iss
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Examples\AllPagesExample.iss
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Examples\CodeAutomation.iss
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Examples\CodeAutomation2.iss
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Examples\CodeClasses.iss
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Examples\CodeDlg.iss
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Examples\CodeDll.iss
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Examples\CodeDownloadFiles.iss
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Examples\CodeExample1.iss
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Examples\CodePrepareToInstall.iss
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Examples\Components.iss
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Examples\DownloadFiles.iss
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Examples\Example1.iss
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Examples\Example2.iss
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Examples\Example3.iss
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Examples\ISPPExample1.iss
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Examples\ISPPExample1License.txt
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Examples\Languages.iss
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Examples\License.txt
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Examples\MyDll-x64.dll
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Examples\MyDll.dll
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Examples\MyProg-Arm64.exe
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Examples\MyProg-x64.exe
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Examples\MyProg.chm
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Examples\MyProg.exe
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Examples\PowerShell.iss
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Examples\Readme-Dutch.txt
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Examples\Readme-German.txt
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Examples\Readme.txt
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Examples\UnicodeExample1.iss
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Examples\UninstallCodeExample1.iss
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Examples\MyDll\C\MyDll.c
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Examples\MyDll\C\MyDll.def
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Examples\MyDll\C\MyDll.dsp
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Examples\MyDll\C\MyDll.sln
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Examples\MyDll\C\MyDll.vcxproj
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Examples\MyDll\C#\MyDll.cs
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Examples\MyDll\C#\MyDll.csproj
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Examples\MyDll\C#\MyDll.sln
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Examples\MyDll\C#\packages.config
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Examples\MyDll\C#\Properties\AssemblyInfo.cs
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Examples\MyDll\Delphi\MyDll.dpr
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Examples\MyDll\Delphi\MyDll.dproj
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Languages\Arabic.isl
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Languages\Armenian.isl
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Languages\BrazilianPortuguese.isl
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Languages\Bulgarian.isl
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Languages\Catalan.isl
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Languages\Corsican.isl
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Languages\Czech.isl
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Languages\Danish.isl
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Languages\Dutch.isl
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Languages\Finnish.isl
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Languages\French.isl
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Languages\German.isl
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Languages\Hebrew.isl
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Languages\Hungarian.isl
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Languages\Italian.isl
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Languages\Japanese.isl
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Languages\Korean.isl
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Languages\Norwegian.isl
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Languages\Polish.isl
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Languages\Portuguese.isl
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Languages\Russian.isl
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Languages\Slovak.isl
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Languages\Slovenian.isl
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Languages\Spanish.isl
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Languages\Swedish.isl
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Languages\Tamil.isl
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Languages\Thai.isl
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Languages\Turkish.isl
+C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\inno\Languages\Ukrainian.isl
+157 File(s) copied
         1 file(s) copied.
         1 file(s) copied.
         1 file(s) copied.
@@ -217,6 +370,6 @@ C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\LicenseImg\wtfpl-badge-1.p
 15 File(s) copied
 
 Package created at C:\Users\NalleBerg\Documents\C++\Workspace\SetupCraft\SetupCraft
-SetupCraft.exe: 02.06.2026 12:16
+SetupCraft.exe: 04.06.2026 17:28
 
 [DONE] All steps completed successfully.

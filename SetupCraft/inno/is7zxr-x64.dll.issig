@@ -1,0 +1,8 @@
+format issig-v2
+file-name "is7zxr-x64.dll"
+file-size 248976
+file-hash c82911d3613229cbca067f4caea66d0751ec0898df911f61b07fc8cf00505175
+file-tag ""
+key-id def0147c3bbc17ab99bf7b7a9c2de1390283f38972152418d7c2a4a7d7131a38
+sig-r 63b0c30e1fa098de1bcd2f0d2c106b063721688f282d94bf1a4ceadd9e2ecf14
+sig-s adbc595260d7aa3302554a376aee4b9fdc7c1a8281a0f764db7742fa6d1e5ffd

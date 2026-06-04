@@ -1000,7 +1000,8 @@
                                                 PrivilegesRequired,
                                                 PrivilegesRequiredOverridesAllowed
                                                 (none/commandline/dialog),
-                                                WizardStyle (modern/classic),
+                                                WizardStyle (always modern — hardcoded;
+                                                ShowInstallDetails requires modern style),
                                                 Uninstallable,
                                                 CloseApplications, ChangesEnvironment,
                                                 PathFolders (multi-entry PATH registry;
@@ -1139,6 +1140,33 @@
                                                 mainwindow.cpp which then launches
                                                 compile_inno.bat <generated.iss> via
                                                 ShellExecuteW in a visible cmd window.
+
+  test_page.h / test_page.cpp                   Test Installer page (page index 7, F5).
+                                                TEST_CreatePage / TEST_OnResize /
+                                                TEST_PopulateFromSettings /
+                                                TEST_RunTest — the main entry point.
+                                                Async build: CreateThread runs
+                                                TEST_BuildThreadProc; SetTimer (150 ms)
+                                                polls completion via TEST_TimerProc.
+                                                Step 1: ISS_GenerateIss() writes
+                                                inno\<proj>_test_generated.iss.
+                                                Step 2: SpawnIscc() launches
+                                                ISCC.exe /O<outDir> /F<name> <iss>
+                                                with stdout+stderr captured via anonymous
+                                                pipes; output lines streamed into the
+                                                Details RichEdit as they arrive.
+                                                FindIscc(innoDir) locates ISCC.exe:
+                                                checks innoDir first (bundled), then
+                                                Program Files IS6/IS7 fallbacks.
+                                                Progress bar in PBS_MARQUEE during
+                                                compilation; snaps to full on finish.
+                                                Run button disabled during build,
+                                                re-enabled on completion.
+                                                UniqueFilename() appends _1/_2/… to
+                                                avoid overwriting an existing .exe.
+                                                TestBuildParams struct carries
+                                                templatePath, outIssPath, proj, cfg,
+                                                outputFolder, outputFilename.
 
   API_INTERNALS\API\my_scrollbar_vscroll_API.txt  Custom Win32 vertical scrollbar — full public API.
                                                 msb_attach / msb_detach / msb_sync /

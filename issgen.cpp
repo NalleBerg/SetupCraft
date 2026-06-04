@@ -291,12 +291,6 @@ static const wchar_t* PrivOverridesStr(int val)
     }
 }
 
-// Map wizardStyle index to the Inno WizardStyle= string.
-static const wchar_t* WizardStyleStr(int val)
-{
-    return (val == 1) ? L"classic" : L"modern";
-}
-
 // Map dirExistsWarning index to the Inno DirExistsWarning= string.
 static const wchar_t* DirExistsWarningStr(int val)
 {
@@ -824,7 +818,7 @@ std::wstring ISS_GenerateIss(
         { L"SolidCompression",  cfg.solidCompression ? L"yes" : L"no" },
         { L"PrivilegesRequired",             PrivilegesStr(cfg.uacLevel)                        },
         { L"PrivilegesRequiredOverridesAllowed", PrivOverridesStr(cfg.privOverridesAllowed)     },
-        { L"WizardStyle",      WizardStyleStr(cfg.wizardStyle)                                  },
+        { L"WizardStyle",      L"modern"                                                        },
         { L"Uninstallable",     cfg.allowUninstall ? L"yes" : L"no"   },
         { L"CloseApplications", cfg.closeApps      ? L"yes" : L"no"  },
         { L"ChangesEnvironment",  cfg.changesEnvironment  ? L"yes" : L"no" },
@@ -853,11 +847,12 @@ std::wstring ISS_GenerateIss(
         { L"UninstallFilesDir",        cfg.uninstallFilesDir.empty() ? L"{app}" : cfg.uninstallFilesDir },
         { L"LanguageDetectionMethod",  LangDetectionMethodStr(cfg.langDetectionMethod) },
         { L"ShowLanguageDialog",       ShowLanguageDialogStr(cfg.showLanguageDialog)    },
-        { L"ShowInstallDetails",       ShowInstallDetailsStr(IDLG_GetInstallShowDetails()) },
+
         // Dialog-derived [Setup] tokens
         { L"DisableWelcomePage",       IDLG_IsDialogEnabled(IDLG_WELCOME)  ? L"no" : L"yes" },
         { L"DisableReadyPage",         IDLG_IsDialogEnabled(IDLG_READY)    ? L"no" : L"yes" },
         { L"DisableFinishedPage",      IDLG_IsDialogEnabled(IDLG_FINISH)   ? L"no" : L"yes" },
+        { L"ShowInstallDetails",       ShowInstallDetailsStr(IDLG_GetInstallShowDetails())    },
         { L"AlwaysShowDirOnReadyPage", IDLG_GetReadyShowDir()   ? L"yes" : L"no"             },
         { L"AlwaysShowGroupOnReadyPage", IDLG_GetReadyShowGroup() ? L"yes" : L"no"           },
         { L"LicenseFile",
