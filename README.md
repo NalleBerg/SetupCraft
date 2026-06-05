@@ -2,9 +2,9 @@
 
 An installer creation tool for making your developed packages distributable. Designed to be simple to use with a clean, native Windows interface.
 
-**Current Release:** Version 2026.06.04.17 (Published: 04.06.2026 17:24)
+**Current Release:** Version 2026.06.05.13 (Published: 05.06.2026 13:14)
 
-> Note: This project is in active development. Entry screen, Files management, Shortcuts, Dependencies, Dialogs, Scripts, Registry, Settings, File Associations, and Test Installer pages are complete. A contextual Manual popup (`ShowPageManual`) is fully populated for 9 pages: Files, Registry, Shortcuts, Dependencies, Dialogs, Settings, Scripts, Components, and File Types. The Test Installer page compiles a real installer exe via bundled Inno Setup 7 x64. Build page shows a placeholder.
+> Note: This project is in active development. Entry screen, Files management, Shortcuts, Dependencies, Dialogs, Scripts, Registry, Settings, File Associations, and Test Installer pages are complete. A contextual Manual popup (`ShowPageManual`) is fully populated for 9 pages: Files, Registry, Shortcuts, Dependencies, Dialogs, Settings, Scripts, Components, and File Types. The Test Installer page compiles a real installer exe via bundled Inno Setup 6 x64. The Dialogs page now includes installer icon wiring, Installed Apps icon support, and custom wizard image pickers. Build page shows a placeholder.
 
 ## Bundled Freeware Utilities
 

@@ -995,7 +995,8 @@
                                                 AppCopyright (© YYYY Publisher, year
                                                 from GetLocalTime at generation time),
                                                 AppId (braces escaped to {{…}}),
-                                                DefaultDirBase, OutputDir, OutputBase,
+                                                DefaultDirBase (defaults to {autopf64} for
+                                                the 64-bit target), OutputDir, OutputBase,
                                                 Compression, SolidCompression,
                                                 PrivilegesRequired,
                                                 PrivilegesRequiredOverridesAllowed
@@ -1596,7 +1597,9 @@
 
   API_INTERNALS\INTERNALS\dialogs_INTERNALS.txt Dialogs page module (toolbar index 4) —
                                                 InstallerDialogType enum (0–9) and row
-                                                visibility rules:
+                                                visibility rules; installer-title section
+                                                now includes wizard image pickers and the
+                                                installer icon preview:
                                                   0=WELCOME, 1=LICENSE, 2=DEPENDENCIES,
                                                   3=FOR_ME_ALL, 4=SELECT_FOLDER (new),
                                                   5=COMPONENTS, 6=SHORTCUTS, 7=READY,
@@ -1675,38 +1678,20 @@
                                                 public accessors IDLG_GetReadyShowDir()/
                                                 IDLG_GetReadyShowGroup()),
                                                 Install-row sub-controls
-                                                (IDC_IDLG_INSTALL_SHOW_DETAILS_LBL=7140 static label;
-                                                IDC_IDLG_INSTALL_SHOW_DETAILS=7141 checkbox —
-                                                  ShowInstallDetails=yes in [Setup];
-                                                IDC_IDLG_INSTALL_PROGRESS_LBL=7142 static label;
+                                                (IDC_IDLG_INSTALL_PROGRESS_LBL=7142 static label;
                                                 IDC_IDLG_INSTALL_PROGRESS_SMOOTH=7143 checkbox —
                                                   emits SetWindowLong PBS_SMOOTH in InitializeWizard;
                                                 IDC_IDLG_INSTALL_SHOW_ETA=7144 checkbox —
                                                   emits TNewStaticText + CurInstallProgressChanged
-                                                  Pascal proc; all three default false, persisted
-                                                  as installer_install_show_details_<pid>,
-                                                  installer_install_progress_smooth_<pid>,
+                                                  Pascal proc; both default false, persisted
+                                                  as installer_install_progress_smooth_<pid>,
                                                   installer_install_show_eta_<pid>; public
-                                                  accessors IDLG_GetInstallShowDetails()/
-                                                  IDLG_GetInstallProgressSmooth()/
+                                                  accessors IDLG_GetInstallProgressSmooth()/
                                                   IDLG_GetInstallShowEta();
                                                 Install preview: PopulateExtras creates a
-                                                  PROGRESS_CLASS bar at 0% in hCompChecks[0]
-                                                  and a CreateCustomButton "Show Details"
-                                                  in hCompChecks[1]; LayoutPreviewControls
-                                                  positions bar full-width at ctrlY (S(18)h)
-                                                  and button below at ctrlY+S(18)+S(6) with
-                                                  MeasureButtonWidth-derived width;
-                                                  locale key idlg_install_prv_show_det),
-                                                Install preview "Show Details" button
-                                                (IDC_IDLG_INSTALL_PRV_DET_BTN=7146
-                                                  BS_OWNERDRAW Blue button in hCompChecks[1];
-                                                  WM_DRAWITEM routes CtlID 7146 to
-                                                  DrawCustomButton alongside CtlID 7119;
-                                                  WM_COMMAND click calls ShowValidationDialog
-                                                  with title idlg_install_prv_show_det and
-                                                  body idlg_install_prv_det_preview;
-                                                  locale key idlg_install_prv_det_preview),
+                                                  PROGRESS_CLASS bar at 0% in hCompChecks[0];
+                                                  LayoutPreviewControls positions bar full-width
+                                                  at ctrlY height S(18)),
                                                 Select-Folder allow-change sub-control
                                                 (IDC_IDLG_SELECT_FOLDER_ALLOW_CHANGE=7145
                                                   custom checkbox; default checked;

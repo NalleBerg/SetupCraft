@@ -81,7 +81,6 @@ static bool s_readyShowDir   = true;   // AlwaysShowDirOnReadyPage   (yes by def
 static bool s_readyShowGroup = true;   // AlwaysShowGroupOnReadyPage (yes by default, matching Inno)
 
 // Install-page state.
-static int  s_installShowDetails   = 0;    // 0=auto, 1=yes, 2=no → ShowInstallDetails
 static bool s_installProgressSmooth = true; // true=smooth PBS_SMOOTH style
 static bool s_installShowEta        = false; // emit ETA countdown code
 
@@ -114,6 +113,8 @@ static std::wstring SubstitutePlaceholders(std::wstring rtf,
 // Installer-title section state (survives page switches; cleared by IDLG_Reset).
 static std::wstring s_installTitle;             // text shown in installer title bar
 static std::wstring s_installIconPath;          // custom .ico path; empty = default
+static std::wstring s_wizardImageFile;          // WizardImageFile path; empty = default
+static std::wstring s_wizardSmallImageFile;     // WizardSmallImageFile path; empty = default
 static std::wstring s_previewAppName;           // project name used in preview finish dialog
 static std::wstring s_previewAppVersion;        // project version cached for re-resolve on allow-change toggle
 static HICON        s_hInstallIcon    = NULL;   // currently displayed icon HANDLE
@@ -517,21 +518,13 @@ static void LayoutPreviewControls(HWND hwnd, PreviewData* pd)
             if (hEdit && IsWindow(hEdit))
                 SetWindowPos(hEdit, NULL, pad + S(4), ctrlY,
                              cW - pad * 2 - S(4), editH, SWP_NOZORDER | SWP_NOACTIVATE);
-        } else if (pd->type == IDLG_INSTALL && pd->hCompChecks.size() >= 2) {
-            // Progress bar full-width, then "Show Details" button below it.
-            const int pbH   = S(18);
-            const int btnH2 = S(28);
-            HWND hPB    = pd->hCompChecks[0];
-            HWND hDetBtn = pd->hCompChecks[1];
+        } else if (pd->type == IDLG_INSTALL && !pd->hCompChecks.empty()) {
+            // Progress bar full-width.
+            const int pbH = S(18);
+            HWND hPB = pd->hCompChecks[0];
             if (hPB && IsWindow(hPB))
                 SetWindowPos(hPB, NULL, pad + S(4), ctrlY,
                              cW - pad * 2 - S(8), pbH, SWP_NOZORDER | SWP_NOACTIVATE);
-            if (hDetBtn && IsWindow(hDetBtn)) {
-                std::wstring detTxt = L10n(L"idlg_install_prv_show_det", L"Show Details");
-                int detW = MeasureButtonWidth(detTxt, false);
-                SetWindowPos(hDetBtn, NULL, pad + S(4), ctrlY + pbH + S(6),
-                             detW, btnH2, SWP_NOZORDER | SWP_NOACTIVATE);
-            }
         } else {
             int cy = ctrlY;
             for (HWND h : pd->hCompChecks) {
@@ -1000,13 +993,6 @@ static void PopulateExtras(HWND hwnd, PreviewData* pd, InstallerDialogType newTy
         SendMessageW(hPB, PBM_SETRANGE32, 0, 100);
         SendMessageW(hPB, PBM_SETPOS, 0, 0);
         pd->hCompChecks.push_back(hPB);
-        // "Show Details" button — clicking opens a small preview info window.
-        std::wstring detTxt = L10n(L"idlg_install_prv_show_det", L"Show Details");
-        int detW = MeasureButtonWidth(detTxt, false);
-        HWND hDetBtn = CreateCustomButton(hwnd, IDC_IDLG_INSTALL_PRV_DET_BTN,
-            detTxt, ButtonColor::Blue,
-            0, 0, detW, S(28), s_hInst);
-        pd->hCompChecks.push_back(hDetBtn);
 
     } else {
         pd->showExtras = false;
@@ -1771,15 +1757,6 @@ static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
             TryCancelPreview(hwnd, pd);
             return 0;
         }
-        if (id == IDC_IDLG_INSTALL_PRV_DET_BTN && pd->type == IDLG_INSTALL) {
-            // Simulate the real Inno "Show Details" log window — show a preview notice.
-            std::wstring title = L10n(L"idlg_install_prv_show_det", L"Show Details");
-            std::wstring body  = L10n(L"idlg_install_prv_det_preview",
-                L"[ Preview ]\r\nInstall details will be shown here during installation.");
-            ShowValidationDialog(hwnd, title, body,
-                s_pLocale ? *s_pLocale : std::map<std::wstring,std::wstring>{});
-            return 0;
-        }
         if (id == IDC_IDLG_SELECT_FOLDER_BROWSE && pd->type == IDLG_SELECT_FOLDER
                 && pd->hCompChecks.size() >= 2) {
             // Read current path, strip the appname suffix to get the initial dir.
@@ -1880,8 +1857,7 @@ static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
     case WM_DRAWITEM: {
         // Required by custom themed checkboxes (BS_OWNERDRAW internals).
         LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
-        if (dis->CtlID == IDC_IDLG_SELECT_FOLDER_BROWSE ||
-            dis->CtlID == IDC_IDLG_INSTALL_PRV_DET_BTN) {
+        if (dis->CtlID == IDC_IDLG_SELECT_FOLDER_BROWSE) {
             ButtonColor color = (ButtonColor)GetWindowLongPtrW(dis->hwndItem, GWLP_USERDATA);
             return DrawCustomButton(dis, color, pd ? pd->hGuiFont : NULL);
         }
@@ -2969,7 +2945,9 @@ void IDLG_Reset()
     s_installTitle     = L"";
     s_previewAppName    = L"";
     s_previewAppVersion = L"";
-    s_installIconPath  = L"";
+    s_installIconPath       = L"";
+    s_wizardImageFile       = L"";
+    s_wizardSmallImageFile  = L"";
     s_licenseMustAccept       = true;
     s_licenseTemplateId      = 0;
     s_licenseEdited          = false;
@@ -2981,7 +2959,6 @@ void IDLG_Reset()
     s_finishLaunchDefChecked = true;
     s_readyShowDir   = true;
     s_readyShowGroup = true;
-    s_installShowDetails    = 0;
     s_installProgressSmooth = true;
     s_installShowEta        = false;
     s_selectFolderAllowChange = false;
@@ -3140,6 +3117,65 @@ int IDLG_BuildPage(HWND hwnd, HINSTANCE hInst,
         if (hGuiFont) SendMessageW(hTitleEdit, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
 
         y += sectH + gap;
+
+        // ── Wizard image pickers ──────────────────────────────────────────────
+        // Side image (WizardImageFile) and small image (WizardSmallImageFile).
+        // Each row: label | read-only edit | Browse… button
+        const int wizRowH = S(28);
+        const int wizLblW = S(90);
+        const int wizBtnW = MeasureButtonWidth(L10n(L"idlg_browse", L"Browse\u2026"), false);
+
+        // Row 1 — big side image
+        {
+            HWND hLbl = CreateWindowExW(0, L"STATIC",
+                L10n(L"idlg_wiz_big_lbl", L"Side image:").c_str(),
+                WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
+                padH, y + (wizRowH - S(20)) / 2, wizLblW, S(20),
+                hwnd, (HMENU)(UINT_PTR)IDC_IDLG_WIZ_BIG_LBL, hInst, NULL);
+            if (hGuiFont) SendMessageW(hLbl, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+
+            int editX = padH + wizLblW + S(6);
+            int editW = clientWidth - editX - wizBtnW - S(8) - padH;
+            HWND hEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT",
+                s_wizardImageFile.c_str(),
+                WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL | ES_READONLY,
+                editX, y + (wizRowH - S(24)) / 2, editW, S(24),
+                hwnd, (HMENU)(UINT_PTR)IDC_IDLG_WIZ_BIG_EDIT, hInst, NULL);
+            if (hGuiFont) SendMessageW(hEdit, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+            SetWindowTextW(hEdit, s_wizardImageFile.c_str());
+
+            HWND hBtn = CreateCustomButton(hwnd, IDC_IDLG_WIZ_BIG_BROWSE,
+                L10n(L"idlg_browse", L"Browse\u2026").c_str(), ButtonColor::Default,
+                editX + editW + S(8), y + (wizRowH - btnH) / 2, wizBtnW, btnH, hInst);
+            (void)hBtn;
+            y += wizRowH + S(4);
+        }
+
+        // Row 2 — small top-right image
+        {
+            HWND hLbl = CreateWindowExW(0, L"STATIC",
+                L10n(L"idlg_wiz_sml_lbl", L"Small image:").c_str(),
+                WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
+                padH, y + (wizRowH - S(20)) / 2, wizLblW, S(20),
+                hwnd, (HMENU)(UINT_PTR)IDC_IDLG_WIZ_SML_LBL, hInst, NULL);
+            if (hGuiFont) SendMessageW(hLbl, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+
+            int editX = padH + wizLblW + S(6);
+            int editW = clientWidth - editX - wizBtnW - S(8) - padH;
+            HWND hEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT",
+                s_wizardSmallImageFile.c_str(),
+                WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL | ES_READONLY,
+                editX, y + (wizRowH - S(24)) / 2, editW, S(24),
+                hwnd, (HMENU)(UINT_PTR)IDC_IDLG_WIZ_SML_EDIT, hInst, NULL);
+            if (hGuiFont) SendMessageW(hEdit, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
+            SetWindowTextW(hEdit, s_wizardSmallImageFile.c_str());
+
+            HWND hBtn = CreateCustomButton(hwnd, IDC_IDLG_WIZ_SML_BROWSE,
+                L10n(L"idlg_browse", L"Browse\u2026").c_str(), ButtonColor::Default,
+                editX + editW + S(8), y + (wizRowH - btnH) / 2, wizBtnW, btnH, hInst);
+            (void)hBtn;
+            y += wizRowH + gap;
+        }
 
         // Horizontal divider between installer-title section and dialog rows
         CreateWindowExW(0, L"STATIC", L"",
@@ -3364,28 +3400,6 @@ int IDLG_BuildPage(HWND hwnd, HINSTANCE hInst,
             const int lblW  = S(160);
             const int cmbW  = S(140);
 
-            // "Show install details:" label + combo (Auto / Yes / No)
-            HWND hDetLbl = CreateWindowExW(0, L"STATIC",
-                L10n(L"idlg_install_show_details_lbl", L"Show install details:").c_str(),
-                WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
-                chkIndent, y, lblW, lblH,
-                hwnd, (HMENU)(UINT_PTR)IDC_IDLG_INSTALL_SHOW_DETAILS_LBL, hInst, NULL);
-            if (hGuiFont) SendMessageW(hDetLbl, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
-
-            HWND hDetCmb = CreateWindowExW(0, WC_COMBOBOXW, NULL,
-                WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
-                chkIndent + lblW + S(6), y, cmbW, cmbH * 4,
-                hwnd, (HMENU)(UINT_PTR)IDC_IDLG_INSTALL_SHOW_DETAILS, hInst, NULL);
-            if (hGuiFont) SendMessageW(hDetCmb, WM_SETFONT, (WPARAM)hGuiFont, TRUE);
-            SendMessageW(hDetCmb, CB_ADDSTRING, 0, (LPARAM)L10n(L"idlg_install_det_auto", L"Auto").c_str());
-            SendMessageW(hDetCmb, CB_ADDSTRING, 0, (LPARAM)L10n(L"idlg_install_det_yes",  L"Yes").c_str());
-            SendMessageW(hDetCmb, CB_ADDSTRING, 0, (LPARAM)L10n(L"idlg_install_det_no",   L"No").c_str());
-            SendMessageW(hDetCmb, CB_SETCURSEL, (WPARAM)s_installShowDetails, 0);
-            SetButtonTooltip(hDetCmb, L10n(L"idlg_install_det_tip",
-                L"Controls whether the installation log panel is visible during installation.\n"
-                L"Auto = Inno decides; Yes = always show; No = hide details panel.").c_str());
-            y += cmbH + S(4);
-
             // "Progress bar style:" label + combo (Smooth / Classic)
             HWND hPrgLbl = CreateWindowExW(0, L"STATIC",
                 L10n(L"idlg_install_progress_lbl", L"Progress bar style:").c_str(),
@@ -3539,6 +3553,48 @@ bool IDLG_OnCommand(HWND hwnd, int wmId, int wmEvent, HWND hCtrl)
 
     // ── Dialog-row buttons ────────────────────────────────────────────────────
 
+    // Wizard big (side) image browse.
+    if (wmId == IDC_IDLG_WIZ_BIG_BROWSE && wmEvent == BN_CLICKED) {
+        OPENFILENAMEW ofn = {};
+        wchar_t szFile[MAX_PATH] = {};
+        wcscpy_s(szFile, s_wizardImageFile.c_str());
+        ofn.lStructSize  = sizeof(OPENFILENAMEW);
+        ofn.hwndOwner    = hwnd;
+        ofn.lpstrFile    = szFile;
+        ofn.nMaxFile     = MAX_PATH;
+        ofn.lpstrFilter  = L"Image Files (*.bmp;*.png)\0*.bmp;*.png\0";
+        ofn.nFilterIndex = 1;
+        ofn.Flags = OFN_EXPLORER | OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
+        if (GetOpenFileNameW(&ofn)) {
+            s_wizardImageFile = szFile;
+            HWND hEdit = GetDlgItem(hwnd, IDC_IDLG_WIZ_BIG_EDIT);
+            if (hEdit) SetWindowTextW(hEdit, s_wizardImageFile.c_str());
+            MainWindow::MarkAsModified();
+        }
+        return true;
+    }
+
+    // Wizard small (top-right) image browse.
+    if (wmId == IDC_IDLG_WIZ_SML_BROWSE && wmEvent == BN_CLICKED) {
+        OPENFILENAMEW ofn = {};
+        wchar_t szFile[MAX_PATH] = {};
+        wcscpy_s(szFile, s_wizardSmallImageFile.c_str());
+        ofn.lStructSize  = sizeof(OPENFILENAMEW);
+        ofn.hwndOwner    = hwnd;
+        ofn.lpstrFile    = szFile;
+        ofn.nMaxFile     = MAX_PATH;
+        ofn.lpstrFilter  = L"Image Files (*.bmp;*.png)\0*.bmp;*.png\0";
+        ofn.nFilterIndex = 1;
+        ofn.Flags = OFN_EXPLORER | OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
+        if (GetOpenFileNameW(&ofn)) {
+            s_wizardSmallImageFile = szFile;
+            HWND hEdit = GetDlgItem(hwnd, IDC_IDLG_WIZ_SML_EDIT);
+            if (hEdit) SetWindowTextW(hEdit, s_wizardSmallImageFile.c_str());
+            MainWindow::MarkAsModified();
+        }
+        return true;
+    }
+
     // License source selector: toggle built-in vs external file UI.
     if (wmId == IDC_IDLG_LICENSE_SRC && wmEvent == CBN_SELCHANGE) {
         HWND hSrcCmb = GetDlgItem(hwnd, IDC_IDLG_LICENSE_SRC);
@@ -3674,12 +3730,6 @@ bool IDLG_OnCommand(HWND hwnd, int wmId, int wmEvent, HWND hCtrl)
     }
 
     // Install-page sub-controls
-    if (wmId == IDC_IDLG_INSTALL_SHOW_DETAILS && wmEvent == CBN_SELCHANGE) {
-        int sel = (int)SendDlgItemMessageW(hwnd, IDC_IDLG_INSTALL_SHOW_DETAILS, CB_GETCURSEL, 0, 0);
-        if (sel >= 0) s_installShowDetails = sel;
-        MainWindow::MarkAsModified();
-        return true;
-    }
     if (wmId == IDC_IDLG_INSTALL_PROGRESS_SMOOTH && wmEvent == CBN_SELCHANGE) {
         int sel = (int)SendDlgItemMessageW(hwnd, IDC_IDLG_INSTALL_PROGRESS_SMOOTH, CB_GETCURSEL, 0, 0);
         if (sel >= 0) s_installProgressSmooth = (sel == 0);
@@ -4002,6 +4052,8 @@ void IDLG_SaveToDb(int projectId)
     std::wstring pid = std::to_wstring(projectId);
     DB::SetSetting(L"installer_title_" + pid, s_installTitle);
     DB::SetSetting(L"installer_icon_"  + pid, s_installIconPath);
+    DB::SetSetting(L"installer_wizard_image_"       + pid, s_wizardImageFile);
+    DB::SetSetting(L"installer_wizard_small_image_" + pid, s_wizardSmallImageFile);
     DB::SetSetting(L"installer_license_must_accept_" + pid, s_licenseMustAccept ? L"1" : L"0");
     DB::SetSetting(L"installer_license_template_"         + pid, std::to_wstring(s_licenseTemplateId));
     DB::SetSetting(L"installer_license_edited_"           + pid, s_licenseEdited ? L"1" : L"0");
@@ -4026,7 +4078,6 @@ void IDLG_SaveToDb(int projectId)
     DB::SetSetting(L"installer_ready_show_dir_"   + pid, s_readyShowDir   ? L"1" : L"0");
     DB::SetSetting(L"installer_ready_show_group_" + pid, s_readyShowGroup ? L"1" : L"0");
     // Install-page settings
-    DB::SetSetting(L"installer_install_show_details_"    + pid, std::to_wstring(s_installShowDetails));
     DB::SetSetting(L"installer_install_progress_smooth_" + pid, s_installProgressSmooth ? L"1" : L"0");
     DB::SetSetting(L"installer_install_show_eta_"        + pid, s_installShowEta        ? L"1" : L"0");
     // Select-Folder page settings
@@ -4086,6 +4137,11 @@ void IDLG_LoadFromDb(int projectId)
         s_installTitle = savedTitle;
     if (DB::GetSetting(L"installer_icon_"  + pid, savedIcon))
         s_installIconPath = savedIcon;
+    {
+        std::wstring v;
+        if (DB::GetSetting(L"installer_wizard_image_"       + pid, v)) s_wizardImageFile       = v;
+        if (DB::GetSetting(L"installer_wizard_small_image_" + pid, v)) s_wizardSmallImageFile  = v;
+    }
     if (DB::GetSetting(L"installer_license_must_accept_" + pid, savedLicAccept))
         s_licenseMustAccept = (savedLicAccept == L"1");
     std::wstring savedTmpl, savedSrc, savedFilePath;
@@ -4132,9 +4188,7 @@ void IDLG_LoadFromDb(int projectId)
     if (DB::GetSetting(L"installer_ready_show_group_" + pid, sReadyGroup))
         s_readyShowGroup = (sReadyGroup != L"0");
     // Install-page settings
-    std::wstring sInstDet, sInstPrg, sInstEta;
-    if (DB::GetSetting(L"installer_install_show_details_"    + pid, sInstDet) && !sInstDet.empty())
-        s_installShowDetails = _wtoi(sInstDet.c_str());
+    std::wstring sInstPrg, sInstEta;
     if (DB::GetSetting(L"installer_install_progress_smooth_" + pid, sInstPrg))
         s_installProgressSmooth = (sInstPrg != L"0");
     if (DB::GetSetting(L"installer_install_show_eta_"        + pid, sInstEta))
@@ -4201,6 +4255,8 @@ void IDLG_SetInstallerTitle(const std::wstring& title)
     // Live control update (if page is active) is handled by the caller via SetWindowTextW.
 }
 std::wstring IDLG_GetInstallerIconPath() { return s_installIconPath; }
+std::wstring IDLG_GetWizardImageFile()      { return s_wizardImageFile; }
+std::wstring IDLG_GetWizardSmallImageFile() { return s_wizardSmallImageFile; }
 
 // ── Scroll-offset accessors ───────────────────────────────────────────────────
 
@@ -4218,7 +4274,6 @@ bool         IDLG_GetFinishLaunchDefaultChecked() { return s_finishLaunchDefChec
 bool IDLG_GetReadyShowDir()   { return s_readyShowDir; }
 bool IDLG_GetReadyShowGroup() { return s_readyShowGroup; }
 
-int  IDLG_GetInstallShowDetails()    { return s_installShowDetails; }
 bool IDLG_GetInstallProgressSmooth() { return s_installProgressSmooth; }
 bool IDLG_GetInstallShowEta()        { return s_installShowEta; }
 bool IDLG_GetSelectFolderAllowChange() { return s_selectFolderAllowChange; }

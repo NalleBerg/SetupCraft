@@ -101,7 +101,6 @@ static int          s_showLanguageDialog  = 0;   // 0=auto 1=yes 2=no
 struct InnoLang { const wchar_t* isl; const wchar_t* displayName; bool local; };
 static const InnoLang kInnoLangs[] = {
     { L"Default",             L"English",              false },  // index 0 — always on
-    { L"BrazilianPortuguese", L"Portuguese (Brazil)",  false },
     { L"Catalan",             L"Catalan",              false },
     { L"Czech",               L"Czech",                false },
     { L"Danish",              L"Danish",               false },
@@ -1754,7 +1753,7 @@ bool SETT_IsSelectFolderDisabled() { return s_disableDirPage; }
 std::wstring SETT_GetInstallBasePath()
 {
     static const wchar_t* kBases[] = {
-        L"{pf}", L"{pf64}", L"{pf32}",
+        L"{autopf64}", L"{autopf64}", L"{autopf32}",
         L"{localappdata}", L"{commonappdata}", L"{userdocs}"
     };
     if (s_installBase >= 0 && s_installBase < 6)

@@ -2,6 +2,16 @@
 
 All notable changes to SetupCraft will be documented in this file.
 
+## [2026.06.05.13] - 2026-06-05 13:14
+
+### Dialogs, installer icon, and 64-bit install-base fixes
+
+- **`dialogs.cpp` / `issgen.cpp` — wizard image and installer icon wiring added**: The Dialogs page now lets you choose a large wizard side image (`WizardImageFile`) and a small top-right image (`WizardSmallImageFile`) from the existing icon/title section. The generated installer now also emits `SetupIconFile` from the installer icon picker and `UninstallDisplayIcon={app}\{#ExeName}` so the app shows the correct icon in Installed apps.
+
+- **`settings.cpp` — default install base now targets 64-bit Program Files**: The default install-base token is now `{autopf64}` so the 64-bit target installs under the native Program Files tree by default while per-user installs still avoid UAC.
+
+All notable changes to SetupCraft will be documented in this file.
+
 ## [2026.06.04.17] - 2026-06-04 17:24
 
 ### Test Installer page — fully operational: generates .iss and compiles with bundled IS7; WizardStyle locked to modern; Ctrl+S fixed

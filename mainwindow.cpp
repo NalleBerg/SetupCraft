@@ -13874,6 +13874,9 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             extra.tbPinOptOut    = SC_GetTbPinOptOut();
             extra.scripts        = SCR_GetScripts();
             extra.registryEntries = MainWindow::GetCustomRegistryEntries();
+            extra.files                = DB::GetFilesForProject(s_currentProject.id);
+            extra.wizardImageFile      = IDLG_GetWizardImageFile();
+            extra.wizardSmallImageFile = IDLG_GetWizardSmallImageFile();
             std::wstring genErr = ISS_GenerateIss(templatePath, outIssPath,
                                                   s_currentProject, cfg, langs,
                                                   FA_GetAssociations(),

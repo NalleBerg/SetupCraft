@@ -27,6 +27,7 @@
 #include "test_page.h"
 #include "settings.h"       // SETT_GetBuildConfig(), SETT_SetTestOutput*()
 #include "mainwindow.h"     // MainWindow::GetCurrentProject(), GetProjectName(), etc.
+#include "dialogs.h"        // IDLG_GetWizardImageFile(), IDLG_GetWizardSmallImageFile()
 #include "ctrlw.h"          // ExpandEscapes()
 #include "db.h"
 #include "dpi.h"            // S()
@@ -170,9 +171,9 @@ struct TestBuildParams {
 };
 
 // ── Find ISCC.exe ─────────────────────────────────────────────────────────────
-// innoDir: if non-empty, checked first (e.g. a bundled ISCC next to template.iss).
+// Checks the inno/ directory bundled alongside template.iss first, then falls
+// back to system-installed Inno Setup 6/5.
 static std::wstring FindIscc(const std::wstring& innoDir = L"") {
-    // Check the inno/ directory first — a bundled or side-by-side ISCC.exe takes priority.
     if (!innoDir.empty()) {
         std::wstring local = innoDir + L"\\ISCC.exe";
         if (GetFileAttributesW(local.c_str()) != INVALID_FILE_ATTRIBUTES)
@@ -392,6 +393,32 @@ static VOID CALLBACK TEST_TimerProc(HWND hwnd, UINT, UINT_PTR, DWORD)
 }
 
 // ── Details window ────────────────────────────────────────────────────────────
+static WNDPROC s_origDetailsEditProc = NULL;
+
+// Subclass proc for the read-only EDIT inside the Details window.
+// Handles Ctrl+A (select all) and Ctrl+S (forward Save to main window).
+static LRESULT CALLBACK DetailsEditSubclassProc(
+    HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    if (msg == WM_KEYDOWN && (GetKeyState(VK_CONTROL) & 0x8000)) {
+        if (wParam == 'A') {
+            SendMessageW(hwnd, EM_SETSEL, 0, -1);
+            return 0;
+        }
+        if (wParam == 'S') {
+                HWND hMain = GetAncestor(hwnd, GA_ROOT);
+                // GA_ROOT returns this top-level window, not the main window.
+                // Walk up via GetWindow to find the real main window (caption = "SetupCraft").
+                // Simpler: post WM_COMMAND IDM_FILE_SAVE=4003 to the foreground app window.
+                HWND hFg = FindWindowW(L"SetupCraftMainWindow", NULL);
+                if (!hFg) hFg = hMain;
+                PostMessageW(hFg, WM_COMMAND, MAKEWPARAM(4003, 0), 0);
+                return 0;
+            }
+    }
+    return CallWindowProcW(s_origDetailsEditProc, hwnd, msg, wParam, lParam);
+}
+
 static LRESULT CALLBACK TEST_DetailsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
     switch (msg) {
@@ -410,12 +437,32 @@ static LRESULT CALLBACK TEST_DetailsWndProc(HWND hwnd, UINT msg, WPARAM wParam, 
             CLEARTYPE_QUALITY, FIXED_PITCH | FF_MODERN, L"Consolas");
         if (hMono && s_hDetailsEdit)
             SendMessageW(s_hDetailsEdit, WM_SETFONT, (WPARAM)hMono, TRUE);
+        // Subclass the edit to handle Ctrl+A and Ctrl+S.
+        if (s_hDetailsEdit)
+            s_origDetailsEditProc = (WNDPROC)SetWindowLongPtrW(
+                s_hDetailsEdit, GWLP_WNDPROC, (LONG_PTR)DetailsEditSubclassProc);
         return 0;
     }
     case WM_SIZE:
         if (s_hDetailsEdit && IsWindow(s_hDetailsEdit))
             MoveWindow(s_hDetailsEdit, 0, 0, LOWORD(lParam), HIWORD(lParam), TRUE);
         return 0;
+    case WM_KEYDOWN:
+        // Ctrl+A — select all text in the output edit.
+        // Ctrl+S — forward to main window so Save works from the details window.
+        if (GetKeyState(VK_CONTROL) & 0x8000) {
+            if (wParam == 'A' && s_hDetailsEdit && IsWindow(s_hDetailsEdit)) {
+                SendMessageW(s_hDetailsEdit, EM_SETSEL, 0, -1);
+                return 0;
+            }
+            if (wParam == 'S') {
+                HWND hMain = GetAncestor(hwnd, GA_ROOT);
+                if (hMain && IsWindow(hMain))
+                    SendMessageW(hMain, WM_KEYDOWN, 'S', lParam);
+                return 0;
+            }
+        }
+        break;
     case WM_CLOSE:
         DestroyWindow(hwnd);
         return 0;
@@ -848,8 +895,11 @@ void TEST_RunTest(HWND hwnd)
     p->extra.desktopOptOut  = SC_GetDesktopOptOut();
     p->extra.smPinOptOut    = SC_GetSmPinOptOut();
     p->extra.tbPinOptOut    = SC_GetTbPinOptOut();
-    p->extra.scripts        = SCR_GetScripts();
-    p->extra.registryEntries = MainWindow::GetCustomRegistryEntries();
+    p->extra.scripts             = SCR_GetScripts();
+    p->extra.registryEntries      = MainWindow::GetCustomRegistryEntries();
+    p->extra.files                = DB::GetFilesForProject(p->proj.id);
+    p->extra.wizardImageFile      = IDLG_GetWizardImageFile();
+    p->extra.wizardSmallImageFile = IDLG_GetWizardSmallImageFile();
 
     // ── Reset shared thread state ─────────────────────────────────────────────
     EnterCriticalSection(&s_cs);

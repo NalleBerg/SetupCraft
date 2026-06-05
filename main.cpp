@@ -1649,7 +1649,14 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR pCmdLine, int nCmdShow
         LoadLocaleForMainMode();
         MainWindow::CreateNew(hInstance, g_locale);
         MSG msg;
-        while (GetMessageW(&msg, NULL, 0, 0)) { TranslateMessage(&msg); DispatchMessageW(&msg); }
+        while (GetMessageW(&msg, NULL, 0, 0)) {
+            if (msg.message == WM_KEYDOWN && msg.wParam == 'S' && (GetKeyState(VK_CONTROL) & 0x8000)) {
+                HWND hMain = FindWindowW(L"SetupCraftMainWindow", NULL);
+                if (hMain) PostMessageW(hMain, WM_COMMAND, MAKEWPARAM(4003, 0), 0);
+                continue;
+            }
+            TranslateMessage(&msg); DispatchMessageW(&msg);
+        }
         return (int)msg.wParam;
     }
 
@@ -1660,7 +1667,14 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR pCmdLine, int nCmdShow
             LoadLocaleForMainMode();
             MainWindow::Create(hInstance, project, g_locale);
             MSG msg;
-            while (GetMessageW(&msg, NULL, 0, 0)) { TranslateMessage(&msg); DispatchMessageW(&msg); }
+            while (GetMessageW(&msg, NULL, 0, 0)) {
+                if (msg.message == WM_KEYDOWN && msg.wParam == 'S' && (GetKeyState(VK_CONTROL) & 0x8000)) {
+                    HWND hMain = FindWindowW(L"SetupCraftMainWindow", NULL);
+                    if (hMain) PostMessageW(hMain, WM_COMMAND, MAKEWPARAM(4003, 0), 0);
+                    continue;
+                }
+                TranslateMessage(&msg); DispatchMessageW(&msg);
+            }
             return (int)msg.wParam;
         }
         // Project not found — fall through to show entry screen

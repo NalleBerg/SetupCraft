@@ -37,6 +37,14 @@ struct IssExtraData {
 
     // Custom registry entries from the Registry page
     std::vector<RegistryEntryRow> registryEntries;
+
+    // Files page entries — used to build the [Files] section.
+    std::vector<FileRow> files;
+
+    // Wizard images — optional paths to .png/.bmp files for WizardImageFile
+    // (large side panel) and WizardSmallImageFile (small top-right image).
+    std::wstring wizardImageFile;       // empty = omit (IS6 uses default)
+    std::wstring wizardSmallImageFile;  // empty = omit (IS6 uses default)
 };
 
 // Generates a complete .iss script and writes it to outPath.

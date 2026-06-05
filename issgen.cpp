@@ -259,6 +259,117 @@ static std::wstring BuildLanguagesSection(
     return out;
 }
 
+// Map a destination_path root segment to the corresponding Inno Setup directory constant.
+// destination_path is stored as "Root\sub\path" where Root is one of the four tree roots.
+// Returns {innoConst, subPath} — e.g. {"app", "sub\\path"} or {"app", ""} for root-level files.
+static std::pair<std::wstring, std::wstring> MapDestDir(const std::wstring& destPath)
+{
+    // Helper: strip leading backslash from sub-path.
+    auto strip = [](std::wstring s) -> std::wstring {
+        if (!s.empty() && s.front() == L'\\') s = s.substr(1);
+        return s;
+    };
+
+    struct { const wchar_t* prefix; const wchar_t* innoConst; } kMap[] = {
+        { L"Program Files",    L"{app}"            },
+        { L"ProgramData",      L"{commonappdata}"  },
+        { L"AppData (Roaming)",L"{userappdata}"    },
+        { L"AskAtInstall",     L"{app}"            },  // user-chosen at install time
+    };
+    for (const auto& m : kMap) {
+        std::wstring pfx(m.prefix);
+        if (destPath.size() >= pfx.size() &&
+            _wcsnicmp(destPath.c_str(), pfx.c_str(), pfx.size()) == 0) {
+            std::wstring sub = destPath.substr(pfx.size());
+            if (!sub.empty() && sub.front() == L'\\') sub = sub.substr(1);
+            return { m.innoConst, sub };
+        }
+    }
+    // Fallback: treat the whole path as relative to {app}.
+    return { L"{app}", destPath };
+}
+
+// Build the [Files] section body from the per-file DB rows.
+// Each FileRow with a non-empty source_path and install_scope != "__folder__"
+// becomes one Source: line.  Folder sentinel rows (install_scope == "__folder__")
+// are skipped — Inno creates directories automatically.
+static std::wstring BuildFilesSection(const std::vector<FileRow>& files)
+{
+    std::wstring out;
+    for (const auto& f : files) {
+        // Skip virtual folder sentinels and rows with no real source file.
+        if (f.source_path.empty()) continue;
+        if (f.install_scope == L"__folder__") continue;
+
+        // Destination directory.
+        auto [innoConst, sub] = MapDestDir(f.destination_path);
+        std::wstring destDir = innoConst;
+        if (!sub.empty()) destDir += L"\\" + sub;
+
+        // Override wins if set.
+        if (!f.dest_dir_override.empty()) destDir = f.dest_dir_override;
+
+        out += L"Source: \"" + f.source_path + L"\"; DestDir: \"" + destDir + L"\"";
+
+        // Append developer-specified Inno flags if any.
+        if (!f.inno_flags.empty())
+            out += L"; Flags: " + f.inno_flags;
+
+        out += L"\r\n";
+    }
+    return out;
+}
+
+// Mutex message translations — one entry per ISL base name (lowercased for lookup).
+// "Default" maps to "english" so it is stored under that key.
+// Only languages actually selected by the developer are emitted in [CustomMessages].
+static const std::pair<const wchar_t*, const wchar_t*> kMutexMessages[] = {
+    { L"english",    L"Another copy of this installer is already running.%n%nYou can close the running installer to continue, close this installer to let the other run, or cancel." },
+    { L"catalan",    L"Una altra còpia d'aquest instal·lador ja s'està executant.%n%nPodeu tancar l'instal·lador en execució per continuar, tancar aquest instal·lador per deixar l'altre continuar, o cancel·lar." },
+    { L"czech",      L"Jiná kopie tohoto instalačního programu již běží.%n%nMůžete zavřít spuštěný instalační program a pokračovat, zavřít tento instalační program a nechat ten druhý běžet, nebo zrušit." },
+    { L"danish",     L"En anden kopi af dette installationsprogram kører allerede.%n%nDu kan lukke det kørende installationsprogram for at fortsætte, lukke dette installationsprogram og lade det andet køre, eller annullere." },
+    { L"dutch",      L"Een andere kopie van dit installatieprogramma wordt al uitgevoerd.%n%nU kunt het actieve installatieprogramma sluiten om door te gaan, dit installatieprogramma sluiten om het andere te laten doorgaan, of annuleren." },
+    { L"finnish",    L"Toinen kopio tästä asennusohjelmasta on jo käynnissä.%n%nVoit sulkea käynnissä olevan asennusohjelman jatkaaksesi, sulkea tämän asennusohjelman antaaksesi toisen jatkua, tai peruuttaa." },
+    { L"french",     L"Une autre copie de ce programme d'installation est déjà en cours d'exécution.%n%nVous pouvez fermer le programme d'installation en cours pour continuer, fermer ce programme pour laisser l'autre continuer, ou annuler." },
+    { L"german",     L"Eine andere Kopie dieses Installationsprogramms wird bereits ausgeführt.%n%nSie können das laufende Installationsprogramm schließen, um fortzufahren, dieses schließen, um das andere weiterlaufen zu lassen, oder abbrechen." },
+    { L"hebrew",     L"עותק אחר של מתקין זה כבר פועל.%n%nתוכל לסגור את המתקין הפועל כדי להמשיך, לסגור את מתקין זה כדי לאפשר לאחר להמשיך, או לבטל." },
+    { L"hungarian",  L"A telepítő egy másik példánya már fut.%n%nA futó telepítőt bezárhatja a folytatáshoz, bezárhatja ezt a telepítőt, hogy a másik futhasson, vagy megszakíthatja." },
+    { L"italian",    L"È già in esecuzione un'altra copia di questo programma di installazione.%n%nÈ possibile chiudere il programma in esecuzione per continuare, chiudere questo per lasciare in esecuzione l'altro, oppure annullare." },
+    { L"japanese",   L"このインストーラーの別のコピーが既に実行中です。%n%n実行中のインストーラーを閉じて続行するか、このインストーラーを閉じてもう一方を続行させるか、またはキャンセルすることができます。" },
+    { L"norwegian",  L"En annen kopi av dette installasjonsprogrammet kjører allerede.%n%nDu kan lukke det kjørende installasjonsprogrammet for å fortsette, lukke dette og la det andre kjøre, eller avbryte." },
+    { L"polish",     L"Inna kopia tego instalatora jest już uruchomiona.%n%nMożesz zamknąć uruchomiony instalator, aby kontynuować, zamknąć ten instalator i pozwolić drugiemu działać, lub anulować." },
+    { L"portuguese", L"Outra cópia deste instalador já está em execução.%n%nPode fechar o instalador em execução para continuar, fechar este instalador para deixar o outro continuar, ou cancelar." },
+    { L"slovak",     L"Iná kópia tohto inštalačného programu už beží.%n%nMôžete zatvoriť spustený inštalačný program a pokračovať, zatvoriť tento a nechať ten druhý bežať, alebo zrušiť." },
+    { L"slovenian",  L"Druga kopija tega namestitvenega programa že deluje.%n%nLahko zaprete zagnani namestitveni program in nadaljujete, zaprete ta in pustite drugega delovati, ali pa prekličete." },
+    { L"spanish",    L"Ya se está ejecutando otra copia de este instalador.%n%nPuede cerrar el instalador en ejecución para continuar, cerrar este instalador y dejar que el otro continúe, o cancelar." },
+    { L"swedish",    L"En annan kopia av det här installationsprogrammet körs redan.%n%nDu kan stänga installationsprogrammet som körs för att fortsätta, stänga det här för att låta det andra fortsätta, eller avbryta." },
+    { L"turkish",    L"Bu yükleyicinin başka bir kopyası zaten çalışıyor.%n%nDevam etmek için çalışan yükleyiciyi kapatabilir, diğerinin devam etmesi için bu yükleyiciyi kapatabilir veya iptal edebilirsiniz." },
+    { L"ukrainian",  L"Інша копія цього інсталятора вже запущена.%n%nВи можете закрити запущений інсталятор, щоб продовжити, закрити цей інсталятор, щоб дозволити іншому продовжити, або скасувати." },
+};
+
+// Build the [CustomMessages] body for the selected languages only.
+// Emits a mutex_message line for each selected language that has a known translation.
+// The comment header is included so the output is self-documenting in the generated file.
+static std::wstring BuildCustomMessagesSection(
+    const std::vector<InnoLangEntry>& langs)
+{
+    // Build a lookup map from the table above.
+    std::map<std::wstring, std::wstring> msgMap;
+    for (const auto& kv : kMutexMessages)
+        msgMap[kv.first] = kv.second;
+
+    std::wstring out;
+    out += L"; Shown when the named mutex is already held — installer is already running.\r\n";
+    out += L"; Three choices: Yes = close the running one, No = close this one, Cancel = do nothing.\r\n";
+    for (const auto& lang : langs) {
+        std::wstring name = (lang.isl == L"Default") ? L"english" : ToLower(lang.isl);
+        auto it = msgMap.find(name);
+        if (it != msgMap.end())
+            out += name + L".mutex_message=" + it->second + L"\r\n";
+    }
+    return out;
+}
+
 // Map compressionType index to the Inno Compression= string.
 static const wchar_t* CompressionStr(int type)
 {
@@ -313,16 +424,6 @@ static const wchar_t* LangDetectionMethodStr(int val)
 
 // Map showLanguageDialog index to the Inno ShowLanguageDialog= string.
 static const wchar_t* ShowLanguageDialogStr(int val)
-{
-    switch (val) {
-        case 1:  return L"yes";
-        case 2:  return L"no";
-        default: return L"auto";
-    }
-}
-
-// Map showInstallDetails index (0=auto 1=yes 2=no) to the Inno ShowInstallDetails= string.
-static const wchar_t* ShowInstallDetailsStr(int val)
 {
     switch (val) {
         case 1:  return L"yes";
@@ -831,6 +932,9 @@ std::wstring ISS_GenerateIss(
         { L"DirExistsWarning",          DirExistsWarningStr(cfg.dirExistsWarning)       },
         { L"MinVersion",        MinVersionStr(cfg.minOsVersion)        },
         { L"ExeName",           exeName                                },
+        // SourceDir is kept in the token table for legacy template lines that may still
+        // reference it (e.g. DefaultDirName).  The [Files] section is now generated from
+        // the per-file DB rows via ; <<FILES>> instead of a wildcard.
         { L"SourceDir",         sourceDir                              },
         // Installer .exe file-version resource (right-click → Properties → Details)
         { L"VersionInfoVersion",       proj.version                                               },
@@ -852,13 +956,22 @@ std::wstring ISS_GenerateIss(
         { L"DisableWelcomePage",       IDLG_IsDialogEnabled(IDLG_WELCOME)  ? L"no" : L"yes" },
         { L"DisableReadyPage",         IDLG_IsDialogEnabled(IDLG_READY)    ? L"no" : L"yes" },
         { L"DisableFinishedPage",      IDLG_IsDialogEnabled(IDLG_FINISH)   ? L"no" : L"yes" },
-        { L"ShowInstallDetails",       ShowInstallDetailsStr(IDLG_GetInstallShowDetails())    },
         { L"AlwaysShowDirOnReadyPage", IDLG_GetReadyShowDir()   ? L"yes" : L"no"             },
         { L"AlwaysShowGroupOnReadyPage", IDLG_GetReadyShowGroup() ? L"yes" : L"no"           },
         { L"LicenseFile",
           (IDLG_GetLicenseSource() == 1 && !IDLG_GetLicenseFilePath().empty())
               ? IDLG_GetLicenseFilePath() : L"" },
     };
+
+    // ── "Line tokens" — emit full Key=Value when non-empty, else empty string ──
+    // These replace {#Token} placeholders that represent entire optional lines.
+    {
+        std::wstring iconPath = IDLG_GetInstallerIconPath();
+        tokens[L"SetupIconFileLine"]         = iconPath.empty() ? L"" : L"SetupIconFile=" + iconPath;
+        tokens[L"UninstallDisplayIconLine"]  = iconPath.empty() ? L"" : L"UninstallDisplayIcon={app}\\{#ExeName}";
+        tokens[L"WizardImageFileLine"]       = extra.wizardImageFile.empty()      ? L"" : L"WizardImageFile=" + extra.wizardImageFile;
+        tokens[L"WizardSmallImageFileLine"]  = extra.wizardSmallImageFile.empty() ? L"" : L"WizardSmallImageFile=" + extra.wizardSmallImageFile;
+    }
 
     // ── Substitute {#Token} placeholders ─────────────────────────────────────
     for (const auto& kv : tokens)
@@ -867,6 +980,18 @@ std::wstring ISS_GenerateIss(
     // ── Replace the "; <<LANGUAGES>>" marker with actual language entries ─────
     std::wstring langBlock = BuildLanguagesSection(langs);
     ReplaceAll(tmpl, L"; <<LANGUAGES>>", langBlock);
+
+    // ── Replace the "; <<CUSTOM_MESSAGES>>" marker ────────────────────────────
+    // Only emit mutex_message lines for the languages the developer selected,
+    // so no [CustomMessages] prefix is ever an undeclared language.
+    std::wstring cmBlock = BuildCustomMessagesSection(langs);
+    ReplaceAll(tmpl, L"; <<CUSTOM_MESSAGES>>", cmBlock);
+
+    // ── Replace the "; <<FILES>>" marker ──────────────────────────────────────
+    // Build a proper per-file [Files] section from the DB rows instead of a
+    // single SourceDir wildcard, so only the files the developer added are included.
+    std::wstring filesBlock = BuildFilesSection(extra.files);
+    ReplaceAll(tmpl, L"; <<FILES>>", filesBlock);
 
     // ── Replace the "; <<TYPES>>" and "; <<COMPONENTS>>" markers ─────────────
     // Only emit [Types] and [Components] sections when component-based install is
@@ -997,9 +1122,6 @@ std::wstring ISS_GenerateIss(
             installCode += L"procedure InitializeWizard;\r\n";
             if (smooth) {
                 installCode +=
-                    L"const\r\n"
-                    L"  GWL_STYLE  = -16;\r\n"
-                    L"  PBS_SMOOTH = 1;\r\n"
                     L"begin\r\n"
                     L"  SetWindowLong(WizardForm.ProgressGauge.Handle, GWL_STYLE,\r\n"
                     L"    GetWindowLong(WizardForm.ProgressGauge.Handle, GWL_STYLE) or PBS_SMOOTH);\r\n";

@@ -221,8 +221,14 @@
   Installer title section:
     static std::wstring  s_installTitle       // set by IDLG_SetInstallerInfo()
     static std::wstring  s_installIconPath    // empty = default shell32 #2
+    static std::wstring  s_wizardImageFile    // installer_wizard_image_<pid>
+    static std::wstring  s_wizardSmallImageFile // installer_wizard_small_image_<pid>
     static HICON         s_hInstallIcon       // loaded icon; destroyed in TearDown
     static HWND          s_hInstIconPreview   // IDC_IDLG_INST_ICON_PREVIEW HWND
+
+  Wizard image paths:
+    // Persisted by IDLG_SaveToDb / loaded by IDLG_LoadFromDb.
+    // Public accessors: IDLG_GetWizardImageFile() / IDLG_GetWizardSmallImageFile().
 
   Per-row cached icons (freed in TearDown):
     static HICON s_hRowIcons[IDLG_COUNT]
@@ -317,6 +323,8 @@
     Stores title/iconPath into s_installTitle / s_installIconPath.
     Called immediately after IDLG_Reset() from mainwindow.cpp with
     project.name and the saved icon path (empty on new projects).
+    Wizard images are loaded separately from the DB and exposed to issgen.cpp
+    through IDLG_GetWizardImageFile() / IDLG_GetWizardSmallImageFile().
 
   IDLG_BuildPage(hParent)
     Creates all controls.
@@ -329,7 +337,9 @@
            b. IDC_IDLG_INST_CHANGE_ICON   (btnX, btnY, wChange, S(26))
            c. IDC_IDLG_INST_TITLE_LABEL   (btnX + wChange + gap, midY, ...)
            d. IDC_IDLG_INST_TITLE_EDIT    (lblX + lblW + 6, editY, ...)
-           e. IDC_IDLG_INST_DIVIDER       (SS_ETCHEDHORZ, full width)
+          e. IDC_IDLG_WIZ_BIG_LBL / EDIT / BROWSE   (side image picker)
+          f. IDC_IDLG_WIZ_SML_LBL / EDIT / BROWSE   (small image picker)
+          g. IDC_IDLG_INST_DIVIDER       (SS_ETCHEDHORZ, full width)
       3. Row loop (i = 0..IDLG_COUNT-1):
            if !IsDialogVisible(i) ÔåÆ skip
            load icon via PrivateExtractIconsW, store to s_hRowIcons[i]
@@ -369,6 +379,10 @@
               SendMessageW(s_hInstIconPreview, STM_SETICON, (WPARAM)hIco, 0)
               DestroyIcon on previous s_hInstallIcon
               s_hInstallIcon = hIco; s_installIconPath = path
+
+  c) BN_CLICKED on IDC_IDLG_WIZ_BIG_BROWSE / IDC_IDLG_WIZ_SML_BROWSE
+       Opens the file picker for the wizard side image / small image and stores
+       the chosen path in s_wizardImageFile or s_wizardSmallImageFile.
 
   c) BN_CLICKED on IDC_IDLG_ROW_ENABLE_BASE + i  (enable checkbox, i = 0..8)
        Only WELCOME(0), LICENSE(1), READY(6), FINISH(8) can fire this.

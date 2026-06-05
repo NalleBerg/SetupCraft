@@ -166,10 +166,8 @@ constexpr COLORREF IDLG_NOCOLOR = (COLORREF)-1;
 #define IDC_IDLG_SZR_CLR_BG       7136  // header background (bg) color swatch button
 #define IDC_IDLG_SZR_FONT_BROWSE  7137  // "..." button — opens ChooseFontW picker
 
-// Install-row sub-controls (range 7140–7144)
+// Install-row sub-controls (range 7142–7144)
 // Displayed below the Install row in the Dialogs page.
-#define IDC_IDLG_INSTALL_SHOW_DETAILS_LBL  7140  // "Show install details:" label
-#define IDC_IDLG_INSTALL_SHOW_DETAILS      7141  // combobox: auto / yes / no
 #define IDC_IDLG_INSTALL_PROGRESS_LBL      7142  // "Progress bar style:" label
 #define IDC_IDLG_INSTALL_PROGRESS_SMOOTH   7143  // combobox: Smooth / Classic
 #define IDC_IDLG_INSTALL_SHOW_ETA          7144  // checkbox: show ETA countdown
@@ -177,8 +175,14 @@ constexpr COLORREF IDLG_NOCOLOR = (COLORREF)-1;
 // Select-Folder row sub-controls (range 7145)
 #define IDC_IDLG_SELECT_FOLDER_ALLOW_CHANGE  7145  // checkbox: allow end user to change install folder
 
-// Install preview extras (range 7146)
-#define IDC_IDLG_INSTALL_PRV_DET_BTN  7146  // "Show Details" button in Install preview (visual only)
+// Wizard image pickers (range 7160–7165)
+// Big side image (WizardImageFile) and small top-right image (WizardSmallImageFile).
+#define IDC_IDLG_WIZ_BIG_LBL      7160   // static label: "Side image:"
+#define IDC_IDLG_WIZ_BIG_EDIT     7161   // read-only edit: path to big .bmp/.png
+#define IDC_IDLG_WIZ_BIG_BROWSE   7162   // "Browse…" button
+#define IDC_IDLG_WIZ_SML_LBL      7163   // static label: "Small image:"
+#define IDC_IDLG_WIZ_SML_EDIT     7164   // read-only edit: path to small .bmp/.png
+#define IDC_IDLG_WIZ_SML_BROWSE   7165   // "Browse…" button
 
 // Installer-title section controls (range 7110–7119)
 // Displayed at the top of the Dialogs page, above the dialog-type rows.
@@ -242,6 +246,11 @@ std::wstring IDLG_GetInstallerTitle();
 void         IDLG_SetInstallerTitle(const std::wstring& title);
 std::wstring IDLG_GetInstallerIconPath();
 
+// Wizard image paths (WizardImageFile / WizardSmallImageFile).
+// Empty string = omit the directive (IS6 uses its built-in default image).
+std::wstring IDLG_GetWizardImageFile();
+std::wstring IDLG_GetWizardSmallImageFile();
+
 // Scroll-offset accessors — used by the main-window WM_VSCROLL / WM_MOUSEWHEEL
 // handlers to track the current vertical scroll position while the Dialogs page
 // is visible.  IDLG_TearDown resets the offset to 0 on page switch.
@@ -285,8 +294,6 @@ bool IDLG_GetReadyShowDir();
 bool IDLG_GetReadyShowGroup();
 
 // ── Install-page accessors (for script generation) ────────────────────────────
-// 0=auto, 1=yes, 2=no  →  ShowInstallDetails= in [Setup].
-int  IDLG_GetInstallShowDetails();
 // true = emit PBS_SMOOTH style via InitializeWizard in [Code].
 bool IDLG_GetInstallProgressSmooth();
 // true = emit ETA countdown label via CurInstallProgressChanged in [Code].
