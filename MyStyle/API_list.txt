@@ -1023,7 +1023,11 @@
                                                 DirExistsWarning
                                                 (auto/yes/no),
                                                 MinVersion, ExeName,
-                                                SourceDir.
+                                                SourceDir. The generated
+                                                UninstallDisplayIconLine now inlines the
+                                                concrete exe name instead of leaving a
+                                                nested {#ExeName} token behind, which keeps
+                                                the emitted .iss self-contained.
                                                 VersionInfo* tokens (installer .exe
                                                 file-version resource / Properties→Details):
                                                 VersionInfoVersion, VersionInfoTextVersion,

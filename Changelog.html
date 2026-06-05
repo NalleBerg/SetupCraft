@@ -1,13 +1,14 @@
 <h2 style="text-align: center; background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-bottom: 20px;"><span style="color: #0066cc;">🛠️ SetupCraft &mdash; Installer Creation Tool</span></h2>
 <h3 style="text-align: center;">&nbsp;</h3>
-<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 5 June 2026 &mdash; v2026.06.05.13 (13:14)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
+<p style="text-align: center; font-size: 14px; color: #666; margin-bottom: 30px;"><strong>Latest Update:</strong> 5 June 2026 &mdash; v2026.06.05.13 (13:33)<br />Professional Windows installer creation with multilingual support and intuitive project management.</p>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.06.05.13</span></h3>
-<p><strong>Dialogs, installer icon, and 64-bit install-base fixes (05.06.2026, 13:14):</strong></p>
+<p><strong>Dialogs, installer icon, and 64-bit install-base fixes (05.06.2026, 13:33):</strong></p>
 <ul>
 <li><strong><code>dialogs.cpp</code> / <code>issgen.cpp</code> &mdash; wizard image and installer icon wiring added (New feature):</strong> The Dialogs page now lets you choose a large wizard side image (<code>WizardImageFile</code>) and a small top-right image (<code>WizardSmallImageFile</code>) from the existing icon/title section. The generated installer now also emits <code>SetupIconFile</code> from the installer icon picker and <code>UninstallDisplayIcon={app}\{#ExeName}</code> so the app shows the correct icon in Installed apps.</li>
 <li><strong><code>settings.cpp</code> &mdash; default install base now targets 64-bit Program Files (Change):</strong> The default install-base token is now <code>{autopf64}</code> so the 64-bit target installs under the native Program Files tree by default while per-user installs still avoid UAC.</li>
 <li><strong><code>test_page.cpp</code> / <code>makeit.bat</code> &mdash; bundled Inno Setup 6 x64 used for packaging (Change):</strong> The test installer flow now compiles against the bundled Inno Setup 6.7.3 toolchain.</li>
+<li><strong><code>issgen.cpp</code> &mdash; generated uninstall icon line now inlines the executable name (Bug fix):</strong> The generated <code>UninstallDisplayIconLine</code> now expands to the concrete app executable path instead of leaving a nested <code>{#ExeName}</code> token in the emitted <code>.iss</code>, which keeps the test installer script self-contained and compile-safe.</li>
 </ul>
 
 <h3 style="text-align: center;"><span style="color: #ff0000;">SetupCraft Version 2026.06.04.17</span></h3>

@@ -968,7 +968,7 @@ std::wstring ISS_GenerateIss(
     {
         std::wstring iconPath = IDLG_GetInstallerIconPath();
         tokens[L"SetupIconFileLine"]         = iconPath.empty() ? L"" : L"SetupIconFile=" + iconPath;
-        tokens[L"UninstallDisplayIconLine"]  = iconPath.empty() ? L"" : L"UninstallDisplayIcon={app}\\{#ExeName}";
+        tokens[L"UninstallDisplayIconLine"]  = iconPath.empty() ? L"" : L"UninstallDisplayIcon={app}\\" + exeName;
         tokens[L"WizardImageFileLine"]       = extra.wizardImageFile.empty()      ? L"" : L"WizardImageFile=" + extra.wizardImageFile;
         tokens[L"WizardSmallImageFileLine"]  = extra.wizardSmallImageFile.empty() ? L"" : L"WizardSmallImageFile=" + extra.wizardSmallImageFile;
     }
