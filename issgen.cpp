@@ -17,6 +17,7 @@
 #include "scripts.h"    // SWR_* constants
 #include <algorithm>
 #include <map>
+#include <vector>
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -69,6 +70,149 @@ static std::wstring EscPascal(const std::wstring& s)
     return out;
 }
 
+// Remove physical CR/LF characters from an RTF blob before embedding it in a
+// Pascal string literal. RTF control words are whitespace-tolerant, so this
+// keeps the emitted script compact without changing the rendered content.
+static std::wstring CompactRtf(const std::wstring& s)
+{
+    std::wstring out;
+    out.reserve(s.size());
+    for (wchar_t c : s) {
+        if (c != L'\r' && c != L'\n') out += c;
+    }
+    return out;
+}
+
+static std::wstring StripRtfPictureBlocks(const std::wstring& rtf)
+{
+    std::wstring out;
+    out.reserve(rtf.size());
+    for (std::size_t i = 0; i < rtf.size();) {
+        if (i + 5 < rtf.size() && rtf[i] == L'{' && rtf[i + 1] == L'\\' &&
+            rtf.compare(i + 2, 4, L"pict") == 0) {
+            int depth = 0;
+            std::size_t j = i;
+            while (j < rtf.size()) {
+                if (rtf[j] == L'{') ++depth;
+                else if (rtf[j] == L'}') {
+                    --depth;
+                    if (depth == 0) {
+                        ++j;
+                        break;
+                    }
+                }
+                ++j;
+            }
+            i = j;
+            continue;
+        }
+        out.push_back(rtf[i]);
+        ++i;
+    }
+    return out;
+}
+
+static bool IsHexDigit(wchar_t c)
+{
+    return (c >= L'0' && c <= L'9') ||
+           (c >= L'a' && c <= L'f') ||
+           (c >= L'A' && c <= L'F');
+}
+
+    std::wstring rtf = StripRtfPictureBlocks(CompactRtf(welcomeRtf));
+{
+    if (c >= L'0' && c <= L'9') return (int)(c - L'0');
+    if (c >= L'a' && c <= L'f') return 10 + (int)(c - L'a');
+    if (c >= L'A' && c <= L'F') return 10 + (int)(c - L'A');
+    return -1;
+}
+
+static bool ExtractPngBytesFromRtf(const std::wstring& rtf,
+                                   std::vector<unsigned char>& bytes)
+{
+    static const std::wstring kPngSig = L"89504e470d0a1a0a";
+    std::size_t pos = rtf.find(kPngSig);
+    if (pos == std::wstring::npos)
+        return false;
+
+    std::wstring hex;
+    for (std::size_t i = pos; i < rtf.size(); ++i) {
+        wchar_t c = rtf[i];
+        if (IsHexDigit(c)) {
+            hex += c;
+            continue;
+        }
+        break;
+    }
+
+    if (hex.size() < 16 || (hex.size() % 2) != 0)
+        return false;
+
+    bytes.clear();
+    bytes.reserve(hex.size() / 2);
+    for (std::size_t i = 0; i + 1 < hex.size(); i += 2) {
+        int hi = HexDigitValue(hex[i]);
+        int lo = HexDigitValue(hex[i + 1]);
+        if (hi < 0 || lo < 0)
+            return false;
+        bytes.push_back((unsigned char)((hi << 4) | lo));
+    }
+    return !bytes.empty();
+}
+
+static bool WriteBinaryFile(const std::wstring& path,
+                            const std::vector<unsigned char>& bytes)
+{
+    HANDLE hFile = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr,
+                               CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (hFile == INVALID_HANDLE_VALUE)
+        return false;
+
+    DWORD written = 0;
+    BOOL ok = WriteFile(hFile, bytes.data(), (DWORD)bytes.size(), &written, nullptr);
+    CloseHandle(hFile);
+    return ok && written == bytes.size();
+}
+
+// Build the custom welcome page procedure so the final installer matches the
+// Dialogs -> Preview welcome screen rather than Inno's stock wizard page.
+static std::wstring BuildWelcomePageCode(const std::wstring& welcomeRtf,
+                                         const std::wstring& welcomeImageFile)
+{
+    if (welcomeRtf.empty()) return L"";
+
+    std::wstring rtf = CompactRtf(welcomeRtf);
+    std::wstring code;
+    code += L"procedure CreateWelcomePage_SC;\r\n";
+    code += L"var\r\n";
+    code += L"  WelcomeImage_SC: TBitmapImage;\r\n";
+    code += L"begin\r\n";
+    code += L"  WelcomePage_SC := CreateCustomPage(wpWelcome, 'Welcome', '');\r\n";
+    if (!welcomeImageFile.empty()) {
+        code += L"  ExtractTemporaryFile('" + EscPascal(welcomeImageFile) + L"');\r\n";
+        code += L"  WelcomeImage_SC := TBitmapImage.Create(WelcomePage_SC);\r\n";
+        code += L"  WelcomeImage_SC.Parent := WelcomePage_SC.Surface;\r\n";
+        code += L"  WelcomeImage_SC.AutoSize := True;\r\n";
+        code += L"  WelcomeImage_SC.PngImage.LoadFromFile(ExpandConstant('{tmp}\\" + EscPascal(welcomeImageFile) + L"'));\r\n";
+        code += L"  WelcomeImage_SC.Left := (WelcomePage_SC.SurfaceWidth - WelcomeImage_SC.Width) div 2;\r\n";
+        code += L"  WelcomeImage_SC.Top := ScaleY(56);\r\n";
+    }
+    code += L"  WelcomeViewer_SC := TRichEditViewer.Create(WelcomePage_SC);\r\n";
+    code += L"  WelcomeViewer_SC.Parent := WelcomePage_SC.Surface;\r\n";
+    code += L"  WelcomeViewer_SC.Left := 0;\r\n";
+    code += L"  WelcomeViewer_SC.Top := 0;\r\n";
+    code += L"  WelcomeViewer_SC.Width := WelcomePage_SC.SurfaceWidth;\r\n";
+    code += L"  WelcomeViewer_SC.Height := WelcomePage_SC.SurfaceHeight;\r\n";
+    code += L"  WelcomeViewer_SC.BevelKind := bkFlat;\r\n";
+    code += L"  WelcomeViewer_SC.BorderStyle := bsNone;\r\n";
+    code += L"  WelcomeViewer_SC.ReadOnly := True;\r\n";
+    code += L"  WelcomeViewer_SC.ScrollBars := ssVertical;\r\n";
+    code += L"  WelcomeViewer_SC.UseRichEdit := True;\r\n";
+    code += L"  WelcomeViewer_SC.RTFText := '" + EscPascal(rtf) + L"';\r\n";
+    code += L"end;\r\n";
+    return code;
+}
+
 // Build the Inno [Code] Pascal block that enforces inter-component dependencies
 // at install time via WizardForm.ComponentsList.OnClickCheck.
 //
@@ -78,7 +222,8 @@ static std::wstring EscPascal(const std::wstring& s)
 //
 // Returns an empty string when no component has any dependencies (no [Code]
 // additions needed in that case).
-static std::wstring BuildDepEnforceCode(const std::vector<ComponentRow>& comps)
+static std::wstring BuildDepEnforceCode(const std::vector<ComponentRow>& comps,
+                                       bool includeWelcomeChromeToggle)
 {
     // Build id→component map for dep resolution.
     std::map<int, const ComponentRow*> idToComp;
@@ -111,7 +256,7 @@ static std::wstring BuildDepEnforceCode(const std::vector<ComponentRow>& comps)
         }
     }
 
-    if (rules.empty()) return L"";
+    if (rules.empty() && !includeWelcomeChromeToggle) return L"";
 
     std::wstring code;
     code += L"{ Component dependency enforcement (generated by SetupCraft) }\r\n";
@@ -139,6 +284,10 @@ static std::wstring BuildDepEnforceCode(const std::vector<ComponentRow>& comps)
     code += L"begin\r\n";
     code += L"  if CurPageID = wpSelectComponents then\r\n";
     code += L"    WizardForm.ComponentsList.OnClickCheck := @OnCompListClickCheck_SC;\r\n";
+    if (includeWelcomeChromeToggle) {
+        code += L"  if Assigned(WelcomePage_SC) then\r\n";
+        code += L"    WizardForm.WizardSmallBitmapImage.Visible := CurPageID <> WelcomePage_SC.ID;\r\n";
+    }
     code += L"end;\r\n\r\n";
     return code;
 }
@@ -454,6 +603,13 @@ static std::wstring StripTrailingSep(const std::wstring& p)
     return p;
 }
 
+// Return the final path component from a file path.
+static std::wstring FileNameFromPath(const std::wstring& p)
+{
+    std::size_t pos = p.find_last_of(L"\\/");
+    return (pos == std::wstring::npos) ? p : p.substr(pos + 1);
+}
+
 // Escape single quotes in a Pascal string literal by doubling them.
 static std::wstring EscapePascalString(const std::wstring& s)
 {
@@ -576,7 +732,7 @@ static std::wstring ResolveSmPath(
 }
 
 // Build the [Icons] section body from shortcut definitions.
-// Desktop shortcuts → {userdesktop}\name
+// Desktop shortcuts → {commondesktop}\name when the installer runs as admin.
 // SM shortcuts      → {group}\[subfolder\...]name
 // Pin shortcuts are handled via [Run] instead.
 static std::wstring BuildIconsSection(
@@ -592,7 +748,7 @@ static std::wstring BuildIconsSection(
         std::wstring dest;
         std::wstring taskFlag;
         if (sc.type == SCT_DESKTOP) {
-            dest = L"{userdesktop}\\" + sc.name;
+            dest = L"{commondesktop}\\" + sc.name;
             if (desktopOptOut) taskFlag = L"desktopicon";
         } else {
             dest = ResolveSmPath(sc, nodes) + L"\\" + sc.name;
@@ -859,6 +1015,27 @@ std::wstring ISS_GenerateIss(
         outDir = issDir;
     }
 
+    std::wstring genDir = outPath;
+    std::size_t genSlash = genDir.find_last_of(L"\\/");
+    if (genSlash != std::wstring::npos)
+        genDir = genDir.substr(0, genSlash);
+    else
+        genDir = L".";
+
+    std::wstring welcomeImageFile;
+    if (IDLG_IsDialogEnabled(IDLG_WELCOME)) {
+        std::vector<unsigned char> welcomePng;
+        if (ExtractPngBytesFromRtf(IDLG_GetDialogRtf(IDLG_WELCOME), welcomePng)) {
+            welcomeImageFile = FileNameFromPath(outPath);
+            std::size_t dot = welcomeImageFile.find_last_of(L'.');
+            if (dot != std::wstring::npos)
+                welcomeImageFile = welcomeImageFile.substr(0, dot);
+            welcomeImageFile += L"_welcome_preview.png";
+            if (!WriteBinaryFile(genDir + L"\\" + welcomeImageFile, welcomePng))
+                return L"Cannot write welcome preview image: " + genDir + L"\\" + welcomeImageFile;
+        }
+    }
+
     // Effective output base filename.
     // Default: strip whitespace from project name, then "<Name>_<Version>_Setup".
     // e.g. "SetupCraft Suite" 1.2.0  →  "SetupCraftSuite_1.2.0_Setup"
@@ -947,6 +1124,7 @@ std::wstring ISS_GenerateIss(
         { L"AppCopyright",             copyright                                                  },
         { L"SignToolLine",             BuildSignToolLine(cfg)                                     },
         { L"SetupMutex",               setupMutex                                                 },
+        { L"SetupWindowTitle",         IDLG_GetInstallerTitle().empty() ? proj.name : IDLG_GetInstallerTitle() },
         { L"UninstallDisplayName",     cfg.uninstallDisplayName.empty() ? proj.name : cfg.uninstallDisplayName },
         { L"UninstallFilesDir",        cfg.uninstallFilesDir.empty() ? L"{app}" : cfg.uninstallFilesDir },
         { L"LanguageDetectionMethod",  LangDetectionMethodStr(cfg.langDetectionMethod) },
@@ -968,7 +1146,7 @@ std::wstring ISS_GenerateIss(
     {
         std::wstring iconPath = IDLG_GetInstallerIconPath();
         tokens[L"SetupIconFileLine"]         = iconPath.empty() ? L"" : L"SetupIconFile=" + iconPath;
-        tokens[L"UninstallDisplayIconLine"]  = iconPath.empty() ? L"" : L"UninstallDisplayIcon={app}\\" + exeName;
+        tokens[L"UninstallDisplayIconLine"]  = iconPath.empty() ? L"" : L"UninstallDisplayIcon={app}\\" + FileNameFromPath(iconPath);
         tokens[L"WizardImageFileLine"]       = extra.wizardImageFile.empty()      ? L"" : L"WizardImageFile=" + extra.wizardImageFile;
         tokens[L"WizardSmallImageFileLine"]  = extra.wizardSmallImageFile.empty() ? L"" : L"WizardSmallImageFile=" + extra.wizardSmallImageFile;
     }
@@ -991,6 +1169,9 @@ std::wstring ISS_GenerateIss(
     // Build a proper per-file [Files] section from the DB rows instead of a
     // single SourceDir wildcard, so only the files the developer added are included.
     std::wstring filesBlock = BuildFilesSection(extra.files);
+    if (!welcomeImageFile.empty()) {
+        filesBlock += L"Source: \"" + welcomeImageFile + L"\"; DestDir: \"{tmp}\"; Flags: dontcopy\r\n";
+    }
     ReplaceAll(tmpl, L"; <<FILES>>", filesBlock);
 
     // ── Replace the "; <<TYPES>>" and "; <<COMPONENTS>>" markers ─────────────
@@ -1100,7 +1281,7 @@ std::wstring ISS_GenerateIss(
         const bool folderReadOnly  = !IDLG_GetSelectFolderAllowChange();
         std::wstring installCode;
 
-        if (smooth || eta || folderReadOnly) {
+        if (smooth || eta || folderReadOnly || IDLG_IsDialogEnabled(IDLG_WELCOME)) {
             if (smooth) {
                 installCode +=
                     L"function GetWindowLong(hWnd: LongInt; nIndex: Integer): LongInt;\r\n"
@@ -1109,7 +1290,7 @@ std::wstring ISS_GenerateIss(
                     L"  external 'SetWindowLongW@user32.dll stdcall';\r\n"
                     L"\r\n";
             }
-            if (eta) {
+            if (eta || IDLG_IsDialogEnabled(IDLG_WELCOME)) {
                 installCode +=
                     L"function GetTickCount_SC: Cardinal;\r\n"
                     L"  external 'GetTickCount@kernel32.dll stdcall';\r\n"
@@ -1117,7 +1298,12 @@ std::wstring ISS_GenerateIss(
                     L"var\r\n"
                     L"  g_InstallStart_SC: Cardinal;\r\n"
                     L"  g_EtaLabel_SC: TLabel;\r\n"
+                    L"  WelcomePage_SC: TWizardPage;\r\n"
+                    L"  WelcomeViewer_SC: TRichEditViewer;\r\n"
                     L"\r\n";
+            }
+            if (IDLG_IsDialogEnabled(IDLG_WELCOME)) {
+                installCode += L"procedure CreateWelcomePage_SC; forward;\r\n\r\n";
             }
             installCode += L"procedure InitializeWizard;\r\n";
             if (smooth) {
@@ -1142,6 +1328,9 @@ std::wstring ISS_GenerateIss(
                 installCode +=
                     L"  WizardForm.DirEdit.ReadOnly := True;\r\n"
                     L"  WizardForm.DirBrowseButton.Enabled := False;\r\n";
+            }
+            if (IDLG_IsDialogEnabled(IDLG_WELCOME)) {
+                installCode += L"  CreateWelcomePage_SC;\r\n";
             }
             installCode += L"end;\r\n\r\n";
 
@@ -1178,7 +1367,16 @@ std::wstring ISS_GenerateIss(
         ReplaceAll(tmpl, L"; <<INSTALL_PROGRESS_CODE>>", installCode);
     }
 
-    // ── Replace the "; <<DISK_SPACE_CODE>>" marker ──────────────────────────────────────────
+    // ── Replace the "; <<WELCOME_PAGE_CODE>>" marker ───────────────────────────────────────
+    // Recreates the Dialogs->Preview welcome screen as the actual installer welcome page.
+    {
+        std::wstring welcomeCode;
+        if (IDLG_IsDialogEnabled(IDLG_WELCOME))
+            welcomeCode = BuildWelcomePageCode(IDLG_GetDialogRtf(IDLG_WELCOME), welcomeImageFile);
+        ReplaceAll(tmpl, L"; <<WELCOME_PAGE_CODE>>", welcomeCode);
+    }
+
+        std::wstring depCode = BuildDepEnforceCode(comps, IDLG_IsDialogEnabled(IDLG_WELCOME));
     // Always emits UpdateReadyMemo (shows required MB and available MB on the Ready page).
     // Emits NextButtonClick only when requiredMB > 0: blocks the install if free space on
     // the target drive is insufficient — user must click Back and pick a different folder.
@@ -1237,7 +1435,7 @@ std::wstring ISS_GenerateIss(
     //   selecting A auto-selects B; deselecting B auto-deselects A.
     // Produces an empty string (no code) when no components have dependencies.
     {
-        std::wstring depCode = BuildDepEnforceCode(comps);
+        std::wstring depCode = BuildDepEnforceCode(comps, IDLG_IsDialogEnabled(IDLG_WELCOME));
         ReplaceAll(tmpl, L"; <<DEP_ENFORCE_CODE>>", depCode);
     }
 

@@ -1,3 +1,16 @@
+Status update for today:
+
+- Welcome-page generator work is in progress.
+- `issgen.cpp` now extracts the welcome PNG from the preview RTF, writes a sidecar asset, and strips inline RTF picture blocks so the installer does not trip over the embedded PNG.
+- The checked-in generated installer script was updated to use the separate welcome bitmap path and to hide the stock wizard small bitmap on the custom welcome page.
+- The runtime PNG CRC issue was the blocker that surfaced last; the fix direction is to rely on the standalone image control instead of the inline RTF image.
+- Build validation has been run again through `makeit.bat`; the C++ build completed normally and the packaging path is still being checked against the generated installer script.
+
+Thoughts:
+
+- The preview should stay the source of truth, but the installer needs the image reconstructed as a separate bitmap control rather than trusting the embedded RTF picture.
+- If the PNG still faults, the next thing to inspect is the exact image asset being loaded at runtime, not the page layout logic.
+- I stopped here so the current work is preserved and easy to resume tomorrow without losing the context of the installer parity changes.
 ================================================================================
   Session State — SetupCraft
   Build: 29.04.2026  (see curver.txt for exact version)
